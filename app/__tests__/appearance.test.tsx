@@ -7,14 +7,15 @@ import { DEFAULT_CARD_THEME } from "@/services/cardTheme";
 import { deleteTheme } from "@/services/themeLibrary";
 import { getUiPreferences, updateUiPreferences } from "@/services/uiPreferences";
 import React from "react";
-import { Alert, type AlertButton } from "react-native";
+import { Alert, ScrollView, StyleSheet, type AlertButton } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 
 const sea = { id: "t1", name: "Sea", accent: "#12CBC4" };
 const mockPush = jest.fn();
 jest.mock("expo-router", () => ({ useRouter: () => ({ push: mockPush, back: jest.fn() }) }));
 jest.mock("expo-router/react-navigation", () => ({ useHeaderHeight: () => 0 }));
-jest.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
+let mockInsets = { top: 0, bottom: 0, left: 0, right: 0 };
+jest.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => mockInsets }));
 jest.mock("@/components/ambient-background", () => ({ AmbientBackground: () => null }));
 jest.mock("@/components/settings/SectionFooter", () => ({ SectionFooter: ({ children }: { children: React.ReactNode }) => children }));
 jest.mock("@/hooks/useSavedThemes", () => ({ useSavedThemes: () => ({ themes: [{ id: "t1", name: "Sea", accent: "#12CBC4" }], pending: [], status: "ready" }) }));
@@ -81,6 +82,15 @@ describe("Appearance", () => {
     expect(mockPush).not.toHaveBeenCalled();
     act(() => seaRow(tree).props.onPress());
     expect(mockPush).toHaveBeenCalledWith({ pathname: "/theme-editor", params: { id: "t1", name: "Sea", accent: "#12CBC4" } });
+    act(() => tree.unmount());
+  });
+
+  it("pads the page by each side's safe-area inset, clear of a side bar column", () => {
+    mockInsets = { top: 0, bottom: 0, left: 0, right: 86 };
+    const tree = render();
+    const page = StyleSheet.flatten(tree.root.findByType(ScrollView).props.contentContainerStyle);
+    expect(page).toMatchObject({ paddingLeft: 0, paddingRight: 86 });
+    mockInsets = { top: 0, bottom: 0, left: 0, right: 0 };
     act(() => tree.unmount());
   });
 

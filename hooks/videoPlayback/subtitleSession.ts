@@ -69,10 +69,35 @@ export function renditionForPlan(plan: Exclude<ApplyPlan, { kind: "leave" }>, re
   return chosen?.index ?? null;
 }
 
+/**
+ * The track the stored choice will land on once the player reports, for the engine to decode
+ * from the start: the default rendition in that language, else the plan's track, else the
+ * language's first. Null when the choice leaves selection to the player or turns subtitles off.
+ */
+export function startingSubtitleRendition(stored: SubtitlePreference, renditions: { index: number; language: string; isDefault: boolean; isForced: boolean }[]): number | null {
+  const plan = planSubtitleApplication({
+    stored,
+    languages: renditions.map((rendition) => rendition.language),
+    defaultRenditionLanguage: renditions.find((rendition) => rendition.isDefault)?.language,
+  });
+  if (plan.kind === "leave" || plan.preference.kind !== "language") return null;
+  const wanted = canonicalLanguage(plan.preference.tag);
+  const matches = renditions.filter((rendition) => canonicalLanguage(rendition.language) === wanted);
+  return matches.find((rendition) => rendition.isDefault)?.index ?? renditionForPlan(plan, renditions) ?? matches[0]?.index ?? null;
+}
+
 /** The player's own non-forced pick in the stored language stays; a forced one still yields to the full track. */
 export function keepsCurrentPick(plan: Exclude<ApplyPlan, { kind: "leave" }>, current: { language: string; isForced: boolean } | null): boolean {
   if (plan.kind !== "apply" || plan.preference.kind !== "language" || current === null || current.isForced) return false;
   return canonicalLanguage(current.language) === canonicalLanguage(plan.preference.tag);
+}
+
+/**
+ * AVKit's On/Off row follows the caption display type, not a track selected in code, so the account's
+ * standing language pins it on. One Smart chose for this item's audio does not: always-on outlives the item.
+ */
+export function pinsCaptionsOn(plan: Exclude<ApplyPlan, { kind: "leave" }>, standing: SubtitlePreference): boolean {
+  return plan.kind === "apply" && plan.preference.kind === "language" && standing.kind === "language";
 }
 
 /**

@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useRef, useCallback, useReducer } from "react";
-import { Platform } from "react-native";
+import { NativeModules, Platform } from "react-native";
 import type { VideoRef, OnLoadData, OnProgressData, OnVideoErrorData, OnPlaybackStateChangedData, OnBandwidthUpdateData, AudioTrack, TextTrack, SelectedTrack } from "react-native-video";
 import {
   fetchVideoDetails,
@@ -49,6 +49,7 @@ import {
   serverIFramePlan,
   readBound,
   posterFrameWorkInFlight,
+  prepareRemainingTracks,
   resolveSubtitlePick,
   offeredTierBandwidths,
   reportPlayerBuffer,
@@ -89,7 +90,6 @@ import { audioLanguageToStore, getAudioPreferenceSync, preferredAudioStreamIndex
 import { refreshTrackSettings } from "@/services/jellyfin/trackSettings";
 import { PlaybackErrorType, classifyPlaybackError, getPlaybackErrorMessage } from "@/utils/errorClassification";
 import { t } from "@/services/i18n";
-import { showToast } from "@/services/toast";
 import { errorIdOf, formatErrorRef, IdentifiedError, nativeErrorOf, PLAYBACK_ERROR_IDS, type LaneTag, type PlaybackErrorId } from "@/utils/errorIds";
 import { IS_MAC } from "@/utils/hostEnvironment";
 import { gatewayMaxBitRate } from "@/services/adaptiveQuality";
@@ -110,7 +110,15 @@ import { planLaneGates, selectLane } from "./videoPlayback/laneDecision";
 import { resolveResume } from "./videoPlayback/resume";
 import { segmentSkipTarget } from "./videoPlayback/segmentSkip";
 import { chosenAudioLanguage, isFreshManifestReport, orderAudioTracks, planAudioReport, serverLaneCarriesEveryTrack } from "./videoPlayback/audioTracks";
-import { classifyObservedChoice, keepsCurrentPick, planSubtitleApplication, renditionForPlan, subtitleSelectionForReport } from "./videoPlayback/subtitleSession";
+import {
+  classifyObservedChoice,
+  keepsCurrentPick,
+  pinsCaptionsOn,
+  planSubtitleApplication,
+  renditionForPlan,
+  startingSubtitleRendition,
+  subtitleSelectionForReport,
+} from "./videoPlayback/subtitleSession";
 import { measurementFor, planTranscodePreset } from "./videoPlayback/transcodePreset";
 import {
   createPreflightGate,
@@ -129,6 +137,7 @@ import {
   DIRECT_STALL_DEADLINE_MS,
   ENGINE_PREFLIGHT_CAP_MS,
   ENGINE_SEGMENT_DEADLINE_MS,
+  ENGINE_TRACK_RAMP_SEC,
   LIVE_START_BUFFER_CAP_MS,
   LIVE_START_BUFFER_SEGMENTS,
   LIVE_START_DEADLINE_MS,
@@ -181,6 +190,9 @@ const deviceBusy = () => downloadManager.getState().entries.some((entry) => entr
 
 /** Every item starts here; the remembered choice is applied once its tracks exist. */
 const SUBTITLES_UNSET: SubtitlePreference = { kind: "system" };
+
+/** AVKit's subtitles On/Off row follows the app's caption display type, never a track selected in code. Synchronous. */
+const showCaptionsAlways = () => (NativeModules.DeviceEnvironment as { showCaptionsAlways?: () => void } | undefined)?.showCaptionsAlways?.();
 
 export interface VideoPlaybackConfig {
   videoId: string;
@@ -352,6 +364,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const retryProgressStartRef = useRef<number | null>(null);
   // The previous onProgress position of this stream, so a tick can tell a playhead step from a frozen clock.
   const lastTickRef = useRef<number | null>(null);
+  /** Played seconds of the engine session named, counted from stepped ticks, until its ramp is asked for once. */
+  const trackRampRef = useRef<{ token: string | null; playedSeconds: number; asked: boolean }>({ token: null, playedSeconds: 0, asked: false });
   // When the first automatic retry of this run fired; null once 30s of playback lands.
   const retryWindowStartRef = useRef<number | null>(null);
   // The engine took its one fresh session after a failure; with the server ruled out, the next failure is final.
@@ -386,8 +400,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const copyOnlyRef = useRef(false);
   /** The item already rebuilt one starving copy-only session on the engine; the next goes to the server. */
   const copyRebuiltRef = useRef(false);
-  /** The starving-source toast fired for this live session; one is information, two is nagging. */
-  const liveStarvedToastRef = useRef(false);
+  /** The starving-source warning was logged for this live session. */
+  const liveStarvedLoggedRef = useRef(false);
   /** The provider this run owns on the non-engine lanes; the engine lane serves its own frames. */
   const frameProviderTokenRef = useRef<string | null>(null);
   /** The provider serving the server lanes' I-frame rendition, apart from the chapter one above. */
@@ -750,8 +764,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         logger.info("Live channel on the server's transcode", { service: "useVideoPlayback", reason: lane.liveFallbackReason });
         probeEmit("fallback", { from: "localRemux", to: "transcode", reason: lane.liveFallbackReason ?? "" });
       } else if (lane.mode === "transcode") {
-        // Fallback only: the engine could not take this file. The server session uses MPEG-TS
-        // segments so Jellyfin's WebVTT renditions and their 10s X-TIMESTAMP-MAP stay aligned.
+        // Fallback only: the engine could not take this file. The server session carries no
+        // subtitle rendition from inside the file.
         logger.info("Server transcode", {
           service: "useVideoPlayback",
           codecUnsupported: gates.requiresTranscoding,
@@ -1190,11 +1204,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // On the tier lane the primary is unproducible by design; its starvation is not
             // a reason to abandon the tier for a higher-bitrate server transcode.
             if (engineStarving(throughputRef.current.samples) && !onTierLaneRef.current) handOverToServer(details, sample);
-            // A starving live feed has no lane to flee to: say so once, out loud,
-            // so the stall reads as the source's limit and not the app's fault.
-            if (isLiveRef.current && !liveStarvedToastRef.current && liveStarving(throughputRef.current.samples)) {
-              liveStarvedToastRef.current = true;
-              showToast(t("liveTv.sourceTooSlow"), "info");
+            // A starving live feed has no lane to flee to: log it once per session.
+            if (isLiveRef.current && !liveStarvedLoggedRef.current && liveStarving(throughputRef.current.samples)) {
+              liveStarvedLoggedRef.current = true;
               logger.warn("Live source under-delivering", {
                 service: "useVideoPlayback",
                 cushion: sample.cushion,
@@ -1444,9 +1456,16 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               logger.info("Live channel bound to its warming ring session", { service: "useVideoPlayback", videoId });
             } else {
               setPlaybackStage("engine");
-              const engineStarted = serverVideoOnly
-                ? startLocalRemux(details, audioStreamIndexForReportingRef.current ?? undefined, engineOffset ?? undefined, { serverVideoOnly: true })
-                : startLocalRemux(details, audioStreamIndexForReportingRef.current ?? undefined, engineOffset ?? undefined);
+              // The track the stored choice lands on is decoded from the start; every other
+              // in-file track waits for a pick. Smart reads the playing audio's language.
+              const audioStreams = (details.MediaStreams ?? []).filter((stream) => stream.Type === "Audio");
+              const playingAudio =
+                audioStreams.find((stream) => stream.Index === audioStreamIndexForReportingRef.current) ?? audioStreams.find((stream) => stream.IsDefault === true) ?? audioStreams[0];
+              const selectedSubtitleIndex = startingSubtitleRendition(getSubtitlePreferenceSync(playingAudio?.Language), subtitleRenditionsRef.current);
+              const engineStarted = startLocalRemux(details, audioStreamIndexForReportingRef.current ?? undefined, engineOffset ?? undefined, {
+                ...(serverVideoOnly ? { serverVideoOnly: true } : {}),
+                selectedSubtitleIndex,
+              });
               url = await engineStarted.catch(rethrowAs(PLAYBACK_ERROR_IDS.ENGINE_START));
               if (requestIdRef.current !== currentRequestId) {
                 // Stale since the await: a session nobody will play, stopped here instead of at the cap.
@@ -1486,11 +1505,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           }
           setPlaybackStage("server");
           const hasSelectedAudioTrack = viewerPickedAudioRef.current !== null;
-          const subtitles = getTextSubtitleStreams(details);
           const subtitlesOff = viewerSubtitleStreamRef.current === null || appliedSubtitlePreferenceRef.current.kind === "off" || getSubtitlePreferenceSync().kind === "off";
-          const burnInIndex = subtitlesOff
-            ? undefined
-            : (getBurnInSubtitleStream(details)?.Index ?? (subtitles.length > 0 && subtitles.every((track) => track.IsForced) ? subtitles[0].Index : undefined));
+          // Only an image track burns in; a text burn-in makes the server extract every subtitle
+          // track from the whole file first.
+          const burnInIndex = subtitlesOff ? undefined : getBurnInSubtitleStream(details)?.Index;
 
           // Multi-audio builds its own master from the server's transcodes and cannot retag their
           // init segments, so an HDR source takes the single-track path through the shim instead.
@@ -1705,6 +1723,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         // A new stream remounts the player, which starts paused; a live reload keeps the one player.
         if (!isLiveRef.current) playerPlayingRef.current = false;
         streamGenerationRef.current += 1;
+        // Before the player exists: AVKit reads the display type as it opens, and a track the player
+        // picks itself is re-selected below without AVKit hearing of it. Off picked on this item holds.
+        if (viewerSubtitleStreamRef.current !== null && getSubtitlePreferenceSync().kind === "language") showCaptionsAlways();
         streamUrlRef.current = url;
         setStreamUrl(url);
         setStreamTransport(preparedTransport);
@@ -2024,6 +2045,21 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       const lastTick = lastTickRef.current;
       lastTickRef.current = data.currentTime;
       const stepped = lastTick !== null && data.currentTime > lastTick && data.currentTime - lastTick < PLAYHEAD_STEP_MAX_SEC;
+      // Played time of the engine session, pauses and seek jumps left out: once it has run long
+      // enough the engine brings up the audio tracks it left for a pick, one per segment.
+      const rampToken = transportRef.current === "gateway" && !isLiveRef.current ? localRemuxTokenRef.current : null;
+      if (rampToken) {
+        const ramp = trackRampRef.current;
+        if (ramp.token !== rampToken) trackRampRef.current = { token: rampToken, playedSeconds: 0, asked: false };
+        else if (stepped && !ramp.asked) {
+          ramp.playedSeconds += data.currentTime - (lastTick ?? data.currentTime);
+          if (ramp.playedSeconds >= ENGINE_TRACK_RAMP_SEC) {
+            ramp.asked = true;
+            void prepareRemainingTracks(rampToken);
+            logger.info("Engine brings up the remaining audio tracks", { service: "useVideoPlayback", playedSeconds: Math.round(ramp.playedSeconds) });
+          }
+        }
+      }
       const nowPlaying = !paused && (playerPlayingRef.current || stepped);
       const wasPlaying = isPlayingRef.current;
 
@@ -2936,7 +2972,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     setHasTriedSeekRecovery(false);
     hasTriedRemuxRestartRef.current = false;
     copyRebuiltRef.current = false;
-    liveStarvedToastRef.current = false;
+    liveStarvedLoggedRef.current = false;
     liveReopenedRef.current = false;
     liveLaneRef.current = "engine";
     dropThroughputWatch(throughputRef.current);
@@ -3046,6 +3082,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       return;
     }
     if (plan.kind === "autoDefault") autoAppliedDefaultRef.current = plan.tag;
+    // Settings that landed after the player opened: written before the select the props below trigger.
+    // Read without the audio, the preference is the account's standing one.
+    if (pinsCaptionsOn(plan, getSubtitlePreferenceSync())) showCaptionsAlways();
     // A language with several renditions is selected by position: the lib's language match takes the first.
     // The player's own pick in that language is held, since a twin of it can be missing from AVKit's Language list.
     const current = resolveSubtitlePick(subtitleRenditionsRef.current, reportedTextTracksRef.current, lastSubtitleRequestRef.current).rendition;
@@ -3281,7 +3320,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     setHasTriedSeekRecovery(false);
     hasTriedRemuxRestartRef.current = false;
     copyRebuiltRef.current = false;
-    liveStarvedToastRef.current = false;
+    liveStarvedLoggedRef.current = false;
     liveReopenedRef.current = false;
     liveLaneRef.current = "engine";
     heldEngineSpentRef.current = false;

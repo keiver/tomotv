@@ -469,6 +469,39 @@ describe("live TV client", () => {
     expect((global.fetch as jest.Mock).mock.calls.map(([url]) => String(url))).toContain(`${SERVER}/LiveStreams/Close?liveStreamId=ls-dead`);
   });
 
+  describe("Pluto channels", () => {
+    const PLUTO = "5f4d878d3d19b30007d2e782";
+    const SESSION = `https://ipv4.pluto.tv/api/tn/video/playout/v2/stitch/hls/channel/${PLUTO}/master.m3u8?jwt=tok&masterJWTPassthrough=true`;
+    const respond = async (url: string) => {
+      if (url.includes("/PlaybackInfo")) {
+        return { ok: true, json: async () => ({ MediaSources: [{ Id: "ms-p", Protocol: "Http", Container: "hls", Path: `https://jmp2.uk/plu-${PLUTO}.m3u8`, MediaStreams: [] }] }) };
+      }
+      if (url === "https://pluto.tv/api/tn/app-shell/graphql/") {
+        return { ok: true, headers: { get: () => "CBS_COM=c1; Path=/" }, json: async () => ({ data: { ptvStart: { deviceId: "d1", session: { id: "s1", jwt: "tok" }, refreshInSec: 28800 } } }) };
+      }
+      if (url === "https://pluto.tv/api/tn/video/graphql/") {
+        return {
+          ok: true,
+          headers: { get: () => null },
+          json: async () => ({ data: { streamingUrl: { success: true, stitcherPaths: [{ type: "hls", path: `/v2/stitch/hls/channel/${PLUTO}/master.m3u8` }] } } }),
+        };
+      }
+      return { ok: true, url, text: async () => "#EXTM3U\n#EXTINF:6,\nseg1.ts\n" };
+    };
+
+    it("grabs a Pluto channel's frames on this device's session", async () => {
+      (global.fetch as jest.Mock).mockImplementation(respond);
+      expect(await resolveChannelOrigin("cp")).toEqual({ url: SESSION });
+    });
+
+    it("plays a Pluto channel on this device's session", async () => {
+      (global.fetch as jest.Mock).mockImplementation(respond);
+      const channel = await resolveChannel("cp", { Id: "cp", Name: "Pluto", Type: "TvChannel", Path: "" });
+      expect(channel.liveStreamUrl).toBe(SESSION);
+      expect((global.fetch as jest.Mock).mock.calls.map(([url]) => String(url))).not.toContain(`https://jmp2.uk/plu-${PLUTO}.m3u8`);
+    });
+  });
+
   it("resolves a manifest channel to its origin off the read-only PlaybackInfo, with no server open", async () => {
     const master = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000\nlow/index.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=3000000\nhigh/index.m3u8\n";
     (global.fetch as jest.Mock).mockImplementation(async (url: string) => {
@@ -495,6 +528,23 @@ describe("live TV client", () => {
     const calls = (global.fetch as jest.Mock).mock.calls;
     expect(calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
     expect(calls[0][0]).toBe(`${SERVER}/Items/c7/PlaybackInfo?UserId=test-user-id`);
+  });
+
+  it("gives the played channel its airing programme from the device guide when the server lists none", async () => {
+    const external = jest.requireMock("@/services/externalGuide") as { activeGuideUrls: jest.Mock; fetchExternalAiringPrograms: jest.Mock };
+    external.activeGuideUrls.mockReturnValueOnce(["http://g/guide.xml"]);
+    external.fetchExternalAiringPrograms.mockResolvedValueOnce([{ Id: "ext:c7:1", Name: "Late Film", ChannelId: "c7", OfficialRating: "PG", Genres: ["Movie"] }]);
+    (global.fetch as jest.Mock).mockImplementation(async (url: string) => {
+      if (url.includes("/PlaybackInfo")) {
+        return { ok: true, json: async () => ({ MediaSources: [{ Id: "ms-7", Protocol: "Http", Path: "https://origin.example/live/master.m3u8", IsInfiniteStream: true, MediaStreams: [] }] }) };
+      }
+      if (url.endsWith("/master.m3u8")) return { ok: true, url, text: async () => "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000\nlow/index.m3u8\n" };
+      return { ok: true, text: async () => "#EXTM3U\n#EXTINF:6,\nseg1.ts\n" };
+    });
+
+    const channel = await resolveChannel("c7", { Id: "c7", Name: "Seven", Type: "TvChannel", Path: "", CurrentProgram: null });
+
+    expect(channel.CurrentProgram).toEqual({ Id: "ext:c7:1", Name: "Late Film", ChannelId: "c7", OfficialRating: "PG", Genres: ["Movie"] });
   });
 
   it("opens a channel whose source is not a manifest on the server", async () => {

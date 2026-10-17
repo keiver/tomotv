@@ -35,6 +35,25 @@ describe("loadGuide", () => {
     expect(mockLiveSources!.loadGuide).toHaveBeenLastCalledWith(expect.objectContaining({ maxOpen: 0 }));
   });
 
+  it("passes on app memory before the load, at its peak and after it", async () => {
+    mockLiveSources!.loadGuide.mockResolvedValue({
+      token: "g1",
+      stats: { channels: 3, programmes: 40, footprintBeforeBytes: 100, peakFootprintBytes: 300, footprintAfterBytes: 250 },
+    });
+    const { stats } = await loadGuide("u", WINDOW, "external");
+    expect(stats).toMatchObject({ footprintBeforeBytes: 100, peakFootprintBytes: 300, footprintAfterBytes: 250 });
+  });
+
+  it("sends the app's channels only when there are some, and passes on what was skipped and how many reads it took", async () => {
+    mockLiveSources!.loadGuide.mockResolvedValue({ token: "g1", stats: { channels: 3, programmes: 40, unmatched: 900, passes: 2 } });
+    const channels = [{ tvgId: "a.us", names: ["A", "A HD"] }];
+    const { stats } = await loadGuide("u", WINDOW, "external", 0, channels);
+    expect(mockLiveSources!.loadGuide).toHaveBeenLastCalledWith(expect.objectContaining({ channels }));
+    expect(stats).toMatchObject({ unmatched: 900, passes: 2 });
+    await loadGuide("u", WINDOW, "external", 0, []);
+    expect(mockLiveSources!.loadGuide.mock.lastCall[0]).not.toHaveProperty("channels");
+  });
+
   it("drops malformed stats and throws without a token", async () => {
     mockLiveSources!.loadGuide.mockResolvedValue({ token: "g1", stats: { channels: "3" } });
     await expect(loadGuide("u", WINDOW, "external")).resolves.toEqual({ token: "g1", stats: null });

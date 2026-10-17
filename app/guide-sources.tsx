@@ -1,13 +1,13 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { ListRow } from "@/components/settings/ListRow";
 import { RollingFieldRow } from "@/components/settings/RollingFieldRow";
-import { IS_PAD, settingsStyles } from "@/components/settings/styles";
+import { IS_PAD, settingsStyles, sideInsets } from "@/components/settings/styles";
 import { StorageBar } from "@/components/storage-bar";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { clearDownloadedGuides, guideSourceStatuses, preloadGuide, subscribeGuideSources } from "@/services/externalGuide";
 import { guideCacheBytes } from "@/services/guideFileCache";
 import { t } from "@/services/i18n";
-import { fetchTunerData, lastKnownTunerData } from "@/services/jellyfin/tunerGroups";
+import { fetchTunerData, lastKnownTunerData, subscribeTunerDataRefreshed } from "@/services/jellyfin/tunerGroups";
 import { addGuideUrl } from "@/services/liveTvPreferences";
 import { formatFileSize } from "@/utils/mediaInfo";
 import { guideLabel, guideSourceSummary } from "@/utils/guideSources";
@@ -28,6 +28,9 @@ export default function GuideSourcesScreen() {
   const preferences = useLiveTvPreferences();
   const statuses = useSyncExternalStore(subscribeGuideSources, guideSourceStatuses);
   const [declared, setDeclared] = useState<string[]>(() => lastKnownTunerData()?.tvgUrls ?? []);
+  // A tuner playlist that arrived after playback can declare more guides: read them again.
+  const [tunerRefreshes, setTunerRefreshes] = useState(0);
+  useEffect(() => subscribeTunerDataRefreshed(() => setTunerRefreshes((count) => count + 1)), []);
   useEffect(() => {
     let cancelled = false;
     fetchTunerData({ revalidate: true })
@@ -38,7 +41,7 @@ export default function GuideSourcesScreen() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [tunerRefreshes]);
   const playlistUrls = useMemo(() => declared.filter((url) => !preferences.guideUrls.includes(url)), [declared, preferences.guideUrls]);
   const off = useMemo(() => new Set(preferences.guideSourcesOff), [preferences.guideSourcesOff]);
 
@@ -104,7 +107,11 @@ export default function GuideSourcesScreen() {
       <AmbientBackground />
       <ScrollView
         style={settingsStyles.scrollView}
-        contentContainerStyle={[settingsStyles.scrollContent, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + (IS_PAD ? 24 : 12), paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }]}
+        contentContainerStyle={[
+          settingsStyles.scrollContent,
+          { paddingTop: IS_TV ? 40 + insets.top : headerHeight + (IS_PAD ? 24 : 12), paddingBottom: (IS_TV ? 60 : 24) + insets.bottom },
+          sideInsets(insets),
+        ]}
         showsVerticalScrollIndicator={false}
         automaticallyAdjustKeyboardInsets>
         <View style={settingsStyles.contentContainer}>

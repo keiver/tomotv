@@ -47,7 +47,7 @@ extension RemuxSession {
             let parts = name.dropFirst(3).dropLast(4).split(separator: "-", omittingEmptySubsequences: false)
             guard parts.count == 2, let index = Int(parts[0]), let segment = Int(parts[1]), segment >= 0 else { return .notFound }
             stateLock.lock()
-            let subtitles = liveSubtitles ?? config.subtitles
+            let subtitles = inputSubtitles ?? config.subtitles
             let dead = failed || cancelled
             let inRange = config.isLive ? segment >= firstRetainedSegment && segment <= lastProducedSegment : segment < segmentCount
             stateLock.unlock()
@@ -69,12 +69,13 @@ extension RemuxSession {
         if name.hasPrefix("sub"), name.hasSuffix(".vtt") {
             guard let index = Int(name.dropFirst(3).dropLast(4)) else { return .notFound }
             stateLock.lock()
-            let subtitles = liveSubtitles ?? config.subtitles
+            let subtitles = inputSubtitles ?? config.subtitles
             let dead = failed || cancelled
             stateLock.unlock()
             guard !dead, let subtitle = subtitles.first(where: { $0.index == index }) else { return .notFound }
             if !config.isLive { noteSubtitleRequest(index) }
             if subtitle.isImage {
+                requestSubtitleActivation(subtitle)
                 return .data(Data(emptySubtitleBody().utf8), contentType: "text/vtt")
             }
             guard !subtitle.localVtt.isEmpty else { return .notFound }

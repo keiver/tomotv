@@ -16,9 +16,10 @@ import { createDownload, isPartedState, restoreDownload, type AnyDownload, type 
 import { API_TIMEOUTS } from "@/services/jellyfin/constants";
 import { fetchWithTimeout } from "@/services/jellyfin/http";
 import { getPosterUrl, hasPoster } from "@/services/jellyfin/images";
+import { networkLyrics } from "@/services/lyrics/pipeline";
 import { generatePlaySessionId, getAuthHeader, getConfig } from "@/services/jellyfin/session";
 import { getConvertedDownloadUrl, getRemoteVideoStreamUrl } from "@/services/jellyfin/streamUrls";
-import { getRemoteSubtitleUrl, getTextSubtitleStreams } from "@/services/jellyfin/subtitles";
+import { getRemoteSubtitleUrl, getTextSubtitleStreams, isTextSidecar } from "@/services/jellyfin/subtitles";
 import { wantsPosterFrame } from "@/services/itemArtwork";
 import { cancelPosterFrame, requestPosterFrame } from "@/services/localRemux";
 import { isPlaybackHeld, onPlaybackHoldReleased } from "@/services/playbackHold";
@@ -26,7 +27,19 @@ import { conversionAudioIndex, convertedItem, type ConversionRung } from "./conv
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { flushManifest, loadManifest, manifestEntries, manifestEntry, patchEntry, putEntry, removeEntry, resetManifestCache, type DownloadEntry } from "./manifest";
-import { artworkFile, subtitleFile, DISK_HEADROOM_BYTES, downloadsSupported, ensureDownloadsRoot, ensureItemDirectory, mediaFile, removeItemDirectory, repackagedFile, resolveItemFile } from "./paths";
+import {
+  artworkFile,
+  lyricsFile,
+  subtitleFile,
+  DISK_HEADROOM_BYTES,
+  downloadsSupported,
+  ensureDownloadsRoot,
+  ensureItemDirectory,
+  mediaFile,
+  removeItemDirectory,
+  repackagedFile,
+  resolveItemFile,
+} from "./paths";
 import { cancelRepackage, containerOf, needsRepackage, repackageDownload, rewrapLeftNothingPlayable } from "./repackage";
 
 /** Concurrent transfers. Two keeps a phone's link busy without starving playback. */
@@ -113,6 +126,7 @@ class DownloadManager {
           if (!file.exists) patchEntry(entry.itemId, { state: "failed", error: "No longer on this device" });
           else {
             this.queueSide("subs", entry.itemId, () => this.cacheSubtitles(entry.item));
+            this.queueSide("subs", entry.itemId, () => this.cacheLyrics(entry.item));
             if (!entry.artworkUri) this.queueSide("art", entry.itemId, () => this.cacheArtwork(entry.item));
           }
           continue;
@@ -232,6 +246,7 @@ class DownloadManager {
     this.notify();
     this.queueSide("art", item.Id, () => this.cacheArtwork(item));
     this.queueSide("subs", item.Id, () => this.cacheSubtitles(stored));
+    this.queueSide("subs", item.Id, () => this.cacheLyrics(item));
     this.pump();
   }
 
@@ -520,13 +535,13 @@ class DownloadManager {
   }
 
   /**
-   * Every text subtitle track, converted to WebVTT by the server while it is still reachable.
-   * The engine hands AVPlayer a URL for these rather than serving them itself, so a held file
-   * without them plays with no subtitles. An original's image tracks are decoded from the media;
-   * a conversion carries none (the one it shows is burned into the picture).
+   * Every text sidecar, converted to WebVTT by the server while it is still reachable. The engine
+   * hands AVPlayer a URL for these rather than serving them itself, so a held file without them
+   * plays with no subtitles. Tracks inside the file are never asked of the server (it reads the
+   * whole film to answer); an original's are decoded from the media, a conversion has none.
    */
   private async cacheSubtitles(item: JellyfinVideoItem): Promise<void> {
-    const text = getTextSubtitleStreams(item).filter((stream) => stream.Index !== undefined);
+    const text = getTextSubtitleStreams(item).filter((stream) => stream.Index !== undefined && isTextSidecar(stream));
     for (const stream of text) {
       const index = stream.Index as number;
       if (subtitleFile(item.Id, index).exists) continue;
@@ -535,6 +550,19 @@ class DownloadManager {
       } catch (error) {
         logger.warn("Could not cache a download subtitle track", error, { service: "Downloads", itemId: item.Id, index });
       }
+    }
+  }
+
+  /** A song's lyrics from the server or lrclib.net, kept so the song has them with no network. */
+  private async cacheLyrics(item: JellyfinVideoItem): Promise<void> {
+    if (item.Type !== "Audio" || lyricsFile(item.Id).exists) return;
+    const lyrics = await networkLyrics(item);
+    if (!lyrics) return;
+    try {
+      ensureItemDirectory(item.Id);
+      lyricsFile(item.Id).write(JSON.stringify(lyrics));
+    } catch (error) {
+      logger.warn("Could not cache a download's lyrics", error, { service: "Downloads", itemId: item.Id });
     }
   }
 

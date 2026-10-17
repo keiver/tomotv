@@ -1,7 +1,7 @@
 /** Tuner groups through the native module: the config read, which tuners qualify, merging, tvg-ids, and failure caching. */
 import type { TunerRow } from "../liveSources";
-import { allPlaylistChannelIds, playlistChannelById, syncPlaylistSources } from "@keiver/tomo-live";
-import { fetchTunerData, fetchTunerGroups, guideChannelRequests, lastKnownTunerData, resetTunerCache, tunerDataSettled } from "../jellyfin/tunerGroups";
+import { allPlaylistChannelIds, PlaybackHoldError, playlistChannelById, syncPlaylistSources } from "@keiver/tomo-live";
+import { fetchTunerData, fetchTunerGroups, guideChannelRequests, lastKnownTunerData, resetTunerCache, subscribeTunerDataRefreshed, tunerDataSettled } from "../jellyfin/tunerGroups";
 import { clearRequestCache } from "../requestCache";
 
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
@@ -26,7 +26,11 @@ const mockLiveSources = jest.requireMock("@/services/liveSources") as {
 // The disk cache serves the URL back: the loader's fetch expectations stay about URLs.
 jest.mock("@/services/guideFileCache", () => ({
   cachedPlaylistFile: jest.fn(async (url: string) => url),
+  onPlaylistFileRefreshed: jest.fn(() => () => {}),
 }));
+const mockFileCache = jest.requireMock("@/services/guideFileCache") as { cachedPlaylistFile: jest.Mock; onPlaylistFileRefreshed: jest.Mock };
+/** The module's refreshed listener, taken before any clearAllMocks drops the registration call. */
+const playlistRefreshed = mockFileCache.onPlaylistFileRefreshed.mock.calls[0][0] as (url: string) => void;
 
 jest.mock("../jellyfin/session", () => ({
   getConfig: jest.fn(async () => ({ server: "http://s", apiKey: "k", userId: "u", deviceId: "d" })),
@@ -101,9 +105,49 @@ describe("fetchTunerGroups", () => {
     expect(mockLiveSources.loadTunerPlaylist).toHaveBeenCalledTimes(2);
     expect(mockLiveSources.loadTunerPlaylist).toHaveBeenCalledWith(expect.any(String), "http://t/one.m3u", "UA/1", "http://t/one.m3u");
     expect(mockLiveSources.loadTunerPlaylist).toHaveBeenCalledWith(expect.any(String), "https://t/two.m3u", undefined, "https://t/two.m3u");
+    // Both download through the disk cache, which holds them back during playback; the User-Agent rides the download.
+    expect(mockFileCache.cachedPlaylistFile).toHaveBeenCalledWith("http://t/one.m3u", undefined, { headers: { "User-Agent": "UA/1" } });
+    expect(mockFileCache.cachedPlaylistFile).toHaveBeenCalledWith("https://t/two.m3u", undefined, undefined);
     // The second call is served from the cache.
     await fetchTunerGroups();
     expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads the tuners again after a playlist held back by playback downloads", async () => {
+    global.fetch = jest.fn().mockResolvedValue(configResponse([{ Type: "m3u", Url: "http://t/one.m3u" }]));
+    queueTuner({ rows: [row("a")] });
+    await fetchTunerData();
+    playlistRefreshed("http://t/one.m3u");
+    queueTuner({ rows: [row("a"), row("b")] });
+    await fetchTunerData();
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(allPlaylistChannelIds()).toEqual(["a", "b"]);
+  });
+
+  it("answers at once during playback with no playlist copy, then reads it inside the failure window once it lands", async () => {
+    const heard = jest.fn();
+    const stop = subscribeTunerDataRefreshed(heard);
+    global.fetch = jest.fn().mockResolvedValue(configResponse([{ Type: "m3u", Url: "http://t/one.m3u" }]));
+    mockFileCache.cachedPlaylistFile.mockRejectedValueOnce(new PlaybackHoldError());
+    const partial = await fetchTunerData();
+    expect(partial.complete).toBe(false);
+    expect(mockLiveSources.loadTunerPlaylist).not.toHaveBeenCalled();
+    // Partial reads back off for 5 minutes: the next one answers from memory without the server.
+    await fetchTunerData();
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    // The downloaded file is read before screens are told: their reload reads the table without waiting.
+    const tableWhenHeard: string[][] = [];
+    heard.mockImplementation(() => tableWhenHeard.push(allPlaylistChannelIds()));
+    queueTuner({ rows: [row("a")] });
+    playlistRefreshed("http://t/one.m3u");
+    expect(heard).not.toHaveBeenCalled();
+    for (let i = 0; i < 20 && heard.mock.calls.length === 0; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(tableWhenHeard).toEqual([["a"]]);
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    const landed = await fetchTunerData();
+    expect(landed.complete).toBe(true);
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    stop();
   });
 
   it("reads a tuner the server reaches on its own loopback at the server's host, hashing ids with the stored URL", async () => {

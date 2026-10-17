@@ -1,4 +1,4 @@
-const { withDangerousMod, withEntitlementsPlist, withInfoPlist, withPodfile, withPodfileProperties, withXcodeProject } = require("@expo/config-plugins");
+const { withDangerousMod, withEntitlementsPlist, withInfoPlist, withPodfile, withXcodeProject } = require("@expo/config-plugins");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -17,6 +17,17 @@ function withMacCatalyst(config) {
         `# TomoTV autolinking root: pod install runs from the final platform directory.
   ${sourceDir}
   ${autolinking}`,
+      );
+    }
+    const cache = `ReactNativePodsUtils.set_build_setting(installer, build_setting: "COMPILATION_CACHE_ENABLE_CACHING", value: "YES")`;
+    if (!config.modResults.contents.includes(cache)) {
+      const hook = /^([ \t]*)post_install do \|installer\|\n/m;
+      if (!hook.test(config.modResults.contents)) throw new Error("Apple Pods: cannot locate the post_install hook.");
+      config.modResults.contents = config.modResults.contents.replace(
+        hook,
+        (line, indent) => `${line}${indent}  # TomoTV compilation caching: Xcode reuses compile results whose inputs are unchanged.
+${indent}  ${cache}
+`,
       );
     }
     return config;
@@ -47,12 +58,6 @@ end
       return config;
     });
   }
-  config.ios = { ...config.ios, usePrecompiledModules: false };
-
-  config = withPodfileProperties(config, (config) => {
-    config.modResults.EXPO_USE_PRECOMPILED_MODULES = "false";
-    return config;
-  });
   config = withPodfile(config, (config) => {
     const pattern = /:mac_catalyst_enabled\s*=>\s*(?:false|true)/;
     if (!pattern.test(config.modResults.contents)) throw new Error("Catalyst: Expo's react_native_post_install hook changed.");

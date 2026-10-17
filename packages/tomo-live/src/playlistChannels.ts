@@ -7,8 +7,8 @@
  * reload serves the last good table. Identity is the app's: ids must be stable across reloads,
  * since favorites, health and frame caches key on them.
  */
-import { closePlaylist, engineLog, loadPlaylist, playlistEntries, type PlaylistEntry } from "@keiver/tomo-engine";
-import { cachedPlaylistFile } from "./guideFileCache";
+import { closePlaylist, engineLog, loadPlaylist, playlistEntries, type PlaylistCatchup, type PlaylistEntry, type PlaylistHeader } from "@keiver/tomo-engine";
+import { cachedPlaylistFile, onPlaylistFileRefreshed, PlaybackHoldError } from "./guideFileCache";
 
 /** Entries per native call when paging a playlist store out to JS: bounds each call's JSI
  *  conversion and JS object materialization, whatever the playlist's size. */
@@ -37,6 +37,10 @@ export interface PlaylistChannel {
   tvgName: string | null;
   radio: boolean;
   drm: boolean;
+  /** The archive the channel declares: its own catchup attributes over the playlist header's. Absent when neither names one. */
+  catchup?: PlaylistCatchup;
+  /** tvg-shift, the hours the channel's guide times are off by: its own over the header's. Absent when neither names one. */
+  tvgShift?: number;
 }
 
 export interface PlaylistRows {
@@ -72,6 +76,8 @@ interface SourceRecord {
   tvgUrls: string[];
   loadedAt: number | null;
   failedAt: number | null;
+  /** A newer file finished downloading after this record's load began: the next sync reloads it. */
+  stale: boolean;
   loading: Promise<void> | null;
   status: PlaylistSourceStatus;
 }
@@ -94,9 +100,17 @@ export function playlistOriginKey(url: string): string {
   return match ? match[1].toLowerCase() : url;
 }
 
-/** One parsed entry as a channel row; null when the app's `channelId` rejects the entry. */
-export function playlistChannelFromEntry(entry: PlaylistEntry, id: string | null): PlaylistChannel | null {
+/** An entry's catchup attributes, each one falling back to the header's; null when neither declares any. */
+function channelCatchup(entry: PlaylistCatchup | null, header: PlaylistCatchup | null | undefined): PlaylistCatchup | null {
+  if (!entry && !header) return null;
+  return { type: entry?.type ?? header?.type ?? null, source: entry?.source ?? header?.source ?? null, days: entry?.days ?? header?.days ?? null };
+}
+
+/** One parsed entry as a channel row; null when the app's `channelId` rejects the entry. `header` is its playlist's own line. */
+export function playlistChannelFromEntry(entry: PlaylistEntry, id: string | null, header?: Pick<PlaylistHeader, "catchup" | "tvgShift">): PlaylistChannel | null {
   if (!id) return null;
+  const catchup = channelCatchup(entry.catchup, header?.catchup);
+  const tvgShift = entry.tvgShift ?? header?.tvgShift ?? null;
   return {
     id,
     name: entry.name,
@@ -110,6 +124,8 @@ export function playlistChannelFromEntry(entry: PlaylistEntry, id: string | null
     tvgName: entry.tvgName,
     radio: entry.radio,
     drm: entry.drm,
+    ...(catchup ? { catchup } : {}),
+    ...(tvgShift !== null ? { tvgShift } : {}),
   };
 }
 
@@ -118,7 +134,7 @@ export function playlistChannelFromEntry(entry: PlaylistEntry, id: string | null
  * and pages out in ENTRY_PAGE chunks, so no single native call carries the whole list.
  */
 export async function enginePlaylistRows(source: PlaylistChannelSource, channelId: (entry: PlaylistEntry, index: number) => string | null): Promise<PlaylistRows> {
-  const fileUri = await cachedPlaylistFile(source.fetchUrl ?? source.url);
+  const fileUri = await cachedPlaylistFile(source.fetchUrl ?? source.url, undefined, { headers: source.headers });
   const { token, header, stats } = await loadPlaylist(fileUri, source.headers ?? {});
   try {
     const rows: PlaylistChannel[] = [];
@@ -126,7 +142,7 @@ export async function enginePlaylistRows(source: PlaylistChannelSource, channelI
       const entries = await playlistEntries(token, { offset, limit: ENTRY_PAGE });
       if (entries.length === 0) break;
       for (let i = 0; i < entries.length; i++) {
-        const row = playlistChannelFromEntry(entries[i], channelId(entries[i], offset + i));
+        const row = playlistChannelFromEntry(entries[i], channelId(entries[i], offset + i), header);
         if (row) rows.push(row);
       }
     }
@@ -181,9 +197,11 @@ function setStatus(record: SourceRecord, patch: Partial<PlaylistSourceStatus>): 
 }
 
 function loadSource(record: SourceRecord): Promise<void> {
-  if (record.loading) return record.loading;
+  // A load already running may be reading the old file while a newer one arrived: load once more after it.
+  if (record.loading) return record.loading.then(() => (record.stale && records.get(record.source.key) === record ? loadSource(record) : undefined));
   const gen = generation;
   const loading = (async () => {
+    record.stale = false;
     setStatus(record, { state: "loading" });
     try {
       const { rows, tvgUrls: declared } = await record.source.loadRows(record.source);
@@ -195,6 +213,11 @@ function loadSource(record: SourceRecord): Promise<void> {
       setStatus(record, { state: "ready", channels: rows.length, loadedAt: record.loadedAt });
     } catch (error) {
       if (gen !== generation || records.get(record.source.key) !== record) return;
+      // No copy while playback holds the link: not a failure, the file arrives after playback.
+      if (error instanceof PlaybackHoldError) {
+        setStatus(record, { state: "waiting" });
+        return;
+      }
       record.failedAt = Date.now();
       // The last good rows keep serving; the status carries the failure so callers see a partial table.
       setStatus(record, { state: "error" });
@@ -206,6 +229,13 @@ function loadSource(record: SourceRecord): Promise<void> {
   record.loading = loading;
   return loading;
 }
+
+// A download that playback held back has finished: rows read before it, or by a load that began before it, reload at the next sync.
+onPlaylistFileRefreshed((url) => {
+  for (const record of records.values()) {
+    if ((record.source.fetchUrl ?? record.source.url) === url) record.stale = true;
+  }
+});
 
 /**
  * Points the table at these sources: removed ones leave it, new or stale ones load (each at most
@@ -232,6 +262,7 @@ export async function syncPlaylistSources(sources: readonly PlaylistChannelSourc
         tvgUrls: [],
         loadedAt: null,
         failedAt: null,
+        stale: false,
         loading: null,
         status: { key: source.key, url: source.url, state: "waiting", channels: null, loadedAt: null },
       };
@@ -239,7 +270,7 @@ export async function syncPlaylistSources(sources: readonly PlaylistChannelSourc
     } else {
       record.source = source;
     }
-    const fresh = record.loadedAt !== null && Date.now() - record.loadedAt < FRESH_TTL_MS;
+    const fresh = record.loadedAt !== null && !record.stale && Date.now() - record.loadedAt < FRESH_TTL_MS;
     const backedOff = record.failedAt !== null && Date.now() - record.failedAt < FAILURE_TTL_MS;
     if (options.force || (!fresh && !backedOff)) loads.push(loadSource(record));
     else if (record.loading) loads.push(record.loading);

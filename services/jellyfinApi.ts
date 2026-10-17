@@ -85,6 +85,8 @@ export type { TunerGroup } from "./jellyfin/tunerGroups";
 export { getCachedConfig } from "./jellyfin/session";
 export { fetchMediaSegments } from "./jellyfin/mediaSegments";
 export type { ItemMediaSegments, MediaSegmentWindow } from "./jellyfin/mediaSegments";
+export { fetchLyrics, parseLyrics } from "./jellyfin/lyrics";
+export type { ItemLyrics, LyricCue, LyricLine } from "./jellyfin/lyrics";
 export { fetchNextEpisodeAutoPlay } from "./jellyfin/nextEpisodeAutoPlay";
 export {
   createSyncPlayGroup,
@@ -173,7 +175,7 @@ export {
   fetchVideoDetails,
 } from "./jellyfin/items";
 export { fetchLibraryArtists, fetchLibraryGenres, fetchLibraryYears } from "./jellyfin/facets";
-export { searchLiveTv, searchVideos, warmLiveTvSearch } from "./jellyfin/search";
+export { guideChannelCandidates, searchLiveTv, searchVideos, warmLiveTvSearch } from "./jellyfin/search";
 export { invalidateLiveTvSearchIndex, liveTvSearchIndexVersion, subscribeLiveTvSearchIndex } from "./jellyfin/liveTvSearchIndex";
 
 export { markItemPlayed, setVideoFavorite, setVideoPlayed } from "./jellyfin/userData";

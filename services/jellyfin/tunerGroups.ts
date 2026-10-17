@@ -18,10 +18,10 @@ import {
   type PlaylistChannelSource,
   type PlaylistRows,
 } from "@keiver/tomo-live";
-import { cachedPlaylistFile } from "@/services/guideFileCache";
+import { cachedPlaylistFile, onPlaylistFileRefreshed } from "@/services/guideFileCache";
 import type { GuideChannelRequest } from "@/utils/guideMatch";
 import { cancelTunerGroups, isTunerGroupsAvailable, loadTunerPlaylist, releaseTunerPlaylist, tunerPlaylistRows, type TunerGroup, type TunerRow } from "@/services/liveSources";
-import { cachedRequest, invalidateRequest } from "@/services/requestCache";
+import { cachedRequest, invalidateByPrefix, invalidateRequest } from "@/services/requestCache";
 import { logger } from "@/utils/logger";
 import { API_TIMEOUTS } from "./constants";
 import { fetchWithTimeout } from "./http";
@@ -140,10 +140,31 @@ function channelRow(row: TunerRow, userAgent: string | undefined): PlaylistChann
   };
 }
 
+const refreshedListeners = new Set<() => void>();
+
+/** Runs once a tuner playlist that playback held back has downloaded and the channel table holds it: a screen showing groups or channels reads again. */
+export function subscribeTunerDataRefreshed(listener: () => void): () => void {
+  refreshedListeners.add(listener);
+  return () => {
+    refreshedListeners.delete(listener);
+  };
+}
+
+// A read during playback with no copy is partial and backed off (failedAt): the downloaded file is read
+// at once, and screens are told only after, since their reload reads the table without waiting for it.
+onPlaylistFileRefreshed(() => {
+  invalidateByPrefix("tunerGroups:");
+  failedAt.clear();
+  void fetchTunerData()
+    .catch(() => null)
+    .then(() => {
+      for (const listener of [...refreshedListeners]) listener();
+    });
+});
+
 /** Streams one tuner playlist natively and pages its channel rows out of the retained store. */
 async function loadTunerRows(source: PlaylistChannelSource, userAgent: string | undefined): Promise<PlaylistRows> {
-  // The disk cache cannot send a tuner's User-Agent, so such a playlist is fetched natively instead.
-  const fetchUrl = userAgent ? (source.fetchUrl ?? source.url) : await cachedPlaylistFile(source.fetchUrl ?? source.url);
+  const fetchUrl = await cachedPlaylistFile(source.fetchUrl ?? source.url, undefined, userAgent ? { headers: { "User-Agent": userAgent } } : undefined);
   const requestId = `tuner-${++requestSeq}`;
   const playlist = await loadTunerPlaylist(requestId, source.url, userAgent, fetchUrl);
   try {

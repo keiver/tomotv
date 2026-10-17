@@ -13,12 +13,18 @@ import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 
 const IS_TV = Platform.isTV;
 
+interface UiSectionProps {
+  /** Logged out, only Language and Appearance show: posters and lyrics need a library. */
+  signedIn: boolean;
+}
+
 /** Interface choices kept on this device. The poster toggle covers cards only: chapter stills and channel sampling ignore it. */
-export function UiSection() {
+export function UiSection({ signedIn }: UiSectionProps) {
   const router = useRouter();
   const { devicePosters, cardTheme } = useUiPreferences();
   const choice = useLanguageChoice();
   const toggleDevicePosters = useCallback(() => updateUiPreferences({ devicePosters: !devicePosters }), [devicePosters]);
+  const openLyrics = useCallback(() => router.push("/lyrics-settings"), [router]);
   const openLanguage = useCallback(() => router.push("/language"), [router]);
   const openAppearance = useCallback(() => router.push("/appearance"), [router]);
   // tvOS moves focus out of a scroller only at the matching end, so the end rows pin it.
@@ -75,22 +81,35 @@ export function UiSection() {
               subtitle={themeName(cardTheme)}
               trailingIcon="chevron-forward"
               onPress={openAppearance}
-              onFocus={IS_TV ? enter : undefined}
+              onFocus={IS_TV ? (signedIn ? enter : pinListToBottom) : undefined}
               onBlur={IS_TV ? leave : undefined}
               moreBelow={IS_TV ? !focusedInside && hasMoreBelow(scrollY, listCap, contentHeight) : undefined}
+              isLast={!signedIn}
             />
           </View>
-          <ListRow
-            icon="image"
-            title={t("settings.devicePosters")}
-            subtitle={t("settings.devicePostersHint")}
-            trailingIcon={devicePosters ? tick : undefined}
-            onPress={toggleDevicePosters}
-            onFocus={IS_TV ? pinListToBottom : undefined}
-            onBlur={IS_TV ? leave : undefined}
-            isLast
-            accessibilityState={{ checked: devicePosters }}
-          />
+          {signedIn && (
+            <>
+              <ListRow
+                icon="image"
+                title={t("settings.devicePosters")}
+                subtitle={t("settings.devicePostersHint")}
+                trailingIcon={devicePosters ? tick : undefined}
+                onPress={toggleDevicePosters}
+                onFocus={IS_TV ? enter : undefined}
+                onBlur={IS_TV ? leave : undefined}
+                accessibilityState={{ checked: devicePosters }}
+              />
+              <ListRow
+                icon="musical-notes-outline"
+                title={t("detail.lyrics")}
+                trailingIcon="chevron-forward"
+                onPress={openLyrics}
+                onFocus={IS_TV ? pinListToBottom : undefined}
+                onBlur={IS_TV ? leave : undefined}
+                isLast
+              />
+            </>
+          )}
         </ScrollView>
       </View>
     </>

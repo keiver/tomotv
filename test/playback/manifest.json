@@ -425,7 +425,7 @@
       "validate": "subsync",
       "playSeconds": 14,
       "progressMin": 8,
-      "comment": "Guards the server-lane subtitle-sync invariant (2026-08-10 cue-offset bug): |X-TIMESTAMP-MAP - first segment time| <= 0.5s, on Jellyfin's MPEG-TS HLS or the engine gateway's fMP4 rungs. Server lane is forced by the video codec, ASUS V1 (asv1), which sits outside TRANSCODABLE_VIDEO_CODECS: 'video codec unsupported' is the one decline independent of size and hardware. Video carries a burned-in clock the cues echo, so sync is judgeable by eye on a device. The title still says Theora because it must match the file on disk."
+      "comment": "Guards the server-lane subtitle-sync invariant (2026-08-10 cue-offset bug): the subtitle rendition's time base within 0.5s of the first segment's time, on the engine gateway's fMP4 rungs. The cues are a text sidecar beside the file (a track inside the file never reaches a server lane: Jellyfin reads the whole film to answer for it). Server lane is forced by the video codec, ASUS V1 (asv1), which sits outside TRANSCODABLE_VIDEO_CODECS: 'video codec unsupported' is the one decline independent of size and hardware. Video carries a burned-in clock the cues echo, so sync is judgeable by eye on a device. The title still says Theora because it must match the file on disk."
     },
     {
       "id": "T45",
@@ -434,7 +434,7 @@
       "validate": "subsync",
       "playSeconds": 16,
       "progressMin": 10,
-      "comment": "Same invariant as T44 on real content: 90s of broadcast dialogue with its real English SDH track, video in ASUS V1 (asv1) so the codec allowlist forces the server lane. T44 proves the timing mechanically; this one lets a human judge cue timing against actual speech. The title still says DivX3 because it must match the file on disk.",
+      "comment": "Same invariant as T44 on real content: 90s of broadcast dialogue with its real English SDH track as a sidecar, video in ASUS V1 (asv1) so the codec allowlist forces the server lane. T44 proves the timing mechanically; this one lets a human judge cue timing against actual speech. The title still says DivX3 because it must match the file on disk.",
       "source": "a broadcast episode with an English SDH track, regeneration steps in README"
     },
     {
@@ -1010,6 +1010,60 @@
       "expect": { "video": "hevc" },
       "comment": "Same file is a server transcode at linkOrFile; never closes that lane, so the engine takes it (vp9 Profile 2 -> encode hevc). Software VP9 runs below realtime on the simulator, so no progress floor."
     },
+    {
+      "id": "T113",
+      "title": "T113 DIRECT audio lyrics word-level",
+      "mode": "direct",
+      "validate": "none",
+      "playSeconds": 20,
+      "progressMin": 15,
+      "comment": "T73's audio with an .elrc sidecar: word-timed lyrics."
+    },
+    {
+      "id": "T114",
+      "title": "T114 DIRECT audio lyrics line-synced",
+      "mode": "direct",
+      "validate": "none",
+      "playSeconds": 20,
+      "progressMin": 15,
+      "comment": "T73's audio with an .lrc sidecar: line-timed lyrics."
+    },
+    {
+      "id": "T115",
+      "title": "T115 DIRECT audio lyrics unsynced",
+      "mode": "direct",
+      "validate": "none",
+      "playSeconds": 20,
+      "progressMin": 15,
+      "comment": "T73's audio with a .txt sidecar: plain lyrics."
+    },
+    {
+      "id": "T116",
+      "title": "T116 DIRECT audio spoken no lyrics",
+      "mode": "direct",
+      "validate": "none",
+      "playSeconds": 20,
+      "progressMin": 15,
+      "comment": "The system voice reading numbered lines, with no lyrics anywhere: the device writes them by listening."
+    },
+    {
+      "id": "T117",
+      "title": "T117 DIRECT audio lyrics upload target",
+      "mode": "direct",
+      "validate": "none",
+      "playSeconds": 20,
+      "progressMin": 15,
+      "comment": "T73's audio with no sidecar: its lyrics were uploaded through the server's API."
+    },
+    { "id": "T118", "title": "T118 REMUX AV1 4K HDR10 real", "mode": "localRemux", "validate": "none", "playSeconds": 14, "progressMin": 8 },
+    { "id": "T119", "title": "T119 REMUX AV1 1080p 10bit real", "mode": "localRemux", "validate": "none", "playSeconds": 14, "progressMin": 8 },
+    { "id": "T120", "title": "T120 REMUX AV1 10bit 420 conformance", "mode": "localRemux", "validate": "none", "playSeconds": 14, "progressMin": 8 },
+    { "id": "T121", "title": "T121 REMUX AV1 10bit 444 conformance", "mode": "localRemux", "validate": "none", "playSeconds": 14, "progressMin": 8, "expect": { "videoAction": "encode" } },
+    { "id": "T122", "title": "T122 REMUX AV1 12bit 420 conformance", "mode": "localRemux", "validate": "none", "playSeconds": 14, "progressMin": 8, "expect": { "videoAction": "encode" } },
+    { "id": "T123", "title": "T123 REMUX AV1 12bit 444 conformance", "mode": "localRemux", "validate": "none", "playSeconds": 14, "progressMin": 8, "expect": { "videoAction": "encode" } },
+    { "id": "T124", "title": "T124 REMUX AV1 8bit RGB conformance", "mode": "localRemux", "validate": "none", "playSeconds": 14, "progressMin": 8, "expect": { "videoAction": "encode" } },
+    { "id": "T125", "title": "T125 REMUX AV1 monochrome conformance", "mode": "localRemux", "validate": "none", "playSeconds": 14, "progressMin": 8 },
+    { "id": "T126", "title": "T126 REMUX AV1 8K HDR10 real", "mode": "localRemux", "validate": "none", "playSeconds": 14, "progressMin": 8 },
     {
       "id": "L01",
       "title": "Bloomberg TV+ 4K HEVC (partner)",

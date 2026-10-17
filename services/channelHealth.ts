@@ -5,6 +5,7 @@ export {
   healthFor,
   healthGeneration,
   noteChannelAlive,
+  noteChannelEmpty,
   noteChannelGone,
   noteChannelOpenFailure,
   subscribeChannelHealth,

@@ -3,7 +3,7 @@
     "name": "Tomo TV",
     "slug": "tomotv",
     "description": "Stream any video from your Jellyfin server. Automatic transcoding handles incompatible formats so you can just hit play and watch.",
-    "version": "2.2.11",
+    "version": "2.2.12",
     "orientation": "default",
     "icon": "./assets/brand/tomo-tv.png",
     "scheme": "tomotv",
@@ -12,7 +12,7 @@
       "supportsTablet": true,
       "appleTeamId": "64QR53M8C9",
       "bundleIdentifier": "dev.keiver.tomotv",
-      "buildNumber": "9",
+      "buildNumber": "17",
       "config": {
         "usesNonExemptEncryption": false
       },
@@ -36,7 +36,8 @@
         "expo-build-properties",
         {
           "ios": {
-            "enableSceneSupport": true
+            "enableSceneSupport": true,
+            "usePrecompiledModules": false
           }
         }
       ],
@@ -59,6 +60,7 @@
       "./plugins/withMultiAudioResourceLoader",
       "./plugins/withMacKeyCommands",
       "./plugins/withAudioQueuePlayer",
+      "./plugins/withLyricsListener",
       "./plugins/withBookRenderer",
       "./plugins/withTunerGroups",
       "@keiver/tomo-engine",
@@ -82,6 +84,12 @@
             "eventCard": { "enabled": true, "source": "./applestore/listing/event-live-tv.svg", "animate": { "rows": 20 } },
             "eventDetails": { "enabled": true, "source": "./applestore/listing/event-live-tv.svg", "animate": { "rows": 20 } },
             "video": { "audio": "./applestore/listing/nastelbom-no-copyright-music-464358.mp3" }
+          },
+          "splash": {
+            "image": "./assets/brand/splash-icon.png",
+            "size": 140,
+            "idioms": { "tv": { "size": 200 } },
+            "backgroundColor": "#1C1C1E"
           },
           "config": "./tvos-assets.config.json"
         }

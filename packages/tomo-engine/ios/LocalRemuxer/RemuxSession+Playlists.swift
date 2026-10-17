@@ -180,21 +180,30 @@ extension RemuxSession {
 
     func masterPlaylist() -> String {
         awaitGrid()
-        // Live: the tracks and the captions come off the open input, not from Jellyfin's probe.
-        if config.isLive {
+        // Live and self-described: the tracks and the captions come off the open input, not from a probe.
+        if config.isLive || config.describesInput {
             _ = waitUntil(deadline: 40) { [weak self] in
                 guard let self else { return true }
                 self.stateLock.lock()
                 defer { self.stateLock.unlock() }
-                return self.liveStreamsResolved || self.failed || self.cancelled
+                return self.inputStreamsResolved || self.failed || self.cancelled
             }
             stateLock.lock()
-            let unresolved = !liveStreamsResolved && !failed && !cancelled
+            let unresolved = !inputStreamsResolved && !failed && !cancelled
             stateLock.unlock()
-            // A master guessed from Jellyfin's probe can name tracks the pipeline never builds.
+            // A master guessed ahead of the input can name tracks the pipeline never builds.
             if unresolved {
-                fail("live input did not resolve within 40s")
+                fail(config.isLive ? "live input did not resolve within 40s" : "input did not resolve within 40s")
                 return "#EXTM3U\n"
+            }
+        }
+        // A self-described file has no configured CODECS to fall back on: the primary's init names the video.
+        if config.describesInput, !config.isLive {
+            _ = waitUntil(deadline: 40) { [weak self] in
+                guard let self else { return true }
+                self.stateLock.lock()
+                defer { self.stateLock.unlock() }
+                return self.primaryInitWritten || self.failed || self.cancelled
             }
         }
         let offered = tierOffered
@@ -243,10 +252,17 @@ extension RemuxSession {
         // the tier variant is video-only and switching variants must never
         // touch the audio, so audio always rides the group, never the variant.
         stateLock.lock()
-        let tracks = liveAudioTracks ?? config.audioTracks
-        let subtitles = liveSubtitles ?? config.subtitles
+        let tracks = inputAudioTracks ?? config.audioTracks
+        let subtitles = inputSubtitles ?? config.subtitles
         let audioChannels = resolvedAudioChannels
+        let described = inputDescription
         stateLock.unlock()
+        let videoRange = described?.videoRange ?? config.videoRange
+        let supplementalCodecs = described?.supplementalCodecs ?? config.supplementalCodecs
+        let width = described?.width ?? config.width
+        let height = described?.height ?? config.height
+        let frameRate = described?.frameRate ?? config.frameRate
+        let declaredBandwidth = described?.bandwidth ?? config.bandwidth
         // Same predicate as the pipeline's splitAudio, or the master names a rendition never built.
         let useAudioGroup = tracks.count > 1 || !config.tiers.isEmpty || tracks.contains(where: { $0.usesServerAudio })
         let audioNames = Self.renditionNames(tracks.map { (name: $0.name, index: $0.index) })
@@ -340,7 +356,7 @@ extension RemuxSession {
         }
 
         let audioBandwidth = originalAudioBandwidth(tracks)
-        let bandwidth = config.primaryVideoBandwidth > 0 ? config.primaryVideoBandwidth + audioBandwidth : (config.bandwidth > 0 ? config.bandwidth : 20_000_000)
+        let bandwidth = config.primaryVideoBandwidth > 0 ? config.primaryVideoBandwidth + audioBandwidth : (declaredBandwidth > 0 ? declaredBandwidth : 20_000_000)
         let peaks = originalPeakBandwidths(tracks, splitAudio: useAudioGroup, fallback: bandwidth)
         let videoCodecs = originalVideoCodecs()
         let audioCodecs = originalAudioCodecs(tracks)
@@ -351,8 +367,8 @@ extension RemuxSession {
         // Unquoted enumerated value per RFC 8216 §4.3.4.2. RFC 8216 §4.3.4.2
         // scopes VIDEO-RANGE to variants that carry video, so an audio-only
         // session sends an empty string and the attribute is left off.
-        if !config.videoRange.isEmpty {
-            primary += ",VIDEO-RANGE=\(config.videoRange)"
+        if !videoRange.isEmpty {
+            primary += ",VIDEO-RANGE=\(videoRange)"
         }
         if !primaryCodecs.isEmpty {
             // Authoring spec req 5.10 says the subtitle kind SHOULD appear here
@@ -364,18 +380,18 @@ extension RemuxSession {
             primary += ",CODECS=\"\(primaryCodecs)\""
             // Only alongside CODECS: SUPPLEMENTAL-CODECS names the same
             // rendition's optional decode, so it cannot stand on its own.
-            if !config.supplementalCodecs.isEmpty {
-                primary += ",SUPPLEMENTAL-CODECS=\"\(config.supplementalCodecs)\""
+            if !supplementalCodecs.isEmpty {
+                primary += ",SUPPLEMENTAL-CODECS=\"\(supplementalCodecs)\""
             }
         }
         // Required whenever the rendition has video (req 9.2 and 9.15).
-        if config.width > 0 && config.height > 0 {
-            primary += ",RESOLUTION=\(config.width)x\(config.height)"
+        if width > 0 && height > 0 {
+            primary += ",RESOLUTION=\(width)x\(height)"
         }
-        if config.frameRate > 0 {
+        if frameRate > 0 {
             // Trailing zeros trimmed so 24.0 reads as 24 and 23.976 survives,
             // which is how Jellyfin writes it too.
-            primary += String(format: ",FRAME-RATE=%g", config.frameRate)
+            primary += String(format: ",FRAME-RATE=%g", frameRate)
         }
         if useAudioGroup {
             primary += ",AUDIO=\"audio\""
@@ -471,7 +487,7 @@ extension RemuxSession {
             let bandwidth = useServerAudioGroup || audioBandwidth == 0 ? rungBandwidth : max(1, rungBandwidth - Self.serverAudioBandwidth) + audioBandwidth
             var line = "#EXT-X-STREAM-INF:BANDWIDTH=\(bandwidth),AVERAGE-BANDWIDTH=\(bandwidth),SCORE=\(index + 1)"
             // Rungs are SDR by build; declare their real resolution and codecs.
-            if !config.videoRange.isEmpty {
+            if !videoRange.isEmpty {
                 line += ",VIDEO-RANGE=SDR"
             }
             if !rung.codecs.isEmpty {
@@ -483,8 +499,8 @@ extension RemuxSession {
             if rung.width > 0 && rung.height > 0 {
                 line += ",RESOLUTION=\(rung.width)x\(rung.height)"
             }
-            if config.frameRate > 0 {
-                line += String(format: ",FRAME-RATE=%g", config.frameRate)
+            if frameRate > 0 {
+                line += String(format: ",FRAME-RATE=%g", frameRate)
             }
             if !tracks.isEmpty { line += ",AUDIO=\"\(group)\"" }
             if !config.subtitles.isEmpty {
@@ -506,9 +522,9 @@ extension RemuxSession {
             out += originals
         } else if let startRung {
             out += rungLine(startRung) + listed.filter { $0 != startRung }.map(rungLine).joined()
-            // Opening on a rung means the copy is not being played: a source still open (one the
-            // demuxer owes a track from) holds its pull now rather than ten seconds from now, or the
-            // producer spends the slow link the rungs need.
+            // Opening on a rung means the copy is not being played: a source still open holds its
+            // pull now rather than ten seconds from now, or the producer spends the slow link the
+            // rungs need.
             stateLock.lock()
             lastTierDemandAt = Date()
             rungLeads = true
@@ -523,13 +539,18 @@ extension RemuxSession {
         stateLock.lock()
         copyOnlyMaster = false
         ladderListed = startRung != nil
-        let rungsListed = ladderListed
         stateLock.unlock()
-        if rungsListed { prefetchServerCues() }
         NSLog("[LocalRemuxer] Slipstream: master starts on %@%@ (link %.1f Mb/s, %d rungs)",
               startRung == nil ? "the copy" : "rung \(startRung ?? 0)", copyFirst && startRung != nil ? " with the copy listed" : "", linkBps / 1_000_000, listed.count)
         reportTier(listed: !rungs.isEmpty)
         return out
+    }
+
+    /// The subtitle tracks the session serves: the ones read off the input, else the configured ones.
+    func sessionSubtitles() -> [RemuxSubtitle] {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return inputSubtitles ?? config.subtitles
     }
 
     /// EXT-X-START line for resume sessions, or empty. Media playlists only:
@@ -740,10 +761,7 @@ extension RemuxSession {
     /// AVFoundation takes four at load then one just ahead of each video segment,
     /// which is where the demux already is. Everything else stays one segment.
     func subtitlePlaylist(streamIndex: Int) -> String? {
-        stateLock.lock()
-        let subtitles = liveSubtitles ?? config.subtitles
-        stateLock.unlock()
-        guard let sub = subtitles.first(where: { $0.index == streamIndex }) else { return nil }
+        guard let sub = sessionSubtitles().first(where: { $0.index == streamIndex }) else { return nil }
         // Measured: selecting a rendition leaves the item's tracks unchanged, and its playlist is
         // refreshed while selected and never after. The request is the selection.
         noteSubtitleRequest(sub.index)
@@ -753,11 +771,8 @@ extension RemuxSession {
         if config.isLive { return liveSubtitlePlaylist(sub) }
 
         if sub.isEngineText {
-            if serverCueSource(sub) {
-                _ = serverCues(streamIndex: streamIndex, deadline: 0)
-            } else {
-                _ = awaitTextDecoder(streamIndex: streamIndex)
-            }
+            requestSubtitleActivation(sub)
+            _ = awaitTextDecoder(streamIndex: streamIndex)
             // One TARGETDURATION for every playlist of the session (Apple
             // authoring req 8.2), on the video's own grid.
             var out = "#EXTM3U\n#EXT-X-VERSION:7\n" + startTag
@@ -771,11 +786,11 @@ extension RemuxSession {
             return out
         }
 
-        let dur = max(1, Int(ceil(config.durationSeconds)))
+        let dur = max(1, Int(ceil(durationSeconds)))
         var out = "#EXTM3U\n#EXT-X-VERSION:7\n" + startTag
         out += "#EXT-X-TARGETDURATION:\(dur)\n"
         out += "#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-MEDIA-SEQUENCE:0\n"
-        out += String(format: "#EXTINF:%.3f,\n", config.durationSeconds)
+        out += String(format: "#EXTINF:%.3f,\n", durationSeconds)
         out += sub.isImage || !sub.localVtt.isEmpty ? "sub\(sub.index).vtt\n" : "\(sub.vttUrl)\n"
         out += "#EXT-X-ENDLIST\n"
         return out
@@ -830,6 +845,57 @@ extension RemuxSession {
         return covered ? reached : nil
     }
 
+    /// Nothing will bring the read to this window: no span reaches its start, the running read began
+    /// past it, and no seek or waiting media request is headed back there. Caller holds stateLock.
+    func subtitleWindowUnreachableLocked(segment: Int, from start: Double) -> Bool {
+        guard !sourceReleased, let anchor = sessionAnchorSeconds, let readFrom = readSpanFrom, readFrom > start + anchor else { return false }
+        if readCoverageEndLocked(from: start + anchor) != nil { return false }
+        if let seek = pendingSeekSegment, seek <= segment { return false }
+        if let seek = activationSeekSegment, seek <= segment { return false }
+        return lastRequestedSegmentLocked() > segment && !activeWaiters.keys.contains { $0 <= segment }
+    }
+
+    /// The last media segment asked for, or the start offset's before any request: a real request for
+    /// segment 0 reads as 0, a session nobody has asked yet as its resume point. Caller holds stateLock.
+    func lastRequestedSegmentLocked() -> Int {
+        firstMediaRequestSeen ? lastRequestedSegment : segmentIndex(atSeconds: config.startOffsetSeconds)
+    }
+
+    /// The segment under the playhead: the last media segment asked for, less what the player
+    /// reports buffered past the playhead; the last asked for when no fresh report exists. Caller holds stateLock.
+    func playheadSegmentLocked() -> Int {
+        let last = lastRequestedSegmentLocked()
+        guard let ahead = playerAheadSeconds, Date().timeIntervalSince(playerAheadAt) < 3, !config.isLive else { return last }
+        let end = segmentStartSeconds(last) + segmentDurationSeconds(last)
+        return max(0, min(last, segmentIndex(atSeconds: max(0, end - ahead))))
+    }
+
+    /// A track picked while it has no decoder: the pipeline opens one on a restart at the playhead
+    /// (a window asked for ahead of it names its own segment), from which its cues flow.
+    func requestSubtitleActivation(_ sub: RemuxSubtitle, at segment: Int? = nil) {
+        guard !config.isLive, !config.describesInput, !sub.isExternal, sub.isImage || sub.isEngineText else { return }
+        stateLock.lock()
+        let index = Int32(sub.index)
+        let hasDecoder = imageSubtitles[index] != nil || textSubtitles[index] != nil
+        if !hasDecoder, !sourceUnusable, !cancelled, !failed {
+            let playhead = playheadSegmentLocked()
+            let target = segment.map { max($0, playhead) } ?? playhead
+            let first = !pendingSubtitleActivations.contains(sub.index)
+            pendingSubtitleActivations.insert(sub.index)
+            activationSeekSegment = min(activationSeekSegment ?? target, target)
+            if first { NSLog("[LocalRemuxer] subtitle track %d picked, decoder opens on a restart at segment %d", sub.index, target) }
+        }
+        stateLock.unlock()
+    }
+
+    /// The app has played long enough: the converted audio tracks still inactive come up one per segment.
+    func armTrackRamp() {
+        guard !config.isLive else { return }
+        stateLock.lock()
+        rampArmed = true
+        stateLock.unlock()
+    }
+
     func textSubtitleWindow(streamIndex: Int, from start: Double, to end: Double) -> (decoder: TextSubtitleDecoder?, anchor: Double, read: Double, covered: Bool) {
         stateLock.lock()
         defer { stateLock.unlock() }
@@ -845,35 +911,38 @@ extension RemuxSession {
 
     func subtitleSegment(streamIndex: Int, segment: Int) -> String? {
         guard segment >= 0, segment < segmentCount else { return nil }
-        guard let sub = config.subtitles.first(where: { $0.index == streamIndex && $0.isEngineText }) else { return nil }
+        guard let sub = sessionSubtitles().first(where: { $0.index == streamIndex && $0.isEngineText }) else { return nil }
 
+        requestSubtitleActivation(sub, at: segment)
         let start = segmentStartSeconds(segment)
         let end = start + segmentDurationSeconds(segment)
-        let hasServer = serverCueSource(sub)
         var window = textSubtitleWindow(streamIndex: streamIndex, from: start, to: end)
-        if !window.covered, hasServer {
-            if let server = serverCues(streamIndex: streamIndex, deadline: 0) {
-                return serverSubtitleBody(server, from: start, to: end)
-            }
-        } else if !window.covered, window.decoder == nil {
-            _ = awaitTextDecoder(streamIndex: streamIndex)
+        // The source is let go or held under a rung: nothing reads toward this window until the
+        // copy returns, and a window unanswered past AVPlayer's 6 s loses the whole item.
+        if !window.covered, sourceNotReading {
+            NSLog("[LocalRemuxer] subtitle segment %d of stream %d has no source reading toward it, answered without cues", segment, streamIndex)
+            return emptySubtitleBody()
         }
-        var server: [ServerCue]?
-        _ = waitUntil(deadline: hasServer ? Self.engineTextWaitSeconds : Self.subtitleSegmentWaitSeconds) { [weak self] in
+        if !window.covered, window.decoder == nil {
+            _ = awaitTextDecoder(streamIndex: streamIndex)
+        } else if !window.covered, !waitUntil(deadline: Self.unreachableSubtitleGraceSeconds, { [weak self] in
+            guard let self else { return true }
+            self.stateLock.lock()
+            defer { self.stateLock.unlock() }
+            return self.failed || self.cancelled || !self.subtitleWindowUnreachableLocked(segment: segment, from: start)
+        }) {
+            // AVPlayer asks two segments behind the playhead when the rendition changes (probed),
+            // and after a seek it asks for every segment again, so these cues are not lost.
+            NSLog("[LocalRemuxer] subtitle segment %d of stream %d is behind the read, answered without cues", segment, streamIndex)
+            return emptySubtitleBody()
+        }
+        _ = waitUntil(deadline: Self.subtitleSegmentWaitSeconds) { [weak self] in
             guard let self else { return true }
             window = self.textSubtitleWindow(streamIndex: streamIndex, from: start, to: end)
             self.stateLock.lock()
-            server = hasServer ? self.serverCues[streamIndex] : nil
             let dead = self.failed || self.cancelled
             self.stateLock.unlock()
-            return window.covered || server != nil || dead
-        }
-
-        if !window.covered, hasServer {
-            if let cues = server ?? serverCues(streamIndex: streamIndex, deadline: 1.5) {
-                return serverSubtitleBody(cues, from: start, to: end)
-            }
-            window = textSubtitleWindow(streamIndex: streamIndex, from: start, to: end)
+            return window.covered || dead
         }
         if !window.covered {
             NSLog("[LocalRemuxer] subtitle segment %d of stream %d awaits coverage at read head %.1fs, window ends %.1fs",
@@ -890,17 +959,11 @@ extension RemuxSession {
         return out
     }
 
-    /// The server's cues for one segment window. They are session time as they arrive: Jellyfin
-    /// extracts without -copyts, so its cues count from the file's start, as the session does
-    /// (measured with its own ffmpeg and command line: a cue at pts 7.0 in a source starting at
-    /// 5.0 extracts at 00:00:02).
-    func serverSubtitleBody(_ cues: [ServerCue], from start: Double, to end: Double) -> String {
-        var out = "WEBVTT\nX-TIMESTAMP-MAP=MPEGTS:0,LOCAL:00:00:00.000\n"
-        for cue in cues where cue.end > start && cue.start < end {
-            out += "\n" + webVTTTimestamp(cue.start) + " --> " + webVTTTimestamp(cue.end) + "\n"
-            out += cue.text + "\n"
-        }
-        return out
+    /// The source is let go, retrying, lost, or held under a rung: no read is heading for a cue window.
+    var sourceNotReading: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return sourceReleased || producerHeld
     }
 
     /// The body a rendition with no bytes of its own resolves to: a structurally valid
@@ -933,12 +996,13 @@ extension RemuxSession {
     /// Display-set manifest for an image subtitle track, or nil if that stream
     /// is not one. Served to the app, which draws the images itself.
     func subtitleCueManifest(streamIndex: Int) -> Data? {
+        if let sub = sessionSubtitles().first(where: { $0.index == streamIndex && $0.isImage }) { requestSubtitleActivation(sub) }
         stateLock.lock()
         let decoder = imageSubtitles[Int32(streamIndex)]
         let server = serverImageSubtitles[Int32(streamIndex)]
         let serverReadUpTo = serverImageReadUpTo[Int32(streamIndex)] ?? 0
         let readUpTo = config.isLive ? demuxedUpToOutput : demuxedUpTo
-        let requestedSegment = lastRequestedSegment
+        let requestedSegment = lastRequestedSegmentLocked()
         let anchor = sessionAnchorSeconds ?? 0
         let start = segmentStartSeconds(requestedSegment)
         let end = config.isLive ? start : start + segmentDurationSeconds(requestedSegment)
@@ -949,7 +1013,7 @@ extension RemuxSession {
            Self.prefersServerImageSubtitles(localAvailable: decoder != nil, localCoversWindow: localCovers,
                                             localCoversStart: localReadUpTo != nil, localReadUpTo: localReadUpTo ?? 0, serverComplete: server.isComplete,
                                             serverReadUpTo: serverReadUpTo, windowStart: start) {
-            return server.manifestJSON(demuxedUpTo: server.isComplete ? config.durationSeconds : serverReadUpTo)
+            return server.manifestJSON(demuxedUpTo: server.isComplete ? durationSeconds : serverReadUpTo)
         }
         return decoder?.manifestJSON(demuxedUpTo: readUpTo)
     }

@@ -1,18 +1,18 @@
 {
   "repository": "keiver/tomotv",
-  "tag": "ffmpeg-n8.1.3-tomo.7",
+  "tag": "ffmpeg-n8.1.3-tomo.8",
   "artifacts": {
-    "Libarchive": "01b03546e8d0b043779dcbae102958690dc6753202b72e6016c334207702dc23",
-    "Libass": "eca8e83d985e0a680a2583a64f4c43af102d0cb4a9b1c0bcc72e799cd6e86d5b",
-    "Libavcodec": "f44bc45cacb8b1c20382a0432c78a53a18b4e105f43344e50442f6796086d2fd",
-    "Libavfilter": "32dd3aa9899618e1d43d04dee1d4ff0cbd6479ba8f6579a725eb0d213dd9a564",
-    "Libavformat": "2e5253d5ec878f0a96dbbfe1714f96e8665b1d7d89d2526b8d58f1af5d7e93ac",
-    "Libavutil": "5e2fe4e216d22fd233f754d9f212b6be4acc26215bc24c2aa10101fed4acefb6",
-    "Libdav1d": "7a961aae4539473e675f9d0151b3a558148417342cd4bc36923676ebb7d90384",
-    "Libswresample": "b3abdb6c2466af312d61f25932944b3cae58ea025e9adaca4c2e3e4765325ed0",
-    "Libswscale": "6cbd2fefd3bbc1cb678f313b996f83dca585b338a726f23a058c5dbc77d4c7fa",
-    "Libuavs3d": "94123ba709f153845574fd56f285edb7ba689aad87028193ac8a3794a05ce54f",
-    "Libzvbi": "1a39dc70413e757bde6653d94f75c3e95027b6a9aab1e52d74d164bf190f52be",
-    "Mbedtls": "200125c0f70fd9122aaebc8e6bf02ccf863ae9f0c2dc572ab6d69d9537003657"
+    "Libarchive": "41ca17bad31f2538b2e950a2f8212ff75a7f2294fa0ad834b1aad6267d1a9aa4",
+    "Libass": "e52c86bd0ca31df6b68089f38b9d04d444d9c5c8b85a3579ff95bd71f5472c7b",
+    "Libavcodec": "33ad265199d1c1a8f4cb16bcef721b16b37c0c41736cbdc62b6b4872d5d4ee47",
+    "Libavfilter": "e37bfe038102ac85ab5708c09ac5ccfbe3d2360f8eb238d77ea40cf651aaa31c",
+    "Libavformat": "acff30c2fadeaa6d6d6ba41c720d1326e5ec9d808a5b63d3ec7fc7e0ba522c96",
+    "Libavutil": "4f7f9d30df3a495b9af6fbc5eff1c750db90fb2646f6d1d486c88c75f44abbd1",
+    "Libdav1d": "87870a63fbabb96812ca23205668c83deb2489a78ef2970baf6b849bdd65e184",
+    "Libswresample": "462ba824947de8658598b9ac67e72eca06f43641ea85a06fba9217fc51e4df45",
+    "Libswscale": "896d5f82e0c7a69168bc9760140c0f374cbac882fdea6464cffe65333f3bbe3a",
+    "Libuavs3d": "d539f1a455566d2f5e9cebfe0b641179b2e2052577a147d20d4dcdc5b02ad9f6",
+    "Libzvbi": "a8afbb1827e599554862ae5de4a61d4345383e82cb22f27b6db5f7f3f62e2c6b",
+    "Mbedtls": "0eaf94471e083b982f6a2073a380ab0ae2a6a9dbc04055a6be1d864592360c7f"
   }
 }

@@ -10,14 +10,16 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
-import { DEVICES } from "./compose.mjs";
+import { captureName } from "./captures.mjs";
+import { DEVICES, shotModes } from "./compose.mjs";
 
-/** Folder-name patterns, most specific first: "tvos" must not be read as iOS. */
+/** Folder-name patterns, most specific first: "tvos" must not be read as iOS, nor "iPhone Duo" as iPhone. */
 const FOLDER_PATTERNS = [
+  ["duo", /(^|[^a-z])duo([^a-z]|$)/i],
   ["mac", /(^|[^a-z])(mac|macos|catalyst)([^a-z]|$)/i],
   ["tv", /(tvos|appletv|apple-tv|\btv\b)/i],
   ["ipad", /(ipad|tablet)/i],
-  ["iphone", /(iphone|\bios\b)/i],
+  ["iphone", /(iphone(?![ _-]?duo)|\bios\b)/i],
 ];
 
 /** A capture is usable when its aspect matches the canvas; exact size is ideal. */
@@ -27,6 +29,7 @@ const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg"]);
 /** Apple names the file after the simulator, which catches a misfiled shot. */
 const FILENAME_DEVICE = /Simulator Screenshot - (.+?) - /;
 const DEVICE_FAMILY = [
+  ["duo", /iphone duo/i],
   ["tv", /apple ?tv/i],
   ["ipad", /ipad/i],
   ["iphone", /iphone/i],
@@ -73,8 +76,7 @@ function imagesIn(folder) {
 }
 
 async function inspect(file, deviceKey) {
-  const [cw, ch] = DEVICES[deviceKey].canvas;
-  const wanted = cw / ch;
+  const device = DEVICES[deviceKey];
   const meta = await sharp(file.full)
     .metadata()
     .catch(() => null);
@@ -86,14 +88,19 @@ async function inspect(file, deviceKey) {
   }
 
   // Only the canvas's own orientation: the App Store app redraws a sideways shot
-  // into the portrait tile when a set mixes the two.
+  // into the portrait tile when a set mixes the two. A device with several screens
+  // reads which one an image shows from its shape.
+  const shapes = device.modes ? Object.entries(device.modes).map(([mode, m]) => [mode, m.capture]) : [[null, device.canvas]];
   const aspect = meta.width / meta.height;
-  if (Math.abs(aspect - wanted) / wanted > ASPECT_TOLERANCE) {
-    return { ...file, ok: false, why: `${meta.width}x${meta.height} is the wrong shape for ${cw}x${ch}` };
+  const match = shapes.find(([, [w, h]]) => Math.abs(aspect - w / h) / (w / h) <= ASPECT_TOLERANCE);
+  if (!match) {
+    return { ...file, ok: false, why: `${meta.width}x${meta.height} is the wrong shape for ${shapes.map(([mode, [w, h]]) => `${mode ? `${mode} ` : ""}${w}x${h}`).join(" or ")}` };
   }
+  const [mode, [cw, ch]] = match;
   return {
     ...file,
     ok: true,
+    mode,
     width: meta.width,
     height: meta.height,
     exact: meta.width === cw && meta.height === ch,
@@ -150,29 +157,36 @@ export async function planImport(config, plan, root, limit) {
     const inspected = await Promise.all(imagesIn(folder.full).map((f) => inspect(f, deviceKey)));
     const usable = inspected.filter((f) => f.ok);
     const rejected = inspected.filter((f) => !f.ok);
-    const { byShot, surplus, duplicates } = assign(shots, usable);
-    results.push({
-      deviceKey,
-      folder,
-      shots,
-      assignments: shots.map((s) => ({ shot: s, file: byShot.get(s.id) || null })),
-      surplus,
-      duplicates,
-      rejected,
-    });
+    // Each screen is its own pool: a closed-screen image only ever fills a shot's closed slot.
+    const modes = [...new Set(shots.flatMap((s) => shotModes(deviceKey, s)))];
+    const assignments = [];
+    const surplus = [];
+    const duplicates = [];
+    for (const mode of modes) {
+      const wanting = shots.filter((s) => shotModes(deviceKey, s).includes(mode));
+      const pool = assign(
+        wanting,
+        usable.filter((f) => f.mode === mode),
+      );
+      assignments.push(...wanting.map((s) => ({ shot: s, mode, file: pool.byShot.get(s.id) || null })));
+      surplus.push(...pool.surplus);
+      duplicates.push(...pool.duplicates);
+    }
+    surplus.push(...usable.filter((f) => !modes.includes(f.mode)));
+    results.push({ deviceKey, folder, shots, assignments, surplus, duplicates, rejected });
   }
   return { dir, results };
 }
 
-/** Copy adopted files into applestore/captures under the shot's own id. */
+/** Copy adopted files into applestore/captures under the shot's own id, and its screen on a device with several. */
 export function adopt(results, captureDir) {
   let adopted = 0;
   for (const { deviceKey, assignments } of results) {
     const target = path.join(captureDir, deviceKey);
     fs.mkdirSync(target, { recursive: true });
-    for (const { shot, file } of assignments) {
+    for (const { shot, mode, file } of assignments) {
       if (!file) continue;
-      fs.copyFileSync(file.full, path.join(target, `${shot.id}.png`));
+      fs.copyFileSync(file.full, path.join(target, captureName(shot.id, mode)));
       adopted++;
     }
   }

@@ -2,7 +2,7 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { FocusableButton } from "@/components/FocusableButton";
 import { GlassButton } from "@/components/glass-button";
 import { SectionFooter } from "@/components/settings/SectionFooter";
-import { settingsStyles } from "@/components/settings/styles";
+import { settingsStyles, sideInsets } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { getSends, refreshSends } from "@/services/diagnosticsInbox";
@@ -156,7 +156,7 @@ export default function DiagnosticsScreen() {
     <View style={settingsStyles.screenContainer}>
       {!IS_TV && <Stack.Screen options={screenOptions} />}
       <AmbientBackground />
-      <View style={[styles.page, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }]}>
+      <View style={[styles.page, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }, sideInsets(insets)]}>
         <View style={[settingsStyles.contentContainer, styles.column]}>
           {/* Phone puts this in the native bar; TV has no header, so it keeps the page title and
               carries Send beside it, where the remote lands before the log. */}

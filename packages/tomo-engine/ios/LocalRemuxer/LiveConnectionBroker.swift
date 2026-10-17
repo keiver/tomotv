@@ -73,6 +73,13 @@ final class LiveConnectionBroker {
         return active[key]?.count ?? 0
     }
 
+    /// Whether one more read fits the key's budget now; a key with no budget always has room.
+    func hasSpare(for key: String) -> Bool {
+        cond.lock()
+        defer { cond.unlock() }
+        return hasRoomLocked(key)
+    }
+
     /// A session a player adopted from the ring or a preview now ranks as playback: nothing below takes its slot.
     func setPriority(_ priority: Priority, of lease: Lease) {
         cond.lock()

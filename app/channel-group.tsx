@@ -1,6 +1,6 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { GlassButton } from "@/components/glass-button";
-import { settingsStyles } from "@/components/settings/styles";
+import { settingsStyles, sideInsets } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
 import { SunkenTextInput } from "@/components/sunken-text-input";
 import { t } from "@/services/i18n";
@@ -37,7 +37,7 @@ export default function ChannelGroupScreen() {
   return (
     <View style={styles.container}>
       <AmbientBackground />
-      <View style={[styles.page, { paddingTop: IS_TV ? 80 + insets.top : headerHeight + 24 }]}>
+      <View style={[styles.page, { paddingTop: IS_TV ? 80 + insets.top : headerHeight + 24 }, sideInsets(insets)]}>
         <View style={[settingsStyles.contentContainer, styles.column]}>
           {/* On TV, Done only closes the keyboard: navigating out of a screen whose keyboard still
               holds focus trips UIFocusSystem's removed-while-focused assertion and kills the app. */}

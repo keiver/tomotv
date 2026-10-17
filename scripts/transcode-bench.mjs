@@ -43,6 +43,8 @@ const RUNGS = [
   "B09 BENCH MPEG2 1080i",
   "B12 BENCH VP9 2160p60",
   "T40 SERVER VP9 8K gate-reject",
+  "T118 REMUX AV1 4K HDR10 real",
+  "T119 REMUX AV1 1080p 10bit real",
 ];
 
 const args = process.argv.slice(2);

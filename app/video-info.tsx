@@ -1,4 +1,4 @@
-import { CloseOverlayButton } from "@/components/close-overlay-button";
+import { InfoCloseButton } from "@/components/info-close-button";
 import { PadSheetBackdrop, PadSheetFrame } from "@/components/pad-sheet";
 import { SiblingPager } from "@/components/sibling-pager";
 import { VideoInfoPanel } from "@/components/video-info-panel";
@@ -9,7 +9,7 @@ import { JellyfinItem } from "@/types/jellyfin";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
 import { Platform, StyleSheet, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
 const IS_PAD = !IS_TV && Platform.OS === "ios" && Platform.isPad;
@@ -29,7 +29,6 @@ export default function VideoInfoScreen() {
     guideProgram?: string;
   }>();
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const [opened, setOpened] = useState<JellyfinItem | null>(null);
   const siblings = useItemSiblings(opened, inFolderId);
   const ids = useMemo(() => siblings?.map((item) => item.Id) ?? [videoId], [siblings, videoId]);
@@ -69,11 +68,13 @@ export default function VideoInfoScreen() {
     );
   }
 
+  // The modal's own insets, not the window's: on iPhone Duo's open screen it is a centred card,
+  // clear of the side bar column the window reports as a right inset.
   return (
-    <View style={styles.sheetRoot}>
+    <SafeAreaProvider style={styles.sheetRoot}>
       <SiblingPager ids={ids} initialId={videoId} renderPage={renderPage} />
-      <CloseOverlayButton onPress={close} style={{ position: "absolute", top: 12, right: 12 + insets.right }} accessibilityHint={t("info.closeHint")} />
-    </View>
+      <InfoCloseButton onPress={close} />
+    </SafeAreaProvider>
   );
 }
 

@@ -1,9 +1,7 @@
-# Tomo TV
+# Tomo TV, a Jellyfin Client
 
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-![Platform](https://img.shields.io/badge/platform-tvOS%20%7C%20iOS%20%7C%20iPadOS%20%7C%20macOS-lightgrey.svg)
 [![Tests](https://github.com/keiver/tomotv/actions/workflows/test-pr.yml/badge.svg)](https://github.com/keiver/tomotv/actions/workflows/test-pr.yml)
-[![Download on the App Store](https://img.shields.io/badge/App_Store-Download-black?logo=apple&logoColor=white)](https://apps.apple.com/us/app/tomo-tv/id6755077888)
 [![@keiver/tomo-engine](https://img.shields.io/npm/v/@keiver/tomo-engine?label=%40keiver%2Ftomo-engine)](https://www.npmjs.com/package/@keiver/tomo-engine)
 [![@keiver/tomo-live](https://img.shields.io/npm/v/@keiver/tomo-live?label=%40keiver%2Ftomo-live)](https://www.npmjs.com/package/@keiver/tomo-live)
 
@@ -13,11 +11,16 @@ format work the server would otherwise transcode: MKV and AVI, Dolby Vision,
 Dolby Atmos, PGS subtitles and Live TV. Built with React Native (react-native-tvos)
 and Expo.
 
-It runs on tvOS, iOS and iPadOS 16.4 or later, and on macOS 13.4 or later (Apple
-Silicon and Intel). What it supports on each is in [FEATURES.md](FEATURES.md).
+<p align="center">
+  <a href="https://apps.apple.com/us/app/tomo-tv/id6755077888">
+    <img src="assets/brand/Download_on_the_App_Store_Badge_US-UK_RGB_blk_092917.svg" height="50" alt="Download on the App Store"/>
+  </a>
+</p>
 
 <p align="center">
-  <img src="applestore/captures/tv/01-library.png" width="100%" alt="Tomo TV Home on Apple TV: a Libraries row of Live TV, Music, Home Videos and Photos and Films, above a Continue row of episode and movie cards with yellow progress bars"/>
+  <a href="https://apps.apple.com/us/app/tomo-tv/id6755077888">
+    <img src="applestore/captures/tv/01-library.png" width="100%" alt="Tomo TV Home on Apple TV: a Libraries row of Live TV, Music, Home Videos and Photos and Films, above a Continue row of episode and movie cards with yellow progress bars"/>
+  </a>
 </p>
 
 ## How playback works
@@ -31,17 +34,16 @@ range requests. An audio file or a download that AVPlayer opens on its own, and
 that needs nothing from the engine, plays as it is.
 
 ```
-Jellyfin server
-    |  the original file
-    v
-Engine on the device        @keiver/tomo-engine, with its own FFmpeg
-    |  copies the streams, or decodes and re-encodes through VideoToolbox
-    |  decodes subtitles, rewrites Dolby Vision profile 7 to 8.1
-    v
-HLS on loopback             a playlist and segments the engine writes
-    |
-    v
-AVPlayer / AVKit            the platform's player, transport, AirPlay, PiP
+Jellyfin server          serves the original file
+        |
+        v
+Engine on the device     @keiver/tomo-engine with its own FFmpeg
+        |
+        v
+HLS on loopback          a playlist and segments the engine writes
+        |
+        v
+AVPlayer / AVKit         Apple's player
 ```
 
 A streamed video starts in one of three lanes:
@@ -99,10 +101,10 @@ The engine and the live TV services are npm packages developed here, usable by
 any Expo app on Apple TV, iOS or Mac Catalyst. Neither knows Jellyfin: Tomo connects them in
 `services/localRemux.ts` and `services/liveChannels.ts`.
 
-| Package                                       | Holds                                                                                                     |
-| --------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| [`@keiver/tomo-engine`](packages/tomo-engine) | The engine, native XMLTV and M3U parsing, frame grabs, probes, and the pinned FFmpeg build                |
-| [`@keiver/tomo-live`](packages/tomo-live)     | Warm neighbour channels, focus previews, live frames and clips, channel health, guide sources, `LiveClip` |
+| Package                                       | Holds                                                                                                                                                                               |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`@keiver/tomo-engine`](packages/tomo-engine) | The engine, native XMLTV and M3U parsing, frame grabs, probes, the pinned FFmpeg build, and the player's startup checks, error IDs, track language rules and image subtitle overlay |
+| [`@keiver/tomo-live`](packages/tomo-live)     | Warm neighbour channels, focus previews, live frames and clips, channel health, guide sources, `LiveClip`                                                                           |
 
 Here they are npm workspaces, so Tomo builds against the source in the same
 commit. A commit that changes a published package gets a patch bump from the
@@ -110,6 +112,9 @@ pre-commit hook, Test PR fails a package change without a new version, and a
 merge to `main` publishes it (`.github/workflows/publish-packages.yml`).
 
 ## Getting started
+
+Tomo TV runs on tvOS, iOS and iPadOS 16.4 or later, and on macOS 13.4 or later (Apple
+Silicon and Intel). What it supports on each is in [FEATURES.md](FEATURES.md).
 
 You need a Jellyfin server (10.10 or later for Skip Intro), Node.js 18 or later,
 and Xcode 26 or later. CocoaPods is installed through Homebrew if missing.
@@ -168,12 +173,13 @@ services/
   syncPlayManager.ts    SyncPlay groups and command scheduling
   downloads/            offline store
   books/                book formats and reading position
+  lyrics/               lrclib.net lookup, timing lyrics to what the device heard, saving them to the server
   i18n/                 strings: en, de, fr, es
 packages/
   tomo-engine/          @keiver/tomo-engine
     ios/LocalRemuxer/   the engine: remux, transcode, loopback server, subtitles, Dolby Vision, live
     ios/LiveSources/    XMLTV guides and M3U playlists, loaded and parsed natively
-    src/                the typed JS API over both native modules
+    src/                the typed JS API over both native modules, and player logic that needs no server
     Package.swift       SwiftPM package for the engine tests
   tomo-live/            @keiver/tomo-live
     src/                ring, previews, frames, channel health, guide sources
@@ -181,7 +187,8 @@ packages/
 native/ios/
   TunerGroups/          a Jellyfin tuner's groups and channel ids, over the engine's playlist loader
   MultiAudioResourceLoader/   HLS manifests, audio track switching
-  AudioQueuePlayer/     music queue, Now Playing, tvOS Up Next panel
+  AudioQueuePlayer/     music queue, lyrics, Now Playing, tvOS Up Next panel
+  LyricsListener/       the system speech transcriber, listening to a song for its words and their times
   BookRenderer/         PDF, comic, EPUB and MOBI pages
   TopShelf/             tvOS Top Shelf extension
   Package.swift         SwiftPM package for the book tests
@@ -196,7 +203,7 @@ records which codecs are proven by a fixture) and the book renderer's in
 `native/ios`.
 
 `test:playback` deep-links the app into the player against a real Jellyfin server,
-across 83 items (78 files and 5 Live TV channels). It catches what unit tests
+across 101 items (96 files and 5 Live TV channels). It catches what unit tests
 cannot: an item taking the wrong lane, playback that does not advance, and engine
 output that drifts from the committed baselines. If you touch the engine or its
 allowlists, run it and say so in the PR. See

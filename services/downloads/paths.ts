@@ -60,6 +60,11 @@ export function subtitleFile(itemId: string, streamIndex: number): File {
   return new File(itemDirectory(itemId), `sub.${streamIndex}.vtt`);
 }
 
+/** A song's lyrics as the player takes them, saved while the server is still reachable. */
+export function lyricsFile(itemId: string): File {
+  return new File(itemDirectory(itemId), "lyrics.json");
+}
+
 /**
  * The media filename. The extension matters: FFmpeg and AVFoundation both probe content, but
  * a wrong extension makes the Files app and any future export lie about the type.

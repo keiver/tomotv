@@ -27,6 +27,10 @@
  *   npm run shots -- --statusbar-template
  *                                    shoot each booted phone/tablet's status bar at 9:41 into applestore/statusbar
  *
+ * iPhone Duo is one set with two captures per shot in captures/duo: <id>.outer.png (closed,
+ * 1398x2034) and <id>.inner.png (open, 2853x2007). A shot's layout (pair, inner, outer) picks
+ * which of them its image draws; a Desktop folder named for the Duo sorts images by their shape.
+ *
  * Every phone and tablet render swaps the capture's status bar for that reference ink.
  * A shot's `platforms.<device>` replaces its copy or capture on that device; see shots.schema.json.
  * A file whose name starts with a shot id claims that slot; the rest fill the
@@ -47,7 +51,10 @@ import { fresh, hash, hashFile, loadManifest, saveManifest, toolchain } from "./
 import { planImport, adopt, assign } from "./appstore/import.mjs";
 import { captureShots } from "./appstore/capture.mjs";
 import { ensurePlaceholders } from "./appstore/placeholder.mjs";
-import { validateCaptures } from "./appstore/captures.mjs";
+import { captureFile, captureKey, layoutOf, shotCaptures, validateCaptures } from "./appstore/captures.mjs";
+import { COLORS } from "./appstore/palette.mjs";
+import { uploadedDevices } from "./appstore/platforms.mjs";
+import { loadFace, typeset } from "./appstore/typeset.mjs";
 import { STAMP_TIME, TEMPLATE_DIR, captureTemplate, findClusters, stampStatusBar, templateHash } from "./appstore/statusbar.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -105,8 +112,10 @@ function loadConfig(localeOverride) {
   // Every language gets its own folder, English included, so no set is the odd one out.
   config.output = path.join(config.output, locale);
 
-  for (const key of Object.keys(config.devices || {})) {
+  for (const [key, device] of Object.entries(config.devices || {})) {
     if (!DEVICES[key]) fail(`Unknown device "${key}" in config. Known: ${Object.keys(DEVICES).join(", ")}`);
+    const why = "layout" in device ? layoutProblem(key, device.layout) : null;
+    if (why) fail(`devices.${key}: ${why}`);
   }
   config.shots = config.shots.filter((s) => !only || only.some((o) => s.id.startsWith(o)));
   config.background = resolveBackground(opt("--background") ?? config.background);
@@ -129,32 +138,35 @@ function resolveBackground(value) {
   return found;
 }
 
-/**
- * Where one locale's capture of a shot lives. English keeps the flat path it has
- * always had; every other language sits under its own directory, because the
- * whole point is that the German listing shows a German screen.
- */
-const capturePath = (deviceKey, id, locale = "en") => (locale === "en" ? path.join(CAPTURE_DIR, deviceKey, `${id}.png`) : path.join(CAPTURE_DIR, locale, deviceKey, `${id}.png`));
-
 const outputRoot = (config) => path.resolve(ROOT, config.output);
 const outputPath = (config, deviceKey, id) => path.join(outputRoot(config), deviceKey, `${id}.png`);
 
 const TEXT = ["title", "spec", "eyebrow"];
-const PLATFORM_KEYS = [...TEXT, "accent", "capture"];
+const PLATFORM_KEYS = [...TEXT, "accent", "capture", "layout"];
 
 /**
  * One shot as one device shows it in one language. Most specific wins: the language's
  * device copy, the device's copy, the language, the shot. Untranslated copy stays English.
+ * On a device with several screens, `layout` says which of them the shot draws.
  */
-function resolveShot(shot, deviceKey, locale) {
+function resolveShot(shot, deviceKey, locale, config) {
   const own = shot.platforms?.[deviceKey] ?? {};
   const t = shot.l10n?.[locale] ?? {};
   const tOwn = t.platforms?.[deviceKey] ?? {};
   const out = { ...shot };
   for (const k of TEXT) out[k] = tOwn[k] ?? own[k] ?? t[k] ?? shot[k];
   for (const k of ["accent", "capture"]) out[k] = own[k] ?? shot[k];
+  out.layout = layoutOf(config, deviceKey, shot);
   return out;
 }
+
+/** Why a layout value cannot apply to a device, or null. */
+const layoutProblem = (device, value) =>
+  !DEVICES[device]?.layouts
+    ? `${device} shows one screen, so it takes no layout`
+    : DEVICES[device].layouts[value]
+      ? null
+      : `layout "${value}" is not one of ${Object.keys(DEVICES[device].layouts).join(", ")}`;
 
 /** Why a shot's platforms or l10n platforms name a device it does not ship on, or a key no device takes. */
 function platformProblem(shot) {
@@ -164,6 +176,8 @@ function platformProblem(shot) {
       if (shot.devices && !shot.devices.includes(device)) return `${where}.${device} is set but ${device} is not in devices`;
       const bad = Object.keys(values).filter((k) => !allowed.includes(k));
       if (bad.length) return `${where}.${device} has ${bad.join(", ")}; it takes ${allowed.join(", ")}`;
+      const layout = "layout" in values ? layoutProblem(device, values.layout) : null;
+      if (layout) return `${where}.${device}: ${layout}`;
     }
   }
   return null;
@@ -178,7 +192,10 @@ function untranslated(shots, locale) {
 }
 
 const plan = (config) =>
-  Object.keys(config.devices).map((deviceKey) => ({ deviceKey, shots: config.shots.filter((s) => s.devices.includes(deviceKey)).map((s) => resolveShot(s, deviceKey, config.locale)) }));
+  Object.keys(config.devices).map((deviceKey) => ({
+    deviceKey,
+    shots: config.shots.filter((s) => s.devices.includes(deviceKey)).map((s) => resolveShot(s, deviceKey, config.locale, config)),
+  }));
 
 /**
  * Captures adopted before the set went upright are still on disk, so the shape
@@ -188,10 +205,11 @@ async function guardOrientation(config) {
   const wrong = [];
   for (const { deviceKey, shots } of plan(config)) {
     for (const shot of shots) {
-      const src = capturePath(deviceKey, shot.id, config.locale ?? "en");
-      if (!fs.existsSync(src)) continue;
-      const why = await wrongOrientation(src, deviceKey);
-      if (why) wrong.push(`${deviceKey}/${shot.id}: ${why}`);
+      for (const { mode, path: src } of shotCaptures(ROOT, config, deviceKey, shot, config.locale ?? "en")) {
+        if (!src) continue;
+        const why = await wrongOrientation(src, deviceKey, mode);
+        if (why) wrong.push(`${captureKey(deviceKey, shot.id, mode)}: ${why}`);
+      }
     }
   }
   if (wrong.length) fail(`sideways capture(s):\n   ${wrong.join("\n   ")}\n\n  Re-take them upright, or drop them with --clean.`);
@@ -221,27 +239,28 @@ async function importShots(config) {
     console.log(`\n▸ ${r.deviceKey} — ${r.folder.name}/  (canvas ${w}x${h})`);
     if (r.folder.ambiguous) console.log(`   ! name matches ${r.folder.ambiguous.join(" and ")}; read as ${r.deviceKey}`);
 
-    for (const { shot, file } of r.assignments) {
+    for (const { shot, mode, file } of r.assignments) {
+      const slot = (mode ? `${shot.id}.${mode}` : shot.id).padEnd(20);
       if (!file) {
         // A capture from an earlier run still composes under this caption. Say so, or drop
         // it on --clean; silently reporting it skipped is what shipped the wrong image.
-        const stale = capturePath(r.deviceKey, shot.id);
+        const stale = captureFile(ROOT, r.deviceKey, shot.id, mode);
         if (fs.existsSync(stale)) {
           if (clean) {
             fs.unlinkSync(stale);
-            console.log(`   ✗ ${shot.id.padEnd(20)} no image left; removed the capture on disk`);
+            console.log(`   ✗ ${slot} no image left; removed the capture on disk`);
             missing++;
           } else {
-            console.log(`   · ${shot.id.padEnd(20)} no image left; reusing the capture on disk`);
+            console.log(`   · ${slot} no image left; reusing the capture on disk`);
             reused++;
           }
           continue;
         }
-        console.log(`   ✗ ${shot.id.padEnd(20)} no image left to assign`);
+        console.log(`   ✗ ${slot} no image left to assign`);
         missing++;
         continue;
       }
-      console.log(`   ${file.exact ? "✓" : "⚠"} ${shot.id.padEnd(20)} ${file.name}  (${file.exact ? "native" : `${file.width}x${file.height}, scaled`})`);
+      console.log(`   ${file.exact ? "✓" : "⚠"} ${slot} ${file.name}  (${file.exact ? "native" : `${file.width}x${file.height}, scaled`})`);
     }
     for (const f of r.duplicates) console.log(`   ✗ duplicate          ${f.name} — ${f.shotId} is already claimed; nothing else will take it`);
     for (const f of r.surplus) console.log(`   · unused             ${f.name}`);
@@ -289,16 +308,15 @@ async function composeAll(config, manifest) {
     const shared = setMetrics(device, shots);
 
     for (const shot of shots) {
-      // The locale's own capture, or English when that language has not been
-      // captured. The line below says which it used, so a run that fell back is
-      // visible rather than silently English under a translated caption.
-      const own = capturePath(deviceKey, shot.id, config.locale ?? "en");
-      const src = fs.existsSync(own) ? own : capturePath(deviceKey, shot.id);
-      if (!fs.existsSync(src)) continue;
-      const fellBack = src !== own;
+      // The locale's own capture of each screen, or English when that language has
+      // not been captured. The line below says which it used, so a run that fell back
+      // is visible rather than silently English under a translated caption.
+      const found = shotCaptures(ROOT, config, deviceKey, shot, config.locale ?? "en");
+      if (found.some((c) => !c.path)) continue;
+      const fellBack = config.locale !== "en" && found.some((c) => c.english);
       const out = outputPath(config, deviceKey, shot.id);
-      const capture = hashFile(src);
-      const key = hash(tools, config.locales?.[config.locale]?.fonts ?? null, layout(device, shot, shared), hashFile(config.background), capture, templateHash(deviceKey));
+      const captures = found.map((c) => ({ path: path.relative(ROOT, c.path), sha: hashFile(c.path) }));
+      const key = hash(tools, config.locales?.[config.locale]?.fonts ?? null, layout(device, shot, shared), hashFile(config.background), captures, templateHash(deviceKey));
       const id = `${deviceKey}/${shot.id}`;
 
       if (!force && fresh(manifest[id], key, out)) {
@@ -308,12 +326,18 @@ async function composeAll(config, manifest) {
       changed.add(deviceKey);
       tasks.push(async () => {
         fs.mkdirSync(path.dirname(out), { recursive: true });
-        const bar = await stampStatusBar(src, deviceKey).catch((e) => {
-          throw new Error(`${id}: ${e.message}`);
-        });
-        const info = await compose(device, shot, bar.input, out, shared, config.background);
-        manifest[id] = { key, sha: hashFile(out), background: path.relative(ROOT, config.background), capture: path.relative(ROOT, src), captureSha: capture, statusBar: bar.status };
-        const note = bar.status === "stamped" || deviceKey === "tv" ? "" : `  · ${bar.status}`;
+        const bars = await Promise.all(
+          found.map(async (c) => ({
+            mode: c.mode,
+            ...(await stampStatusBar(c.path, deviceKey).catch((e) => {
+              throw new Error(`${captureKey(deviceKey, shot.id, c.mode)}: ${e.message}`);
+            })),
+          })),
+        );
+        const info = await compose(device, shot, bars, out, shared, config.background);
+        const status = [...new Set(bars.map((b) => b.status))].join(", ");
+        manifest[id] = { key, sha: hashFile(out), background: path.relative(ROOT, config.background), captures, statusBar: status };
+        const note = status === "stamped" || deviceKey === "tv" ? "" : `  · ${status}`;
         console.log(`   ${id} → ${path.relative(ROOT, out)}  ${w}x${h}  caption ${info.captionSize.toFixed(0)}px${fellBack ? "  ! english capture" : ""}${note}`);
       });
     }
@@ -364,7 +388,16 @@ const TILE_RADIUS = {
   mac: () => [20, 20],
 };
 
-/** One montage per platform, so the set can be judged as a row the way the store shows it. */
+/** The set's name over its contact sheet. */
+const SHEET_LABEL = { iphone: "iPhone", ipad: "iPad", mac: "Mac", tv: "Apple TV", duo: "iPhone Duo" };
+/** Tile width, the gap between tiles, the margin round the row, and the label's size and gap. */
+const SHEET = { tileW: 420, gap: 28, margin: 56, labelSize: 28, labelGap: 32 };
+const LABEL_FACE = loadFace(path.join(ROOT, "applestore", "fonts", "SpaceGrotesk-SemiBold.ttf"));
+
+/**
+ * One montage per platform, so the set can be judged as a row the way the store shows it: on the
+ * app's own dark, each tile on the store's corner with a faint rim, under the set's name and size.
+ */
 async function contactSheet(config, manifest) {
   for (const { deviceKey, shots } of plan(config)) {
     const files = shots.map((s) => outputPath(config, deviceKey, s.id)).filter((f) => fs.existsSync(f));
@@ -381,29 +414,33 @@ async function contactSheet(config, manifest) {
     }
 
     const [pw, ph] = DEVICES[deviceKey].canvas;
-    const tileW = 420;
+    const { tileW, gap, margin, labelSize, labelGap } = SHEET;
     const tileH = Math.round((ph / pw) * tileW);
-    const gap = 24;
-    const [rx, ry] = TILE_RADIUS[deviceKey](tileW, tileH);
-    const mask = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${tileW}" height="${tileH}"><rect width="${tileW}" height="${tileH}" rx="${rx}" ry="${ry}" fill="#fff"/></svg>`);
+    const [rx, ry] = (TILE_RADIUS[deviceKey] ?? (() => [20, 20]))(tileW, tileH);
+    const svg = (body) => Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${tileW}" height="${tileH}">${body}</svg>`);
+    const mask = svg(`<rect width="${tileW}" height="${tileH}" rx="${rx}" ry="${ry}" fill="#fff"/>`);
+    const rim = svg(`<rect x="0.75" y="0.75" width="${tileW - 1.5}" height="${tileH - 1.5}" rx="${rx}" ry="${ry}" fill="none" stroke="#FFFFFF" stroke-opacity="0.14" stroke-width="1.5"/>`);
     const tiles = await Promise.all(
       files.map((file) =>
         sharp(file)
           .resize(tileW, tileH)
-          .composite([{ input: mask, blend: "dest-in" }])
+          .composite([{ input: mask, blend: "dest-in" }, { input: rim }])
           .png()
           .toBuffer(),
       ),
     );
 
-    let left = gap;
-    const placed = tiles.map((buffer) => {
-      const at = { input: buffer, left, top: gap };
-      left += tileW + gap;
-      return at;
-    });
-    await sharp({ create: { width: left, height: tileH + gap * 2, channels: 3, background: "#FFFFFF" } })
-      .composite(placed)
+    const width = margin * 2 + tiles.length * tileW + (tiles.length - 1) * gap;
+    const name = typeset(LABEL_FACE, [SHEET_LABEL[deviceKey] ?? deviceKey], { size: labelSize, x: margin, y: margin });
+    const detail = typeset(LABEL_FACE, [`${pw} × ${ph} · ${tiles.length} screenshots`], { size: labelSize, x: margin + name.width + labelSize * 0.8, y: margin });
+    const top = Math.round(margin + name.height + labelGap);
+    const label = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${top}">
+  <path d="${name.d}" fill="${COLORS.TEXT_PRIMARY}"/>
+  <path d="${detail.d}" fill="${COLORS.TEXT_SECONDARY}"/>
+</svg>`);
+    const placed = tiles.map((buffer, i) => ({ input: buffer, left: margin + i * (tileW + gap), top }));
+    await sharp({ create: { width, height: top + tileH + margin, channels: 3, background: COLORS.BACKGROUND_DEEP } })
+      .composite([{ input: label, left: 0, top: 0 }, ...placed])
       .png()
       .toFile(out);
     manifest[id] = { key, sha: hashFile(out) };
@@ -461,6 +498,15 @@ function selfCheck() {
   check("a translation cannot move the capture", platformProblem({ ...shot, l10n: { de: { platforms: { tv: { capture: {} } } } } })?.includes("it takes"));
   check("a missing device translation is reported", untranslated([shot], "de").join() === "02-player has no tv spec");
 
+  const duoConfig = { devices: { duo: { layout: "pair" } } };
+  const duoShot = { id: "02-player", devices: ["duo"], platforms: { duo: { layout: "inner" } } };
+  check("a shot's own Duo layout beats the device's", resolveShot(duoShot, "duo", "en", duoConfig).layout === "inner");
+  check("a Duo shot without its own layout takes the device's", resolveShot({ id: "01-library", devices: ["duo"] }, "duo", "en", duoConfig).layout === "pair");
+  check("the Duo falls back to drawing both screens", resolveShot({ id: "01-library", devices: ["duo"] }, "duo", "en", { devices: { duo: {} } }).layout === "pair");
+  check("a single-screen device gets no layout", resolveShot({ id: "01-library" }, "iphone", "en", { devices: { iphone: {} } }).layout === undefined);
+  check("a layout on a single-screen device is refused", platformProblem({ id: "01-library", platforms: { iphone: { layout: "pair" } } })?.includes("takes no layout"));
+  check("an unknown Duo layout is refused", platformProblem({ id: "01-library", platforms: { duo: { layout: "both" } } })?.includes("not one of pair, inner, outer"));
+
   // A 100x60 dark frame: bar ink at rows 10-14, app chrome at rows 30-34, one stray edge pixel.
   const W = 100;
   const data = Buffer.alloc(W * 60 * 3, 30);
@@ -490,7 +536,8 @@ async function main() {
   const config = loadConfig();
 
   if (flag("--check-captures")) {
-    const devices = Object.keys(config.devices).filter((key) => config.shots.some((shot) => shot.devices.includes(key)));
+    // Only uploaded devices gate a release.
+    const devices = uploadedDevices(config).filter((key) => config.shots.some((shot) => shot.devices.includes(key)));
     await validateCaptures(ROOT, config, devices, opt("--locale") ? [config.locale] : Object.keys(config.locales));
     console.log("Every configured slot has a real capture.");
     return;
@@ -549,7 +596,9 @@ async function main() {
   }
 
   console.log("\n▸ placeholders");
-  const stand = await ensurePlaceholders(plan(config), CAPTURE_DIR, (key) => ({ canvas: DEVICES[key].canvas, simulator: DEVICES[key].simulator }));
+  const stand = await ensurePlaceholders(plan(config), CAPTURE_DIR, (key, mode) =>
+    mode ? { canvas: DEVICES[key].modes[mode].capture, simulator: DEVICES[key].modes[mode].label } : { canvas: DEVICES[key].canvas, simulator: DEVICES[key].simulator },
+  );
   for (const key of stand.written) console.log(`   + ${key}`);
   console.log(`   ${stand.real} captured, ${stand.pending.length} pending${stand.written.length ? ` (${stand.written.length} new)` : ""}`);
 

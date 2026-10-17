@@ -1,39 +1,20 @@
 /**
  * Choosing subtitle tracks and addressing them.
  *
- * The split that matters: image-based tracks (PGS/DVDSUB) have no AVPlayer renderer and
- * can only reach the screen by server-side burn-in; text tracks are delivered as
- * selectable WebVTT renditions and must NOT be burned in.
+ * A track inside the media file is never asked of the server: Jellyfin answers by extracting
+ * every subtitle track from the whole file, uncancellable (its issue #17499). The engine reads
+ * such tracks from the bytes it already pulls; only a text sidecar is fetched from the server.
  */
 import { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
+import { isImageBasedSubtitleCodec } from "@keiver/tomo-engine";
 import { getCachedConfig } from "./session";
 
 /**
- * Check if a subtitle codec is image-based (bitmap subtitles)
- * Image-based formats cannot be converted to WebVTT by Jellyfin, so they are
- * silently dropped from HLS manifests and must be burned into the video instead.
- * Matches the server's MediaStream.IsTextSubtitleStream classification.
+ * Image-based formats cannot be converted to WebVTT by Jellyfin, so they are dropped from
+ * its HLS manifests and burned into the video instead (MediaStream.IsTextSubtitleStream).
  */
-export function isImageBasedSubtitleCodec(codec: string | undefined): boolean {
-  if (!codec) {
-    return false;
-  }
-  const codecLower = codec.toLowerCase();
-  if (codecLower === "sup" || codecLower === "sub") {
-    return true; // Raw PGS (.sup) / VobSub (.sub) streams
-  }
-  return (
-    codecLower.includes("pgs") || // pgssub, hdmv_pgs_subtitle (Blu-ray)
-    codecLower.includes("dvdsub") ||
-    codecLower.includes("dvd_subtitle") || // DVD subtitles (ffprobe name)
-    codecLower.includes("vobsub") ||
-    codecLower.includes("dvbsub") ||
-    codecLower.includes("dvb_subtitle") || // DVB broadcast subtitles
-    codecLower.includes("teletext") || // dvb_teletext: the engine draws the subtitle pages
-    codecLower.includes("xsub") // DivX subtitles
-  );
-}
+export { isImageBasedSubtitleCodec } from "@keiver/tomo-engine";
 
 /** Blu-ray PGS, which the server hands over raw as Stream.pgssub. */
 export function isPgsCodec(codec: string | undefined): boolean {
@@ -47,12 +28,22 @@ export function isDvdSubCodec(codec: string | undefined): boolean {
   return lower.includes("dvdsub") || lower.includes("dvd_subtitle") || lower.includes("vobsub");
 }
 
+/** A text file beside the movie, which the server serves on its own. An .mks sidecar is read with the whole film. */
+export function isTextSidecar(stream: JellyfinMediaStream): boolean {
+  return stream.IsExternal === true && !/\.mks$/i.test(stream.Path ?? "");
+}
+
+/** The bitmaps Jellyfin burns from the input it is transcoding; XSUB and teletext it files as text and extracts. */
+export function serverBurnsCodec(codec: string | undefined): boolean {
+  const lower = (codec ?? "").toLowerCase();
+  return isPgsCodec(lower) || isDvdSubCodec(lower) || lower === "dvbsub" || lower === "dvb_subtitle";
+}
+
 /**
  * Pick the subtitle stream to burn into the video during transcoding
  * Returns a candidate only when the item has subtitle streams and ALL of them
- * are image-based (PGS/DVDSUB). Mixed files keep the SubtitleMethod=Hls path so
- * text tracks stay selectable in the native player controls.
- * Priority: IsDefault > IsForced > first stream.
+ * are image-based (PGS/DVDSUB); among them only the ones Jellyfin burns without
+ * extracting. Priority: IsDefault > IsForced > first stream.
  */
 export function getBurnInSubtitleStream(videoItem: JellyfinVideoItem | null): JellyfinMediaStream | null {
   if (!videoItem || !videoItem.MediaStreams) {
@@ -74,13 +65,13 @@ export function getBurnInSubtitleStream(videoItem: JellyfinVideoItem | null): Je
   // kind of rendition (Remuxer.swift subtitlePlaylist) and they are selectable on device. Burning
   // them in cost direct play AND stream copy, because burn-in forces AllowVideoStreamCopy=false.
   const allImageBased = subtitleStreams.every((stream) => isImageBasedSubtitleCodec(stream.Codec));
+  const burnable = subtitleStreams.filter((stream) => serverBurnsCodec(stream.Codec));
 
   const candidate = allImageBased
-    ? subtitleStreams.find((stream) => stream.IsDefault) || subtitleStreams.find((stream) => stream.IsForced) || subtitleStreams[0]
-    : // Mixed file: the text tracks stay selectable as HLS renditions. A forced
-      // IMAGE track still burns in — it carries essential dialogue AVPlayer
+    ? burnable.find((stream) => stream.IsDefault) || burnable.find((stream) => stream.IsForced) || burnable[0] || null
+    : // Mixed file: a forced IMAGE track still burns in: it carries essential dialogue AVPlayer
       // cannot render at all. A forced TEXT track does not: it renders fine.
-      subtitleStreams.find((stream) => stream.IsForced && isImageBasedSubtitleCodec(stream.Codec)) || null;
+      burnable.find((stream) => stream.IsForced) || null;
 
   if (!candidate) {
     return null;

@@ -1,6 +1,6 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { ListRow } from "@/components/settings/ListRow";
-import { settingsStyles } from "@/components/settings/styles";
+import { settingsStyles, sideInsets } from "@/components/settings/styles";
 import { tick } from "@/components/settings/tick";
 import { useLanguageChoice } from "@/hooks/useLocale";
 import { LANGUAGE_NAMES, setLanguage, SUPPORTED_LOCALES, systemLocale, t } from "@/services/i18n";
@@ -21,7 +21,7 @@ export default function LanguageScreen() {
     <View style={styles.container}>
       <AmbientBackground />
       <ScrollView
-        contentContainerStyle={[styles.page, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }]}
+        contentContainerStyle={[styles.page, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }, sideInsets(insets)]}
         showsVerticalScrollIndicator={false}>
         <View style={settingsStyles.contentContainer}>
           <View style={settingsStyles.sectionHeader}>

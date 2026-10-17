@@ -1,6 +1,6 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { EmptyCard } from "@/components/empty-card";
-import { settingsStyles } from "@/components/settings/styles";
+import { settingsStyles, sideInsets } from "@/components/settings/styles";
 import { FocusableButton } from "@/components/FocusableButton";
 import { LibraryGrid } from "@/components/library-grid";
 import { TVFocusHolder } from "@/components/tv-focus-holder";
@@ -17,6 +17,7 @@ import { Stack, useIsFocused, useLocalSearchParams, useRouter } from "expo-route
 import type { NativeStackNavigationOptions } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, StyleSheet, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
 
@@ -25,6 +26,7 @@ export default function RecordingsScreen() {
   const router = useRouter();
   const { accent } = useCardPalette();
   const isScreenFocused = useIsFocused();
+  const insets = useSafeAreaInsets();
   // "Show in Folder" on a recording lands here with the card to mark.
   const { focusId } = useLocalSearchParams<{ focusId?: string }>();
   const openItem = useOpenShelfItem();
@@ -120,7 +122,7 @@ export default function RecordingsScreen() {
       <View style={styles.container}>
         <Stack.Screen options={screenOptions} />
         <AmbientBackground />
-        <View style={styles.emptyPage}>
+        <View style={[styles.emptyPage, sideInsets(insets)]}>
           <View style={settingsStyles.contentContainer}>
             <EmptyCard icon="recording-outline" text={t("liveTv.noRecordings")} note={t("liveTv.noRecordingsHint")} noteIcon="lock-closed-outline" />
           </View>

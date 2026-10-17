@@ -22,12 +22,30 @@ export interface UiPreferences {
   cardTheme: CardTheme;
   /** The canvas behind every screen: folder artwork over the light, the theme's tint on it, or the clear light alone. */
   background: BackgroundMode;
+  /** The music player follows a song's lyrics. */
+  showLyrics: boolean;
+  /** A song the server has no lyrics for is looked up on lrclib.net. */
+  findLyrics: boolean;
+  /** The device listens to a song to time its words, or to write lyrics for one that has none. */
+  listenForLyrics: boolean;
+  /** Lyrics found for a song are saved to the Jellyfin server, where the account may. */
+  saveLyrics: boolean;
 }
 
 export type BackgroundMode = "clear" | "accent" | "artwork";
 export const BACKGROUND_MODES: readonly BackgroundMode[] = ["artwork", "accent", "clear"];
 
-export const DEFAULT_UI_PREFERENCES: UiPreferences = { version: 1, devicePosters: true, serverTranscoding: "linkOrFile", cardTheme: DEFAULT_CARD_THEME, background: "artwork" };
+export const DEFAULT_UI_PREFERENCES: UiPreferences = {
+  version: 1,
+  devicePosters: true,
+  serverTranscoding: "linkOrFile",
+  cardTheme: DEFAULT_CARD_THEME,
+  background: "artwork",
+  showLyrics: true,
+  findLyrics: true,
+  listenForLyrics: true,
+  saveLyrics: true,
+};
 
 let current: UiPreferences | null = null;
 const listeners = new Set<() => void>();
@@ -55,6 +73,10 @@ export function parseUiPreferences(raw: unknown): UiPreferences {
       : source.background === "tomo" || source.folderTint === false
         ? "clear"
         : DEFAULT_UI_PREFERENCES.background,
+    showLyrics: typeof source.showLyrics === "boolean" ? source.showLyrics : DEFAULT_UI_PREFERENCES.showLyrics,
+    findLyrics: typeof source.findLyrics === "boolean" ? source.findLyrics : DEFAULT_UI_PREFERENCES.findLyrics,
+    listenForLyrics: typeof source.listenForLyrics === "boolean" ? source.listenForLyrics : DEFAULT_UI_PREFERENCES.listenForLyrics,
+    saveLyrics: typeof source.saveLyrics === "boolean" ? source.saveLyrics : DEFAULT_UI_PREFERENCES.saveLyrics,
   };
 }
 

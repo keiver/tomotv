@@ -9,6 +9,14 @@ import { CONTENT_EDGE_PHONE, CONTROL_HEIGHT, RECESS_EDGE } from "@/constants/app
 export const IS_PAD = !Platform.isTV && Platform.OS === "ios" && Platform.isPad;
 const pick = (tv: number, pad: number, phone: number) => (Platform.isTV ? tv : IS_PAD ? pad : phone);
 
+/**
+ * Phone: each side's own safe-area inset, uneven where iPhone Duo puts its bars in a side column.
+ * `base` is horizontal padding the style already carries, kept on top of the inset.
+ */
+export function sideInsets(insets: { left: number; right: number }, base = 0) {
+  return Platform.isTV ? null : { paddingLeft: base + insets.left, paddingRight: base + insets.right };
+}
+
 // Row metrics live outside the sheet so a row's height can be computed rather
 // than measured. StyleSheet.create returns opaque ids, and anything that needs
 // to animate a row into view can't wait on an onLayout from a subtree that is

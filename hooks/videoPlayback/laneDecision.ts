@@ -147,7 +147,7 @@ export interface LanePickInput {
 
 export interface LaneDecision {
   mode: PlaybackMode;
-  /** Image (or forced-text) stream the server paints into the picture; null on every other lane. */
+  /** Image stream the server paints into the picture; null on every other lane. */
   burnInSubtitleIndex: number | null;
   /** Neither lane can play this channel; the caller throws with this. */
   unplayable: string | null;
@@ -180,15 +180,6 @@ export function selectLane(gates: LaneGates, input: LanePickInput): LaneDecision
     return { mode: "direct", burnInSubtitleIndex: burnInFromStream, unplayable: null, liveFallbackReason: null };
   }
 
-  // Jellyfin stamps FORCED=YES straight from the source flag and AVKit neither lists nor applies
-  // a rendition carrying it (T05), so a file whose text tracks are ALL forced burns them in
-  // rather than playing with nothing on screen. Never when subtitles are off: burn-in cannot be
-  // switched back off.
-  const forcedOnly = burnInFromStream === null && gates.hasTextSubs && gates.textSubtitles.every((stream) => stream.IsForced === true) && !input.subtitlesOff;
-  return {
-    mode: "transcode",
-    burnInSubtitleIndex: forcedOnly ? (gates.textSubtitles[0].Index ?? null) : burnInFromStream,
-    unplayable: null,
-    liveFallbackReason: null,
-  };
+  // A text track never burns in: Jellyfin extracts every subtitle track from the whole file first.
+  return { mode: "transcode", burnInSubtitleIndex: burnInFromStream, unplayable: null, liveFallbackReason: null };
 }

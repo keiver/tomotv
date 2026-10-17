@@ -118,6 +118,22 @@ and 2.07x with flat 10 s windows at thermal "serious", 4K 10-bit at 1.19x and
 (`AV_HWDEVICE_TYPE_VIDEOTOOLBOX`) is unbuilt; the record's decode-only column
 says the software decoder, not the encode, is the ceiling on that box.
 
+## Reading the file and writing the segments
+
+The input is read through three ranged connections (`ParallelRangeReader`, 2 MB chunks), the
+whole MKV whatever tracks are in use: FFmpeg's Matroska demuxer reads every block's bytes before
+its discard check. No byte on any connection for 5 s (`silenceTimeout`) drops the fetches in
+flight and starts them again on fresh connections, the way a seek drops them, so their completions
+consume no retry; the 20 s read timeout stays as the cap. Measured on an Apple TV: a flow that
+stopped on all three connections waited the 20 s out and refetched at once (a 33 s segment), and a
+body that trickled at 35 Mb/s for 11 s recovered by itself, which the silence rule leaves alone.
+Finished segments are written on a serial queue off the pipeline thread, one in flight; the
+segment completes when its file has landed. Until then it sits in `Rendition.writing`, which
+counts as produced wherever a restart is decided (the stranded seek, the control block's drop,
+the per-segment skip, the copy's follow), and the prune marks a segment still in flight so the
+writer drops the file instead. The write was 0.9 to 1.5 s of every 3 to 6 s segment (60 to 90 MB
+on the 2021 Apple TV); the `segment N took` line reports it as `file ... off thread`.
+
 ## What the linked build can actually do
 
 **We build FFmpeg ourselves.** `scripts/ffmpeg/build.sh` compiles upstream
@@ -156,6 +172,16 @@ HLS, the reason the Pluto channel failed on the engine), `udp`, `rtp`, `rtmp`, `
 opens teletext with `txt_page=subtitle` on the page's own 492x250 canvas, measured from the
 first rect. `isManifestSource` takes `.mpd`/`dash`; `originVariantUrl` hands an MPD over whole
 and refuses one carrying `ContentProtection`.
+
+**`build.sh` edits two upstream files in place**, each edit checked to still apply:
+`videotoolbox.c` asks Catalyst for Metal-compatible pixel buffers, and since tomo.8 `movenc.c`
+takes the `dec3` Atmos flag from a dependent E-AC-3 substream when the stream has one (ETSI TS
+103 420 8.3.1). A Blu-ray style track (AC-3 core plus a dependent frame carrying the objects,
+two sync frames per packet) was declared without Atmos because upstream reads the first frame
+of each packet; the streaming style 5.1 JOC track (one E-AC-3 frame per packet) always carried it.
+Measured on the Interstellar remux: `dec3` 6 bytes and no flag before, 8 bytes with
+`flag_eac3_extension_type_a=1` after. On the Apple TV with AirPods, Control Center shows Dolby
+Atmos for that track with tomo.8, as it does for the 5.1 track; plain AC-3 shows Multichannel.
 
 **The allowlists use the names FFPROBE reports**, which is what Jellyfin puts in
 `MediaStream.Codec`, not the decoder's own name. These differ and have bitten
@@ -261,6 +287,36 @@ MPEG-TS segments and AVPlayer refuses an fMP4 with an `.mp3` sample entry.
 
 **One uncarriable track no longer condemns a file.** The carriable tracks are
 kept and the rest dropped; only a file with no carriable track at all declines.
+
+**A file with many tracks is not converted whole at start.** Every track is in the master and
+has its muxer and header, but the read loop feeds only the playing track, every copied track
+(a copy costs a mux, and a Dolby copy's header exists only once it has a packet) and the
+subtitle tracks flagged default or forced plus the one the stored choice lands on
+(`isSelected`, computed in `useVideoPlayback.openEngineLane`). A request for anything else
+(`aN-seg{n}.m4s`, `sub{N}.m3u8`, `sub{N}-{n}.vtt`, `sub{N}.vtt`, `pgs{N}.json`) is the pick: the
+pipeline restarts once at the lowest segment asked for (`activationSeekSegment`; a subtitle pick
+at the playhead, `playheadSegmentLocked`, read off the player's buffer report, and before the
+player's first media request the playhead is the resume point's segment, `firstMediaRequestSeen`,
+since AVFoundation picks a legible rendition at load on its own: measured on an iPhone, that pick
+restarted the engine at 0 on a 229 s resume) and that
+generation feeds the track or opens its decoder (`Rendition.active`,
+`pendingAudioActivations`, `pendingSubtitleActivations`). A rendition that already holds a
+segment is not rewritten by any generation (the Dolby Vision rewrite still runs, its context
+carries state across frames), and while that generation is behind where the producer was
+(`activationGeneration`, `activationSpanEnd`) a request ahead of it waits instead of restarting
+over it. A seek pending beside the picks is not dropped: subtitle picks ride the seek's restart,
+an audio pick near the seek (within `seekAheadSegments`) restarts at the lower of the two with the
+span reaching the higher, and one far from it lets the seek win. A track's
+request for a segment the primary holds re-seeks through the pick's own seek,
+since the control block drops a plain seek for a segment the primary has
+(`seekForStrandedLocked`). After 45 s of played time the app calls
+`prepareRemainingTracks` and the remaining converted audio tracks come up one per segment, at a
+cut, on a timed segment the producer neither held nor rode a rung through; a track whose first
+segment runs past its length is left inactive and the ramp stops (`stepTrackRamp`). That first
+segment's sample is flagged `activating`, and `engineStarving` never reads one as a verdict.
+Subtitle tracks are never ramped: 74 PGS tracks decoded to PNG are gigabytes nobody asked for.
+Live and self-described sessions feed every track. Measured on Interstellar (15 audio, 74 PGS):
+the whole-file conversion made a 6 s segment in 9.48 s, which is what this removes.
 
 ## Audio-only files
 

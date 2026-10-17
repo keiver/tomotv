@@ -1,6 +1,19 @@
 const { withBuildProperties } = require("expo-build-properties");
 const withMacCatalyst = require("../../plugins/withMacCatalyst");
 const { expo } = require("../../app.json");
+const { usePrecompiledModules } = expo.plugins.find((plugin) => Array.isArray(plugin) && plugin[0] === "expo-build-properties")[1].ios;
+const buildProperties = { ios: { usePrecompiledModules } };
+const podfileContents = `target 'TomoTV' do
+  config = use_native_modules!(config_command)
+  post_install do |installer|
+    react_native_post_install(
+      installer,
+      :mac_catalyst_enabled => false
+    )
+  end
+end
+`;
+const compilationCache = `ReactNativePodsUtils.set_build_setting(installer, build_setting: "COMPILATION_CACHE_ENABLE_CACHING", value: "YES")`;
 
 describe("Mac Catalyst prebuild", () => {
   const originalMac = process.env.EXPO_MACCATALYST;
@@ -23,14 +36,14 @@ describe("Mac Catalyst prebuild", () => {
     expect(withMacCatalyst(input)).toBe(input);
     expect(input.mods.ios.xcodeproj).toBeUndefined();
     expect(input.mods.ios.podfileProperties).toBeUndefined();
-    const podfile = await input.mods.ios.podfile({ ...input, modResults: { contents: "config = use_native_modules!(config_command)" }, modRequest: {} });
+    const podfile = await input.mods.ios.podfile({ ...input, modResults: { contents: podfileContents }, modRequest: {} });
     expect(podfile.modResults.contents).toContain("config_command += ['--source-dir', __dir__]");
     expect(podfile.modResults.contents.indexOf("'--source-dir'")).toBeLessThan(podfile.modResults.contents.indexOf("use_native_modules!(config_command)"));
-    expect(podfile.modResults.contents).not.toContain("mac_catalyst_enabled");
+    expect(podfile.modResults.contents).toContain(":mac_catalyst_enabled => false");
     const again = await input.mods.ios.podfile({ ...input, modResults: podfile.modResults, modRequest: {} });
     expect(again.modResults.contents).toBe(podfile.modResults.contents);
   });
-  it("hides iOS-on-Mac without changing iPhone, iPad, Vision, or iOS precompiled module settings", async () => {
+  it("hides iOS-on-Mac without changing iPhone, iPad, or Vision settings", async () => {
     process.env.EXPO_MACCATALYST = "0";
     process.env.EXPO_TV = "0";
     const c = withMacCatalyst(structuredClone(expo));
@@ -47,7 +60,7 @@ describe("Mac Catalyst prebuild", () => {
     }
     expect(c.ios).toEqual(expo.ios);
     expect(c.mods.ios.podfileProperties).toBeUndefined();
-    const podfile = await c.mods.ios.podfile({ ...c, modResults: { contents: "target 'TomoTV' do\n  config = use_native_modules!(config_command)\nend\n" }, modRequest: {} });
+    const podfile = await c.mods.ios.podfile({ ...c, modResults: { contents: podfileContents }, modRequest: {} });
     expect(podfile.modResults.contents).toContain("config_command += ['--source-dir', __dir__]");
     expect(podfile.modResults.contents).toContain("require_relative '../scripts/prebuilt-swift-imports'");
     expect(podfile.modResults.contents).toContain("TomoPrebuiltSwiftImports.apply(installer)");
@@ -103,14 +116,44 @@ describe("Mac Catalyst prebuild", () => {
       expect(buildSettings.DEVELOPMENT_TEAM).toBe(expo.ios.appleTeamId);
     }
   });
-  it("keeps Expo modules built from source after other plugins run", async () => {
-    expect(expo.plugins[0]).toBe("./plugins/withMacCatalyst");
-    const c = withBuildProperties(config(), {});
+  it.each([
+    ["iPhone and iPad", "0", "0"],
+    ["tvOS", "0", "1"],
+    ["Mac Catalyst", "1", "0"],
+  ])("builds Expo modules from source on %s", async (_, mac, tv) => {
+    process.env.EXPO_MACCATALYST = mac;
+    process.env.EXPO_TV = tv;
+    const c = withBuildProperties(withMacCatalyst(structuredClone(expo)), buildProperties);
     const result = await c.mods.ios.podfileProperties({ ...c, modResults: {}, modRequest: {} });
     expect(result.modResults.EXPO_USE_PRECOMPILED_MODULES).toBe("false");
+  });
+  it.each([
+    ["iPhone and iPad", "0", "0"],
+    ["tvOS", "0", "1"],
+    ["Mac Catalyst", "1", "0"],
+  ])("turns on Xcode compilation caching once inside post_install on %s", async (_, mac, tv) => {
+    process.env.EXPO_MACCATALYST = mac;
+    process.env.EXPO_TV = tv;
+    const c = withMacCatalyst(structuredClone(expo));
+    const podfile = await c.mods.ios.podfile({ ...c, modResults: { contents: podfileContents }, modRequest: {} });
+    const contents = podfile.modResults.contents;
+    expect(contents.indexOf(compilationCache)).toBeGreaterThan(contents.indexOf("post_install do |installer|"));
+    expect(contents.indexOf(compilationCache)).toBeLessThan(contents.indexOf("react_native_post_install("));
+    const again = await c.mods.ios.podfile({ ...c, modResults: podfile.modResults, modRequest: {} });
+    expect(again.modResults.contents.split(compilationCache)).toHaveLength(2);
+  });
+  it("fails loudly when the Podfile has no post_install hook", async () => {
+    process.env.EXPO_MACCATALYST = "0";
+    process.env.EXPO_TV = "1";
+    const c = withMacCatalyst(structuredClone(expo));
+    await expect(c.mods.ios.podfile({ ...c, modResults: { contents: "config = use_native_modules!(config_command)" }, modRequest: {} })).rejects.toThrow(/post_install/);
+  });
+  it("writes the Catalyst Podfile hooks once", async () => {
+    expect(expo.plugins[0]).toBe("./plugins/withMacCatalyst");
+    const c = withBuildProperties(config(), buildProperties);
     const podfile = await c.mods.ios.podfile({
       ...c,
-      modResults: { contents: "config = use_native_modules!(config_command)\nreact_native_post_install(\n  installer,\n  :mac_catalyst_enabled => false\n)" },
+      modResults: { contents: podfileContents },
       modRequest: {},
     });
     expect(podfile.modResults.contents).toContain("config_command += ['--source-dir', __dir__]");

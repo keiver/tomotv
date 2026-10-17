@@ -10,6 +10,7 @@
 //
 
 import Foundation
+import MediaAccessibility
 #if os(iOS)
 import UIKit
 #endif
@@ -51,6 +52,14 @@ class DeviceEnvironment: NSObject {
             }
         }
         #endif
+    }
+
+    /// AVKit's subtitles On/Off row follows this display type, not a track selected in code.
+    /// The write is scoped to this app and persists, as picking On in that menu does.
+    @objc
+    func showCaptionsAlways() -> Any? {
+        MACaptionAppearanceSetDisplayType(.user, .alwaysOn)
+        return nil
     }
 
     @objc

@@ -947,6 +947,17 @@ describe("live frames", () => {
     expect(healthFor("m4")).toBe("up");
   });
 
+  it("judges an origin that opens with no streams down after its retry", async () => {
+    mockLiveFrame.mockImplementation(async () => ({ uris: [], cancelled: false, reason: "empty" }));
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1"]);
+    await advance(0);
+    expect(healthFor("m1")).toBe("unknown");
+    await advance(LIVE_FRAME_RETRY_MS + LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m1", "m1"]);
+    expect(healthFor("m1")).toBe("down");
+  });
+
   it("a group pick clears failure backoffs, so the wall it brings probes every card fresh", async () => {
     mockLiveFrame.mockImplementation(async () => ({ uris: [], cancelled: false, reason: "open" }));
     setLiveFramesActive("guide", true);

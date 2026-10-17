@@ -39,12 +39,13 @@ struct RemuxSubtitle {
     /// the session grid. `vttUrl` instead costs a server ffmpeg extraction
     /// before AVPlayer reports ready.
     let isEngineText: Bool
-    /// The server's WebVTT of an engine text track: the cue source for a window the read loop
-    /// cannot reach in time (a slow link, or a session held on the server rungs).
-    var serverVttUrl: String = ""
-    /// The server's raw copy of a PGS or DVD track (Stream.pgssub, Stream.mks), for when the source is not read.
+    /// The server's raw copy of an image sidecar. A track inside the file never names the server:
+    /// Jellyfin reads the whole film to answer for it.
     var serverSupUrl: String = ""
     var isExternal = false
+    /// The track the viewer's stored choice lands on: decoded from the start, beside the file's
+    /// default and forced ones. Any other track gets its decoder when it is picked.
+    var isSelected = false
     /// SDH: the rendition carries the accessibility CHARACTERISTICS (HLS authoring spec 4.5).
     var isHearingImpaired = false
     var source: SourcePosition? = nil
@@ -68,13 +69,6 @@ struct SourcePosition {
               let codec = raw["codec"] as? String, ordinal >= 0, ordinal < count, !codec.isEmpty else { return nil }
         self.init(ordinal: ordinal, count: count, codec: codec)
     }
-}
-
-/// One cue of a server WebVTT, in source time like the decoder's.
-struct ServerCue {
-    let start: Double
-    let end: Double
-    let text: String
 }
 
 /// One selectable audio track. With several tracks, every one becomes its own
@@ -158,8 +152,12 @@ struct RemuxConfig {
     var httpHeaders: [String: String] = [:]
     /// Live: the input is an origin's HLS playlist, checked for refusal alongside the open.
     var probeOrigin: Bool = false
-    /// Live: the provider whose connection budget the input spends (the input's host when nil), and how it ranks.
+    /// The provider whose connection budget the input spends, and how it ranks. A live input always
+    /// takes a lease (on its host when nil); a file takes one per connection only when this names the provider.
     var liveOriginKey: String? = nil
+    /// Connections a file's input reads over; 0 is the reader's default. Under a provider key the
+    /// input opens as many of them as the budget spares, and never fewer than one.
+    var inputConnections: Int = 0
     /// Live: the same channel through the server, opened once when the input itself cannot be (its headers do not apply).
     var fallbackInputUrl: String? = nil
     var livePriority: LiveConnectionBroker.Priority = .playback
@@ -170,6 +168,19 @@ struct RemuxConfig {
     /// Requests fired once, unawaited, when the session stops: the app's way to end whatever a
     /// tier or audio rendition started on its server.
     var stopRequests: [StopRequest] = []
+    /// The open input describes the session: its range, size, rate and bit rate, and whichever of the
+    /// audio tracks, subtitles and duration the config leaves empty.
+    var describesInput: Bool = false
+}
+
+/// The variant attributes a `describesInput` session reads off its own input.
+struct InputDescription {
+    var videoRange = ""
+    var supplementalCodecs = ""
+    var width = 0
+    var height = 0
+    var frameRate = 0.0
+    var bandwidth = 0
 }
 
 struct StopRequest {
@@ -268,4 +279,6 @@ struct TierConfig {
     let codecs: String
     let width: Int
     let height: Int
+    /// Ends this rung's own server transcode once the player has left the rung; the session stop covers it too.
+    var stopRequest: StopRequest? = nil
 }

@@ -8,7 +8,7 @@ import { PosterMark } from "@/components/settings/PosterMark";
 import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
 import { SwipeToRemove } from "@/components/settings/SwipeToRemove";
 import { StorageBar } from "@/components/storage-bar";
-import { downloadRowHeight, downloadsListHeight, DOWNLOAD_SUBTITLE_LINE_HEIGHT, DOWNLOAD_TITLE_LINE_HEIGHT, IS_PAD, settingsStyles as styles } from "@/components/settings/styles";
+import { downloadRowHeight, downloadsListHeight, DOWNLOAD_SUBTITLE_LINE_HEIGHT, DOWNLOAD_TITLE_LINE_HEIGHT, IS_PAD, settingsStyles as styles, sideInsets } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { localArtworkUri } from "@/services/downloads/localSource";
@@ -314,7 +314,7 @@ function DownloadsScreen() {
 
       {/* The list is the screen's own scroller. A virtualised list inside a ScrollView of the
           same axis is a dev error and keeps every row mounted, which is the whole point of it. */}
-      <View style={[screenStyles.page, { paddingTop: insets.top + (Platform.isTV ? 4 : IS_PAD ? 20 : 8) }]}>
+      <View style={[screenStyles.page, { paddingTop: insets.top + (Platform.isTV ? 4 : IS_PAD ? 20 : 8) }, sideInsets(insets)]}>
         <View style={[styles.contentContainer, screenStyles.column]}>
           {!Platform.isTV && (
             <Text style={styles.screenTitle} accessibilityRole="header">

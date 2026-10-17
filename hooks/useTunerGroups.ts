@@ -1,6 +1,7 @@
 import { useAuthSession } from "@/hooks/useAuthSession";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { fetchTunerGroups, lastKnownTunerData, type TunerGroup } from "@/services/jellyfinApi";
+import { subscribeTunerDataRefreshed } from "@/services/jellyfin/tunerGroups";
 import { activePlaylistGroup, playlistGroupIds, updateLiveTvPreferences, type ChannelFilter } from "@/services/liveTvPreferences";
 import { logger } from "@/utils/logger";
 import { useEffect, useMemo, useState } from "react";
@@ -17,6 +18,9 @@ export function useTunerGroups(): TunerGroup[] | null {
     setGroupsSession(session);
     setGroups(lastKnownTunerData()?.groups ?? null);
   }
+  // A tuner playlist that arrived after playback: read the groups again.
+  const [refreshes, setRefreshes] = useState(0);
+  useEffect(() => subscribeTunerDataRefreshed(() => setRefreshes((count) => count + 1)), []);
   useEffect(() => {
     let cancelled = false;
     fetchTunerGroups()
@@ -30,7 +34,7 @@ export function useTunerGroups(): TunerGroup[] | null {
     return () => {
       cancelled = true;
     };
-  }, [session]);
+  }, [session, refreshes]);
   return groups;
 }
 

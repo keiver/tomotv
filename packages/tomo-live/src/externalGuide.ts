@@ -7,16 +7,20 @@
  * guide covered is not asked again. Every guide reports its own status and what it matched.
  */
 import { closeGuide, engineLog, guideChannels, guideProgrammes, isLiveSourcesAvailable, loadGuide, searchGuide, type GuideProgramme } from "@keiver/tomo-engine";
-import { cachedGuideFile, clearGuideFileCache } from "./guideFileCache";
+import { liveGuideChannels, type GuideChannelCandidate } from "./config";
+import { cachedGuideFile, clearGuideFileCache, guideFileInfo, onGuideFileRefreshed, PlaybackHoldError } from "./guideFileCache";
 import { buildGuideIndex, matchChannels, type GuideChannelRequest, type GuideIndex, type MatchVia } from "./guideMatch";
+import { isPlaybackHeld, onPlaybackHoldChange } from "./playbackHold";
 import { GUIDE_SPAN_MINUTES, guideWindowStart, MINUTE_MS } from "./time";
+import { AppState } from "react-native";
 
 /** One load covers this far past the requested end, so window extensions rarely reload. */
 const WINDOW_SLACK_MS = 24 * 60 * 60 * 1000;
 /** A failed guide open is not retried before this passes, or every page fetch re-attempts it. */
 const FAILURE_TTL_MS = 5 * 60 * 1000;
 
-export type GuideSourceState = "waiting" | "downloading" | "reading" | "ready" | "error";
+/** `paused`: its download, or its parse, waits for playback to let go of the link. */
+export type GuideSourceState = "waiting" | "paused" | "downloading" | "reading" | "ready" | "error";
 
 export interface GuideMatch {
   channelId: string;
@@ -46,6 +50,10 @@ interface OpenGuide {
   from: number;
   to: number;
   index: GuideIndex;
+  /** When the file it was parsed from was saved: a newer file on disk reopens the guide. */
+  savedAt: number;
+  /** The channels it kept programmes for; a read asking about another reopens it. */
+  coverage: Coverage;
   /** Reads in flight on this token; a retired guide closes when the last one ends. */
   readers: number;
   retired: boolean;
@@ -60,10 +68,52 @@ interface Source {
   force: boolean;
   /** Bumped by a refresh, so an open that started before it lands closed instead of kept. */
   epoch: number;
+  /** A read during playback was refused (no copy, or a parse withheld): the status reads paused while playback lasts, waiting after. */
+  downloadAfterPlayback: boolean;
   /** Channel name by id. */
   asked: Map<string, string>;
+  /** Requests this guide was asked that the app's channel list lacks, kept for every later load. */
+  extras: GuideChannelCandidate[];
+  extraKeys: Set<string>;
   matched: Map<string, GuideMatch>;
   status: GuideSourceStatus;
+}
+
+/** Each channel a guide kept programmes for, with the tvg keys and names it paired by; null keeps every channel. */
+type Coverage = Map<string, { tvgIds: Set<string>; tvgNames: Set<string>; names: Set<string> }> | null;
+
+function coverageOf(list: readonly GuideChannelCandidate[]): NonNullable<Coverage> {
+  const coverage: NonNullable<Coverage> = new Map();
+  for (const candidate of list) {
+    let entry = coverage.get(candidate.channelId);
+    if (!entry) coverage.set(candidate.channelId, (entry = { tvgIds: new Set(), tvgNames: new Set(), names: new Set() }));
+    if (candidate.tvgId) entry.tvgIds.add(candidate.tvgId);
+    if (candidate.tvgName) entry.tvgNames.add(candidate.tvgName);
+    for (const name of candidate.names) if (name) entry.names.add(name);
+  }
+  return coverage;
+}
+
+/** Each matching pass reads one field, so a request is covered when every field it has was in the list. */
+function requestCovered(coverage: Coverage, request: GuideChannelRequest): boolean {
+  if (!coverage) return true;
+  const entry = coverage.get(request.channelId);
+  return !!entry && (!request.tvgId || entry.tvgIds.has(request.tvgId)) && (!request.tvgName || entry.tvgNames.has(request.tvgName)) && (!request.name || entry.names.has(request.name));
+}
+
+/** The app's channels whose programmes a load keeps, plus what this source was asked beyond them; null keeps every channel. */
+async function channelsToKeep(source: Source, asked: readonly GuideChannelRequest[]): Promise<GuideChannelCandidate[] | null> {
+  const provider = liveGuideChannels();
+  const all = provider ? await provider().catch(() => null) : null;
+  if (!all || all.length === 0) return null;
+  const listed = coverageOf(all);
+  for (const request of asked) {
+    const key = [request.channelId, request.tvgId ?? "", request.tvgName ?? "", request.name].join("\u0000");
+    if (requestCovered(listed, request) || source.extraKeys.has(key)) continue;
+    source.extraKeys.add(key);
+    source.extras.push({ channelId: request.channelId, tvgId: request.tvgId, tvgName: request.tvgName, names: request.name ? [request.name] : [] });
+  }
+  return [...all, ...source.extras];
 }
 
 const sources = new Map<string, Source>();
@@ -98,7 +148,10 @@ function sourceFor(url: string): Source {
       failedAt: null,
       force: false,
       epoch: 0,
+      downloadAfterPlayback: false,
       asked: new Map(),
+      extras: [],
+      extraKeys: new Set(),
       matched: new Map(),
       status: { url, state: "waiting", progress: null, channels: null, programmes: null, loadedAt: null, asked: 0, matched: [], unmatched: [] },
     };
@@ -152,7 +205,12 @@ export function activeGuideUrls(preferences: { guideUrls: readonly string[]; gui
   return [...new Set([...preferences.guideUrls, ...declared])].filter((url) => !off.has(url));
 }
 
-async function openFromUrl(source: Source, target: { from: number; to: number }): Promise<OpenGuide> {
+/** When the guide file at `url` was saved to disk; 0 while there is none. */
+function fileSavedAt(url: string): number {
+  return guideFileInfo(url)?.savedAt ?? 0;
+}
+
+async function openFromUrl(source: Source, target: { from: number; to: number }, asked: readonly GuideChannelRequest[]): Promise<OpenGuide> {
   setStatus(source, { state: "downloading", progress: null });
   const force = source.force;
   source.force = false;
@@ -161,12 +219,19 @@ async function openFromUrl(source: Source, target: { from: number; to: number })
     ({ bytesWritten, totalBytes }) => setStatus(source, { state: "downloading", progress: totalBytes > 0 ? Math.min(1, bytesWritten / totalBytes) : null }),
     { force, keep: activeUrls },
   );
+  // Video playback owns the link and the memory: the file waits on disk for the first read after it.
+  if (isPlaybackHeld("video")) throw new PlaybackHoldError();
   setStatus(source, { state: "reading", progress: null });
+  // Read before the parse: a new file arriving meanwhile can cost one extra reopen, never a stale guide.
+  const savedAt = fileSavedAt(source.url);
+  const keep = await channelsToKeep(source, asked);
+  const channelsSent = keep?.map(({ tvgId, tvgName, names }) => ({ tvgId, tvgName, names }));
   // 0: this service closes its own guides, so the native store never evicts one still asked.
-  const { token, stats } = await loadGuide(fileUri, target, "external", 0);
+  const { token, stats } = await loadGuide(fileUri, target, "external", 0, channelsSent);
   try {
     const channels = await guideChannels(token);
-    // The device-measurement line: parse and pre-fold cost, store footprint, at this guide's scale.
+    // The device-measurement line: parse and pre-fold cost, and app memory before, at the peak and after,
+    // so this guide's own share is the difference.
     engineLog().info("External guide loaded", {
       service: "ExternalGuide",
       url: source.url,
@@ -175,18 +240,39 @@ async function openFromUrl(source: Source, target: { from: number; to: number })
       workMs: stats?.workMs ?? null,
       foldMs: stats?.foldMs ?? null,
       inflatedBytes: stats?.inflatedBytes ?? null,
+      footprintBeforeBytes: stats?.footprintBeforeBytes ?? null,
+      peakFootprintBytes: stats?.peakFootprintBytes ?? null,
       footprintAfterBytes: stats?.footprintAfterBytes ?? null,
+      appChannels: keep?.length ?? null,
+      unmatchedSkipped: stats?.unmatched ?? null,
+      passes: stats?.passes ?? null,
     });
     setStatus(source, { state: "ready", channels: stats?.channels ?? channels.length, programmes: stats?.programmes ?? null, loadedAt: Date.now() });
-    return { token, from: target.from, to: target.to, index: buildGuideIndex(channels), readers: 0, retired: false };
+    return { token, from: target.from, to: target.to, index: buildGuideIndex(channels), savedAt, coverage: keep ? coverageOf(keep) : null, readers: 0, retired: false };
   } catch (error) {
     closeGuide(token).catch(() => {});
     throw error;
   }
 }
 
-async function ensureOpen(source: Source, windowMs: { from: number; to: number }): Promise<OpenGuide> {
-  const covers = (guide: OpenGuide | null): guide is OpenGuide => !!guide && guide.from <= windowMs.from && guide.to >= windowMs.to;
+let memoryWired = false;
+
+/** Under memory pressure every open guide is released (a guide being read closes when the read ends); the next read opens it again. */
+function wireMemoryWarning(): void {
+  if (memoryWired) return;
+  memoryWired = true;
+  AppState.addEventListener("memoryWarning", () => {
+    const open = [...sources.values()].filter((source) => source.open);
+    if (open.length === 0) return;
+    for (const source of open) close(source);
+    engineLog().info("Guides released under memory pressure", { service: "ExternalGuide", count: open.length });
+  });
+}
+
+async function ensureOpen(source: Source, windowMs: { from: number; to: number }, asked: readonly GuideChannelRequest[]): Promise<OpenGuide> {
+  wireMemoryWarning();
+  const covers = (guide: OpenGuide | null): guide is OpenGuide =>
+    !!guide && guide.from <= windowMs.from && guide.to >= windowMs.to && guide.savedAt === fileSavedAt(source.url) && asked.every((request) => requestCovered(guide.coverage, request));
   const startsBefore = (guide: OpenGuide | null) => guide !== null && windowMs.from < guide.from;
   if (covers(source.open)) return source.open;
   // Waits out every open in flight, so two callers never each open one and orphan the other's handle.
@@ -207,22 +293,27 @@ async function ensureOpen(source: Source, windowMs: { from: number; to: number }
   const epoch = source.epoch;
   const opening = (async () => {
     try {
-      const guide = await openFromUrl(source, target);
-      // A reset, removal or refresh while this loaded retired it: its guide goes with it.
+      const guide = await openFromUrl(source, target, asked);
+      // A reset, removal, refresh or playback start while this loaded retired it: its guide goes with it.
       if (sources.get(source.url) !== source || source.epoch !== epoch) {
         closeGuide(guide.token).catch(() => {});
+        if (isPlaybackHeld("video")) throw new PlaybackHoldError();
         throw new StaleOpenError("Guide open was retired while it loaded.");
       }
       // The outgoing guide serves its readers to the end; the token closes when the last one is done.
       const previous = source.open;
       source.open = guide;
       source.failedAt = null;
+      source.downloadAfterPlayback = false;
       if (previous) retire(previous);
       return guide;
     } catch (error) {
       if (error instanceof StaleOpenError) throw error;
-      source.failedAt = Date.now();
-      if (sources.get(source.url) === source) setStatus(source, { state: "error", progress: null });
+      // No copy while playback holds the link: not a failure, the file arrives after playback.
+      const held = error instanceof PlaybackHoldError;
+      if (held) source.downloadAfterPlayback = true;
+      else source.failedAt = Date.now();
+      if (sources.get(source.url) === source) setStatus(source, { state: held ? "paused" : "error", progress: null });
       throw error;
     }
   })();
@@ -252,8 +343,60 @@ function prune(urls: readonly string[]): void {
 export async function preloadGuide(url: string): Promise<void> {
   if (!isLiveSourcesAvailable()) return;
   const from = guideWindowStart(Date.now());
-  await ensureOpen(sourceFor(url), { from, to: from + GUIDE_SPAN_MINUTES * MINUTE_MS }).catch((error) => engineLog().warn("Guide preload failed", error, { service: "ExternalGuide", url }));
+  await ensureOpen(sourceFor(url), { from, to: from + GUIDE_SPAN_MINUTES * MINUTE_MS }, []).catch((error) => {
+    if (!(error instanceof PlaybackHoldError)) engineLog().warn("Guide preload failed", error, { service: "ExternalGuide", url });
+  });
 }
+
+const refreshedListeners = new Set<() => void>();
+
+/** Runs when a guide file that playback held back has finished downloading: a screen showing listings reads them again. */
+export function subscribeGuideRefreshed(listener: () => void): () => void {
+  refreshedListeners.add(listener);
+  return () => {
+    refreshedListeners.delete(listener);
+  };
+}
+
+// A guide open on the older file is replaced at the next read (`savedAt`). A guide a read asked for
+// during playback opens now, so its screens show what it holds; any other republishes its status, so
+// a screen showing the file's time sees the new one.
+onGuideFileRefreshed((url) => {
+  const source = sources.get(url);
+  if (!source) return;
+  if (source.downloadAfterPlayback) {
+    source.downloadAfterPlayback = false;
+    void preloadGuide(url);
+  } else {
+    setStatus(source, {});
+  }
+  for (const listener of [...refreshedListeners]) listener();
+});
+
+let videoHeld = false;
+
+// Video playback owns the link and the memory: as it starts every open guide closes, one still
+// loading closes as it lands, and the first read after it opens the guide again. A guide waiting
+// for its file or its parse reads paused while any playback lasts, and waiting after it.
+onPlaybackHoldChange(() => {
+  const video = isPlaybackHeld("video");
+  if (video && !videoHeld) {
+    let closed = 0;
+    for (const source of sources.values()) {
+      if (!source.open && !source.opening) continue;
+      if (source.opening) source.epoch++;
+      close(source);
+      source.downloadAfterPlayback = true;
+      closed++;
+    }
+    if (closed > 0) engineLog().info("Guides closed for playback", { service: "ExternalGuide", count: closed });
+  }
+  videoHeld = video;
+  const state: GuideSourceState = isPlaybackHeld() ? "paused" : "waiting";
+  for (const source of sources.values()) {
+    if (source.downloadAfterPlayback && !source.opening && source.status.state !== state) setStatus(source, { state, progress: null });
+  }
+});
 
 /** Closes and forgets one guide at once (removed or switched off); its file stays until cleared. */
 export function forgetGuide(url: string): void {
@@ -335,7 +478,7 @@ export async function fetchExternalListingWindow(
         if (!open || open.from > windowMs.from || open.to < windowMs.to) continue;
         guide = open;
       } else {
-        guide = await ensureOpen(source, windowMs);
+        guide = await ensureOpen(source, windowMs, remaining);
       }
       const matches = matchFor(guide, remaining);
       attempted = Array.from(matches.keys());
@@ -361,7 +504,7 @@ export async function fetchExternalListingWindow(
       for (const channelId of attempted) failed.add(channelId);
       // A read of an open guide failed (the native store lost it): the next fetch reopens it.
       if (guide && source.open === guide) close(source);
-      engineLog().warn("External guide load failed", error, { service: "ExternalGuide", url });
+      if (!(error instanceof PlaybackHoldError)) engineLog().warn("External guide load failed", error, { service: "ExternalGuide", url });
     }
   }
   // A later guide with listings answers for a failed source. An empty fallback cannot tell us
@@ -404,7 +547,7 @@ export async function searchExternalListings(
     const source = sourceFor(url);
     let guide: OpenGuide | null = null;
     try {
-      guide = await ensureOpen(source, windowMs);
+      guide = await ensureOpen(source, windowMs, remaining);
       const matches = matchFor(guide, remaining);
       if (matches.size === 0) continue;
       const byGuideId = new Map<string, string[]>();
@@ -416,7 +559,7 @@ export async function searchExternalListings(
       remaining = remaining.filter((channel) => !matches.has(channel.channelId));
     } catch (error) {
       if (guide && source.open === guide) close(source);
-      engineLog().warn("External guide search failed", error, { service: "ExternalGuide", url });
+      if (!(error instanceof PlaybackHoldError)) engineLog().warn("External guide search failed", error, { service: "ExternalGuide", url });
     }
   }
   return result.sort((a, b) => a.programme.start - b.programme.start).slice(0, limit);

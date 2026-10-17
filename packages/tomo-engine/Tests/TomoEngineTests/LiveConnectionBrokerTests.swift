@@ -431,7 +431,8 @@ final class LiveConnectionBrokerTests: XCTestCase {
         }
         wait(for: [done], timeout: 15)
         guard case .none(opened: false, failure: let failure)? = outcome else { return XCTFail("the fallback was not refused: \(String(describing: outcome))") }
-        XCTAssertTrue(failure?.contains("403") ?? false, failure ?? "no failure")
+        XCTAssertGreaterThanOrEqual(try relay.stats()["refused"] ?? 0, 1, "the fallback was never refused")
+        XCTAssertFalse(failure?.contains("403") ?? false, "the grab reports the server copy's failure, not the origin's: \(failure ?? "no failure")")
         XCTAssertNil(LiveConnectionBroker.shared.budget(for: key), "the server's refusal is no limit of the origin")
     }
 

@@ -1,12 +1,49 @@
 /** One platform vocabulary for composition, listing text, and build selection. */
 export const PLATFORM_LABELS = { IOS: "iOS", MAC_OS: "macOS", TV_OS: "tvOS" };
 export const PLATFORMS = Object.keys(PLATFORM_LABELS);
-export const DISPLAY_TYPES = {
-  iphone: { platform: "IOS", type: "APP_IPHONE_67", size: "1320x2868" },
-  ipad: { platform: "IOS", type: "APP_IPAD_PRO_3GEN_129", size: "2064x2752" },
-  mac: { platform: "MAC_OS", type: "APP_DESKTOP", size: "2880x1800" },
-  tv: { platform: "TV_OS", type: "APP_APPLE_TV", size: "3840x2160" },
+/** Each device's App Store and display class; the placement group comes from Apple's reference data. */
+export const SCREENSHOT_DEVICES = {
+  iphone: { platform: "IOS", store: "IPHONE_APP_STORE", displayClass: "IPHONE_DYNAMIC_ISLAND_LARGE_DISPLAY", size: "1320x2868" },
+  ipad: { platform: "IOS", store: "IPAD_APP_STORE", displayClass: "IPAD_13_DISPLAY", size: "2064x2752" },
+  mac: { platform: "MAC_OS", store: "MAC_APP_STORE", displayClass: "DEFAULT", size: "2880x1800" },
+  tv: { platform: "TV_OS", store: "TV_APP_STORE", displayClass: "DEFAULT", size: "3840x2160" },
+  duo: { platform: "IOS", store: "IPHONE_APP_STORE", displayClass: "IPHONE_DUO", size: "2853x2007" },
 };
+
+/** Whether a group takes a size. Apple's screenshot specifications list each size in both orientations. */
+export function acceptsSize(sizes, size) {
+  const key = (s) =>
+    s
+      .split("x")
+      .map(Number)
+      .sort((a, b) => a - b)
+      .join("x");
+  return sizes.some((s) => key(s) === key(size));
+}
+
+/** Configured devices the store takes screenshots for, minus any the config marks `"upload": false`. */
+export function uploadedDevices(config, platforms = PLATFORMS) {
+  return Object.keys(config.devices).filter((key) => SCREENSHOT_DEVICES[key] && config.devices[key].upload !== false && platforms.includes(SCREENSHOT_DEVICES[key].platform));
+}
+
+/** The device's screenshot placement group, the sizes it accepts and how many it holds, from `GET /v1/appAssetLibraryRefData`. */
+export function placementGroup(refData, deviceKey) {
+  const { store, displayClass } = SCREENSHOT_DEVICES[deviceKey];
+  const ref = refData.data[0].attributes;
+  const profile = ref.placementProfileGroups.find((g) => g.platform === store && g.displayClassId === displayClass);
+  if (!profile) throw new Error(`${deviceKey}: App Store Connect lists no ${store} placement group for ${displayClass}`);
+  const group = profile.placementProfileGroupId;
+  const mapping = ref.placementTypes.find((t) => t.placementTypeId === "APP_SCREENSHOT")?.specMappings.find((m) => m.placementGroupId === group);
+  if (!mapping) throw new Error(`${deviceKey}: ${group} takes no screenshots`);
+  const sizes = mapping.specs
+    .map((id) => ref.imageSpecs.find((s) => s.specId === id)?.dimensions)
+    .filter(Boolean)
+    .map((d) => `${d.minWidth}x${d.minHeight}`);
+  const policy = ref.features.find((f) => f.featureId === "APP_STORE_VERSIONS")?.placementPolicies.find((p) => p.placementType === "APP_SCREENSHOT");
+  const maxCount = policy?.groupLimits.find((l) => l.groupIds.includes(group))?.maxCount;
+  if (!maxCount) throw new Error(`${deviceKey}: App Store Connect lists no screenshot limit for ${group}`);
+  return { group, sizes, maxCount };
+}
 
 export function selectedPlatforms(value) {
   const platforms = value ? value.split(",") : PLATFORMS;

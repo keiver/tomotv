@@ -1696,15 +1696,17 @@ premise the remux engine disproves. Forced _image_ still burns in.
 - `hooks/useVideoPlayback.ts`, `services/jellyfinApi.ts`
 - `hooks/__tests__/useVideoPlayback.modeSelection.test.ts` (new)
 
-### Closed (2026-08-16)
+### Closed (2026-08-16), superseded (2026-10-15)
 
 - The note here said text subs on an engine-declined file still keep the 10s
-  offset. Re-read: they do not. `streamUrls.ts` sets `SegmentContainer=ts`
-  whenever WebVTT renditions are present, precisely so Jellyfin's
-  `X-TIMESTAMP-MAP=MPEGTS:900000` lines up with the segments, and T44/T45 assert
-  that alignment on every run. The note predated its own fix. The population it
-  worried about also shrank to almost nothing: interlaced and 10-bit sources now
-  play on the engine.
+  offset. Re-read: they did not. `streamUrls.ts` set `SegmentContainer=ts`
+  whenever WebVTT renditions were present, so Jellyfin's
+  `X-TIMESTAMP-MAP=MPEGTS:900000` lined up with the segments, and T44/T45 asserted
+  that alignment on every run.
+- Since 2026-10-15 the server's HLS carries no subtitle renditions at all: a
+  request for a track inside the file makes Jellyfin extract every subtitle
+  track from the whole file, uncancellable (its issue #17499). The server lane
+  is fMP4 always, and T44/T45 guard the gateway with a text sidecar.
 
 ## Firewall Silently Blocked Metro From the Physical iPhone (August 2026)
 

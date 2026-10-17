@@ -31,10 +31,10 @@ export type SubtitleRendition = {
   isExternal?: boolean;
   /** An embedded text track the engine decodes and publishes as WebVTT segments. */
   isEngineText: boolean;
-  /** A remote WebVTT of an engine text track, for windows the engine cannot read in time (rung sessions). */
-  serverVttUrl?: string;
-  /** A remote raw copy of a PGS or DVD track, decoded on device when the source is not being read (rung sessions). */
+  /** A remote raw copy of an image sidecar, decoded on device when the source is not being read (rung sessions). */
   serverSupUrl?: string;
+  /** Decoded from the start beside the file's default and forced tracks: where the stored choice lands. The rest decode on a pick. */
+  isSelected?: boolean;
   /** Where an embedded track sits in the container; absent for a sidecar and on a live source. */
   source?: SourcePosition;
 };
@@ -57,6 +57,27 @@ export type SubtitlePick = {
   /** Why a selection was refused. Absent when there was simply nothing selected. */
   reason?: string;
 };
+
+/** Bitmap subtitle codecs (PGS, DVD, DVB, teletext, XSUB, raw .sup and .sub), which AVPlayer has no renderer for. */
+export function isImageBasedSubtitleCodec(codec: string | undefined): boolean {
+  if (!codec) {
+    return false;
+  }
+  const codecLower = codec.toLowerCase();
+  if (codecLower === "sup" || codecLower === "sub") {
+    return true; // Raw PGS (.sup) / VobSub (.sub) streams
+  }
+  return (
+    codecLower.includes("pgs") || // pgssub, hdmv_pgs_subtitle (Blu-ray)
+    codecLower.includes("dvdsub") ||
+    codecLower.includes("dvd_subtitle") || // DVD subtitles (ffprobe name)
+    codecLower.includes("vobsub") ||
+    codecLower.includes("dvbsub") ||
+    codecLower.includes("dvb_subtitle") || // DVB broadcast subtitles
+    codecLower.includes("teletext") || // dvb_teletext: the engine draws the subtitle pages
+    codecLower.includes("xsub") // DivX subtitles
+  );
+}
 
 /** A name as the master playlist can carry it: no double quotes, no control characters. */
 export function manifestName(name: string): string {

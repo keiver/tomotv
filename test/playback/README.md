@@ -198,11 +198,11 @@ The prewarm does not cover a COLD bundle for a platform Metro has not built yet.
 
 ## T44: the server-HLS subtitle-sync guard (`validate: "subsync"`)
 
-The server lane has two shapes. Jellyfin's own HLS (8K, live, held files, audio-only) stamps every WebVTT segment with `X-TIMESTAMP-MAP=MPEGTS:900000` (10s) against MPEG-TS segments that start at ~10s (fMP4 segments start at 0: every cue 10s late, the 2026-08-10 cue-offset bug), so `getTranscodingStreamUrl` requests `SegmentContainer=ts` whenever text renditions ride. Network video goes through the engine gateway instead (`serverVideoOnly`): server rungs rewrapped to fMP4 behind `EXT-X-MAP`, on a timeline that starts at 0, with WebVTT at `MPEGTS:0`. T44 pins the invariant: its video is ASUS V1 (`asv1`), a codec outside `TRANSCODABLE_VIDEO_CODECS`, so `video codec unsupported` holds it on the server lane whatever size or hardware is in play, and its embedded SRT forces WebVTT renditions. `services/__tests__/localRemux.test.ts` pins that decline, so growing the allowlist fails there instead of retiring this guard in silence. The title still says Theora because it must match the file on disk. The driver fetches the master the app actually played, probes the first segment (behind its init section when the playlist has `EXT-X-MAP`), and fails on: no subtitle rendition, segments not the shape their playlist declares, or `|map − first segment time| > 0.5s`.
+A subtitle inside the media file never reaches a server lane: Jellyfin answers any request for one by extracting every subtitle track from the whole file, uncancellable (its issue #17499), so the app never asks. A text sidecar beside the file is served by Jellyfin as it is (no extraction) and rides the engine gateway's master as a rendition pointing at `Stream.vtt`: plain WebVTT, no `X-TIMESTAMP-MAP`, cues at absolute source time, against server rungs rewrapped to fMP4 behind `EXT-X-MAP` on a timeline that starts at 0. T44 pins the invariant: its video is ASUS V1 (`asv1`), a codec outside `TRANSCODABLE_VIDEO_CODECS`, so `video codec unsupported` holds it on the server lane whatever size or hardware is in play, and its SRT sidecar is the rendition. `services/__tests__/localRemux.test.ts` pins that decline, so growing the allowlist fails there instead of retiring this guard in silence. The title still says Theora because it must match the file on disk. The driver fetches the master the app actually played, probes the first segment (behind its init section when the playlist has `EXT-X-MAP`), and fails on: no subtitle rendition, a rendition with no cues, segments not the shape their playlist declares, or a subtitle time base more than 0.5s from the first segment's time (the map's, or 0 for a sidecar).
 
 The video carries a burned-in clock and every cue echoes it ("IN SYNC if clock reads 00:00:14 - 00:00:16"), so on a physical device, where host-side validation cannot reach the stream, sync is verifiable by eye, including after seeks.
 
-Regenerate it (Jellyfin's ffmpeg has the `asv1` encoder):
+Regenerate it (Jellyfin's ffmpeg has the `asv1` encoder). The cues are a sidecar named after the file, which Jellyfin attaches on the next library scan; the mkv carries no subtitle track of its own:
 
 ```bash
 python3 -c "
@@ -211,33 +211,32 @@ for i in range(45):
     a, b = i * 2, i * 2 + 2
     fmt = lambda s: f'00:{s // 60:02d}:{s % 60:02d}'
     lines += [f'{i + 1}', f'{fmt(a)},000 --> {fmt(b)},000', f'IN SYNC if clock reads {fmt(a)} - {fmt(b)}', '']
-open('t44.srt', 'w').write('\n'.join(lines))
+open('$HOME/Movies/development-videos/T44 SERVER Theora SRT subsync.eng.srt', 'w').write('\n'.join(lines))
 "
 "/Applications/Jellyfin.app/Contents/MacOS/ffmpeg" \
   -f lavfi -i "testsrc2=size=640x360:rate=24:duration=90" \
-  -f lavfi -i "sine=frequency=440:duration=90" -i t44.srt \
-  -map 0:v -map 1:a -map 2:s \
+  -f lavfi -i "sine=frequency=440:duration=90" \
+  -map 0:v -map 1:a \
   -vf "drawtext=fontfile=/System/Library/Fonts/Helvetica.ttc:text='%{pts\:hms}':fontsize=56:fontcolor=white:box=1:boxcolor=black@0.7:boxborderw=12:x=(w-text_w)/2:y=48" \
-  -c:v asv1 -q:v 12 -c:a aac -b:a 96k -c:s srt -metadata:s:s:0 language=eng \
+  -c:v asv1 -q:v 12 -c:a aac -b:a 96k \
   "$HOME/Movies/development-videos/T44 SERVER Theora SRT subsync.mkv"
 ```
 
 ### T45: the same guard on real content
 
-T44's clock proves the timing mechanically but nobody can judge "does this look right" against a colour-bar pattern. T45 is a 90-second dialogue clip from a broadcast episode carrying its real English SDH track, with the video re-encoded to ASUS V1 (`asv1`) at 1280x960, so `canRemuxLocally` declines it as `video codec unsupported` and the item cannot drift onto the engine lane. The title still says DivX3 because it must match the file on disk. Same `subsync` validation; play it on a device to judge cue timing against actual speech.
+T44's clock proves the timing mechanically but nobody can judge "does this look right" against a colour-bar pattern. T45 is a 90-second dialogue clip from a broadcast episode with its real English SDH track as a sidecar, the video re-encoded to ASUS V1 (`asv1`) at 1280x960, so `canRemuxLocally` declines it as `video codec unsupported` and the item cannot drift onto the engine lane. The title still says DivX3 because it must match the file on disk. Same `subsync` validation; play it on a device to judge cue timing against actual speech.
 
-Regenerate from any dialogue-heavy episode with an English SDH track, cutting its densest 90 seconds (`START`):
+Regenerate from any dialogue-heavy episode with an English SDH track, cutting its densest 90 seconds (`START`); the mkv carries no subtitle track, the sidecar is named after it:
 
 ```bash
 SRC="/path/to/episode.mkv"
 START=1065
 FF="/Applications/Jellyfin.app/Contents/MacOS/ffmpeg"
-"$FF" -ss "$START" -t 90 -i "$SRC" -map 0:v:0 -map 0:a:0 -vf scale=1280:960 -c:v asv1 -q:v 10 -c:a copy t45_av.mkv
+"$FF" -ss "$START" -t 90 -i "$SRC" -map 0:v:0 -map 0:a:0 -vf scale=1280:960 -c:v asv1 -q:v 10 -c:a copy \
+  "$HOME/Movies/development-videos/T45 SERVER DivX3 SDH subsync.mkv"
 "$FF" -ss "$START" -t 90 -i "$SRC" -map 0:s:0 -c:s srt t45_subs.srt   # -t does NOT clamp subs
 # keep only cues starting before 89s and renumber them, then:
-"$FF" -i t45_av.mkv -i t45_trimmed.srt -map 0:v -map 0:a -map 1:s -c copy \
-  -metadata:s:s:0 language=eng -metadata:s:s:0 title="English SDH" \
-  "$HOME/Movies/development-videos/T45 SERVER DivX3 SDH subsync.mkv"
+cp t45_trimmed.srt "$HOME/Movies/development-videos/T45 SERVER DivX3 SDH subsync.eng.srt"
 ```
 
 ## The engine decides by doing (the verdict file)

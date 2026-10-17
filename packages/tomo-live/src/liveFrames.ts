@@ -8,7 +8,7 @@
 import { canReadLiveFramesOnDisk, cancelLiveFrame, engineEmitter, engineLog, isLocalRemuxAvailable, liveFrame, liveFramesOnDisk, nativeEmits } from "@keiver/tomo-engine";
 import { AppState } from "react-native";
 import type { ChannelOrigin } from "./channelOrigin";
-import { clearChannelHealth, noteChannelAlive, noteChannelGone, noteChannelOpenFailure } from "./channelHealth";
+import { clearChannelHealth, noteChannelAlive, noteChannelEmpty, noteChannelGone, noteChannelOpenFailure } from "./channelHealth";
 import { liveChannels } from "./config";
 import { showLivePreview, stopLivePreview } from "./livePreview";
 import { openRecentlyFailed } from "./openFailures";
@@ -504,8 +504,9 @@ async function grab(channelId: string): Promise<void> {
       startTicker();
     } else {
       recordFailure(item, now);
-      // "open" is a refusal at the source; its own words judge the channel. "frame" opened fine.
-      if (result?.reason === "open" && item.lane === "origin") noteChannelOpenFailure(channelId, result.failure ?? undefined);
+      // "open" is a refusal at the source and its own words judge the channel; "empty" opened with no streams.
+      if (item.lane === "origin" && result?.reason === "open") noteChannelOpenFailure(channelId, result.failure ?? undefined);
+      if (item.lane === "origin" && result?.reason === "empty") noteChannelEmpty(channelId);
     }
   } catch (error) {
     if (gen !== generation) return;

@@ -5,10 +5,10 @@ import { useHealthGeneration } from "@/hooks/useChannelHealth";
 import { healthFor } from "@/services/channelHealth";
 import { fetchChannels, fetchChannelsByIds, fetchGuideHorizon, fetchGuidePrograms, fetchListedChannels, fetchTimers } from "@/services/jellyfinApi";
 import { reportRecordingTimers } from "@/services/recordingStatus";
-import { activeGuideUrls, fetchExternalProgramWindow } from "@/services/externalGuide";
+import { activeGuideUrls, fetchExternalProgramWindow, subscribeGuideRefreshed } from "@/services/externalGuide";
 import { activeCategory, activeChannelList, channelSortParam, getLiveTvPreferences, type LiveTvPreferences } from "@/services/liveTvPreferences";
 import { pendingChannelsAfter } from "@/services/jellyfin/playlistItems";
-import { fetchTunerData } from "@/services/jellyfin/tunerGroups";
+import { fetchTunerData, subscribeTunerDataRefreshed } from "@/services/jellyfin/tunerGroups";
 import { cachedRequest, invalidateByPrefix } from "@/services/requestCache";
 import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
 import {
@@ -554,11 +554,25 @@ export function useGuide(): GuideState {
     loadPrograms(channelsRef.current, loadedStartRef.current, windowEndRef.current, load).catch((err) => logger.warn("Guide source reload failed", err, { hook: "useGuide" }));
   }, [guideSources, loadPrograms, readExternalGuides]);
 
+  // A guide file that arrived after playback: the loaded channels read their listings again.
+  useEffect(
+    () =>
+      subscribeGuideRefreshed(() => {
+        const load = loadRef.current;
+        if (load.retired || channelsRef.current.length === 0) return;
+        loadPrograms(channelsRef.current, loadedStartRef.current, windowEndRef.current, load).catch((err) => logger.warn("Guide refresh reload failed", err, { hook: "useGuide" }));
+      }),
+    [loadPrograms],
+  );
+
   const retry = useCallback(() => {
     setIsLoading(true);
     setError(null);
     setAttempt((n) => n + 1);
   }, []);
+
+  // A tuner playlist that arrived after playback can add channels and declared guides: the list loads again.
+  useEffect(() => subscribeTunerDataRefreshed(retry), [retry]);
 
   // Hide offline narrows to channels whose health check concluded down; unchecked ones stay.
   const { hideOffline } = preferences;

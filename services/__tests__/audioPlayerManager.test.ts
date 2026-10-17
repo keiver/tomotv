@@ -4,6 +4,8 @@ import * as jellyfinApi from "../jellyfinApi";
 import * as audioQueuePlayer from "../audioQueuePlayer";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { probeEmit, readLastSession } from "@/services/playbackProbe";
+import { fetchLyrics } from "@/services/jellyfin/lyrics";
+import { getUiPreferences, updateUiPreferences } from "@/services/uiPreferences";
 
 let mockHandlers: audioQueuePlayer.AudioQueueEventHandlers | null = null;
 
@@ -13,6 +15,8 @@ jest.mock("../audioQueuePlayer", () => ({
   present: jest.fn(() => Promise.resolve()),
   skipToIndex: jest.fn(() => Promise.resolve()),
   stop: jest.fn(() => Promise.resolve()),
+  setLyrics: jest.fn(() => Promise.resolve()),
+  setLyricsEnabled: jest.fn(() => Promise.resolve()),
   subscribeToEvents: jest.fn((handlers) => {
     mockHandlers = handlers;
     return () => {
@@ -34,6 +38,12 @@ jest.mock("../jellyfinApi", () => ({
   updateUserItemData: jest.fn(() => Promise.resolve("ok")),
 }));
 
+jest.mock("@/services/jellyfin/lyrics", () => ({ fetchLyrics: jest.fn(() => Promise.resolve(null)) }));
+// The pipeline reduced to its first source, so these tests drive it through fetchLyrics.
+jest.mock("@/services/lyrics/pipeline", () => ({
+  resolveLyrics: jest.fn(async (item: { Id: string }, onUpdate: (lyrics: unknown) => void) => onUpdate(await jest.requireMock("@/services/jellyfin/lyrics").fetchLyrics(item.Id))),
+}));
+
 // redactSecrets stays real: the probe parses its output, and an automocked stub returns undefined.
 jest.mock("@/utils/logger", () => ({ ...jest.requireActual("@/utils/logger"), logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
 
@@ -47,6 +57,10 @@ const mockStopped = jellyfinApi.reportPlaybackStopped as jest.MockedFunction<typ
 const mockPersist = jellyfinApi.updateUserItemData as jest.MockedFunction<typeof jellyfinApi.updateUserItemData>;
 const mockMarkPlayed = jellyfinApi.markItemPlayed as jest.MockedFunction<typeof jellyfinApi.markItemPlayed>;
 const mockGenerateId = jellyfinApi.generatePlaySessionId as jest.MockedFunction<typeof jellyfinApi.generatePlaySessionId>;
+const mockFetchLyrics = fetchLyrics as jest.MockedFunction<typeof fetchLyrics>;
+const mockSetLyrics = audioQueuePlayer.setLyrics as jest.MockedFunction<typeof audioQueuePlayer.setLyrics>;
+const mockSetLyricsEnabled = audioQueuePlayer.setLyricsEnabled as jest.MockedFunction<typeof audioQueuePlayer.setLyricsEnabled>;
+const LYRICS = { synced: true, lines: [{ text: "line", start: 1, cues: [] }] };
 
 /** Drain the serialized write chain (each write is an awaited promise link). */
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -72,8 +86,10 @@ describe("audioPlayerManager", () => {
     mockGenerateId.mockImplementation(() => `session-${++idCounter}`);
     mockPersist.mockResolvedValue("ok");
     await audioPlayerManager.stop();
+    updateUiPreferences({ showLyrics: true });
     jest.clearAllMocks();
     mockGenerateId.mockImplementation(() => `session-${++idCounter}`);
+    mockFetchLyrics.mockResolvedValue(null);
   });
 
   const startAndOpenFirstTrack = async () => {
@@ -95,6 +111,8 @@ describe("audioPlayerManager", () => {
         startIndex: 1,
         startPositionSeconds: 12,
         loop: true,
+        lyricsEnabled: true,
+        lyricsLabel: "Lyrics",
       });
       expect(audioPlayerManager.getUIState().active).toBe(true);
     });
@@ -117,6 +135,33 @@ describe("audioPlayerManager", () => {
       expect(mockLoadQueue).toHaveBeenCalledWith(expect.objectContaining({ tracks: [expect.objectContaining({ description: "Album X" }), expect.anything(), expect.anything()] }));
     });
 
+    it("asks for exact seeking on a song short enough to follow lyrics", async () => {
+      await audioPlayerManager.startQueue([{ ...track("a", 240), MediaSources: [{ Id: "source-a", Container: "mp3", Size: 8_000_000 }] }], "a", {});
+
+      expect(mockLoadQueue).toHaveBeenCalledWith(expect.objectContaining({ tracks: [expect.objectContaining({ preciseTiming: true })] }));
+    });
+
+    it("plays a 99 minute mix without exact seeking", async () => {
+      await audioPlayerManager.startQueue([{ ...track("a", 5949), MediaSources: [{ Id: "source-a", Container: "mp3", Size: 200_000_000 }] }], "a", {});
+
+      expect(mockLoadQueue).toHaveBeenCalledWith(expect.objectContaining({ tracks: [expect.objectContaining({ preciseTiming: false })] }));
+    });
+
+    it("gives Apple TV the artist and album over the title, and the phone no line", async () => {
+      const song = { ...ITEMS[0], Artists: ["Band"] };
+      await audioPlayerManager.startQueue([song], "a", {});
+      expect(mockLoadQueue).toHaveBeenLastCalledWith(expect.objectContaining({ tracks: [expect.objectContaining({ subtitle: "" })] }));
+
+      const original = Object.getOwnPropertyDescriptor(Platform, "isTV");
+      Object.defineProperty(Platform, "isTV", { value: true, configurable: true });
+      try {
+        await audioPlayerManager.startQueue([song], "b", {});
+        expect(mockLoadQueue).toHaveBeenLastCalledWith(expect.objectContaining({ tracks: [expect.objectContaining({ subtitle: "Band · Album X" })] }));
+      } finally {
+        if (original) Object.defineProperty(Platform, "isTV", original);
+      }
+    });
+
     it("re-presents instead of restarting when the same source and track are already playing", async () => {
       await startAndOpenFirstTrack();
       mockLoadQueue.mockClear();
@@ -125,6 +170,81 @@ describe("audioPlayerManager", () => {
 
       expect(mockPresent).toHaveBeenCalled();
       expect(mockLoadQueue).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("lyrics", () => {
+    it("hands the current track's lyrics to the native player", async () => {
+      mockFetchLyrics.mockResolvedValue(LYRICS);
+      await startAndOpenFirstTrack();
+
+      expect(mockFetchLyrics).toHaveBeenCalledWith("a");
+      expect(mockSetLyrics).toHaveBeenCalledWith("a", LYRICS);
+    });
+
+    it("tells the native player a track has none", async () => {
+      await startAndOpenFirstTrack();
+
+      expect(mockSetLyrics).toHaveBeenCalledWith("a", null);
+    });
+
+    it("works out the next track's lyrics while this one plays, and hands over only the current one's", async () => {
+      mockFetchLyrics.mockResolvedValue(LYRICS);
+      await startAndOpenFirstTrack();
+
+      expect(mockFetchLyrics).toHaveBeenCalledWith("b");
+      expect(mockSetLyrics).not.toHaveBeenCalledWith("b", expect.anything());
+    });
+
+    it("drops a reply for a track the queue has left", async () => {
+      let answer: (lyrics: typeof LYRICS) => void = () => {};
+      mockFetchLyrics.mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
+      await startAndOpenFirstTrack();
+      mockHandlers!.onTrackChanged({ index: 1, trackId: "b", previousIndex: 0, previousTrackId: "a", previousPosition: 30, natural: false });
+      await flush();
+      answer(LYRICS);
+      await flush();
+
+      expect(mockSetLyrics).not.toHaveBeenCalledWith("a", expect.anything());
+      expect(mockSetLyrics).toHaveBeenCalledWith("b", null);
+    });
+
+    it("asks for nothing while lyrics are off, and loads the current track when they come back on", async () => {
+      updateUiPreferences({ showLyrics: false });
+      await startAndOpenFirstTrack();
+      expect(mockLoadQueue).toHaveBeenCalledWith(expect.objectContaining({ lyricsEnabled: false }));
+      expect(mockFetchLyrics).not.toHaveBeenCalled();
+
+      mockFetchLyrics.mockResolvedValue(LYRICS);
+      updateUiPreferences({ showLyrics: true });
+      await flush();
+
+      expect(mockSetLyricsEnabled).toHaveBeenCalledWith(true);
+      expect(mockSetLyrics).toHaveBeenCalledWith("a", LYRICS);
+    });
+
+    it("keeps the Apple TV player's toggle as the preference", async () => {
+      await startAndOpenFirstTrack();
+      mockHandlers!.onLyricsEnabledChanged({ enabled: false });
+
+      expect(getUiPreferences().showLyrics).toBe(false);
+      expect(mockSetLyricsEnabled).toHaveBeenCalledWith(false);
+    });
+
+    // The Apple TV toggle is offered only for a song that has lyrics, so they are needed while off.
+    it("still hands lyrics to the Apple TV player while they are off", async () => {
+      const original = Object.getOwnPropertyDescriptor(Platform, "isTV");
+      Object.defineProperty(Platform, "isTV", { value: true, configurable: true });
+      try {
+        updateUiPreferences({ showLyrics: false });
+        mockFetchLyrics.mockResolvedValue(LYRICS);
+        await startAndOpenFirstTrack();
+
+        expect(mockLoadQueue).toHaveBeenCalledWith(expect.objectContaining({ lyricsEnabled: false }));
+        expect(mockSetLyrics).toHaveBeenCalledWith("a", LYRICS);
+      } finally {
+        if (original) Object.defineProperty(Platform, "isTV", original);
+      }
     });
   });
 

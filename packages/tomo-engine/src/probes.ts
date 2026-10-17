@@ -162,7 +162,8 @@ export interface LiveFrameResult {
   unchanged?: boolean;
   missing?: boolean;
   cancelled?: boolean;
-  reason?: string;
+  /** `empty`: the source opened and listed no streams. */
+  reason?: "open" | "frame" | "empty";
   failure?: string | null;
 }
 

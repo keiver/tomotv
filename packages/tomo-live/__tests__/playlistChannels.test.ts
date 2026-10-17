@@ -10,9 +10,11 @@ jest.mock("@keiver/tomo-engine", () => ({
 }));
 jest.mock("../src/guideFileCache", () => ({
   cachedPlaylistFile: jest.fn(async () => "file:///playlist.m3u"),
+  onPlaylistFileRefreshed: jest.fn(() => () => {}),
+  PlaybackHoldError: class PlaybackHoldError extends Error {},
 }));
 
-import { cachedPlaylistFile } from "../src/guideFileCache";
+import { cachedPlaylistFile, onPlaylistFileRefreshed, PlaybackHoldError } from "../src/guideFileCache";
 import {
   allPlaylistChannelIds,
   enginePlaylistRows,
@@ -44,6 +46,9 @@ const row = (id: string, over: Partial<PlaylistChannel> = {}): PlaylistChannel =
   drm: false,
   ...over,
 });
+
+/** The module's refreshed listener, taken before any clearAllMocks drops the registration call. */
+const playlistRefreshed = (onPlaylistFileRefreshed as jest.Mock).mock.calls[0][0] as (url: string) => void;
 
 const source = (key: string, rows: PlaylistChannel[], tvgUrls: string[] = []): PlaylistChannelSource => ({
   key,
@@ -115,6 +120,95 @@ describe("table", () => {
     expect(flaky.loadRows).toHaveBeenCalledTimes(2);
   });
 
+  it("reloads a playlist at the next sync after a newer file for it downloads", async () => {
+    const a = source("http://h/a.m3u", [row("a")]);
+    await syncPlaylistSources([a]);
+    playlistRefreshed("http://h/other.m3u");
+    await syncPlaylistSources([a]);
+    expect(a.loadRows).toHaveBeenCalledTimes(1);
+    playlistRefreshed("http://h/a.m3u");
+    await syncPlaylistSources([a]);
+    expect(a.loadRows).toHaveBeenCalledTimes(2);
+    await syncPlaylistSources([a]);
+    expect(a.loadRows).toHaveBeenCalledTimes(2);
+  });
+
+  it("reloads a playlist that was still reading the old file when the new file arrived", async () => {
+    let release: (() => void) | undefined;
+    const slow: PlaylistChannelSource = {
+      key: "http://h/b.m3u",
+      url: "http://h/b.m3u",
+      loadRows: jest.fn(() => new Promise<{ rows: PlaylistChannel[]; tvgUrls: string[] }>((resolve) => (release = () => resolve({ rows: [row("b")], tvgUrls: [] })))),
+    };
+    const firstLoad = syncPlaylistSources([slow]);
+    playlistRefreshed("http://h/b.m3u");
+    release!();
+    await firstLoad;
+    const again = syncPlaylistSources([slow]);
+    release!();
+    await again;
+    expect(slow.loadRows).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads the playlist again when a refresh arrives while the old file is still being read", async () => {
+    const releases: (() => void)[] = [];
+    let version = 0;
+    const slow: PlaylistChannelSource = {
+      key: "http://h/c.m3u",
+      url: "http://h/c.m3u",
+      loadRows: jest.fn(() => {
+        const rows = [row(`v${++version}`)];
+        return new Promise<{ rows: PlaylistChannel[]; tvgUrls: string[] }>((resolve) => releases.push(() => resolve({ rows, tvgUrls: [] })));
+      }),
+    };
+    const first = syncPlaylistSources([slow]);
+    playlistRefreshed("http://h/c.m3u");
+    const forced = syncPlaylistSources([slow], { force: true });
+    releases[0]();
+    await first;
+    while (releases.length < 2) await new Promise((resolve) => setTimeout(resolve, 0));
+    releases[1]();
+    await forced;
+    expect(slow.loadRows).toHaveBeenCalledTimes(2);
+    expect(allPlaylistChannelIds()).toEqual(["v2"]);
+  });
+
+  it("keeps the rows and waits, with no failure backoff, when playback holds a playlist with no copy", async () => {
+    let held = false;
+    const a: PlaylistChannelSource = {
+      key: "t1",
+      url: "t1",
+      loadRows: jest.fn(async () => {
+        if (held) throw new PlaybackHoldError();
+        return { rows: [row("a")], tvgUrls: [] };
+      }),
+    };
+    await syncPlaylistSources([a]);
+    held = true;
+    await syncPlaylistSources([a], { force: true });
+    expect(allPlaylistChannelIds()).toEqual(["a"]);
+    expect(playlistSourceStatuses()["t1"].state).toBe("waiting");
+    held = false;
+    await syncPlaylistSources([a], { force: true });
+    expect(a.loadRows).toHaveBeenCalledTimes(3);
+    expect(playlistSourceStatuses()["t1"].state).toBe("ready");
+
+    // A source never loaded is retried at the next plain sync: no backoff stands in the way.
+    const b: PlaylistChannelSource = {
+      key: "t2",
+      url: "t2",
+      loadRows: jest
+        .fn()
+        .mockRejectedValueOnce(new PlaybackHoldError())
+        .mockResolvedValue({ rows: [row("b")], tvgUrls: [] }),
+    };
+    await syncPlaylistSources([a, b]);
+    expect(playlistSourceStatuses()["t2"].state).toBe("waiting");
+    await syncPlaylistSources([a, b]);
+    expect(b.loadRows).toHaveBeenCalledTimes(2);
+    expect(allPlaylistChannelIds()).toEqual(["a", "b"]);
+  });
+
   it("reset drops everything and a load that outlived it writes nothing back", async () => {
     let release: (() => void) | undefined;
     const slow: PlaylistChannelSource = {
@@ -155,8 +249,12 @@ describe("enginePlaylistRows", () => {
       attrs: {},
     });
     (playlistEntries as jest.Mock).mockResolvedValueOnce([entry("One", "http://h/1.ts"), entry("Two", "http://h/2.ts"), entry("Drop", "http://h/3.ts")]);
-    const { rows, tvgUrls } = await enginePlaylistRows({ key: "k", url: "http://h/list.m3u", loadRows: async () => ({ rows: [], tvgUrls: [] }) }, (e) => (e.name === "Drop" ? null : e.name));
-    expect(cachedPlaylistFile).toHaveBeenCalledWith("http://h/list.m3u");
+    const { rows, tvgUrls } = await enginePlaylistRows({ key: "k", url: "http://h/list.m3u", headers: { "User-Agent": "UA/1" }, loadRows: async () => ({ rows: [], tvgUrls: [] }) }, (e) =>
+      e.name === "Drop" ? null : e.name,
+    );
+    // The source's headers ride the download, not only the parse.
+    expect(cachedPlaylistFile).toHaveBeenCalledWith("http://h/list.m3u", undefined, { headers: { "User-Agent": "UA/1" } });
+    expect(loadPlaylist).toHaveBeenCalledWith("file:///playlist.m3u", { "User-Agent": "UA/1" });
     expect(rows.map((r) => r.id)).toEqual(["One", "Two"]);
     expect(rows[0]).toMatchObject({ number: "7", logoUrl: "http://logo/x.png", streamUrl: "http://h/1.ts", headers: { "user-agent": "ua" }, originKey: "h", groups: ["G"] });
     expect(tvgUrls).toEqual(["http://g/x"]);
@@ -168,5 +266,43 @@ describe("playlistOriginKey / playlistChannelFromEntry", () => {
   it("keys the origin by host and rejects entries the app's id rejects", () => {
     expect(playlistOriginKey("http://User@Host.example:8080/x.ts")).toBe("host.example");
     expect(playlistChannelFromEntry({ name: "n" } as never, null)).toBeNull();
+  });
+
+  const entry = (over: Record<string, unknown> = {}) =>
+    ({
+      name: "One",
+      url: "http://h/1.ts",
+      tvgChno: null,
+      tvgLogo: null,
+      headers: {},
+      groups: [],
+      tvgId: null,
+      tvgName: null,
+      radio: false,
+      drm: false,
+      tvgShift: null,
+      catchup: null,
+      ...over,
+    }) as never;
+
+  it("leaves the archive and the guide shift off a channel that declares neither", () => {
+    const row = playlistChannelFromEntry(entry(), "one", { catchup: null, tvgShift: null });
+    expect(row && "catchup" in row).toBe(false);
+    expect(row && "tvgShift" in row).toBe(false);
+  });
+
+  it("carries a channel's own catch-up and shift", () => {
+    const row = playlistChannelFromEntry(entry({ catchup: { type: "xc", source: null, days: 3 }, tvgShift: -2 }), "one");
+    expect(row?.catchup).toEqual({ type: "xc", source: null, days: 3 });
+    expect(row?.tvgShift).toBe(-2);
+  });
+
+  it("fills what the channel leaves out from the playlist header", () => {
+    const header = { catchup: { type: "append", source: "?utc={utc}&lutc={lutc}", days: 7 }, tvgShift: 1 };
+    expect(playlistChannelFromEntry(entry(), "one", header)).toMatchObject({ catchup: header.catchup, tvgShift: 1 });
+    expect(playlistChannelFromEntry(entry({ catchup: { type: null, source: null, days: 2 }, tvgShift: 0 }), "one", header)).toMatchObject({
+      catchup: { type: "append", source: "?utc={utc}&lutc={lutc}", days: 2 },
+      tvgShift: 0,
+    });
   });
 });

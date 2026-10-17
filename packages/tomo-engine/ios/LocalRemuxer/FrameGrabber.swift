@@ -15,7 +15,6 @@ import Libswscale
 
 // FFmpeg's error/constant macros don't survive the Clang importer.
 private let SWIFT_AV_NOPTS_VALUE = Int64(bitPattern: 0x8000_0000_0000_0000)
-private let SWIFT_AVSEEK_FLAG_BACKWARD: Int32 = 1
 
 private func grabErr(_ code: Int32) -> String {
     var buf = [CChar](repeating: 0, count: 128)
@@ -75,6 +74,8 @@ final class FrameGrabber {
     private var openFailed = false
     /// The container and its streams were read, whether or not a video stream was in them.
     private(set) var sourceOpened = false
+    /// The source opened and listed no streams at all, as an HLS playlist with no segments does.
+    private(set) var sourceEmpty = false
     /// The live input stopped delivering packets before cancellation, rather than a sampling limit.
     private(set) var liveReadEnded = false
     /// Off for a live read opened beside another on an origin whose limit is unknown: a kick then ends the read.
@@ -105,9 +106,15 @@ final class FrameGrabber {
     /// The live read's first keyframe packet: the clip starts on it.
     private var keyPacket: UnsafeMutablePointer<AVPacket>?
 
+    /// The provider whose connection budget this grabber's open context spends; nil reads outside any budget.
+    private let originKey: String?
+    /// Held from the open to the close. A grabber takes a connection from nothing: it opens only on a spare one.
+    private var originLease: LiveConnectionBroker.Lease?
+
     init(inputUrl: String, directory: URL, pool: URL? = nil, epoch: Int = ChapterFramePool.epoch,
-         httpHeaders: [String: String] = [:], live: Bool = false) {
+         httpHeaders: [String: String] = [:], live: Bool = false, originKey: String? = nil) {
         self.inputUrl = inputUrl
+        self.originKey = originKey
         self.httpHeaders = httpHeaders
         self.live = live
         self.directory = directory
@@ -436,6 +443,15 @@ final class FrameGrabber {
         queue.async { [self] in close() }
     }
 
+    /// stop(), returning once the contexts are closed: for an owner whose next read needs the connection back.
+    /// Never called on `queue`.
+    func stopAndClose() {
+        lock.lock()
+        cancelled = true
+        lock.unlock()
+        queue.sync { close() }
+    }
+
     // MARK: - FFmpeg
 
     func readPacket(_ input: UnsafeMutablePointer<AVFormatContext>, _ packet: UnsafeMutablePointer<AVPacket>) -> Int32 {
@@ -447,6 +463,21 @@ final class FrameGrabber {
     func open() -> Bool {
         if input != nil { return true }
         if openFailed { return false }
+        // A full budget is not a failed source: the next request asks for a connection again.
+        if let originKey, originLease == nil {
+            guard let lease = LiveConnectionBroker.shared.tryAcquire(key: originKey, priority: .sweep, onRevoke: { [weak self] in self?.stop() }) else {
+                openFailure = "no connection spare on the origin"
+                return false
+            }
+            originLease = lease
+        }
+        // A source that did not open holds no connection.
+        defer {
+            if input == nil {
+                originLease?.release()
+                originLease = nil
+            }
+        }
         openFailed = true
 
         EngineLog.configure()
@@ -483,6 +514,12 @@ final class FrameGrabber {
             return false
         }
         sourceOpened = true
+        guard opened.pointee.nb_streams > 0 else {
+            sourceEmpty = true
+            openFailure = "no streams in the source"
+            avformat_close_input(&closing)
+            return false
+        }
 
         let index = av_find_best_stream(opened, AVMEDIA_TYPE_VIDEO, -1, -1, nil, 0)
         guard index >= 0, let stream = opened.pointee.streams[Int(index)], let params = stream.pointee.codecpar,
@@ -565,6 +602,8 @@ final class FrameGrabber {
         decoder = nil
         input = nil
         sws = nil
+        originLease?.release()
+        originLease = nil
     }
 
     /// A decoded frame scaled for the JPEG, with what the poster search reads off it.
@@ -684,10 +723,10 @@ final class FrameGrabber {
             // Backward from the target: the keyframe at or before the chapter, the same
             // contract the pipeline's seek-restart relies on.
             let targetUs = ms * 1000 + containerStart
-            seekRet = avformat_seek_file(opened, -1, Int64.min, targetUs, targetUs, SWIFT_AVSEEK_FLAG_BACKWARD)
+            seekRet = seekBackward(opened, stream: -1, to: targetUs)
             reached = { pts, timeBase in av_rescale_q(pts, timeBase, AVRational(num: 1, den: 1_000_000)) >= targetUs }
         case .keyframe(let pts, _):
-            seekRet = avformat_seek_file(opened, videoIndex, Int64.min, pts, pts, SWIFT_AVSEEK_FLAG_BACKWARD)
+            seekRet = seekBackward(opened, stream: videoIndex, to: pts)
             reached = { framePts, _ in framePts >= pts }
         case .firstKeyframe:
             seekRet = 0

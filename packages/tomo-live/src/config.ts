@@ -22,10 +22,28 @@ export interface LiveChannels<Item = unknown> {
   subscribeListChange(listener: () => void): () => void;
 }
 
-let channels: LiveChannels | null = null;
+/** One of the app's channels a guide may be asked about, with every name the app may ask by. */
+export interface GuideChannelCandidate {
+  channelId: string;
+  tvgId?: string;
+  tvgName?: string;
+  names: string[];
+}
 
-export function configureLive<Item>(next: { channels: LiveChannels<Item> }): void {
+let channels: LiveChannels | null = null;
+let guideChannels: (() => Promise<GuideChannelCandidate[] | null>) | null = null;
+
+/**
+ * `guideChannels` lists every channel the app can ask a guide about: a guide then keeps only the
+ * programmes of channels on that list. Without it, or when it answers null, a guide keeps them all.
+ */
+export function configureLive<Item>(next: { channels: LiveChannels<Item>; guideChannels?: () => Promise<GuideChannelCandidate[] | null> }): void {
   channels = next.channels as unknown as LiveChannels;
+  guideChannels = next.guideChannels ?? null;
+}
+
+export function liveGuideChannels(): (() => Promise<GuideChannelCandidate[] | null>) | null {
+  return guideChannels;
 }
 
 export function liveChannels(): LiveChannels {

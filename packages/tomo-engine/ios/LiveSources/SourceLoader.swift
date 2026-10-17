@@ -32,9 +32,17 @@ public struct LoadStats: Equatable {
 enum SourceLoadError: Error {
     case http(Int)
     case decode(Error)
+    /// The load stopped because the app came within `memoryFloorBytes` of the system's memory limit.
+    case memory(availableBytes: Int)
 }
 
 final class SourceLoader: NSObject, URLSessionDataDelegate {
+    /// A load stops when less than this is left before the memory limit: the system kills the app at the
+    /// limit with no warning, while a guide or playlist that fails to load can be read again later.
+    static let memoryFloorBytes = 256 << 20
+    /// The memory reading the floor is checked against; tests replace it.
+    static var availableBytes: () -> Int? = MemoryFootprint.availableBytes
+
     private let sink: StreamSink
     private let gunzip = Gunzip()
     /// Released after the one call: its captures (often the owning wrapper) must not outlive the load.
@@ -130,6 +138,9 @@ final class SourceLoader: NSObject, URLSessionDataDelegate {
         }
         workNanos += DispatchTime.now().uptimeNanoseconds - begin
         stats.peakFootprintBytes = max(stats.peakFootprintBytes, MemoryFootprint.bytes())
+        if failure == nil, let available = Self.availableBytes(), available < Self.memoryFloorBytes {
+            failure = SourceLoadError.memory(availableBytes: available)
+        }
     }
 
     private func complete(error: Error?) {

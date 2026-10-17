@@ -1,6 +1,6 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { SectionFooter } from "@/components/settings/SectionFooter";
-import { settingsStyles } from "@/components/settings/styles";
+import { settingsStyles, sideInsets } from "@/components/settings/styles";
 import { BUNDLED_LICENSE_BODIES, BUNDLED_PACKAGES, BUNDLED_PACKAGES_DECLARED_ONLY } from "@/constants/bundled-licenses";
 import { COLORS } from "@/constants/colors";
 import { useHeaderHeight } from "expo-router/react-navigation";
@@ -71,7 +71,7 @@ export default function BundledLicensesScreen() {
   return (
     <View style={settingsStyles.screenContainer}>
       <AmbientBackground />
-      <View style={[styles.page, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }]}>
+      <View style={[styles.page, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }, sideInsets(insets)]}>
         <View style={[settingsStyles.contentContainer, styles.column]}>
           {/* Phone puts this in the native bar; TV has no header. */}
           {IS_TV && <Text style={styles.title}>{t("licenses.bundled")}</Text>}

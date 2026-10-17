@@ -1,6 +1,6 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { GlassButton } from "@/components/glass-button";
-import { settingsStyles } from "@/components/settings/styles";
+import { settingsStyles, sideInsets } from "@/components/settings/styles";
 import { brightnessGradient, hueGradient, saturationGradient } from "@/components/theme/gradients";
 import { HsbSlider } from "@/components/theme/hsb-slider";
 import { inPalette, SwatchGrid } from "@/components/theme/swatch-grid";
@@ -192,7 +192,7 @@ export default function ThemeEditorScreen() {
       <AmbientBackground />
       {/* The keyboard insets scroll the focused field (the hex box) above the keyboard. */}
       <ScrollView
-        contentContainerStyle={[styles.phonePage, { paddingTop: headerHeight + 12, paddingBottom: 24 + insets.bottom }]}
+        contentContainerStyle={[styles.phonePage, { paddingTop: headerHeight + 12, paddingBottom: 24 + insets.bottom }, sideInsets(insets)]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         automaticallyAdjustKeyboardInsets>

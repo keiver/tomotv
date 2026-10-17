@@ -892,10 +892,12 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath,
 }
 
 /**
- * Server-lane subtitle-sync invariant (validate: "subsync", mode: transcode): the WebVTT timestamp
- * map lands within half a second of the first media segment's time. Two shapes: Jellyfin's own HLS
- * (MPEG-TS segments, MPEGTS:900000 against a ~10s PTS base, the 2026-08-10 Star Trek bug) and the
- * engine gateway's server rungs (fMP4 behind EXT-X-MAP, MPEGTS:0 on a timeline that starts at 0).
+ * Server-lane subtitle-sync invariant (validate: "subsync", mode: transcode): the subtitle
+ * rendition's time base lands within half a second of the first media segment's time. A WebVTT
+ * cut by the engine carries X-TIMESTAMP-MAP (MPEGTS:0 on a timeline that starts at 0); a text
+ * sidecar handed through whole carries none, so its cues are absolute source time and the media
+ * timeline must start at 0. A track inside the file never reaches a server lane: Jellyfin reads
+ * the whole film to answer for it.
  */
 async function validateSubtitleSync(masterUrl) {
   const problems = [];
@@ -913,7 +915,7 @@ async function validateSubtitleSync(masterUrl) {
   const master = await get(masterUrl);
   const subMedia = master.split("\n").find((l) => l.startsWith("#EXT-X-MEDIA:") && l.includes("TYPE=SUBTITLES"));
   const subUri = subMedia?.match(/URI="([^"]+)"/)?.[1];
-  if (!subUri) return ["master playlist has no subtitle rendition (SubtitleMethod=Hls missing or renditions dropped)"];
+  if (!subUri) return ["master playlist has no subtitle rendition (the fixture's text sidecar is missing, or renditions were dropped)"];
 
   const videoPlaylistUri = firstUri(master);
   if (!videoPlaylistUri) return ["master playlist has no variant stream"];
@@ -959,11 +961,12 @@ async function validateSubtitleSync(masterUrl) {
   const vttUri = firstUri(await get(subPlaylistUrl));
   if (!vttUri) return [...problems, "subtitle media playlist has no segments"];
   const vtt = await get(new URL(vttUri, subPlaylistUrl).href);
+  if (!vtt.includes("-->")) return [...problems, "subtitle rendition carries no cues"];
   const map = vtt.match(/X-TIMESTAMP-MAP=MPEGTS:(\d+)(?:,LOCAL:(\d+):(\d+):([\d.]+))?/);
-  if (!map) return [...problems, "WebVTT segment has no X-TIMESTAMP-MAP (re-derive the sync model before trusting this lane)"];
 
-  const local = map[2] ? Number(map[2]) * 3600 + Number(map[3]) * 60 + Number(map[4]) : 0;
-  const mapSec = Number(map[1]) / 90000 - local;
+  // No map: a sidecar handed through whole, its cues at absolute source time.
+  const local = map?.[2] ? Number(map[2]) * 3600 + Number(map[3]) * 60 + Number(map[4]) : 0;
+  const mapSec = map ? Number(map[1]) / 90000 - local : 0;
   if (Number.isNaN(segStart)) {
     problems.push("could not read first media segment start_time");
   } else if (Math.abs(mapSec - segStart) > 0.5) {
@@ -1122,6 +1125,9 @@ async function runItem(env, target, item, resolved, updateBaselines, probe) {
   const tier = events.filter((e) => e.event === "tier").at(-1);
   if (item.mode === "localRemux" && tier?.state === "listed") result.problems.push("engine reports server rungs listed on a link that carries the file");
   if (item.expect?.tier && tier?.state !== item.expect.tier) result.problems.push(`tier report ${tier?.state ?? "(none)"}, expected ${item.expect.tier}`);
+  // Copy or on-device re-encode, as the engine itself reports it, on every target.
+  const videoAction = events.find((e) => e.event === "enginePlan")?.video?.action;
+  if (item.expect?.videoAction && videoAction !== item.expect.videoAction) result.problems.push(`engine video ${videoAction ?? "(no plan)"}, expected ${item.expect.videoAction}`);
   // Jellyfin's own log is the proof: a file the device plays never makes the server run ffmpeg on it.
   const serverJobs = serverJobsSince(serverLog, sourcePath);
   const lane = item.finalMode ?? item.mode;
@@ -1407,8 +1413,9 @@ async function main() {
     // An item that pins its own Server transcoding level runs under it; the run's level returns after.
     if (item.serverTranscoding) await applyServerTranscoding(env, target, probe, item.serverTranscoding);
     const r = await runItem(env, target, item, ids.get(item.title), updateBaselines, probe);
-    if (item.serverTranscoding) await applyServerTranscoding(env, target, probe, "linkOrFile");
+    // Read before the level is restored: applyServerTranscoding resets the listener.
     const received = listener.events(ids.get(item.title).id);
+    if (item.serverTranscoding) await applyServerTranscoding(env, target, probe, "linkOrFile");
     if (received.length) {
       r.probePath = path.join(itemWork, PROBE_FILENAME);
       fs.writeFileSync(r.probePath, received.map((e) => JSON.stringify(e)).join("\n") + "\n");

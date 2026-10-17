@@ -2,7 +2,7 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { ListRow } from "@/components/settings/ListRow";
 import { ServerTranscodingFooter } from "@/components/settings/ServerTranscodingFooter";
 import { StreamingQuality } from "@/components/settings/StreamingQuality";
-import { settingsStyles, TV_PUSHED_HEADER_TOP } from "@/components/settings/styles";
+import { settingsStyles, sideInsets, TV_PUSHED_HEADER_TOP } from "@/components/settings/styles";
 import { tick } from "@/components/settings/tick";
 import { transcodingLevelHint, transcodingLevelTitle } from "@/components/settings/transcodingCopy";
 import { useTranscodePermissions } from "@/hooks/useTranscodePermissions";
@@ -77,7 +77,7 @@ export default function TranscodingScreen() {
     <View style={styles.container}>
       <AmbientBackground />
       <ScrollView
-        contentContainerStyle={[styles.page, pagePadding]}
+        contentContainerStyle={[styles.page, pagePadding, sideInsets(insets)]}
         onLayout={IS_TV ? (event) => setViewportHeight(event.nativeEvent.layout.height) : undefined}
         showsVerticalScrollIndicator={false}
         focusable={false}>

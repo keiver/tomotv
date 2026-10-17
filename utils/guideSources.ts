@@ -38,6 +38,7 @@ export function guideUpdatedAt(loadedAt: number, nowMs: number, tr: Translate): 
 export function guideSourceSummary(status: GuideSourceStatus | undefined, enabled: boolean, tr: Translate): { subtitle: string; meter?: number } {
   if (!enabled) return { subtitle: tr("liveTv.guideOff") };
   if (!status || status.state === "waiting") return { subtitle: tr("liveTv.guideWaiting") };
+  if (status.state === "paused") return { subtitle: tr("liveTv.guidePaused") };
   if (status.state === "downloading") {
     return status.progress === null ? { subtitle: tr("liveTv.guideDownloading") } : { subtitle: tr("liveTv.guideDownloadingPercent").replace("{percent}", String(Math.round(status.progress * 100))) };
   }

@@ -74,6 +74,35 @@ export function formatSeasonEpisode(item: SeasonEpisodeSource): string | null {
   return pair.episodeEnd === undefined ? tag : `${tag}-${episodeTag(pair.episodeEnd)}`;
 }
 
+/**
+ * The Apple TV player's title view: an episode's series with "S04E19 · Episode name" over it, a
+ * movie or home video with its year over it, a song with "Artist · Album". Null when there is no second line to show.
+ */
+export function playerTitleLines(
+  item: SeasonEpisodeSource & Pick<JellyfinVideoItem, "SeriesName" | "ProductionYear" | "Artists" | "AlbumArtist" | "Album">,
+): { title: string; subtitle: string } | null {
+  if (item.Type === "Episode" && item.SeriesName) return { title: item.SeriesName, subtitle: [formatSeasonEpisode(item), item.Name].filter(Boolean).join(" · ") };
+  if ((item.Type === "Movie" || item.Type === "Video") && item.ProductionYear) return { title: item.Name, subtitle: String(item.ProductionYear) };
+  if (item.Type === "Audio") {
+    const artist = item.Artists?.length ? item.Artists.join(", ") : (item.AlbumArtist ?? "");
+    const album = item.Album && item.Album.toLowerCase() !== artist.toLowerCase() ? item.Album : "";
+    const subtitle = [artist, album].filter(Boolean).join(" · ");
+    return subtitle ? { title: item.Name, subtitle } : null;
+  }
+  return null;
+}
+
+/** The rating and genre AVKit's tvOS Info tab shows: a channel's airing programme's, an episode's series' when it has none. */
+export function playerInfoTags(item: Pick<JellyfinVideoItem, "Type" | "OfficialRating" | "Genres" | "CurrentProgram" | "seriesOfficialRating" | "seriesGenres">): {
+  contentRating?: string;
+  genre?: string;
+} {
+  const source = item.Type === "TvChannel" ? item.CurrentProgram : item;
+  const contentRating = source?.OfficialRating?.trim() || item.seriesOfficialRating?.trim();
+  const genre = source?.Genres?.[0]?.trim() || item.seriesGenres?.[0]?.trim();
+  return { ...(contentRating ? { contentRating } : {}), ...(genre ? { genre } : {}) };
+}
+
 /** Episode number as prose: "5", or "1-2" for a multi-episode file. */
 export function formatEpisodeNumber(item: SeasonEpisodeSource): string | null {
   if (item.IndexNumber == null) return null;

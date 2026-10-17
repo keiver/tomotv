@@ -1,7 +1,7 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { PadSheet } from "@/components/pad-sheet";
 import { ListRow } from "@/components/settings/ListRow";
-import { settingsStyles } from "@/components/settings/styles";
+import { settingsStyles, sideInsets } from "@/components/settings/styles";
 import { StorageBar } from "@/components/storage-bar";
 import { COLORS } from "@/constants/colors";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
@@ -83,7 +83,7 @@ export default function GuideChannelsScreen() {
   return (
     <View style={styles.container}>
       <AmbientBackground />
-      <View style={[styles.page, IS_TV ? styles.pageTV : { paddingTop: headerHeight + 12, paddingBottom: 60 + insets.bottom }]}>
+      <View style={[styles.page, IS_TV ? styles.pageTV : { paddingTop: headerHeight + 12, paddingBottom: 60 + insets.bottom }, sideInsets(insets)]}>
         <View style={[settingsStyles.contentContainer, styles.column, IS_TV && styles.columnTV]} onLayout={(event) => setRoomHeight(event.nativeEvent.layout.height)}>
           {/* Phone reads the title off the native bar. */}
           {IS_TV ? (

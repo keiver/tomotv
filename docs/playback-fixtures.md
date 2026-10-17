@@ -1,6 +1,6 @@
 # Playback fixtures
 
-Every file the playback suite plays, as ffprobe version 9.0.1 reads it, generated 2026-10-11. Stream facts are ffprobe's, scan type and HDR metadata come from the first decoded video frame, and the SHA-256 identifies the exact bytes described. Browsable with a codec index in [`playback-fixtures.html`](playback-fixtures.html); results per file are in [`playback-coverage.md`](playback-coverage.md).
+Every file the playback suite plays, as ffprobe version 9.0.1 reads it, generated 2026-10-15. Stream facts are ffprobe's, scan type and HDR metadata come from the first decoded video frame, and the SHA-256 identifies the exact bytes described. Browsable with a codec index in [`playback-fixtures.html`](playback-fixtures.html); results per file are in [`playback-coverage.md`](playback-coverage.md).
 
 ### T01
 
@@ -1785,6 +1785,273 @@ Every file the playback suite plays, as ffprobe version 9.0.1 reads it, generate
 | --- | --- | --- | --- | --- | --- | --- |
 | 0 | video | vp9 (Google VP9), Profile 2, vp09.02.40.10 | 1920x804, yuv420p10le, 24 fps, progressive, range tv, encoder Lavc62.28.100 libvpx-vp9 |  |  | default |
 | 1 | audio | opus (Opus (Opus Interactive Audio Codec)), opus | 48,000 Hz, 2ch stereo, fltp, encoder Lavc62.28.100 libopus |  |  | default |
+
+### T113
+
+| | |
+| --- | --- |
+| File | `T113 DIRECT audio lyrics word-level.flac` |
+| Size | 19,744,112 bytes |
+| SHA-256 | `b80a4c154bdbe0931fb1539e61924d84fd0f0a6b0f254d09792188e3f1d92111` |
+| Container | flac (raw FLAC) |
+| Duration | 240.000 s |
+| Overall bitrate | 658 kb/s |
+| Streams | 1 |
+| Container tags | encoder=Lavf62.12.103 |
+| Origin | unverified |
+| Expected lane | Direct play, validate none |
+
+| # | Type | Codec | Detail | Language | Title | Flags |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | audio | flac (FLAC (Free Lossless Audio Codec)), flac | 48,000 Hz, 2ch stereo, s32, 24-bit |  |  |  |
+
+### T114
+
+| | |
+| --- | --- |
+| File | `T114 DIRECT audio lyrics line-synced.lrc` |
+| Size | 476 bytes |
+| SHA-256 | `df007041bd80d1489bd6a97991977b395782f04c3538850331aa2c95beb28854` |
+| Container | lrc (LRC lyrics) |
+| Streams | 1 |
+| Origin | unverified |
+| Expected lane | Direct play, validate none |
+
+| # | Type | Codec | Detail | Language | Title | Flags |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | subtitle | text (raw UTF-8 text) |  |  |  |  |
+
+### T115
+
+| | |
+| --- | --- |
+| File | `T115 DIRECT audio lyrics unsynced.flac` |
+| Size | 8,231,386 bytes |
+| SHA-256 | `8f60040c0280a5febca7ef9c668cbf770826665a27bd2fe247faeb403de90bec` |
+| Container | flac (raw FLAC) |
+| Duration | 100.000 s |
+| Overall bitrate | 659 kb/s |
+| Streams | 1 |
+| Container tags | encoder=Lavf62.12.103 |
+| Origin | unverified |
+| Expected lane | Direct play, validate none |
+
+| # | Type | Codec | Detail | Language | Title | Flags |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | audio | flac (FLAC (Free Lossless Audio Codec)), flac | 48,000 Hz, 2ch stereo, s32, 24-bit |  |  |  |
+
+### T116
+
+| | |
+| --- | --- |
+| File | `T116 DIRECT audio spoken no lyrics.flac` |
+| Size | 3,308,645 bytes |
+| SHA-256 | `c7a48a2a2377d24a785e54b25b994c20c1d056b5154aa296e62096686aea71cb` |
+| Container | flac (raw FLAC) |
+| Duration | 111.361 s |
+| Overall bitrate | 238 kb/s |
+| Streams | 1 |
+| Container tags | encoder=Lavf62.12.103 |
+| Origin | unverified |
+| Expected lane | Direct play, validate none |
+
+| # | Type | Codec | Detail | Language | Title | Flags |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | audio | flac (FLAC (Free Lossless Audio Codec)), flac | 48,000 Hz, 2ch stereo, s16, 16-bit |  |  |  |
+
+### T117
+
+| | |
+| --- | --- |
+| File | `T117 DIRECT audio lyrics upload target.flac` |
+| Size | 4,942,035 bytes |
+| SHA-256 | `3f437fcdb50eff3e81729d3243a4b86d91b376696c526f0fede2c34a45551082` |
+| Container | flac (raw FLAC) |
+| Duration | 60.000 s |
+| Overall bitrate | 659 kb/s |
+| Streams | 1 |
+| Container tags | encoder=Lavf62.12.103 |
+| Origin | unverified |
+| Expected lane | Direct play, validate none |
+
+| # | Type | Codec | Detail | Language | Title | Flags |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | audio | flac (FLAC (Free Lossless Audio Codec)), flac | 48,000 Hz, 2ch stereo, s32, 24-bit |  |  |  |
+
+### T118
+
+| | |
+| --- | --- |
+| File | `T118 REMUX AV1 4K HDR10 real.mkv` |
+| Size | 149,583,695 bytes |
+| SHA-256 | `84eebc9c05fcc0fdb4456624ed256e1bc6b45c2cae30accf04d9999b73d2567d` |
+| Container | matroska,webm (Matroska / WebM) |
+| Duration | 29.950 s |
+| Overall bitrate | 39,956 kb/s |
+| Streams | 1 |
+| Container tags | COMPATIBLE_BRANDS=isomav01iso2mp41; MAJOR_BRAND=isom; MINOR_VERSION=512; ENCODER=Lavf62.12.103 |
+| Origin | unverified |
+| Expected lane | On-device remux, validate none |
+
+| # | Type | Codec | Detail | Language | Title | Flags |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | video | av1 (Alliance for Open Media AV1), Main, level 13, av01.0.13M.10.0.111.09.16.09.0 | 3840x2160, yuv420p10le, 60 fps, progressive, range tv, matrix bt2020nc, transfer smpte2084, primaries bt2020, encoder Lavc61.3.100 libsvtav1 |  |  | default |
+
+### T119
+
+| | |
+| --- | --- |
+| File | `T119 REMUX AV1 1080p 10bit real.mkv` |
+| Size | 18,678,195 bytes |
+| SHA-256 | `7741d27d60e96b986b403ea967b148c49d0ec33cc5c5f9de327e523a271ee1cc` |
+| Container | matroska,webm (Matroska / WebM) |
+| Duration | 29.950 s |
+| Overall bitrate | 4,989 kb/s |
+| Streams | 1 |
+| Container tags | COMPATIBLE_BRANDS=isomav01iso2mp41; MAJOR_BRAND=isom; MINOR_VERSION=512; ENCODER=Lavf62.12.103 |
+| Origin | unverified |
+| Expected lane | On-device remux, validate none |
+
+| # | Type | Codec | Detail | Language | Title | Flags |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | video | av1 (Alliance for Open Media AV1), Main, level 9, av01.0.09M.10.0.111.01.02.01.0 | 1920x1080, yuv420p10le, 60 fps, progressive, range tv, matrix bt709, primaries bt709, encoder Lavc61.3.100 libsvtav1 |  |  | default |
+
+### T120
+
+| | |
+| --- | --- |
+| File | `T120 REMUX AV1 10bit 420 conformance.mkv` |
+| Size | 765,510 bytes |
+| SHA-256 | `c1bc184c97a8fba82d14b7a27968535bdda945c722d79669e61f8114cb9ef14f` |
+| Container | matroska,webm (Matroska / WebM) |
+| Duration | 20.000 s |
+| Overall bitrate | 306 kb/s |
+| Streams | 1 |
+| Container tags | ENCODER=Lavf62.12.103 |
+| Origin | unverified |
+| Expected lane | On-device remux, validate none |
+
+| # | Type | Codec | Detail | Language | Title | Flags |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | video | av1 (Alliance for Open Media AV1), Main, av01.0.00M.10 | 160x90, yuv420p10le, 30 fps, progressive, range tv |  |  |  |
+
+### T121
+
+| | |
+| --- | --- |
+| File | `T121 REMUX AV1 10bit 444 conformance.mkv` |
+| Size | 834,691 bytes |
+| SHA-256 | `9df09fb4e41ab10ac4fa22e171defb55df33330a174739168010d23454c054b3` |
+| Container | matroska,webm (Matroska / WebM) |
+| Duration | 20.000 s |
+| Overall bitrate | 334 kb/s |
+| Streams | 1 |
+| Container tags | ENCODER=Lavf62.12.103 |
+| Origin | unverified |
+| Expected lane | On-device remux, validate none |
+| Harness expects | `{"videoAction":"encode"}` |
+
+| # | Type | Codec | Detail | Language | Title | Flags |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | video | av1 (Alliance for Open Media AV1), High, av01.1.00M.10 | 160x90, yuv444p10le, 30 fps, progressive, range tv |  |  |  |
+
+### T122
+
+| | |
+| --- | --- |
+| File | `T122 REMUX AV1 12bit 420 conformance.mkv` |
+| Size | 771,931 bytes |
+| SHA-256 | `1e7b49574bd1010c88433185ad8b84185b9efc41d9ebe43ca120333722612705` |
+| Container | matroska,webm (Matroska / WebM) |
+| Duration | 20.000 s |
+| Overall bitrate | 309 kb/s |
+| Streams | 1 |
+| Container tags | ENCODER=Lavf62.12.103 |
+| Origin | unverified |
+| Expected lane | On-device remux, validate none |
+| Harness expects | `{"videoAction":"encode"}` |
+
+| # | Type | Codec | Detail | Language | Title | Flags |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | video | av1 (Alliance for Open Media AV1), Professional, av01.2.00M.12 | 160x90, yuv420p12le, 30 fps, progressive, range tv |  |  |  |
+
+### T123
+
+| | |
+| --- | --- |
+| File | `T123 REMUX AV1 12bit 444 conformance.mkv` |
+| Size | 930,151 bytes |
+| SHA-256 | `5acf489354d189631e6d5f6da484fabc4191f2ea5145375343c2ce688fcf01b2` |
+| Container | matroska,webm (Matroska / WebM) |
+| Duration | 20.000 s |
+| Overall bitrate | 372 kb/s |
+| Streams | 1 |
+| Container tags | ENCODER=Lavf62.12.103 |
+| Origin | unverified |
+| Expected lane | On-device remux, validate none |
+| Harness expects | `{"videoAction":"encode"}` |
+
+| # | Type | Codec | Detail | Language | Title | Flags |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | video | av1 (Alliance for Open Media AV1), Professional, av01.2.00M.12 | 160x90, yuv444p12le, 30 fps, progressive, range tv |  |  |  |
+
+### T124
+
+| | |
+| --- | --- |
+| File | `T124 REMUX AV1 8bit RGB conformance.mkv` |
+| Size | 545,328 bytes |
+| SHA-256 | `4f0d9cc720518fb6bbeb16fabfd8d2f4c40d9b1bec94add77aa171bbf9f35b7c` |
+| Container | matroska,webm (Matroska / WebM) |
+| Duration | 20.000 s |
+| Overall bitrate | 218 kb/s |
+| Streams | 1 |
+| Container tags | ENCODER=Lavf62.12.103 |
+| Origin | unverified |
+| Expected lane | On-device remux, validate none |
+| Harness expects | `{"videoAction":"encode"}` |
+
+| # | Type | Codec | Detail | Language | Title | Flags |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | video | av1 (Alliance for Open Media AV1), High, av01.1.00M.08.0.000.01.13.00.0 | 240x100, gbrp, 24 fps, progressive, range pc, matrix gbr, transfer iec61966-2-1, primaries bt709 |  |  |  |
+
+### T125
+
+| | |
+| --- | --- |
+| File | `T125 REMUX AV1 monochrome conformance.mkv` |
+| Size | 476,910 bytes |
+| SHA-256 | `79e03cfcdcd834a2b86139517752e1b5b618f43ec890b12a3625ea6d977d5a3e` |
+| Container | matroska,webm (Matroska / WebM) |
+| Duration | 20.020 s |
+| Overall bitrate | 191 kb/s |
+| Streams | 1 |
+| Container tags | ENCODER=Lavf62.12.103 |
+| Origin | unverified |
+| Expected lane | On-device remux, validate none |
+
+| # | Type | Codec | Detail | Language | Title | Flags |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | video | av1 (Alliance for Open Media AV1), Main, av01.0.00M.08 | 320x180, gray, 23.976 fps, progressive, range tv |  |  |  |
+
+### T126
+
+| | |
+| --- | --- |
+| File | `T126 REMUX AV1 8K HDR10 real.mkv` |
+| Size | 374,070,122 bytes |
+| SHA-256 | `0cb7231f06565391e551a576305de3088d1b1c206d444944d792e4422e6a8731` |
+| Container | matroska,webm (Matroska / WebM) |
+| Duration | 29.950 s |
+| Overall bitrate | 99,919 kb/s |
+| Streams | 1 |
+| Container tags | COMPATIBLE_BRANDS=isomav01iso2mp41; MAJOR_BRAND=isom; MINOR_VERSION=512; ENCODER=Lavf62.12.103 |
+| Origin | unverified |
+| Expected lane | On-device remux, validate none |
+
+| # | Type | Codec | Detail | Language | Title | Flags |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | video | av1 (Alliance for Open Media AV1), Main, level 17, av01.0.17M.10.0.111.09.16.09.0 | 7680x4320, yuv420p10le, 60 fps, progressive, range tv, matrix bt2020nc, transfer smpte2084, primaries bt2020, encoder Lavc61.3.100 libsvtav1 |  |  | default |
 
 ### L01
 

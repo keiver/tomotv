@@ -137,7 +137,7 @@ Every feature needs a Jellyfin server. The Notes column says when a feature also
 | ----------------------------------------------------------------------- | -------- | ------------ | --- | --------------------------------------------------- |
 | Download an item or a whole folder                                      | No       | Yes          | Yes | Video and audio                                     |
 | Original, or a smaller copy at 1080p, 720p or 480p                      | No       | Yes          | Yes | Smaller copies need server transcoding              |
-| Smaller copies keep one audio track in your language and text subtitles | No       | Yes          | Yes | A picture subtitle you would see is burned in       |
+| Smaller copies keep one audio track in your language and subtitle files | No       | Yes          | Yes | A picture subtitle you would see is burned in       |
 | Pause and resume a download                                             | No       | Yes          | Yes | Originals only                                      |
 | Download speed and storage used                                         | No       | Yes          | Yes |                                                     |
 | Offline playback                                                        | No       | Yes          | Yes | Progress syncs when the app next reaches the server |
@@ -152,6 +152,8 @@ Every feature needs a Jellyfin server. The Notes column says when a feature also
 | Now Playing controls                      | Yes      | Yes          | Yes | On the Lock Screen on iPhone and iPad      |
 | Mini player while browsing                | No       | Yes          | Yes | Drag it anywhere, hold its artwork to stop |
 | Upcoming tracks in the player panel       | Yes      | No           | No  |                                            |
+| Lyrics that follow the song               | Yes      | Yes          | Yes | Pick a line to jump to it. Jellyfin 10.9+  |
+| Missing lyrics found on lrclib.net        | Yes      | Yes          | Yes | Saved to your server when it allows        |
 | Song details: album, artist, disc, track  | Yes      | Yes          | Yes |                                            |
 | Photo viewer and slideshow                | Yes      | Yes          | Yes |                                            |
 | Pinch and double tap to zoom a photo      | No       | Yes          | Yes |                                            |

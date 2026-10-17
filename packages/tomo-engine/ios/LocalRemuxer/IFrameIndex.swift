@@ -36,7 +36,7 @@ struct KeyframeIndex {
         guard matroska || names.contains("mov") || names.contains("avi") else { return nil }
         if matroska, avformat_index_get_entries_count(stream) < 2 {
             let start = input.pointee.start_time == Int64(bitPattern: 0x8000_0000_0000_0000) ? 0 : input.pointee.start_time
-            guard avformat_seek_file(input, -1, Int64.min, start, start, 1) >= 0 else { return nil }
+            guard seekBackward(input, stream: -1, to: start) >= 0 else { return nil }
         }
         var keyframes: [(timestamp: Int64, position: Int64, size: Int)] = []
         for index in 0..<avformat_index_get_entries_count(stream) {

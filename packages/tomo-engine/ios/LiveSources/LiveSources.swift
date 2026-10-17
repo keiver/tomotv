@@ -54,6 +54,8 @@ class LiveSources: NSObject {
             return
         }
         let pool = config["pool"] as? String ?? ""
+        // The app's channels: only their programmes are kept. Absent or empty keeps every channel's.
+        let channels = (config["channels"] as? [[String: Any]]).flatMap(Self.channelRequests)
         // 0: the caller closes its own guides, so this store never evicts one it still reads.
         let cap = config["maxOpen"] as? Int ?? Self.maxOpen
         let window: GuideWindow?
@@ -68,7 +70,7 @@ class LiveSources: NSObject {
             let store = GuideStore()
             Self.guides[token] = store
             self.ownedGuides.insert(token)
-            Self.guideLoaders[token] = GuideLoader.load(url: url, window: window, headers: headers, store: store) { result in
+            Self.guideLoaders[token] = GuideLoader.load(url: url, window: window, channels: channels, headers: headers, store: store) { result in
                 Self.queue.async {
                     Self.guideLoaders[token] = nil
                     // A cancelled or evicted load has no store to resolve into.
@@ -235,6 +237,14 @@ class LiveSources: NSObject {
         playlistOrder.removeAll { $0 == token }
     }
 
+    /// `{ tvgId?, tvgName?, names }` entries as matcher requests; nil when none are left, which keeps every channel.
+    private static func channelRequests(_ raw: [[String: Any]]) -> [GuideChannelRequest]? {
+        let requests = raw.map { entry in
+            GuideChannelRequest(tvgId: entry["tvgId"] as? String, tvgName: entry["tvgName"] as? String, names: entry["names"] as? [String] ?? [])
+        }
+        return requests.isEmpty ? nil : requests
+    }
+
     /// Nil when a header value is not a string, so a lost credential is an error rather than a silent omission.
     private static func headers(_ config: NSDictionary) -> [String: String]? {
         guard let raw = config["headers"] else { return [:] }
@@ -265,7 +275,10 @@ class LiveSources: NSObject {
     }
 
     private static func dictionary(_ stats: GuideStats) -> [String: Int] {
-        dictionary(stats.load).merging(["channels": stats.channels, "programmes": stats.programmes, "skipped": stats.skipped, "errors": stats.errors, "foldMs": stats.foldMs]) { $1 }
+        dictionary(stats.load).merging([
+            "channels": stats.channels, "programmes": stats.programmes, "skipped": stats.skipped, "unmatched": stats.unmatched,
+            "passes": stats.passes, "errors": stats.errors, "foldMs": stats.foldMs,
+        ]) { $1 }
     }
 
     private static func dictionary(_ stats: PlaylistStats) -> [String: Int] {

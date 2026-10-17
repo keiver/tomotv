@@ -141,6 +141,26 @@ if old in text:
 elif new not in text:
     raise SystemExit('FFmpeg VideoToolbox patch no longer applies; review Catalyst pixel buffers')
 PY
+  # The dec3 box's Atmos flag comes from the frame that carries it. With a dependent substream
+  # (Blu-ray E-AC-3: AC-3 core plus a dependent frame) that is the dependent frame (ETSI TS
+  # 103 420 8.3.1); movenc read the first frame of every packet, which there is the AC-3 core.
+  python3 - "$FF_SOURCE/libavformat/movenc.c" <<'PY'
+import pathlib, sys
+file = pathlib.Path(sys.argv[1])
+edits = [
+    ('    info->complexity_index_type_a = hdr->complexity_index_type_a;\n\n    num_blocks = hdr->num_blocks;',
+     '    if (!info->substream[0].num_dep_sub)\n        info->complexity_index_type_a = hdr->complexity_index_type_a;\n\n    num_blocks = hdr->num_blocks;'),
+    ('                info->substream[parent].num_dep_sub++;\n                ret /= 8;',
+     '                info->substream[parent].num_dep_sub++;\n                info->complexity_index_type_a = hdr->complexity_index_type_a;\n                ret /= 8;'),
+]
+text = file.read_text()
+for old, new in edits:
+    if old in text:
+        text = text.replace(old, new, 1)
+    elif new not in text:
+        raise SystemExit('FFmpeg dec3 Atmos patch no longer applies; review handle_eac3 in movenc.c')
+file.write_text(text)
+PY
   fetch dav1d    "$DAV1D_URL"    "$DAV1D_SHA"
   fetch freetype "$FREETYPE_URL" "$FREETYPE_SHA"
   fetch fribidi  "$FRIBIDI_URL"  "$FRIBIDI_SHA"

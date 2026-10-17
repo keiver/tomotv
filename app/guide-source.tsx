@@ -2,14 +2,14 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { FocusableButton } from "@/components/FocusableButton";
 import { ListRow } from "@/components/settings/ListRow";
 import { SectionFooter } from "@/components/settings/SectionFooter";
-import { IS_PAD, settingsStyles } from "@/components/settings/styles";
+import { IS_PAD, settingsStyles, sideInsets } from "@/components/settings/styles";
 import { tick } from "@/components/settings/tick";
 import { COLORS } from "@/constants/colors";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { forgetGuide, guideSourceStatuses, preloadGuide, subscribeGuideSources } from "@/services/externalGuide";
 import { guideFileInfo } from "@/services/guideFileCache";
 import { t } from "@/services/i18n";
-import { fetchTunerData, lastKnownTunerData } from "@/services/jellyfin/tunerGroups";
+import { fetchTunerData, lastKnownTunerData, subscribeTunerDataRefreshed } from "@/services/jellyfin/tunerGroups";
 import { removeGuideUrl, setGuideSourceEnabled } from "@/services/liveTvPreferences";
 import { guideChannelRows, guideHost, guideLabel, guideOrigin, guideSourceSummary, guideUpdatedAt } from "@/utils/guideSources";
 import { logger } from "@/utils/logger";
@@ -37,6 +37,9 @@ export default function GuideSourceScreen() {
   const status = statuses[url];
   const enabled = !preferences.guideSourcesOff.includes(url);
   const [declaredBy, setDeclaredBy] = useState(() => lastKnownTunerData()?.tvgUrlSources ?? {});
+  // A tuner playlist that arrived after playback can declare this guide: read the declarations again.
+  const [tunerRefreshes, setTunerRefreshes] = useState(0);
+  useEffect(() => subscribeTunerDataRefreshed(() => setTunerRefreshes((count) => count + 1)), []);
   useEffect(() => {
     let cancelled = false;
     fetchTunerData({ revalidate: true })
@@ -47,7 +50,7 @@ export default function GuideSourceScreen() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [tunerRefreshes]);
   const origin = useMemo(() => guideOrigin(url, preferences.guideUrls, declaredBy), [url, preferences.guideUrls, declaredBy]);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- a status change is when the file moves
   const file = useMemo(() => guideFileInfo(url), [url, status]);
@@ -131,7 +134,11 @@ export default function GuideSourceScreen() {
       <AmbientBackground />
       <ScrollView
         style={settingsStyles.scrollView}
-        contentContainerStyle={[settingsStyles.scrollContent, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + (IS_PAD ? 24 : 12), paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }]}
+        contentContainerStyle={[
+          settingsStyles.scrollContent,
+          { paddingTop: IS_TV ? 40 + insets.top : headerHeight + (IS_PAD ? 24 : 12), paddingBottom: (IS_TV ? 60 : 24) + insets.bottom },
+          sideInsets(insets),
+        ]}
         showsVerticalScrollIndicator={false}>
         <View style={settingsStyles.contentContainer}>
           {IS_TV ? (

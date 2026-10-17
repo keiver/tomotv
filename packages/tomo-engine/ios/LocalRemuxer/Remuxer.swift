@@ -53,6 +53,26 @@ import Libavutil
 
 // FFmpeg's error/constant macros don't survive the Clang importer.
 let SWIFT_AV_PKT_FLAG_KEY: Int32 = 0x0001
+private let SWIFT_AVSEEK_FLAG_BACKWARD: Int32 = 1
+
+/// The keyframe at or before `ts`, as `avformat_seek_file` BACKWARD. A Matroska seek ends with the read on its
+/// cue's cluster, yet reports success when that read's HTTP request times out (matroskadec.c ignores avio_seek).
+func seekBackward(_ input: UnsafeMutablePointer<AVFormatContext>, stream: Int32, to ts: Int64) -> Int32 {
+    var ret = avformat_seek_file(input, stream, Int64.min, ts, ts, SWIFT_AVSEEK_FLAG_BACKWARD)
+    guard input.pointee.iformat.map({ String(cString: $0.pointee.name).hasPrefix("matroska") }) == true,
+          let pb = input.pointee.pb, let st = input.pointee.streams[Int(stream >= 0 ? stream : max(0, av_find_default_stream_index(input)))]
+    else { return ret }
+    // seek.c's terms: a default-stream target in AV_TIME_BASE, rescaled; matroskadec.c clamps it to the first cue.
+    let target = stream >= 0 ? ts : av_rescale(ts, Int64(st.pointee.time_base.den), 1_000_000 * Int64(st.pointee.time_base.num))
+    for _ in 0..<2 {
+        guard ret >= 0, let first = avformat_index_get_entry(st, 0),
+              let cue = avformat_index_get_entry_from_timestamp(st, max(target, first.pointee.timestamp), SWIFT_AVSEEK_FLAG_BACKWARD),
+              avio_tell(pb) != cue.pointee.pos else { break }
+        NSLog("[LocalRemuxer] Seek to %lld left the read at byte %lld, not its cue's %lld: seeking again", ts, avio_tell(pb), cue.pointee.pos)
+        ret = avformat_seek_file(input, stream, Int64.min, ts, ts, SWIFT_AVSEEK_FLAG_BACKWARD)
+    }
+    return ret
+}
 
 /// find_stream_info with every decoder told to skip non-key frames. A stream joined mid-GOP
 /// (a tuner, a tuner recording) then costs one slice-header line instead of one per packet, and
@@ -104,6 +124,8 @@ final class RemuxSession {
     /// A WebVTT segment's wait for the read loop. Matches the video segment's,
     /// and giving up early loses those cues: a VOD segment is fetched once.
     static let subtitleSegmentWaitSeconds = 25.0
+    /// How long a window behind the read stays unanswered: a seek back sends its media request beside this one.
+    static let unreachableSubtitleGraceSeconds = 0.5
     /// Produce-ahead depth when the config carries none.
     static let defaultAheadWindow = 5
     /// How far ahead of the producer a request may land and still be waited for; past it, a seek.
@@ -168,6 +190,8 @@ final class RemuxSession {
     /// the producer would stay throttled and freshly written segments would be
     /// pruned the instant they landed.
     var lastRequestedSegment = 0
+    /// Set by the first primary, audio or rung request; until then the playhead is the start offset's segment.
+    var firstMediaRequestSeen = false
     /// Set once the input hits EOF. `lastProducedSegment` is then the highest
     /// segment the real stream actually yielded, which can be below the last
     /// index the playlist declares when the container runs slightly shorter
@@ -176,6 +200,23 @@ final class RemuxSession {
     var lastProducedSegment = 0
 
     var pendingSeekSegment: Int? = nil
+    /// A pick of a track prepared on demand: the restart that brings it up, at the segment asked
+    /// for, taken whatever the producer holds (under stateLock).
+    var activationSeekSegment: Int? = nil
+    /// Audio renditions (by prefix) and subtitle tracks (by index) picked while inactive; the
+    /// pipeline brings them up on the activation restart (under stateLock).
+    var pendingAudioActivations: Set<String> = []
+    var pendingSubtitleActivations: Set<Int> = []
+    /// The running generation was restarted behind the producer for a pick, and has not yet
+    /// reached where the producer was (`activationSpanEnd`): a request ahead of it waits for it
+    /// instead of restarting forward over it, which would leave the pick without its segments.
+    var activationGeneration = false
+    var activationSpanEnd = 0
+    /// The app has played long enough: the converted tracks still inactive come up one per
+    /// segment, at a cut, while each step keeps the segment inside its own length (under stateLock).
+    var rampArmed = false
+    /// The rendition the ramp brought up at the last cut; the segment now closing is its first. Pipeline thread.
+    var rampActivating: String? = nil
     /// Segment indices with a live segmentURL() request currently waiting on
     /// them, with a count per index (renditions can wait on the same n
     /// concurrently). The producer refuses to throttle while one of these sits
@@ -196,10 +237,17 @@ final class RemuxSession {
     /// Time the segment spent in the Dolby Vision rewrite and the audio encoder, beside the reads.
     var doviSecondsInSegment: Double = 0
     var audioSecondsInSegment: Double = 0
+    var subtitleSecondsInSegment: Double = 0
     /// The muxer's per-packet writes, the fragment flush at the cut, and the segment file write.
     var muxSecondsInSegment: Double = 0
     var flushSecondsInSegment: Double = 0
+    /// Seconds the writer spent on segment files since the last report (under stateLock): off the pipeline thread.
     var fileSecondsInSegment: Double = 0
+    /// Finished segments are written here, in order, while the pipeline reads on. One in flight: the next cut
+    /// waits only when the last write is still going (measured: 0.9 to 1.5 s of every 3 to 6 s segment, 60 to
+    /// 90 MB each, on an Apple TV), and the session holds at most two segments' bytes.
+    let segmentWriter = DispatchQueue(label: "tomo.engine.segment-writer", qos: .userInitiated)
+    let segmentWriteSlots = DispatchSemaphore(value: 1)
     var bytesInSegment: Int64 = 0
     /// Bytes and read time since the last link sample (one every 512KB; pipeline thread).
     var bytesSinceLinkSample: Int64 = 0
@@ -234,6 +282,19 @@ final class RemuxSession {
     var linkWindowStart = Date()
     /// Test seam: stands in for the measured link rate. Never set in production.
     var testLinkBps: Double? = nil
+    /// Seconds after stop() at which each stop request is sent; a job lives two segments plus 60s
+    /// without a request, so the last repeat outlives any request queued before the stop.
+    var stopRepeatDelays: [Double] = [0, 5, 15, 30, 60]
+    /// A rung the player left: idle this long, with two segments served elsewhere since, its own server
+    /// transcode is stopped (it would otherwise run two segments plus 60 s on the server's own timer).
+    var rungIdleSeconds = 12.0
+    /// Rung and copy segments served, each rung's last serve and the count then, and the kill generation a
+    /// request for the rung bumps so pending repeats stop (under stateLock).
+    var segmentsServed = 0
+    var rungServedAt: [Int: Date] = [:]
+    var rungServedMark: [Int: Int] = [:]
+    var rungKillGeneration: [Int: Int] = [:]
+    var rungStopped: Set<Int> = []
     let startedAt = Date()
 
     /// Image subtitle decoders by input stream index, built once the input is
@@ -272,12 +333,21 @@ final class RemuxSession {
     var liveTargetDuration: Int?
     /// Longest keyframe interval seen on the source, which bounds a keyframe-aligned cut's overshoot.
     var maxKeyframeGapSeconds: Double = 0
-    /// Live: every audio stream the demuxer found, in rendition order; nil until the input is open.
-    var liveAudioTracks: [RemuxAudioTrack]? = nil
-    /// Live: every image subtitle track the demuxer found; nil until the input is open.
-    var liveSubtitles: [RemuxSubtitle]? = nil
-    /// Live: the input is open and its streams read; the master playlist waits for this.
-    var liveStreamsResolved = false
+    /// Every audio stream the demuxer found, in rendition order, for a session that reads its tracks
+    /// off the input (live, `describesInput`); nil until the input is open.
+    var inputAudioTracks: [RemuxAudioTrack]? = nil
+    /// Every subtitle track the demuxer found, same sessions: image tracks, and text ones off a file.
+    var inputSubtitles: [RemuxSubtitle]? = nil
+    /// The input is open and its streams read; such a session's master playlist waits for this.
+    var inputStreamsResolved = false
+    /// A `describesInput` session's variant attributes, once its muxers are built (under stateLock).
+    var inputDescription: InputDescription?
+    /// A `describesInput` session's length off the container: written once on the pipeline thread
+    /// before the source is ready, like the adopted grid.
+    var containerDurationSeconds: Double = 0
+    var durationSeconds: Double { config.durationSeconds > 0 ? config.durationSeconds : containerDurationSeconds }
+    /// The primary rendition's init is on disk, so its video CODECS is resolved (under stateLock).
+    var primaryInitWritten = false
     /// Copied video whose opening packets carry CEA-608/708 in their SEI; the master declares them.
     var embeddedCaptions = false
     /// Live: the read head on the output timeline, for image cue manifests and their window.
@@ -305,8 +375,8 @@ final class RemuxSession {
     var rungLeads = false
     /// The master named the copy alone: there is no other variant to defer AVPlayer to.
     var copyOnlyMaster = false
-    /// The master lists server rungs, so the link may not carry the copy: only then may the server's
-    /// WebVTT and image streams stand in for the demuxer.
+    /// The master lists server rungs, so the link may not carry the copy: only then may a sidecar's
+    /// server stream stand in for the demuxer.
     var ladderListed = false
     /// The rung AVPlayer last asked a segment of, and when the producer last moved to follow it.
     var lastTierRung = 0
@@ -363,9 +433,8 @@ final class RemuxSession {
     /// instead of competing with the tier fetches for its first 10 seconds.
     var lastPrimaryDemandAt = Date.distantPast
     var lastTierDemandAt = Date.distantPast
-    /// Parsed server WebVTT per text stream index, and the fetches in flight.
-    var serverCues: [Int: [ServerCue]] = [:]
-    var serverCueFetches: Set<Int> = []
+    /// The producer is holding its source reads under a rung, so no cue window ahead of the read will fill.
+    var producerHeld = false
     /// Segment keys with a materialization in flight: a duplicate request
     /// (AVPlayer hangs up and retries slow segments) waits for the winner
     /// instead of stacking parallel server fetches of the same bytes onto
@@ -396,7 +465,7 @@ final class RemuxSession {
     var segmentCount: Int {
         if config.isLive { return Int.max }
         if !adoptedStarts.isEmpty { return adoptedStarts.count }
-        return max(1, Int(config.durationSeconds / Self.segmentDuration))
+        return max(1, Int(durationSeconds / Self.segmentDuration))
     }
 
 

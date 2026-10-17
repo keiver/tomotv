@@ -2,6 +2,44 @@
 
 All notable changes to Tomo TV are documented here.
 
+## [2.2.12]
+
+### Added
+
+- The music player shows a song's lyrics on Apple TV, iPhone, iPad and Mac: synced lines follow playback, word by word where the lyrics carry word timing, and picking a line plays from it. The lines take the screen in place of the artwork, under the player's own controls, and on Apple TV they are centered. Lyrics come from the Jellyfin server first (10.9 or later)
+- A song the server has no lyrics for is looked up on lrclib.net
+- Where the system's speech transcriber is available (iOS, tvOS and macOS 26 or later), the device listens to the song: found lyrics gain word timing, a constant offset is corrected, plain text is timed line by line, and a song with no lyrics anywhere gets ones written from what was heard, captioned "Generated on this device". Songs over 10 minutes or 80 MB, and Ogg, Opus and WMA files, are not listened to
+- Lyrics found on lrclib.net or generated on the device are saved to the server as a lyric file, once per song. Jellyfin does not report whether an account may manage lyrics, so the app tries, and an account the server refuses is not asked again while the app runs. The file opens with a line naming its source, "Lyrics: lrclib.net" or "Lyrics: written by Tomo TV on iPhone" (or the device that wrote it), shown for 3 seconds or until the first lyric, so any app showing the server's lyrics shows where they came from
+- Settings gains a Lyrics screen: Show lyrics, Find missing lyrics, Listen for lyrics and Save lyrics to my server, all on by default. Listen for lyrics says it can get words wrong, and shows off and cannot be pressed on a device that cannot listen; on such an Apple TV it explains that playing the song once on an iPhone, iPad or Mac with Save lyrics to my server on brings its lyrics to the TV. Save lyrics to my server leaves the list once the server has refused a save from the account
+- A downloaded song keeps the lyrics the server or lrclib.net has, for offline playback
+- On Apple TV, the player's Info tab shows the content rating and genre. An episode with none of its own shows its series', and a live channel shows those of the programme airing when it opens, from the server's guide or an XMLTV guide already loaded on the device
+- On Apple TV, the player's title shows an episode's series with its season, episode and name above it (S04E19 · Episode name), a movie or home video with its year above its name, and a song with its artist and album above its name
+- A Pluto TV channel from a tuner playlist plays on a session the device starts with Pluto, falling back to Pluto's older start and then the playlist's own link
+
+### Changed
+
+- While a video or song plays, XMLTV guide and M3U playlist downloads pause and resume from their bytes after it, and no screen waits on them: a read gets the copy on disk, and a guide with none reads "Paused during playback" in Guide sources. When a held-back download finishes, the guide, channel lists and channel groups read again
+- An XMLTV guide keeps only the programmes of the server's and its tuner playlists' channels; the others are skipped while the file is read. A channel asked for that is not on the list opens the guide again with it added
+- When a video starts, the open XMLTV guides close and the first read after it opens them again. No guide is read at launch: the first screen or live search that needs one opens it
+- A subtitle track inside the media file is never asked of the server, which extracts every subtitle track from the whole film to answer for one, with no way to cancel it (Jellyfin issue 17499). A 102.7 GB remux on a USB disk ran three 30-minute extractions in a row and starved the playback reading the same disk. The track comes from the bytes the engine reads, so while a server stream carries playback on a slow connection it draws nothing until the original is read again; a server-transcoded stream and a download the server converts carry only subtitle files beside the video, and a .mks file beside the video counts as inside it
+- A file with many tracks starts with the tracks in play: the playing audio track, every copied track and the default, forced and chosen subtitle tracks. Another track is prepared when picked, and the remaining converted audio tracks come up one per segment after 45 seconds of playback. A file with 15 audio tracks and 74 image subtitle tracks made a 6 second segment in 9.48 seconds when every track was converted from the start
+- Finished segments are written off the engine's pipeline thread. The write took 0.9 to 1.5 seconds of every 3 to 6 second segment on the 2021 Apple TV
+- A server stream opens one video job and one audio job on the server. A rung the player left is ended 12 seconds later; it ran two segments plus 60 seconds until the server's own timer, four orphaned transcodes in one six-minute play
+- The iPhone and iPad app is 8 MB smaller installed and 3.3 MB smaller to download: Expo's modules build from source and link into the app, which loads 10 fewer frameworks at launch, and builds work on Xcode 27.1. `npm run archive` runs on Xcode 27.1 and still refuses a beta Xcode or macOS
+
+### Fixed
+
+- The player's subtitles menu reads On while the subtitle language saved on the account draws: the app sets its caption display type to always-on before the player opens. It read Off on a device where On had never been picked in that menu
+- Resuming an item whose default subtitle track is not the saved language's full track draws that track's subtitles: a subtitle segment behind the resumed read is answered without cues after 0.5 seconds, where the request hung for 25 seconds and the track drew nothing
+- A Matroska file read over a server that is slow to answer a seek no longer stops playing after jumping back, and its chapter and scrubbing pictures come from the right time: the engine seeks again
+- An original a fast connection carries opens as the original: the opening connection measurement reads over the engine's three connections. On an Apple TV one connection read 65.6 Mb/s on a connection the three then read at 150 to 320, and that opened the file on a server stream
+- A read the server stops answering on every connection starts again after 5 seconds of silence instead of waiting out the 20 second timeout, which delivered one segment 33 seconds late
+- A guide or playlist load stops with an error when less than 256 MB is left before the system's memory limit, and a memory warning closes the open guides, which open again at the next read. The system had closed the Apple TV app for exceeding its memory limit with an XMLTV guide of 4,613 channels and 210,401 programmes open
+- A live channel whose source opens with no streams in it counts toward Offline, as a refused open does, and a failed read of the server's copy of a channel no longer counts against the channel's own source
+- A song seeks to the exact time asked, so lyrics stay with the audio after a scrub; a variable bit rate MP3 used to land on an estimate
+- AV1 in the High or Professional profile (4:4:4, RGB or 12-bit) plays on a device with AV1 hardware, re-encoded on the device. Apple's AV1 decoder plays only Main profile, and those files stopped with Cannot Decode
+- A Dolby Digital Plus 7.1 track with Atmos in the Blu-ray layout (a Dolby Digital core, with the extra channels and the Atmos data in a second frame of each packet) plays as Dolby Atmos: the engine's FFmpeg (tomo.8) declares the Atmos flag it reads from that second frame, where it declared none and the player heard plain 7.1. On Apple TV with AirPods, Control Center shows Dolby Atmos for it, as for a 5.1 track
+
 ## [2.2.11]
 
 ### Added

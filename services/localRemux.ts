@@ -47,7 +47,7 @@ import {
 import { JELLYFIN_TIME } from "@/services/jellyfin/constants";
 import { audioCatalogue, playbackMediaStreams, sourcePosition, type AudioCatalogueTrack } from "@/services/jellyfin/audioTracks";
 import { generatePlaySessionId, getCachedConfig } from "@/services/jellyfin/session";
-import { getSubtitleUrl, isDvdSubCodec, isImageBasedSubtitleCodec, isPgsCodec } from "@/services/jellyfin/subtitles";
+import { getSubtitleUrl, isImageBasedSubtitleCodec, isTextSidecar } from "@/services/jellyfin/subtitles";
 import { deviceDecodes, isLiveSource, sourceVideoRange } from "@/services/jellyfin/media";
 import { linkRungsAllowed, serverTranscodeAllowed } from "@/services/transcodePolicy";
 import { rememberedVerdict } from "@/services/engineVerdicts";
@@ -87,6 +87,7 @@ export {
   posterFrameIfCached,
   posterFrameRevision,
   posterFrameWorkInFlight,
+  prepareRemainingTracks,
   setPosterFramesPaused,
   readBound,
   reportPlayerBuffer,
@@ -311,7 +312,7 @@ async function copiesVideo(videoStream: JellyfinMediaStream | undefined): Promis
   const codec = videoStream?.Codec?.toLowerCase() ?? "";
   if (!codec) return false;
   if (!REMUXABLE_CODECS.some((known) => codec.startsWith(known)) && !AV1_CODECS.some((known) => codec.startsWith(known))) return false;
-  return deviceDecodes(codec, videoStream?.BitDepth, await videoDecodeSupport(), videoStream?.Height);
+  return deviceDecodes(codec, videoStream?.BitDepth, await videoDecodeSupport(), videoStream?.Height, videoStream?.Profile);
 }
 
 /** 8K UHD. A cropped 8K picture keeps the width, so either side marks it. */
@@ -621,6 +622,8 @@ function buildSubtitleRenditions(videoItem: JellyfinVideoItem, imageOnly: boolea
       if (index === undefined || !Number.isInteger(index) || index < 0 || index > 2_147_483_647) return dropped("no valid stream index", index);
       if (streamIndexes.has(index)) return dropped("duplicate stream index", index);
       streamIndexes.add(index);
+      // The server reads the whole film to answer for an .mks sidecar, as for a track inside the file.
+      if (stream.IsExternal === true && !isTextSidecar(stream)) return dropped("inside an .mks sidecar", index);
       const isImage = isImageBasedSubtitleCodec(stream.Codec);
       // A track saved with the download is a PATH, not a URL: the engine serves its bytes over
       // the loopback. A file:// URI inside an http playlist is a scheme AVFoundation will not
@@ -708,7 +711,8 @@ export async function startLocalRemux(
   preferredAudioStreamIndex?: number,
   startOffsetSeconds?: number,
   // prewarm: a live ring neighbour no player reads yet, kept out of the plan and probe the playing session owns.
-  options: { prewarm?: boolean; liveWindowSeconds?: number; serverVideoOnly?: boolean; livePriority?: "preview" | "ring" } = {},
+  // selectedSubtitleIndex: the track the stored choice lands on, decoded from the start with the default and forced ones.
+  options: { prewarm?: boolean; liveWindowSeconds?: number; serverVideoOnly?: boolean; livePriority?: "preview" | "ring"; selectedSubtitleIndex?: number | null } = {},
 ): Promise<string> {
   if (!isLocalRemuxAvailable()) {
     throw new Error("Local remux native module not available on this platform");
@@ -807,13 +811,19 @@ export async function startLocalRemux(
   // One server audio group: audio-lo, 96 kb/s stereo AAC, on every rung.
   const tierAudioPlan = { bandwidth: SURVIVAL_AUDIO_BITRATE, tag: "mp4a.40.2" };
   // One TierConfig per offered rung, ascending.
-  const tiersConfig = rungs.map((rung) => ({
-    playlistUrl: getTierPlaylistUrl(videoItem.Id, videoItem, rung, generatePlaySessionId()),
-    bandwidth: rung.bitrate + (audioTracks.length > 0 ? RUNG_AUDIO_BANDWIDTH : 0),
-    codecs: audioTracks.length > 0 ? `${rung.codecs},${tierAudioPlan.tag}` : rung.codecs,
-    width: rung.width,
-    height: rung.height,
-  }));
+  const tiersConfig = rungs.map((rung) => {
+    const playlistUrl = getTierPlaylistUrl(videoItem.Id, videoItem, rung, generatePlaySessionId());
+    // The rung's own kill, sent when the player leaves it; the session stop still covers every rung.
+    const [stopRequest] = tierStopRequests([playlistUrl]);
+    return {
+      playlistUrl,
+      bandwidth: rung.bitrate + (audioTracks.length > 0 ? RUNG_AUDIO_BANDWIDTH : 0),
+      codecs: audioTracks.length > 0 ? `${rung.codecs},${tierAudioPlan.tag}` : rung.codecs,
+      width: rung.width,
+      height: rung.height,
+      ...(stopRequest ? { stopRequest } : {}),
+    };
+  });
   const audioTracksConfig = audioTracks.map((track) => {
     if (rungs.length === 0 && !track.usesServerAudio) return track;
     const serverAudioUrl = getAudioRenditionUrl(videoItem.Id, videoItem, track.index, generatePlaySessionId(), SURVIVAL_AUDIO_BITRATE);
@@ -825,20 +835,12 @@ export async function startLocalRemux(
     };
   });
 
-  // A link that needs the rungs cannot carry the source read the engine decodes text cues from,
-  // so each engine text track also names the server's WebVTT.
-  // An image track has the same problem and the same answer: the server hands PGS and DVD tracks
-  // over raw (Stream.pgssub, Stream.mks) and the device still decodes and draws them. DVB and XSUB
-  // have no measured raw route, and neither does a sidecar file, which the container never held.
-  const rawImageFormat = (stream: JellyfinMediaStream | undefined) => (!stream || stream.IsExternal === true ? null : isPgsCodec(stream.Codec) ? "pgssub" : isDvdSubCodec(stream.Codec) ? "mks" : null);
-  const subtitlesConfig =
-    rungs.length > 0
-      ? subtitles.map((sub) => {
-          if (sub.isEngineText) return { ...sub, serverVttUrl: getSubtitleUrl(videoItem.Id, sub.index, "vtt") };
-          const format = sub.isImage ? rawImageFormat(streamsByIndex.get(sub.index)) : null;
-          return format ? { ...sub, serverSupUrl: getSubtitleUrl(videoItem.Id, sub.index, format) } : sub;
-        })
-      : subtitles;
+  // A subtitle inside the file comes only from the bytes the engine reads: asked of the server, it
+  // extracts every track from the whole film, uncancellable. Under a rung such tracks pause, and a
+  // server-video session never opens the file, so it lists sidecars alone.
+  const subtitlesConfig = (serverVideoOnly ? subtitles.filter((sub) => !sub.isEngineText && (!sub.isImage || sub.isExternal === true)) : subtitles).map((sub) =>
+    sub.index === options.selectedSubtitleIndex ? { ...sub, isSelected: true } : sub,
+  );
 
   const tierOffered = tiersConfig.length > 0;
   const stopRequests = tierStopRequests([...tiersConfig.map((tier) => tier.playlistUrl), ...audioTracksConfig.map((track) => ("serverAudioUrl" in track ? track.serverAudioUrl : ""))]);

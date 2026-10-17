@@ -18,7 +18,8 @@ import { accountTokenKey, API_TIMEOUTS } from "./constants";
 import { fetchWithTimeout } from "./http";
 import { rawLiveInput } from "./liveInput";
 import { recordClose, recordedOpens, recordOpen } from "./liveOpens";
-import { playlistPlayable, playlistStandIn, playlistStandInsAllowed, standInItem } from "./playlistItems";
+import { playlistPlayable, playlistStandIn, playlistStandInsAllowed, sessionRow, standInItem } from "./playlistItems";
+import { plutoStreamUrl } from "./plutoSession";
 import { didConfigReadFail, getAuthHeader, getConfig, getQualitySettings, throwRequestError } from "./session";
 import { lastKnownTunerData } from "./tunerGroups";
 import { type ChannelOrigin, clearOpenFailure, playlistChannelById } from "@keiver/tomo-live";
@@ -173,7 +174,7 @@ const CATEGORY_PARAMS: Record<LiveTvCategory, string> = { news: "isNews", sports
 
 /** Channels listed with no current programme get the one airing now from the device guides already open.
  *  Bounded by the page the caller fetched; any failure leaves the page as the server sent it. */
-async function fillAiringFromGuides(channels: JellyfinItem[]): Promise<JellyfinItem[]> {
+async function fillAiringFromGuides<T extends JellyfinVideoItem>(channels: T[]): Promise<T[]> {
   const bare = channels.filter((channel) => channel.Type === "TvChannel" && !channel.CurrentProgram);
   if (bare.length === 0) return channels;
   try {
@@ -385,7 +386,8 @@ async function describeChannel(
   }
   if (itemResponse && !itemResponse.ok) throwRequestError(itemResponse, `Failed to fetch channel: ${itemResponse.status}`);
   if (infoResponse && !infoResponse.ok) throwRequestError(infoResponse, `Failed to fetch channel playback info: ${infoResponse.status}`);
-  const channel: JellyfinVideoItem = item ?? (await itemResponse!.json());
+  // The player's Info tab shows the airing programme's rating and genre.
+  const [channel] = await fillAiringFromGuides<JellyfinVideoItem>([item ?? (await itemResponse!.json())]);
   const info = options.info ?? (await infoResponse!.json());
   const source: JellyfinMediaSource | undefined = info.MediaSources?.[0];
   const described = { ...channel, MediaSources: info.MediaSources, MediaStreams: source?.MediaStreams ?? [], PlaySessionId: info.PlaySessionId };
@@ -413,7 +415,7 @@ async function describeChannel(
 }
 
 async function manifestOrigin(source: JellyfinMediaSource): Promise<ChannelOrigin> {
-  const url = await originVariantUrl(source.Path!, source.RequiredHttpHeaders);
+  const url = await originVariantUrl(await plutoStreamUrl(source.Path!), source.RequiredHttpHeaders);
   return { url, ...(source.RequiredHttpHeaders ? { headers: source.RequiredHttpHeaders } : {}) };
 }
 
@@ -430,7 +432,8 @@ export async function resolveChannelOrigin(channelId: string): Promise<ChannelOr
   const response = await fetchWithTimeout(`${config.server}/Items/${channelId}/PlaybackInfo?UserId=${config.userId}`, { headers }, API_TIMEOUTS.NORMAL);
   if (!response.ok) {
     // An id the server has not ingested yet: its origin is the playlist entry the device parsed.
-    const row = response.status === 404 ? await playlistStandIn(channelId) : null;
+    const standIn = response.status === 404 ? await playlistStandIn(channelId) : null;
+    const row = standIn ? await sessionRow(standIn) : null;
     if (row) return { url: row.streamUrl, originKey: row.originKey, ...(Object.keys(row.headers).length > 0 ? { headers: row.headers } : {}) };
     throwRequestError(response, `Failed to fetch channel playback info: ${response.status}`);
   }
@@ -443,7 +446,7 @@ export async function resolveChannelOrigin(channelId: string): Promise<ChannelOr
     return raw ? { url: raw.url, originKey: raw.originKey, ...(raw.headers ? { headers: raw.headers } : {}), ...(raw.fallbackUrl ? { fallbackUrl: raw.fallbackUrl } : {}) } : null;
   }
   if (!source) return null;
-  return { url: source.Path!, ...(source.RequiredHttpHeaders ? { headers: source.RequiredHttpHeaders } : {}) };
+  return { url: await plutoStreamUrl(source.Path!), ...(source.RequiredHttpHeaders ? { headers: source.RequiredHttpHeaders } : {}) };
 }
 
 /**
@@ -492,7 +495,7 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
   }
   const infoResponse = await infoRequest;
   if (!infoResponse.ok) throwRequestError(infoResponse, `Failed to open channel: ${infoResponse.status}`);
-  const channel: JellyfinVideoItem = item ?? (await itemResponse!.json());
+  const [channel] = await fillAiringFromGuides<JellyfinVideoItem>([item ?? (await itemResponse!.json())]);
   const info = await infoResponse.json();
   const source: JellyfinMediaSource | undefined = info.MediaSources?.[0];
   const raw = !options.serverOnly && !!source?.Path && source.SupportsDirectPlay === true;
@@ -507,7 +510,11 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
   }
   let liveStreamUrl: string | undefined;
   try {
-    liveStreamUrl = !engineInput ? undefined : manifest ? await originVariantUrl(source.Path!, source.RequiredHttpHeaders) : liveStreamUrlFor(config.server, config.apiKey, source.Path!);
+    liveStreamUrl = !engineInput
+      ? undefined
+      : manifest
+        ? await originVariantUrl(await plutoStreamUrl(source.Path!), source.RequiredHttpHeaders)
+        : liveStreamUrlFor(config.server, config.apiKey, source.Path!);
   } catch (error) {
     // The server holds the tuner for an open nobody will play.
     void closeLiveStream(source.LiveStreamId, origin);

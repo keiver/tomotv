@@ -1,8 +1,9 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { BrandCorners } from "@/components/brand-corners";
-import { settingsStyles as styles } from "@/components/settings/styles";
+import { settingsStyles as styles, sideInsets } from "@/components/settings/styles";
 import React from "react";
 import { Platform, ScrollView, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 interface ConnectStepScreenProps {
   /** Phone screen title, when the step stands in for a tab that has one. */
@@ -40,6 +41,7 @@ export function ConnectStepScreen({ title, header, centered = false, headerRight
   const showTitle = !Platform.isTV && !!title;
   // See the `centered` prop: the request only applies on TV.
   const centerContent = centered && Platform.isTV;
+  const insets = useSafeAreaInsets();
 
   return (
     <View style={styles.screenContainer}>
@@ -49,7 +51,7 @@ export function ConnectStepScreen({ title, header, centered = false, headerRight
       <BrandCorners />
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, centerContent && styles.connectCentered]}
+        contentContainerStyle={[styles.scrollContent, centerContent && styles.connectCentered, sideInsets(insets)]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         contentInsetAdjustmentBehavior="automatic"

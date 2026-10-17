@@ -29,6 +29,20 @@ let package = Package(
             path: "Tests/TomoTunerGroupsTests",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        // The audio player's lyric timeline: which line and how much of it is sung at a time.
+        // Its one Foundation-only file; the views around it need UIKit.
+        .target(
+            name: "TomoLyrics",
+            path: "AudioQueuePlayer",
+            sources: ["LyricsTimeline.swift"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "TomoLyricsTests",
+            dependencies: ["TomoLyrics"],
+            path: "Tests/TomoLyricsTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         // The book reader's page renderer (plugins/withBookRenderer.js copies the same
         // files into the app). No UIKit outside the bridge, so it tests on the host.
         .target(

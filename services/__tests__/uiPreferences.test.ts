@@ -12,6 +12,10 @@ describe("uiPreferences", () => {
       serverTranscoding: "linkOrFile",
       cardTheme: { id: "gold", name: "", accent: "#FFC312" },
       background: "artwork",
+      showLyrics: true,
+      findLyrics: true,
+      listenForLyrics: true,
+      saveLyrics: true,
     });
     expect(getUiPreferences().devicePosters).toBe(true);
     expect(getUiPreferences().serverTranscoding).toBe("linkOrFile");
@@ -37,6 +41,11 @@ describe("uiPreferences", () => {
     expect(parseUiPreferences(JSON.stringify({ serverTranscoding: "never" }))).toEqual({ ...DEFAULT_UI_PREFERENCES, serverTranscoding: "never" });
     expect(parseUiPreferences(JSON.stringify({ serverTranscoding: "fileOnly" }))).toEqual({ ...DEFAULT_UI_PREFERENCES, serverTranscoding: "fileOnly" });
     expect(parseUiPreferences(JSON.stringify({ devicePosters: "yes", serverTranscoding: "sometimes" }))).toEqual(DEFAULT_UI_PREFERENCES);
+    expect(parseUiPreferences(JSON.stringify({ showLyrics: false }))).toEqual({ ...DEFAULT_UI_PREFERENCES, showLyrics: false });
+    expect(parseUiPreferences(JSON.stringify({ showLyrics: "no" }))).toEqual(DEFAULT_UI_PREFERENCES);
+    const lyricsOff = { findLyrics: false, listenForLyrics: false, saveLyrics: false };
+    expect(parseUiPreferences(JSON.stringify(lyricsOff))).toEqual({ ...DEFAULT_UI_PREFERENCES, ...lyricsOff });
+    expect(parseUiPreferences(JSON.stringify({ findLyrics: 0, listenForLyrics: "off", saveLyrics: null }))).toEqual(DEFAULT_UI_PREFERENCES);
     expect(parseUiPreferences("{not json")).toEqual(DEFAULT_UI_PREFERENCES);
     expect(parseUiPreferences(undefined)).toEqual(DEFAULT_UI_PREFERENCES);
   });

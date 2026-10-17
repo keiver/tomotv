@@ -372,6 +372,8 @@ const COVERAGE_AUDIO = [
  * carry video and are copied as-is.
  */
 const SAMPLES_BASE = "https://samples.ffmpeg.org/A-codecs";
+const JELLYFIN_TEST_VIDEOS = "https://repo.jellyfin.org/test-videos";
+const DAV1D_TEST_DATA = "https://code.videolan.org/videolan/dav1d-test-data/-/raw/master";
 const DOWNLOADS = [
   { id: "T80", title: "T80 REMUX EAC3 7.1 real", url: `${SAMPLES_BASE}/AC3/eac3/7_pt_1.eac3`, mux: true },
   { id: "T81", title: "T81 REMUX EAC3 5.1 real", url: `${SAMPLES_BASE}/AC3/eac3/matrix2_english_5.1_640.eac3`, mux: true },
@@ -391,6 +393,19 @@ const DOWNLOADS = [
   // signs, and every line styled "*Default", the leading star SSA writes for a
   // style it did not resolve.
   { id: "T100", title: "T100 REMUX H264 SSA real", url: "http://fate-suite.ffmpeg.org/sub/a9-misc.ssa", subs: true, tagSubtitle: true },
+  // AV1 from Jellyfin's own test set (CC BY-SA 4.0): copied where the chip decodes AV1, re-encoded elsewhere.
+  { id: "T118", title: "T118 REMUX AV1 4K HDR10 real", url: `${JELLYFIN_TEST_VIDEOS}/HDR/HDR10/AV1/Test%20Jellyfin%204K%20AV1%20HDR10%2040M.mp4`, container: "mkv" },
+  { id: "T119", title: "T119 REMUX AV1 1080p 10bit real", url: `${JELLYFIN_TEST_VIDEOS}/SDR/AV1/Test%20Jellyfin%201080p%20AV1%2010bit%205M.mp4`, container: "mkv" },
+  // dav1d conformance streams, 10 frames each, repeated by stream copy to 20s. T120 is the
+  // ordinary 4:2:0 control at the same size; the others are the profiles a decoder may refuse.
+  { id: "T120", title: "T120 REMUX AV1 10bit 420 conformance", url: `${DAV1D_TEST_DATA}/10-bit/data/00000671.ivf`, container: "mkv", loop: 59 },
+  { id: "T121", title: "T121 REMUX AV1 10bit 444 conformance", url: `${DAV1D_TEST_DATA}/10-bit/data/00000730.ivf`, container: "mkv", loop: 59 },
+  { id: "T122", title: "T122 REMUX AV1 12bit 420 conformance", url: `${DAV1D_TEST_DATA}/12-bit/data/00000686.ivf`, container: "mkv", loop: 59 },
+  { id: "T123", title: "T123 REMUX AV1 12bit 444 conformance", url: `${DAV1D_TEST_DATA}/12-bit/data/00000700.ivf`, container: "mkv", loop: 59 },
+  { id: "T124", title: "T124 REMUX AV1 8bit RGB conformance", url: `${DAV1D_TEST_DATA}/8-bit/features/rgb.ivf`, container: "mkv", loop: 19 },
+  // libaom's monochrome vector: Main profile with no chroma planes.
+  { id: "T125", title: "T125 REMUX AV1 monochrome conformance", url: "https://storage.googleapis.com/aom-test-data/av1-1-b8-24-monochrome.ivf", container: "mkv", loop: 47 },
+  { id: "T126", title: "T126 REMUX AV1 8K HDR10 real", url: `${JELLYFIN_TEST_VIDEOS}/HDR/HDR10/AV1/Test%20Jellyfin%208K%20AV1%20HDR10%20100M.mp4`, container: "mkv" },
 ];
 
 const APPLE_MASTER = "https://devstreaming-cdn.apple.com/videos/streaming/examples/adv_dv_atmos/main.m3u8";
@@ -1031,6 +1046,78 @@ async function buildSyntheticAudio() {
   return built;
 }
 
+const JELLYFIN_ELRC = "https://raw.githubusercontent.com/jellyfin/jellyfin/master/tests/Jellyfin.Providers.Tests/Test%20Data/Lyrics/Fleetwood%20Mac%20-%20Rumors.elrc";
+const LRCLIB_ENTRY = "https://lrclib.net/api/get/37021207";
+
+/**
+ * Songs that exist for their lyrics sidecar: word-level, line-synced and plain. The audio is
+ * T73's tone, as long as the lyrics run. The sidecars are fetched when this runs, Jellyfin's own
+ * parser fixture and one LRCLIB entry, so no lyric text lives in this repo.
+ */
+const fetched = (url) => fetch(url, { signal: AbortSignal.timeout(60000) });
+const LYRIC_ITEMS = [
+  { id: "T113", title: "T113 DIRECT audio lyrics word-level", seconds: 240, sidecar: "elrc", text: async () => (await fetched(JELLYFIN_ELRC)).text() },
+  { id: "T114", title: "T114 DIRECT audio lyrics line-synced", seconds: 100, sidecar: "lrc", text: async () => (await (await fetched(LRCLIB_ENTRY)).json()).syncedLyrics },
+  { id: "T115", title: "T115 DIRECT audio lyrics unsynced", seconds: 100, sidecar: "txt", text: async () => (await (await fetched(LRCLIB_ENTRY)).json()).plainLyrics },
+  // No sidecar: the song lyrics are uploaded to through the server's API.
+  { id: "T117", title: "T117 DIRECT audio lyrics upload target", seconds: 60, sidecar: null },
+];
+
+/** A song with words and no lyrics anywhere: the system voice reading numbered lines. */
+const SPOKEN = { id: "T116", title: "T116 DIRECT audio spoken no lyrics", lines: 24 };
+
+async function buildSpoken() {
+  if (!wanted(SPOKEN.id)) return [];
+  fs.mkdirSync(AUDIO_DIR, { recursive: true });
+  fs.mkdirSync(CACHE_DIR, { recursive: true });
+  const out = path.join(AUDIO_DIR, `${SPOKEN.title}.flac`);
+  if (exists(out) && !FORCE) {
+    log(`  = ${SPOKEN.title}`);
+    return [{ ...SPOKEN, out }];
+  }
+  log(`  + ${SPOKEN.title}`);
+  const script = Array.from({ length: SPOKEN.lines }, (_, i) => `This is fixture line number ${i + 1}, sung by nobody at all.`).join(" [[slnc 900]] ");
+  const voiced = path.join(CACHE_DIR, "spoken.aiff");
+  try {
+    await exec("say", ["-o", voiced, script]);
+  } catch (e) {
+    failures.push(`${SPOKEN.id} say: ${e.message}`);
+    return [];
+  }
+  if (!(await ff(["-y", "-i", voiced, "-ac", "2", "-ar", String(RATE), "-c:a", "flac", out], SPOKEN.title))) return [];
+  return [{ ...SPOKEN, out }];
+}
+
+async function buildLyrics() {
+  const built = [];
+  fs.mkdirSync(AUDIO_DIR, { recursive: true });
+  for (const item of LYRIC_ITEMS) {
+    if (!wanted(item.id)) continue;
+    const out = path.join(AUDIO_DIR, `${item.title}.flac`);
+    const sidecar = item.sidecar ? path.join(AUDIO_DIR, `${item.title}.${item.sidecar}`) : null;
+    if (exists(out) && (!sidecar || exists(sidecar)) && !FORCE) {
+      log(`  = ${item.title}`);
+      built.push({ ...item, out });
+      continue;
+    }
+    log(`  + ${item.title}`);
+    const text = sidecar ? await item.text().catch(() => null) : null;
+    if (sidecar && (typeof text !== "string" || text.trim() === "")) {
+      console.warn(`  ✗ ${item.id} lyrics could not be fetched`);
+      failures.push(`${item.id} lyrics fetch`);
+      continue;
+    }
+    const tones = TONES.stereo;
+    const inputs = [];
+    for (const t of tones) inputs.push("-f", "lavfi", "-i", `sine=frequency=${t.hz}:duration=${item.seconds}:sample_rate=${RATE}`);
+    const argv = ["-y", ...inputs, "-filter_complex", `${tones.map((_, i) => `[${i}:a]`).join("")}${joinFilter("stereo")},volume=0.2[a]`, "-map", "[a]", "-c:a", "flac", "-sample_fmt", "s32", out];
+    if (!(await ff(argv, item.title))) continue;
+    if (sidecar) fs.writeFileSync(sidecar, text);
+    built.push({ ...item, out });
+  }
+  return built;
+}
+
 /** A silent video bed to carry an elementary audio stream into the video library. */
 async function videoBed(title, seconds) {
   const bed = path.join(CACHE_DIR, `bed-${seconds}.mkv`);
@@ -1213,7 +1300,8 @@ async function buildDownloads(sources) {
       );
     } else {
       // Already carries video; rewrap to Matroska without touching any stream.
-      ok = await ff(["-y", "-i", cached, "-map", "0", "-c", "copy", ...(item.tagSubtitle ? SUBTITLE_TAGS : []), out], item.title);
+      const loop = item.loop ? ["-stream_loop", String(item.loop)] : [];
+      ok = await ff(["-y", ...loop, "-i", cached, "-map", "0", "-c", "copy", ...(item.tagSubtitle ? SUBTITLE_TAGS : []), out], item.title);
     }
     if (ok) {
       log(`  + ${item.title}`);
@@ -1374,9 +1462,15 @@ async function main() {
   log("\nForced + SDH PGS item");
   await buildForcedSdh();
 
+  log("\nSpoken item");
+  const spoken = await buildSpoken();
+
   let downloaded = [];
   let atmos = [];
+  let lyrics = [];
   if (!flag("--no-download")) {
+    log("\nLyric items (Jellyfin test data, LRCLIB)");
+    lyrics = await buildLyrics();
     log("\nReal encoder output (samples.ffmpeg.org)");
     downloaded = await buildDownloads(sources);
     log("\nReal Atmos (Apple HLS example)");
@@ -1417,7 +1511,7 @@ async function main() {
     }
   }
 
-  const total = video.length + audio.length + coverage.length + coverageAudio.length + bench.length + slipstream.length + downloaded.length + atmos.length;
+  const total = video.length + audio.length + coverage.length + coverageAudio.length + bench.length + slipstream.length + downloaded.length + atmos.length + lyrics.length + spoken.length;
   log(`\n${total} items ready`);
   log(`  ${VIDEO_DIR}`);
   log(`  ${SURROUND_DIR}`);

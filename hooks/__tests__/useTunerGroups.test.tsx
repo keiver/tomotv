@@ -20,6 +20,14 @@ jest.mock("@/services/liveTvPreferences", () => ({
   updateLiveTvPreferences: jest.fn(),
   playlistGroupIds: (ids: readonly string[]) => ids,
 }));
+/** Listeners told when a tuner playlist that playback held back has downloaded. */
+const mockTunerRefreshed = new Set<() => void>();
+jest.mock("@/services/jellyfin/tunerGroups", () => ({
+  subscribeTunerDataRefreshed: (listener: () => void) => {
+    mockTunerRefreshed.add(listener);
+    return () => mockTunerRefreshed.delete(listener);
+  },
+}));
 jest.mock("@/hooks/useLiveTvPreferences", () => ({ useLiveTvPreferences: () => ({ playlistEdits: {} }) }));
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
 
@@ -61,6 +69,22 @@ describe("usePlaylistChannelIds", () => {
     await settle();
     expect(ref.current?.ids()).toEqual(["a", "b"]);
     expect(updateLiveTvPreferences).not.toHaveBeenCalled();
+  });
+
+  it("reads the groups again after a tuner playlist held back by playback downloads", async () => {
+    mockFetch.mockResolvedValue([]);
+    const ref = React.createRef<HookRef>();
+    await act(async () => {
+      TestRenderer.create(<Harness ref={ref} filter="playlist:News" />);
+    });
+    await settle();
+    expect(ref.current?.ids()).toEqual([]);
+    mockFetch.mockResolvedValue([{ name: "News", channelIds: ["a"] }]);
+    const before = mockFetch.mock.calls.length;
+    await act(async () => mockTunerRefreshed.forEach((listener) => listener()));
+    await settle();
+    expect(mockFetch.mock.calls.length).toBeGreaterThan(before);
+    expect(ref.current?.ids()).toEqual(["a"]);
   });
 
   it("a sign-in elsewhere waits for the new server's groups, then reads them", async () => {

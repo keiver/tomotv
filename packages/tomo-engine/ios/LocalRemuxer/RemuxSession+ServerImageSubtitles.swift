@@ -59,8 +59,7 @@ extension RemuxSession {
         }
     }
 
-    /// Jellyfin extracts with `-c:s copy` and no `-copyts`, so the cues count from the file's
-    /// start, as the session does. Its answer waits on the extraction, which reads the whole file.
+    /// A sidecar's cues count from the file's start, as the session does.
     /// True when there is nothing left to try: read to its end, the session over, or a stream no try will decode.
     private func readServerImageSubtitlesOnce(_ track: RemuxSubtitle) -> Bool {
         var ctx: UnsafeMutablePointer<AVFormatContext>? = avformat_alloc_context()
@@ -147,10 +146,10 @@ extension RemuxSession {
             NSLog("[LocalRemuxer] server subtitle stream %d broke off mid-read", track.index)
             return isCancelled || hasFailed
         }
-        decoder.finish(at: config.durationSeconds)
+        decoder.finish(at: durationSeconds)
         stateLock.lock()
         serverImageSubtitles[Int32(track.index)] = decoder
-        serverImageReadUpTo[Int32(track.index)] = config.durationSeconds
+        serverImageReadUpTo[Int32(track.index)] = durationSeconds
         stateLock.unlock()
         NSLog("[LocalRemuxer] server subtitle stream %d read to its end", track.index)
         return true

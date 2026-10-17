@@ -10,6 +10,8 @@ export type ThroughputSample = {
   cushion: number;
   /** The producer slept on its read-ahead cap while making this segment. */
   throttled: boolean;
+  /** The first segment with an audio track the engine brought up at the cut before it; never a device verdict. */
+  activating?: boolean;
   thermal: string;
   /** Wall seconds the producer spent blocked on the input while making this segment. */
   readSeconds?: number;
@@ -34,8 +36,8 @@ export function belowRealtime(sample: Pick<ThroughputSample, "produceSeconds" | 
  */
 export function engineStarving(samples: ThroughputSample[]): boolean {
   const latest = samples.at(-1);
-  if (!latest) return false;
-  const timed = samples.filter((sample) => sample.generation === latest.generation && !sample.throttled && sample.produceSeconds != null);
+  if (!latest || latest.activating === true) return false;
+  const timed = samples.filter((sample) => sample.generation === latest.generation && !sample.throttled && sample.activating !== true && sample.produceSeconds != null);
   return timed.length >= 2 && latest.cushion <= 1 && timed.slice(-2).every(belowRealtime);
 }
 
@@ -46,8 +48,8 @@ export function engineStarving(samples: ThroughputSample[]): boolean {
  */
 export function liveStarving(samples: ThroughputSample[]): boolean {
   const latest = samples.at(-1);
-  if (!latest || latest.cushion > 1) return false;
-  const timed = samples.filter((sample) => !sample.throttled && sample.produceSeconds != null);
+  if (!latest || latest.cushion > 1 || latest.activating === true) return false;
+  const timed = samples.filter((sample) => !sample.throttled && sample.activating !== true && sample.produceSeconds != null);
   return timed.length >= 3 && timed.slice(-3).every((sample) => belowRealtime(sample) && readBound(sample));
 }
 

@@ -185,6 +185,76 @@ final class GuideLoaderTests: XCTestCase {
         XCTAssertEqual(try result?.get().programmes, 2)
     }
 
+    /// b.us's entry comes after programmes that belong to it, against the DTD.
+    private let lateChannel = Array("""
+    <tv><channel id="a.us"><display-name>A</display-name></channel>\
+    <programme start="20260925010000 +0000" channel="b.us"><title>B one</title></programme>\
+    <programme start="20260925010000 +0000" channel="a.us"><title>A one</title></programme>\
+    <channel id="b.us"><display-name>B</display-name></channel>\
+    <programme start="20260925020000 +0000" channel="b.us"><title>B two</title></programme></tv>
+    """.utf8)
+
+    private let appHasB = [GuideChannelRequest(tvgId: nil, tvgName: nil, names: ["B"])]
+
+    func testKeepsOnlyTheAppsChannelsInOneRead() throws {
+        let store = GuideStore()
+        let stats = try GuideLoader.parse(data: Data(document), window: nil, channels: [GuideChannelRequest(tvgId: "x.us", tvgName: nil, names: [])], store: store)
+        XCTAssertEqual(stats.programmes, 0)
+        XCTAssertEqual(stats.unmatched, 2)
+        XCTAssertEqual(stats.passes, 1)
+        XCTAssertEqual(store.channels.map(\.id), ["a.us"])
+    }
+
+    func testReadsTheGuideAgainWhenAChannelIsListedAfterItsProgrammes() throws {
+        let store = GuideStore()
+        let stats = try GuideLoader.parse(data: Data(lateChannel), window: nil, channels: appHasB, store: store)
+        XCTAssertEqual(stats.passes, 2)
+        XCTAssertEqual(Fixture.programmes(store, "b.us").map(\.title), ["B one", "B two"])
+        XCTAssertTrue(Fixture.programmes(store, "a.us").isEmpty)
+        // The second read starts from an empty store: no channel entry is listed twice.
+        XCTAssertEqual(store.channels.map(\.id), ["a.us", "b.us"])
+    }
+
+    func testReadsAFileAgainWhenAChannelIsListedAfterItsProgrammes() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("late-\(UUID().uuidString).xml")
+        try Data(lateChannel).write(to: file)
+        addTeardownBlock { try? FileManager.default.removeItem(at: file) }
+        let store = GuideStore()
+        let done = expectation(description: "completion")
+        done.assertForOverFulfill = true
+        var result: Result<GuideStats, Error>?
+        let loader = GuideLoader.load(url: file, window: nil, channels: appHasB, store: store) {
+            result = $0
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 10)
+        _ = loader
+        XCTAssertEqual(try result?.get().passes, 2)
+        XCTAssertEqual(Fixture.programmes(store, "b.us").map(\.title), ["B one", "B two"])
+    }
+
+    func testStopsALoadWhenMemoryRunsLowAndStopsTheDownload() {
+        let reading = SourceLoader.availableBytes
+        SourceLoader.availableBytes = { 100 << 20 }
+        addTeardownBlock { SourceLoader.availableBytes = reading }
+        StubProtocol.reset(["/big.xml": .init(chunks: [document + [UInt8](repeating: 0x20, count: 1 << 20)], hold: true)])
+        guard case let .failure(error) = load("http://stub/big.xml"), case let GuideLoadError.memory(available) = error else {
+            return XCTFail("expected a memory failure")
+        }
+        XCTAssertEqual(available, 100 << 20)
+        XCTAssertEqual(StubProtocol.stops, 1)
+    }
+
+    func testLoadsNormallyWithMemoryToSpareOrNoLimitReported() throws {
+        let reading = SourceLoader.availableBytes
+        addTeardownBlock { SourceLoader.availableBytes = reading }
+        for available in [Int?.some(SourceLoader.memoryFloorBytes + 1), nil] {
+            SourceLoader.availableBytes = { available }
+            StubProtocol.reset(["/g.xml": .init(chunks: [document])])
+            XCTAssertEqual(try load("http://stub/g.xml").get().programmes, 2)
+        }
+    }
+
     func testReportsFootprint() throws {
         StubProtocol.reset(["/g.xml": .init(chunks: [document])])
         let stats = try load("http://stub/g.xml").get()

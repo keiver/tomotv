@@ -6,7 +6,7 @@
  */
 
 import { JELLYFIN_TIME, QUALITY_PRESETS } from "@/services/jellyfin/constants";
-import { isDvdSubCodec, isImageBasedSubtitleCodec, isPgsCodec } from "@/services/jellyfin/subtitles";
+import { isDvdSubCodec, isImageBasedSubtitleCodec, isPgsCodec, isTextSidecar } from "@/services/jellyfin/subtitles";
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
 
 export const CONVERT_AUDIO_BITRATE = 128000;
@@ -78,8 +78,8 @@ function fitted(width: number | undefined, height: number | undefined, rung: Con
 
 /**
  * The item as the converted file is: mp4, one H.264 stream at the rung, one AAC track at the
- * source's channel count capped at two, text subtitles kept for the sidecars, bitmap ones gone (the
- * shown one may be burned into the picture).
+ * source's channel count capped at two, text sidecars kept, every track inside the source gone (the
+ * shown bitmap may be burned into the picture; the mp4 carries no subtitle stream to play from).
  * Fields the encode does not fix (profile, level, HDR metadata) are dropped, never invented.
  */
 export function convertedItem(item: JellyfinVideoItem, rung: ConversionRung, pickedAudio?: number): JellyfinVideoItem {
@@ -122,7 +122,7 @@ export function convertedItem(item: JellyfinVideoItem, rung: ConversionRung, pic
     });
   }
   for (const stream of streams) {
-    if (stream.Type === "Subtitle" && stream.Index !== undefined && !isImageBasedSubtitleCodec(stream.Codec)) converted.push(stream);
+    if (stream.Type === "Subtitle" && stream.Index !== undefined && !isImageBasedSubtitleCodec(stream.Codec) && isTextSidecar(stream)) converted.push(stream);
   }
 
   const source = item.MediaSources?.[0];

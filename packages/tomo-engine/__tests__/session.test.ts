@@ -24,12 +24,16 @@ import { configureEngine } from "../src/config";
 import * as events from "../src/events";
 import {
   type EngineSessionConfig,
+  describedSessionConfig,
   engineProgress,
+  inputSubtitleRenditions,
   liveSubtitleRenditions,
   localRemuxToken,
+  originConnections,
   reportPlayerBuffer,
   setLiveSessionPriority,
   setLiveWindow,
+  setOriginConnectionBudget,
   startFrameProvider,
   startPlaylistShim,
   startSession,
@@ -183,6 +187,92 @@ describe("liveSubtitleRenditions", () => {
     mockRemuxer!.liveSubtitles = jest.fn().mockResolvedValue(null);
     await expect(liveSubtitleRenditions("tok123")).resolves.toBeNull();
     await expect(liveSubtitleRenditions(null)).resolves.toBeNull();
+  });
+
+  it("keeps a file's text and SDH tracks as the engine names them", async () => {
+    mockRemuxer!.liveSubtitles = jest.fn().mockResolvedValue([
+      { index: 3, name: "English", language: "eng", isDefault: false, isForced: false, isImage: false, isEngineText: true, isHearingImpaired: true },
+      { index: 4, name: "PGS", language: "eng", isDefault: false, isForced: false, isImage: true, isEngineText: false, isHearingImpaired: false },
+    ]);
+    const renditions = await inputSubtitleRenditions("tok123");
+    expect(renditions?.map((r) => [r.index, r.isEngineText, r.isImage, r.isHearingImpaired])).toEqual([
+      [3, true, false, true],
+      [4, false, true, undefined],
+    ]);
+  });
+});
+
+describe("describedSessionConfig", () => {
+  it("names the input and nothing about its streams", () => {
+    const described = describedSessionConfig({ inputUrl: "http://origin/file.mkv", itemId: "item1" });
+    expect(described).toMatchObject({ inputUrl: "http://origin/file.mkv", itemId: "item1", describesInput: true, isLive: false, durationSeconds: 0, startOffsetSeconds: 0 });
+    expect(described.audioTracks).toEqual([]);
+    expect(described.subtitles).toEqual([]);
+    expect(described.tiers).toEqual([]);
+    expect(described.serverVideoOnly).toBe(false);
+    expect("httpHeaders" in described).toBe(false);
+  });
+
+  it("carries the origin's headers and a positive resume offset", () => {
+    const described = describedSessionConfig({ inputUrl: "http://origin/file.mkv", itemId: "item1", httpHeaders: { "User-Agent": "x" }, startOffsetSeconds: 90, readAheadSegments: 20 });
+    expect(described.httpHeaders).toEqual({ "User-Agent": "x" });
+    expect(described.startOffsetSeconds).toBe(90);
+    expect(described.readAheadSegments).toBe(20);
+    expect(describedSessionConfig({ inputUrl: "u", itemId: "i", startOffsetSeconds: Number.NaN }).startOffsetSeconds).toBe(0);
+    expect(describedSessionConfig({ inputUrl: "u", itemId: "i", startOffsetSeconds: -4, httpHeaders: {} }).startOffsetSeconds).toBe(0);
+  });
+
+  it("names the provider and the connections the input may read over", () => {
+    const described = describedSessionConfig({ inputUrl: "u", itemId: "i", originKey: "provider-a", inputConnections: 2.9 });
+    expect(described.liveOriginKey).toBe("provider-a");
+    expect(described.inputConnections).toBe(2);
+    const bare = describedSessionConfig({ inputUrl: "u", itemId: "i", inputConnections: 0 });
+    expect("liveOriginKey" in bare).toBe(false);
+    expect("inputConnections" in bare).toBe(false);
+  });
+});
+
+describe("setOriginConnectionBudget", () => {
+  it("is false on a binary without the method, and for an empty key", async () => {
+    await expect(setOriginConnectionBudget("provider-a", 2)).resolves.toBe(false);
+    mockRemuxer!.setOriginBudget = jest.fn().mockResolvedValue(undefined);
+    await expect(setOriginConnectionBudget("", 2)).resolves.toBe(false);
+    expect(mockRemuxer!.setOriginBudget).not.toHaveBeenCalled();
+  });
+
+  it("sets a whole count, and 0 for anything that is not one", async () => {
+    mockRemuxer!.setOriginBudget = jest.fn().mockResolvedValue(undefined);
+    await expect(setOriginConnectionBudget("provider-a", 2.7)).resolves.toBe(true);
+    await setOriginConnectionBudget("provider-a", -1);
+    await setOriginConnectionBudget("provider-a", Number.NaN);
+    expect(mockRemuxer!.setOriginBudget.mock.calls).toEqual([
+      ["provider-a", 2],
+      ["provider-a", 0],
+      ["provider-a", 0],
+    ]);
+  });
+
+  it("is false when the engine refuses", async () => {
+    mockRemuxer!.setOriginBudget = jest.fn().mockRejectedValue(new Error("x"));
+    await expect(setOriginConnectionBudget("provider-a", 1)).resolves.toBe(false);
+  });
+});
+
+describe("originConnections", () => {
+  it("is null without the method, an empty key or a usable answer", async () => {
+    await expect(originConnections("provider-a")).resolves.toBeNull();
+    mockRemuxer!.originBudget = jest.fn().mockResolvedValue({ budget: 2 });
+    await expect(originConnections("")).resolves.toBeNull();
+    await expect(originConnections("provider-a")).resolves.toBeNull();
+    mockRemuxer!.originBudget.mockRejectedValue(new Error("x"));
+    await expect(originConnections("provider-a")).resolves.toBeNull();
+  });
+
+  it("reads the limit in force and the connections held, null while no limit is known", async () => {
+    mockRemuxer!.originBudget = jest.fn().mockResolvedValue({ budget: 2, active: 1 });
+    await expect(originConnections("provider-a")).resolves.toEqual({ budget: 2, active: 1 });
+    mockRemuxer!.originBudget.mockResolvedValue({ budget: null, active: 0 });
+    await expect(originConnections("provider-a")).resolves.toEqual({ budget: null, active: 0 });
   });
 });
 

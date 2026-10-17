@@ -1,7 +1,7 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { ListRow } from "@/components/settings/ListRow";
 import { SectionFooter } from "@/components/settings/SectionFooter";
-import { settingsStyles } from "@/components/settings/styles";
+import { settingsStyles, sideInsets } from "@/components/settings/styles";
 import { tick } from "@/components/settings/tick";
 import { themeName } from "@/components/theme/theme-name";
 import { ThemeStrip } from "@/components/theme/theme-strip";
@@ -69,7 +69,7 @@ export default function AppearanceScreen() {
     <View style={styles.container}>
       <AmbientBackground />
       <ScrollView
-        contentContainerStyle={[styles.page, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }]}
+        contentContainerStyle={[styles.page, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + 12, paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }, sideInsets(insets)]}
         showsVerticalScrollIndicator={false}>
         <View style={settingsStyles.contentContainer}>
           <View style={settingsStyles.sectionHeader}>

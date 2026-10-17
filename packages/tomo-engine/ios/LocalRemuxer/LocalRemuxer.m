@@ -97,10 +97,26 @@ RCT_EXTERN_METHOD(setLivePriority
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(setOriginBudget
+                  : (nonnull NSString *)key budget
+                  : (nonnull NSNumber *)budget resolver
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(originBudget
+                  : (nonnull NSString *)key resolver
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(setPlayerBuffer
                   : (nonnull NSString *)token aheadSeconds
                   : (nonnull NSNumber *)aheadSeconds sinceSeek
                   : (BOOL)sinceSeek resolver
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(prepareRemainingTracks
+                  : (nonnull NSString *)token resolver
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
 

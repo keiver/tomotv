@@ -27,9 +27,15 @@ jest.mock("@/services/externalGuide", () => ({
   preloadGuide: jest.fn(),
 }));
 jest.mock("@/services/guideFileCache", () => ({ guideFileInfo: () => null }));
+/** Listeners told when a tuner playlist that playback held back has downloaded. */
+const mockTunerRefreshed = new Set<() => void>();
 jest.mock("@/services/jellyfin/tunerGroups", () => ({
   lastKnownTunerData: () => mockTunerData,
   fetchTunerData: jest.fn(async () => mockTunerData),
+  subscribeTunerDataRefreshed: (listener: () => void) => {
+    mockTunerRefreshed.add(listener);
+    return () => mockTunerRefreshed.delete(listener);
+  },
 }));
 jest.mock("@/services/liveTvPreferences", () => ({ removeGuideUrl: jest.fn(), setGuideSourceEnabled: jest.fn() }));
 jest.mock("@/utils/logger", () => ({ logger: { warn: jest.fn() } }));
@@ -80,5 +86,20 @@ describe("Guide URL copy on iOS", () => {
 
     act(() => jest.advanceTimersByTime(1000));
     expect(urlRow().props.title).toBe("Guide URL");
+  });
+});
+
+describe("Guide source declarations", () => {
+  it("reads which playlists declare the guide again after a tuner playlist held back by playback downloads", async () => {
+    const { fetchTunerData } = jest.requireMock("@/services/jellyfin/tunerGroups") as { fetchTunerData: jest.Mock };
+    fetchTunerData.mockClear();
+    let tree: TestRenderer.ReactTestRenderer | undefined;
+    await act(async () => {
+      tree = TestRenderer.create(<GuideSourceScreen />);
+    });
+    expect(fetchTunerData).toHaveBeenCalledTimes(1);
+    await act(async () => mockTunerRefreshed.forEach((listener) => listener()));
+    expect(fetchTunerData).toHaveBeenCalledTimes(2);
+    act(() => tree?.unmount());
   });
 });

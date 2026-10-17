@@ -26,6 +26,7 @@ export interface JellyfinMediaStream {
   Title?: string; // The track's own name from the container, when it carries one
   Index?: number;
   IsExternal?: boolean;
+  Path?: string; // A sidecar's file path; an .mks sidecar is read by the server together with the whole film
   Language?: string;
 
   // Audio-specific fields
@@ -183,6 +184,9 @@ export interface JellyfinVideoItem {
   Studios?: JellyfinNamedItem[];
   SeriesName?: string;
   SeriesId?: string; // Set on Episode items; used to queue the rest of the series
+  // An episode's series rating and genres, read for playback when the episode has none.
+  seriesOfficialRating?: string;
+  seriesGenres?: string[];
   SeriesPrimaryImageTag?: string; // Seasons and episodes: the series poster, drawn for a season without its own
   ParentId?: string; // Containing folder — sibling queue source for non-episode items
   SeasonName?: string;

@@ -20,6 +20,7 @@ import { activeGuideUrls, searchExternalPrograms } from "@/services/externalGuid
 import { getLiveTvPreferences } from "@/services/liveTvPreferences";
 import { EXTERNAL_GUIDE_PREFIX } from "@/utils/guide";
 import { liveTvSearchHorizon, liveTvSearchIndex, liveTvSearchIndexVersion } from "./liveTvSearchIndex";
+import { allPlaylistChannelIds, playlistChannelById, type GuideChannelCandidate } from "@keiver/tomo-live";
 
 /**
  * Parse year(s) from search query
@@ -573,6 +574,28 @@ async function fetchAiringPrograms(config: JellyfinConfig): Promise<JellyfinVide
 }
 
 /**
+ * Every channel the guide sources can be asked about, with every name a screen asks by: the server
+ * lineup's name, the tuner playlist row's name and tvg-name, and the tvg keys. A guide keeps only these
+ * channels' programmes. Null when the lineup cannot be read, so a guide keeps every channel instead.
+ */
+export async function guideChannelCandidates(): Promise<GuideChannelCandidate[] | null> {
+  const config = await getConfig();
+  if (!config.server || !config.userId) return null;
+  const data: Pick<TunerData, "tvgById" | "tvgNameById"> = (await fetchTunerData().catch(() => null)) ?? { tvgById: {}, tvgNameById: {} };
+  // The same read and key search uses, so the two share one fetch.
+  const lineup = await cachedRequest(`liveChannelNames:${config.server}:${config.userId}`, () => fetchChannelOrder(), CACHE.LIVE_AIRING_TTL_MS).catch(() => null);
+  if (!lineup) return null;
+  const lineupNames = new Map(lineup.map((channel) => [channel.Id, channel.Name ?? ""]));
+  const ids = new Set([...lineupNames.keys(), ...Object.keys(data.tvgById), ...Object.keys(data.tvgNameById), ...allPlaylistChannelIds()]);
+  return [...ids].map((channelId) => ({
+    channelId,
+    tvgId: data.tvgById[channelId],
+    tvgName: data.tvgNameById[channelId],
+    names: [...new Set([lineupNames.get(channelId), playlistChannelById(channelId)?.name, data.tvgNameById[channelId]].filter((name): name is string => !!name))],
+  }));
+}
+
+/**
  * Programmes on now and later in the viewer's guide sources (the XMLTV guides Channel Settings adds
  * and the tuner playlists declare), for the tuner's channels, whose name, episode title or
  * description carries every word; the server's search never sees them. Matched in the native store.
@@ -647,18 +670,17 @@ function fetchProgramDetails(config: JellyfinConfig, programId: string): Promise
  * the others.
  */
 /**
- * Opens the guide sources for the search window before the first query. The open downloads and
- * ingests the whole XMLTV natively, seconds no search should wait on; one warm per screen is
- * enough since the open guide is reused while its window covers.
+ * Reads the airing set before the first query, so its TTL cache serves that query off the query
+ * path. The guide sources are not opened here: parsing an XMLTV guide costs seconds and hundreds
+ * of MB, paid only by a live search that is typed.
  */
 export async function warmLiveTvSearch(): Promise<void> {
   try {
     const config = await getConfig();
     if (!config.server || !config.apiKey || !config.userId) return;
-    // The airing read rides along: its TTL cache then serves the first query off the query path.
-    await Promise.allSettled([searchGuideSources(config, "guide warmup probe"), fetchAiringPrograms(config)]);
+    await fetchAiringPrograms(config);
   } catch {
-    // A failed warm costs nothing: the first search opens the guide itself.
+    // A failed warm costs nothing: the first search reads the airing set itself.
   }
 }
 

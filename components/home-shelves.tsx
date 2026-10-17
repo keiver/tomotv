@@ -6,6 +6,7 @@ import { FolderGridItem } from "@/components/folder-grid-item";
 import { ItemShelf } from "@/components/item-shelf";
 import { MediaShelf } from "@/components/media-shelf";
 import { VideoGridItem } from "@/components/video-grid-item";
+import { sideInsets } from "@/components/settings/styles";
 import { ArtworkSlotShape, GRID, gridEdgePadding, itemSlotShape } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardPalette } from "@/hooks/useCardPalette";
@@ -23,6 +24,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { t } from "@/services/i18n";
 
 const IS_TV = Platform.isTV;
+/** Padding around the centred status block, on top of the side insets. */
+const CENTER_PAD = 40;
 
 // TV tab bar is at the top and already inside insets.top; phone bar is ~49px at the bottom.
 const TAB_BAR_HEIGHT = IS_TV ? 210 : 49;
@@ -143,10 +146,12 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
     [insets.top, insets.bottom, insets.left, insets.right, isTablet],
   );
 
+  // Centred in the safe area, not the screen: iPhone Duo's side column is a right inset.
+  const centered = useMemo(() => [styles.centerContainer, sideInsets(insets, CENTER_PAD)], [insets]);
   const status = useMemo(() => {
     if (isLoading) {
       return (
-        <View style={styles.centerContainer}>
+        <View style={centered}>
           <LoadingRow label={t("library.loadingLibraries")} />
         </View>
       );
@@ -154,14 +159,14 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
     if (error) {
       if (recoveryStatus === "running") {
         return (
-          <View style={styles.centerContainer}>
+          <View style={centered}>
             <LoadingRow label={t("common.lookingForServer")} />
             <Text style={styles.errorText}>{t("common.checkingNetwork")}</Text>
           </View>
         );
       }
       return (
-        <View style={styles.centerContainer}>
+        <View style={centered}>
           <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
           <Text style={styles.errorTitle}>{t("common.unableToLoad")}</Text>
           <Text style={styles.errorText}>{error}</Text>
@@ -185,12 +190,12 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
       );
     }
     return (
-      <View style={styles.centerContainer}>
+      <View style={centered}>
         <Ionicons name="folder-open-outline" size={64} color={COLORS.TEXT_SECONDARY} />
         <Text style={styles.emptyText}>{t("library.noLibraries")}</Text>
       </View>
     );
-  }, [isLoading, error, recoveryStatus, onRetry, handleSwitchServer, palette]);
+  }, [centered, isLoading, error, recoveryStatus, onRetry, handleSwitchServer, palette]);
 
   return (
     <View style={styles.container}>
@@ -217,7 +222,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: 40,
+    padding: CENTER_PAD,
   },
   errorTitle: {
     marginTop: 16,

@@ -1,4 +1,64 @@
-import { formatEpisodeNumber, formatIndexBadge, formatSeasonEpisode, orderSortNameTies, parseSeasonEpisode } from "../seasonEpisode";
+import { formatEpisodeNumber, formatIndexBadge, formatSeasonEpisode, orderSortNameTies, parseSeasonEpisode, playerInfoTags, playerTitleLines } from "../seasonEpisode";
+
+describe("playerInfoTags", () => {
+  it("gives a movie's rating and first genre", () => {
+    expect(playerInfoTags({ Type: "Movie", OfficialRating: "PG-13", Genres: ["Drama", "Comedy"] })).toEqual({ contentRating: "PG-13", genre: "Drama" });
+  });
+
+  it("gives a channel's airing programme rating and genre, not the channel's own", () => {
+    expect(playerInfoTags({ Type: "TvChannel", Genres: [], CurrentProgram: { Name: "News at Six", OfficialRating: "TV-G", Genres: ["News"] } })).toEqual({ contentRating: "TV-G", genre: "News" });
+  });
+
+  it("gives an episode its series' rating and genre only where it has none of its own", () => {
+    expect(playerInfoTags({ Type: "Episode", Genres: [], seriesOfficialRating: "TV-MA", seriesGenres: ["Drama"] })).toEqual({ contentRating: "TV-MA", genre: "Drama" });
+    expect(playerInfoTags({ Type: "Episode", OfficialRating: "TV-14", Genres: ["Comedy"], seriesOfficialRating: "TV-MA", seriesGenres: ["Drama"] })).toEqual({
+      contentRating: "TV-14",
+      genre: "Comedy",
+    });
+  });
+
+  it("leaves out a missing or blank rating and genre", () => {
+    expect(playerInfoTags({ Type: "Episode", OfficialRating: " ", Genres: [] })).toEqual({});
+    expect(playerInfoTags({ Type: "TvChannel", CurrentProgram: null })).toEqual({});
+  });
+});
+
+describe("playerTitleLines", () => {
+  it("puts the series in the title and the season, episode and episode name in the line over it", () => {
+    expect(playerTitleLines({ Type: "Episode", SeriesName: "Show", Name: "Pilot", Path: "", ParentIndexNumber: 4, IndexNumber: 19 })).toEqual({ title: "Show", subtitle: "S04E19 · Pilot" });
+  });
+
+  it("shows a multi-episode file's range", () => {
+    expect(playerTitleLines({ Type: "Episode", SeriesName: "Show", Name: "Two Parter", Path: "", ParentIndexNumber: 1, IndexNumber: 1, IndexNumberEnd: 2 })?.subtitle).toBe("S01E01-E02 · Two Parter");
+  });
+
+  it("keeps the episode name alone when no number is known", () => {
+    expect(playerTitleLines({ Type: "Episode", SeriesName: "Show", Name: "Special", Path: "" })?.subtitle).toBe("Special");
+  });
+
+  it("puts a movie's or home video's year over its name", () => {
+    expect(playerTitleLines({ Type: "Movie", Name: "Film", Path: "", ProductionYear: 2008 })).toEqual({ title: "Film", subtitle: "2008" });
+    expect(playerTitleLines({ Type: "Video", Name: "Birthday", Path: "", ProductionYear: 2019 })).toEqual({ title: "Birthday", subtitle: "2019" });
+  });
+
+  it("gives nothing for a movie with no year, an episode with no series name, or another kind", () => {
+    expect(playerTitleLines({ Type: "Movie", Name: "Film", Path: "" })).toBeNull();
+    expect(playerTitleLines({ Type: "Episode", Name: "Pilot", Path: "", IndexNumber: 1 })).toBeNull();
+    expect(playerTitleLines({ Type: "TvChannel", Name: "News", Path: "", ProductionYear: 2020 })).toBeNull();
+  });
+
+  it("puts a song's artist and album over its name", () => {
+    expect(playerTitleLines({ Type: "Audio", Name: "Night Drive", Path: "", Artists: ["Band", "Singer"], Album: "Roads" })).toEqual({ title: "Night Drive", subtitle: "Band, Singer · Roads" });
+    expect(playerTitleLines({ Type: "Audio", Name: "Night Drive", Path: "", AlbumArtist: "Band", Album: "Roads" })?.subtitle).toBe("Band · Roads");
+  });
+
+  it("shows a song's album once when it has the artist's name, and either one alone", () => {
+    expect(playerTitleLines({ Type: "Audio", Name: "Night Drive", Path: "", Artists: ["Band"], Album: "band" })?.subtitle).toBe("Band");
+    expect(playerTitleLines({ Type: "Audio", Name: "Night Drive", Path: "", Album: "Roads" })?.subtitle).toBe("Roads");
+    expect(playerTitleLines({ Type: "Audio", Name: "Night Drive", Path: "", Artists: ["Band"] })?.subtitle).toBe("Band");
+    expect(playerTitleLines({ Type: "Audio", Name: "Night Drive", Path: "" })).toBeNull();
+  });
+});
 
 describe("formatSeasonEpisode", () => {
   it("prefers server metadata over the name", () => {

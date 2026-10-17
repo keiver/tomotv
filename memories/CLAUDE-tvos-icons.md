@@ -42,7 +42,7 @@ Optional props: `iconDark`, `iconTinted` (iOS 18 appearance overrides; auto-deri
 At `npm run prebuild:tv` (`EXPO_TV=1`) the plugin generates into `ios/TomoTV/Images.xcassets/`:
 
 - `AppIcon.brandassets/` — parallax imagestacks (App Icon 400x240 @1x/@2x, App Icon - App Store 1280x768) + Top Shelf imagesets (1920x720, 2320x720 wide, both @1x/@2x)
-- `SplashScreenLogo.imageset/` + `SplashScreenBackground.colorset/` (overwrites expo-splash-screen's single-icon output)
+- `SplashScreenLogo.imageset/` + `SplashScreenBackground.colorset/`, from the `splash` prop, written in a finalized mod so they replace expo-splash-screen's output (its `imageWidth` does not size the logo)
 - Sets tvOS `Info.plist` keys: `CFBundleIcons.CFBundlePrimaryIcon`, `TVTopShelfImage.TVTopShelfPrimaryImage(-Wide)`
 
 At `npm run prebuild:ios` (no `EXPO_TV`) it generates:
@@ -96,11 +96,11 @@ Asset names in `Contents.json` must match exactly (the lib's defaults produce th
 
 ## Image Dimensions (generated)
 
-| Asset                | Size       | Scale                       |
-| -------------------- | ---------- | --------------------------- |
-| App Icon (Home)      | 400x240    | @1x, @2x                    |
-| App Icon (App Store) | 1280x768   | @1x                         |
-| Top Shelf            | 1920x720   | @1x, @2x                    |
-| Top Shelf Wide       | 2320x720   | @1x, @2x                    |
-| iOS App Icon         | 1024x1024  | light/dark/tinted           |
-| Splash logo          | 200px base | universal @1x-3x, tv @1x-2x |
+| Asset                | Size                            | Scale                       |
+| -------------------- | ------------------------------- | --------------------------- |
+| App Icon (Home)      | 400x240                         | @1x, @2x                    |
+| App Icon (App Store) | 1280x768                        | @1x                         |
+| Top Shelf            | 1920x720                        | @1x, @2x                    |
+| Top Shelf Wide       | 2320x720                        | @1x, @2x                    |
+| iOS App Icon         | 1024x1024                       | light/dark/tinted           |
+| Splash logo          | 140pt iPhone/iPad/Mac, 200pt TV | universal @1x-3x, tv @1x-2x |

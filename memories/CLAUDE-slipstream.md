@@ -43,6 +43,17 @@ We are the only client architecture that IS the HLS server. That is the moat.
     old 3x lead with the rungs listed beside the copy let AVPlayer drop to them: on a 200+ Mb/s
     link T105 (91 Mb/s) opened on rung 6, fell to t1 at 15.9s and played at 23.5s.
   - Under 1.2x a rung leads and the copy stays listed for AVPlayer to climb to.
+  - One video job and one audio job at open: `probeTier` proves the rung `chooseOpeningRung` picks,
+    and another rung's init is refused (503) while the opening segment is still coming, since a hold
+    plus a cold start would pass the 6 s AVPlayer allows a map request; the opening rung's own init
+    keeps its hold (`openingInitHoldSeconds`). Six 4K decodes at once on one serving MacBook ran at 0.5x to 1.4x each and
+    the late opening segment sent AVPlayer to segment 0 (measured 2026-10-16); one alone runs 1.4x
+    to 1.8x at start and 3x to 6x after.
+  - A rung the player left, idle 12 s with two segments served elsewhere since (`rungIdleSeconds`)
+    and no fetch of its own still running,
+    gets its own kill (`TierConfig.stopRequest`, the rung's play session) on the stop schedule; a
+    request for it again ends the repeats and opens it cold at the playhead. Before this, a left
+    rung ran two segments plus 60 s until Jellyfin's own timer (four orphans in one six-minute run).
   - The rung that leads is the biggest whose segment lands in about a second: `bandwidth * 6 <=
 link` (`openingRungShare`, `chooseOpeningRung`), so t0 up to 2 Mb/s and 480p at 12 Mb/s.
     Opening on the biggest rung that FIT cost 12.7s at 1.5 Mb/s. Opening everyone on t0 showed
@@ -99,9 +110,10 @@ read as 7.4), the copy was withheld, the repeat probe read 12, the app rebuilt, 
 session read low again, eight times in 90s. And a link that cannot carry the copy has no use for
 the source: `find_stream_info` alone pulled 573 KB, 5.8s of a 0.6 Mb/s first frame.
 `releaseSource` leaves it dormant, and the session runs as a gateway over the server's rungs, when
-the link is thin, the grid is adopted, every audio track has a server rendition
-(`audioLoActive`), and no track needs the demuxer (`demuxerOwesTracks`: an image subtitle, or an
-engine text track with no server WebVTT).
+the link is thin, the grid is adopted, and every audio track has a server rendition
+(`audioLoActive`). A subtitle never keeps the source open: a track inside the file pauses while
+the rungs carry the session (its image set on screen is closed at the read head, a text window
+ahead of the read answers without cues at once) and resumes with the copy.
 
 The pipeline thread stays alive without opening the source. When the wire carries the copy
 at `source * 1.2`, it warms the producer in that same session. It reads the original
@@ -145,19 +157,24 @@ init, engine audio) answer **410**. Measured, and Apple says it of permanent err
 AVPlayer does not retry a 410 and moves to another variant of the same master. A gone copy is
 not demand on the source. A session with no producer prunes its rungs from the rung path.
 
-## Image subtitles from the server (RemuxSession+ServerImageSubtitles.swift)
+## Subtitles inside the file never reach the server (RemuxSession+ServerImageSubtitles.swift)
 
-The server hands an embedded image track over raw, and the extension follows the codec
-(measured on Jellyfin 12): PGS is `/Videos/{id}/{id}/Subtitles/{index}/Stream.pgssub`, a SUP
-stream (`.sup` and `.mks` answer 400 for it); DVD is `Stream.mks`, Matroska holding
-`dvd_subtitle` with its palette (`.sub`, `.idx`, `.vobsub`, `.dvdsub` answer 400). Both are
-extracted with `-c:s copy` and no `-copyts`, so their cues are session time. Such a track names
-the stream as `serverSupUrl` whenever rungs are offered, and then no longer keeps the source open
-(`demuxerOwesTracks`). The reader names the `sup` input format for a `.pgssub` URL and probes
-anything else, feeds a second `ImageSubtitleDecoder` (files `pgs{index}s-*`), and the cue
-manifest answers from it once it is complete or when the demuxer is not feeding. It starts once,
-only when the source is let go, lost, or held under a rung. DVB, XSUB and sidecar image files
-have no measured raw route and stay owed.
+A request for any subtitle track inside a media file makes Jellyfin extract every subtitle
+track from the whole file in one ffmpeg pass, uncancellable by the client, bounded only by its
+30-minute `SubtitleExtractionTimeoutMinutes`, and restarted by the next waiting request after a
+failure (its issue #17499; `SubtitleEncoder.cs` `GetReadableFile`). Measured 2026-10-15 on a
+102.7 GB Interstellar remux off a USB disk at 39 to 48 MB/s: three 30-minute runs in a row,
+and the first one took the disk out from under the play. So no code path asks the server for a
+track inside the file: not the engine (`services/localRemux.ts` sets no `serverVttUrl` and no
+`serverSupUrl` for one), not the server-only lane (no `SubtitleMethod=Hls`, no text burn-in),
+not downloads (`cacheSubtitles` and `convertedItem` keep text sidecars only). A `.mks` sidecar
+triggers the same pass and is treated as in-file. `RemuxSession+ServerImageSubtitles.swift`
+remains for an image sidecar named through `DeliveryUrl`, which the app's GET PlaybackInfo
+never fills, so today it serves no track; it stays as the route for one.
+
+A text sidecar rides the master as a rendition pointing at Jellyfin's `Stream.vtt`, which the
+server serves as it is. On the server-video gateway (`serverVideoOnly`) the session lists
+sidecars alone, since it never opens the file.
 
 ## Server audio on the rungs (services/localRemux.ts, RemuxSession+AudioLo.swift)
 
@@ -216,7 +233,12 @@ engine measures it itself. Two kinds of evidence, kept apart:
   are never counted: they crossed the wire before the probe (a 7.5 Mb/s link read 18.7 to 28.8).
 - A probe (`RateProbe`, `RateMeter`) reads the source for its whole 1.5s budget from its first byte:
   every byte over the time since the first (NDT7's cumulative rate), stalls included, no early stop.
-  A first byte may take 3s. The link is the lower of a fast and a slow EWMA of probe readings
+  A first byte may take 3s. The startup probe reads on the pipeline's three ranged connections
+  (`linkProbeConnections`), each its own range, summed by the meter: one connection read 65.6,
+  142 and 153 Mb/s on three runs of one Apple TV on a link the pipeline's three connections then
+  read at 150 to 320 (measured 2026-10-16), and the 65.6 withheld a copy the link carried. A
+  mid-session probe beside a rung keeps one connection. A connection refused past a small file's
+  end ends quietly; only the first connection's answer classifies a failure. The link is the lower of a fast and a slow EWMA of probe readings
   weighted by their seconds (hls.js and Shaka, half-lives 3s and 9s): a drop is followed at once, a
   rise once it holds. A drained player buffer resets it.
 - Verified against ground truth: an Oracle box's own NIC counter (`/sys/class/net/*/statistics/
@@ -288,7 +310,17 @@ tx_bytes`) sent 43 then 106 Mb/s during a TV probe that read 89.3, and Cloudflar
 - The rung lane is NOT read ahead. Tried and measured: segments that arrive instantly make
   AVPlayer climb on a thin buffer and stall (15s, 21s and 7s across three links). Its own clock on
   segments fetched as it asks is what keeps a thin link smooth.
-- The audio-lo init is fetched once a session, not once a segment.
+- The audio-lo init is fetched once a session, not once a segment, and after the segment: a
+  header request Jellyfin finds no file for starts its job at 0:00 (`DynamicHlsController`,
+  `segmentId == -1`), killing the one already at the resume point, and hlsenc writes the header
+  before any segment. A cold rung's header is cut from the playhead's segment for the same
+  reason, and the release prefetch of audio-lo asks for the playhead's segment, not the
+  resume point's (measured 2026-10-15: a 41 s job at 0:00 and three rungs started at 0:00).
+- The stop's DELETEs (`/Videos/ActiveEncodings` per PlaySessionId) are sent at 0, 5, 15, 30 and
+  60 s (`stopRepeatDelays`): Jellyfin holds a queued segment request under its playlist lock, so
+  the request lands after the first kill and starts a new job, and a header request after it
+  deletes the job's files (1.5 s after the kill) starts one at 0:00. A repeat with no job is a
+  no-op; an orphan otherwise lives two segments plus 60 s on the ping timer.
 - A request more than 2 segments ahead of the producer is a seek (`seekAheadSegments`), whatever
   the read-ahead depth. It used to be the 20-segment window, so a rebuild or a resume inside a
   film's first two minutes waited for every segment between to be pulled at link speed (measured:
@@ -298,11 +330,12 @@ tx_bytes`) sent 43 then 106 Mb/s during a TV probe that read 89.3, and Cloudflar
   server-audio responses retain their preparation keepalives.
 - Starting on a rung holds the engine's source pull, so the slow link goes
   wholly to the server renditions; any copy request resumes it.
-- A session riding a rung serves the SERVER's WebVTT for text subtitles: the
-  engine's own cues come from a source pull that is being held, and AVPlayer
-  drops the item if a subtitle window misses its 6s deadline. Server cues are session time as
-  they arrive: Jellyfin extracts without `-copyts`, so they count from the file's start (measured
-  with its own ffmpeg and command line: pts 7.0 in a source starting at 5.0 extracts at 00:00:02).
+- A session riding a rung has no cues for a text track inside the file: the engine's own
+  cues come from a source pull that is being held, and AVPlayer drops the item if a subtitle
+  window misses its 6s deadline, so a window ahead of the read answers without cues at once
+  while the source is let go, retrying or held (`sourceNotReading` in `subtitleSegment`). A
+  window answered empty is fetched again only after a seek or a re-selection; the ones not yet
+  asked fill once the copy returns.
 
 ## The acceptance matrix (scripts/abr-drill.mjs)
 

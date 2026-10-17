@@ -19,6 +19,18 @@ only acceptable form.
 - Open every file my own search returned before theorizing about it.
 - Confirming a defect is real is not confirming a fix is safe: find the invariant the current shape protects first.
 
+## MAIN RULE: THE CODE PROVES THE FIX, NEVER A TEST
+
+A fix is complete when I have read every file on its path in full, understand it,
+and can say from the code what I changed, why, and why that removes the bug.
+Tests are Keiver's tool for checking my work. They are never my proof, and a
+device run is his verdict, never a step I wait on.
+
+- "Is it fixed?" gets yes or no, then the code path with file:line. Never "run it and see", "not confirmed in the app" or "the tests pass".
+- Read the whole relevant code before the first edit: every caller, every writer and reader of the state I touch. A grep hit and the lines around it is not reading.
+- Name what I have not read. An unread file on the path means the fix is not done: keep reading, do not hand it over.
+- Write the tests and run the ones the change touches. A green run is reported as a green run, never as the reason the fix works.
+
 **TomoTV** is a Jellyfin video streaming app built with React Native TVOS and Expo, targeting Apple TV (tvOS), iPhone, iPad and Mac Catalyst on macOS 13.4 or later (Apple Silicon and Intel). Playback runs through an on-device engine (packages/tomo-engine, the `@keiver/tomo-engine` workspace package: ios/LocalRemuxer + an owned FFmpeg build): H.264/HEVC stream-copy from any container, on-device transcode for the rest, Dolby passthrough, multi-audio switching, and image subtitles drawn over the native player. The server transcodes only true edge cases.
 
 ## Communication Format
@@ -28,6 +40,7 @@ Add 10 blank lines BEFORE and AFTER response text for visual breathing room in t
 - Short. Lead with the answer. Done work is one plain sentence: no lists, hashes, test counts or self-corrections unless asked.
 - A review reply is the verdict: "Nothing found" or the defects, one line each with file:line.
 - No em dashes anywhere: chat, commits, comments, docs, store copy. Grep every file I touched for U+2014.
+- Plain words, no jargon, in chat, test names, comments, commits and docs. Never coin terms or pretty-sounding phrasing ("owed", "landing", "a load the newer file outdated"). A test name says plainly what the test checks. Use a technical term only when no plain word fits.
 - A question gets an answer in prose and the turn ends. Edits wait for a go. A "why" gets the measured finding and a proposal, then a stop.
 - Never relitigate a settled claim: verify once, answer yes/no. If I was wrong, say "I was wrong", never "what I meant was".
 - Never restate a mechanism the user already understood; build what they asked to hold.

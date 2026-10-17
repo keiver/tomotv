@@ -519,6 +519,19 @@ export async function requestLibraryItems(
   }
 }
 
+/** An episode with no rating or genre of its own takes its series' for the player. Never fails the play. */
+async function seriesInfoTags(server: string, userId: string, item: JellyfinVideoItem, headers: Record<string, string>): Promise<Pick<JellyfinVideoItem, "seriesOfficialRating" | "seriesGenres">> {
+  if (item.Type !== "Episode" || !item.SeriesId || (item.OfficialRating && item.Genres?.length)) return {};
+  try {
+    const response = await fetchWithTimeout(`${server}/Items/${item.SeriesId}?userId=${userId}`, { method: "GET", headers }, API_TIMEOUTS.SHORT);
+    if (!response.ok) return {};
+    const series: Pick<JellyfinVideoItem, "OfficialRating" | "Genres"> = await response.json();
+    return { ...(series.OfficialRating ? { seriesOfficialRating: series.OfficialRating } : {}), ...(series.Genres?.length ? { seriesGenres: series.Genres } : {}) };
+  } catch {
+    return {};
+  }
+}
+
 /**
  * Fetch detailed video item information including media streams.
  *
@@ -599,6 +612,7 @@ export async function fetchVideoDetails(itemId: string): Promise<JellyfinVideoIt
               // Merge item metadata with MediaSources from PlaybackInfo
               const data: JellyfinVideoItem = {
                 ...itemData,
+                ...(await seriesInfoTags(config.server, config.userId, itemData, headers)),
                 MediaSources: playbackInfoResponse.MediaSources,
                 MediaStreams: mediaSource.MediaStreams || [],
               };

@@ -244,7 +244,7 @@ is [`CLAUDE-playback-engine.md`](./CLAUDE-playback-engine.md).
 - **Server transcoding:** only what is left: a file this device measured itself running below realtime on (the engine times segment 0 before the player is bound, `services/engineVerdicts.ts` remembers it), a codec with no decoder in the build, no carriable audio track, or a metadata gap
 - **HLS Master.m3u8:** Primary transcoding endpoint with adaptive bitrate
 - **Direct Download:** Fallback for direct-compatible files
-- **Subtitle Handling:** Both external (.srt) and embedded subtitle tracks included in HLS manifest as toggleable WebVTT streams via SubtitleMethod=Hls
+- **Subtitle Handling:** Never through the server's subtitle endpoint for a track inside the file (Jellyfin extracts every track from the whole file to answer); the engine reads such tracks from the bytes it already pulls, and only a text sidecar is fetched from the server
 
 ### Platform-Specific Features
 

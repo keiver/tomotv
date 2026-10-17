@@ -35,6 +35,15 @@ final class ThrottledFileServer {
 
     func stop() { listener.cancel() }
 
+    /// The next `count` requests for a range starting below `offset` get no answer for 3s, past the
+    /// engine's 2s file read timeout.
+    private var stalls = (count: 0, below: 0)
+    func stallRequests(_ count: Int = 1, below offset: Int = .max) {
+        countLock.lock()
+        stalls = (count, offset)
+        countLock.unlock()
+    }
+
     private func serve(_ connection: NWConnection) {
         connection.start(queue: queue)
         var request = Data()
@@ -53,13 +62,19 @@ final class ThrottledFileServer {
     }
 
     private func respond(_ connection: NWConnection, request: String) {
-        countLock.lock()
-        answered += 1
-        countLock.unlock()
         var start = 0
         if let line = request.split(separator: "\r\n").first(where: { $0.lowercased().hasPrefix("range: bytes=") }),
            let from = Int(line.dropFirst("range: bytes=".count).split(separator: "-").first ?? "") {
             start = min(max(0, from), data.count)
+        }
+        countLock.lock()
+        answered += 1
+        let stalled = stalls.count > 0 && start < stalls.below
+        if stalled { stalls.count -= 1 }
+        countLock.unlock()
+        if stalled {
+            queue.asyncAfter(deadline: .now() + 3) { connection.cancel() }
+            return
         }
         let body = data.subdata(in: start ..< data.count)
         let head = start == 0

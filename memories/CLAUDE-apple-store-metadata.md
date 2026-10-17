@@ -1,6 +1,6 @@
 # App Store Metadata for TomoTV
 
-**Last Updated:** October 12, 2026
+**Last Updated:** October 13, 2026
 
 ## Quick Reference
 
@@ -99,6 +99,47 @@ Tomo TV ships no media, channels, playlists or guides. It plays what your Jellyf
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
 ```
 
+### What's New (2.2.12), macOS (546 / 4000)
+
+```text
+- Lyrics follow the song in the music player; pick a line to jump to it
+- Missing lyrics are found on lrclib.net and saved to your server when it allows
+- On supported devices, Tomo listens to a song to time its lyrics word by word, or to write them when none exist
+- The subtitles menu shows On while your saved subtitle language is playing
+- Subtitles in your saved language no longer go missing when you resume a video
+- Dolby Atmos now plays from Dolby Digital Plus 7.1 tracks, not only 5.1
+- TV guide downloads pause while you watch or listen, and finish afterward
+- Large TV guides load only the channels you have
+```
+
+### What's New (2.2.12), iOS (546 / 4000)
+
+```text
+- Lyrics follow the song in the music player; pick a line to jump to it
+- Missing lyrics are found on lrclib.net and saved to your server when it allows
+- On supported devices, Tomo listens to a song to time its lyrics word by word, or to write them when none exist
+- The subtitles menu shows On while your saved subtitle language is playing
+- Subtitles in your saved language no longer go missing when you resume a video
+- Dolby Atmos now plays from Dolby Digital Plus 7.1 tracks, not only 5.1
+- TV guide downloads pause while you watch or listen, and finish afterward
+- Large TV guides load only the channels you have
+```
+
+### What's New (2.2.12), tvOS (701 / 4000)
+
+```text
+- Lyrics follow the song in the music player; pick a line to jump to it
+- Missing lyrics are found on lrclib.net and saved to your server when it allows
+- On supported devices, Tomo listens to a song to time its lyrics word by word, or to write them when none exist
+- The player shows a show's name with its season and episode, a movie's year, and a song's artist and album
+- The player's info shows the rating and genre
+- The subtitles menu shows On while your saved subtitle language is playing
+- Subtitles in your saved language no longer go missing when you resume a video
+- Dolby Atmos now plays from Dolby Digital Plus 7.1 tracks, not only 5.1
+- TV guide downloads pause while you watch or listen, and finish afterward
+- Large TV guides load only the channels you have
+```
+
 ### What's New (2.2.11), macOS (73 / 4000)
 
 ```text
@@ -140,14 +181,14 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 - Record programmes from your XMLTV guides from their info panel
 - Programmes being recorded show REC in Live TV search
 - Scrubbing a video shows the picture as you drag
-- Choose a size for each download: the original, or a smaller copy at 1080p, 720p or 480p that your server converts, in your audio language with your subtitles
+- Choose a size for each download: the original, or a smaller copy at 1080p, 720p or 480p that your server converts, in your audio language with your subtitle files (a 2.2.10 line; since 2.2.12 a smaller copy keeps subtitle files beside the movie, not tracks inside it)
 - Downloads shows how fast files are coming down
 - Hold Resume to play from the beginning
 - Swipe an info panel left or right to the item beside it, like the next episode, even across seasons
 - The Channels screen's search is a button in the navigation bar that opens Search
 - With subtitles set to a language, its full track loads instead of a forced-only track
 - MP4 files that keep their index at the end play again
-- Downloads your server converts play their subtitles
+- Downloads your server converts play their subtitles (a 2.2.10 line; since 2.2.12 that is subtitle files beside the movie, never a track inside it)
 - Downloaded originals keep every audio track
 - With server transcoding limited, a slow connection waits for the file instead of stopping with an error
 - The loading spinner stays until the video is actually playing
@@ -437,6 +478,47 @@ Keine Analyse, kein Tracking, keine Werbung, kein Konto bei uns. Deine Zugangsda
 Tomo TV enthält keine Medien, Kanäle, Wiedergabelisten oder Fernsehprogramme. Die App spielt ab, was dein Jellyfin-Server und die Quellen liefern, die du hinzufügst. Für das Recht, darauf zuzugreifen, bist du verantwortlich.
 
 Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin und steht in keiner Verbindung zum Jellyfin-Projekt und wird von ihm nicht unterstützt. Jellyfin ist eine Marke des jeweiligen Inhabers.
+```
+
+#### What's New (2.2.12), macOS (668 / 4000)
+
+```text
+- Liedtexte laufen im Musikplayer mit dem Song mit; wähle eine Zeile, um dorthin zu springen
+- Fehlende Liedtexte werden auf lrclib.net gesucht und auf deinem Server gespeichert, wenn er es erlaubt
+- Auf unterstützten Geräten hört Tomo einen Song an, um den Liedtext Wort für Wort zu takten oder ihn zu schreiben, wenn es keinen gibt
+- Das Untertitelmenü zeigt Untertitel als eingeschaltet, solange deine gespeicherte Untertitelsprache läuft
+- Untertitel in deiner gespeicherten Sprache fehlen nicht mehr, wenn du ein Video fortsetzt
+- Dolby Atmos spielt jetzt auch von Dolby Digital Plus 7.1-Spuren, nicht nur von 5.1
+- Guide-Downloads pausieren, während du schaust oder hörst, und laufen danach zu Ende
+- Große Guides laden nur die Kanäle, die du hast
+```
+
+#### What's New (2.2.12), iOS (668 / 4000 chars)
+
+```text
+- Liedtexte laufen im Musikplayer mit dem Song mit; wähle eine Zeile, um dorthin zu springen
+- Fehlende Liedtexte werden auf lrclib.net gesucht und auf deinem Server gespeichert, wenn er es erlaubt
+- Auf unterstützten Geräten hört Tomo einen Song an, um den Liedtext Wort für Wort zu takten oder ihn zu schreiben, wenn es keinen gibt
+- Das Untertitelmenü zeigt Untertitel als eingeschaltet, solange deine gespeicherte Untertitelsprache läuft
+- Untertitel in deiner gespeicherten Sprache fehlen nicht mehr, wenn du ein Video fortsetzt
+- Dolby Atmos spielt jetzt auch von Dolby Digital Plus 7.1-Spuren, nicht nur von 5.1
+- Guide-Downloads pausieren, während du schaust oder hörst, und laufen danach zu Ende
+- Große Guides laden nur die Kanäle, die du hast
+```
+
+#### What's New (2.2.12), tvOS (843 / 4000 chars)
+
+```text
+- Liedtexte laufen im Musikplayer mit dem Song mit; wähle eine Zeile, um dorthin zu springen
+- Fehlende Liedtexte werden auf lrclib.net gesucht und auf deinem Server gespeichert, wenn er es erlaubt
+- Auf unterstützten Geräten hört Tomo einen Song an, um den Liedtext Wort für Wort zu takten oder ihn zu schreiben, wenn es keinen gibt
+- Der Player zeigt den Namen einer Serie mit Staffel und Folge, das Jahr eines Films und Interpret und Album eines Songs
+- Die Infos im Player zeigen Altersfreigabe und Genre
+- Das Untertitelmenü zeigt Untertitel als eingeschaltet, solange deine gespeicherte Untertitelsprache läuft
+- Untertitel in deiner gespeicherten Sprache fehlen nicht mehr, wenn du ein Video fortsetzt
+- Dolby Atmos spielt jetzt auch von Dolby Digital Plus 7.1-Spuren, nicht nur von 5.1
+- Guide-Downloads pausieren, während du schaust oder hörst, und laufen danach zu Ende
+- Große Guides laden nur die Kanäle, die du hast
 ```
 
 #### What's New (2.2.11), macOS (78 / 4000)
@@ -757,6 +839,47 @@ Tomo TV ne fournit aucun média, chaîne, liste de lecture ni guide. L'app lit c
 Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'est ni affilié au projet Jellyfin ni approuvé par lui. Jellyfin est une marque de son détenteur respectif.
 ```
 
+#### What's New (2.2.12), macOS (698 / 4000)
+
+```text
+- Les paroles suivent la chanson dans le lecteur de musique; choisissez une ligne pour y aller
+- Les paroles manquantes sont cherchées sur lrclib.net et enregistrées sur votre serveur s'il l'autorise
+- Sur les appareils compatibles, Tomo écoute la chanson pour synchroniser les paroles mot à mot, ou les écrire quand il n'y en a pas
+- Le menu des sous-titres les indique activés tant que votre langue de sous-titres enregistrée est affichée
+- Les sous-titres dans votre langue enregistrée ne manquent plus quand vous reprenez une vidéo
+- Dolby Atmos fonctionne désormais avec les pistes Dolby Digital Plus 7.1, pas seulement 5.1
+- Les téléchargements des guides se mettent en pause pendant que vous regardez ou écoutez, et se terminent ensuite
+- Les grands guides ne chargent que vos chaînes
+```
+
+#### What's New (2.2.12), iOS (698 / 4000 chars)
+
+```text
+- Les paroles suivent la chanson dans le lecteur de musique; choisissez une ligne pour y aller
+- Les paroles manquantes sont cherchées sur lrclib.net et enregistrées sur votre serveur s'il l'autorise
+- Sur les appareils compatibles, Tomo écoute la chanson pour synchroniser les paroles mot à mot, ou les écrire quand il n'y en a pas
+- Le menu des sous-titres les indique activés tant que votre langue de sous-titres enregistrée est affichée
+- Les sous-titres dans votre langue enregistrée ne manquent plus quand vous reprenez une vidéo
+- Dolby Atmos fonctionne désormais avec les pistes Dolby Digital Plus 7.1, pas seulement 5.1
+- Les téléchargements des guides se mettent en pause pendant que vous regardez ou écoutez, et se terminent ensuite
+- Les grands guides ne chargent que vos chaînes
+```
+
+#### What's New (2.2.12), tvOS (889 / 4000 chars)
+
+```text
+- Les paroles suivent la chanson dans le lecteur de musique; choisissez une ligne pour y aller
+- Les paroles manquantes sont cherchées sur lrclib.net et enregistrées sur votre serveur s'il l'autorise
+- Sur les appareils compatibles, Tomo écoute la chanson pour synchroniser les paroles mot à mot, ou les écrire quand il n'y en a pas
+- Le lecteur affiche le nom d'une série avec sa saison et son épisode, l'année d'un film, et l'artiste et l'album d'une chanson
+- Les infos du lecteur affichent la classification et le genre
+- Le menu des sous-titres les indique activés tant que votre langue de sous-titres enregistrée est affichée
+- Les sous-titres dans votre langue enregistrée ne manquent plus quand vous reprenez une vidéo
+- Dolby Atmos fonctionne désormais avec les pistes Dolby Digital Plus 7.1, pas seulement 5.1
+- Les téléchargements des guides se mettent en pause pendant que vous regardez ou écoutez, et se terminent ensuite
+- Les grands guides ne chargent que vos chaînes
+```
+
 #### What's New (2.2.11), macOS (86 / 4000)
 
 ```text
@@ -1073,6 +1196,47 @@ Sin analítica, sin rastreo, sin anuncios, sin cuenta con nosotros. Tus credenci
 Tomo TV no incluye contenido, canales, listas de reproducción ni guías. Reproduce lo que ofrecen tu servidor Jellyfin y las fuentes que añades. Tú eres responsable de tener derecho a usarlos.
 
 Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin, y no está afiliado al proyecto Jellyfin ni respaldado por él. Jellyfin es una marca de su titular correspondiente.
+```
+
+#### What's New (2.2.12), macOS (611 / 4000)
+
+```text
+- La letra sigue la canción en el reproductor de música; elige una línea para saltar a ella
+- Las letras que faltan se buscan en lrclib.net y se guardan en tu servidor cuando lo permite
+- En dispositivos compatibles, Tomo escucha la canción para sincronizar la letra palabra por palabra, o escribirla cuando no existe
+- El menú de subtítulos los muestra activados mientras se ve tu idioma de subtítulos guardado
+- Los subtítulos en tu idioma guardado ya no faltan al reanudar un video
+- Dolby Atmos ahora funciona también con pistas Dolby Digital Plus 7.1, no solo 5.1
+- Las descargas de las guías se pausan mientras ves o escuchas, y terminan después
+- Las guías grandes cargan solo tus canales
+```
+
+#### What's New (2.2.12), iOS (611 / 4000 chars)
+
+```text
+- La letra sigue la canción en el reproductor de música; elige una línea para saltar a ella
+- Las letras que faltan se buscan en lrclib.net y se guardan en tu servidor cuando lo permite
+- En dispositivos compatibles, Tomo escucha la canción para sincronizar la letra palabra por palabra, o escribirla cuando no existe
+- El menú de subtítulos los muestra activados mientras se ve tu idioma de subtítulos guardado
+- Los subtítulos en tu idioma guardado ya no faltan al reanudar un video
+- Dolby Atmos ahora funciona también con pistas Dolby Digital Plus 7.1, no solo 5.1
+- Las descargas de las guías se pausan mientras ves o escuchas, y terminan después
+- Las guías grandes cargan solo tus canales
+```
+
+#### What's New (2.2.12), tvOS (821 / 4000 chars)
+
+```text
+- La letra sigue la canción en el reproductor de música; elige una línea para saltar a ella
+- Las letras que faltan se buscan en lrclib.net y se guardan en tu servidor cuando lo permite
+- En dispositivos compatibles, Tomo escucha la canción para sincronizar la letra palabra por palabra, o escribirla cuando no existe
+- El reproductor muestra el nombre de una serie con su temporada y episodio, el año de una película, y el artista y el álbum de una canción
+- La información del reproductor muestra la clasificación y el género
+- El menú de subtítulos los muestra activados mientras se ve tu idioma de subtítulos guardado
+- Los subtítulos en tu idioma guardado ya no faltan al reanudar un video
+- Dolby Atmos ahora funciona también con pistas Dolby Digital Plus 7.1, no solo 5.1
+- Las descargas de las guías se pausan mientras ves o escuchas, y terminan después
+- Las guías grandes cargan solo tus canales
 ```
 
 #### What's New (2.2.11), macOS (74 / 4000)
@@ -1868,7 +2032,7 @@ the user's own server. No purchases or subscriptions, no user-generated content 
 features, no other permission prompts.
 
 2. TESTED ON
-iPhone 17 Pro, iOS 27.0 (physical device, via TestFlight). Apple TV 4K (2nd generation),
+iPhone 17 Pro, iOS 27.0 (physical device, via TestFlight). Apple TV 4K (1st generation),
 tvOS 26.6 (physical device). An automated playback regression suite also runs on the iOS and
 tvOS Simulators.
 
@@ -1918,8 +2082,8 @@ Demo mode lives in `services/jellyfin/demo.ts`; entry points are the Add Server 
 
 ## Build Number & Version Notes
 
-**Live version:** 2.2.10, published 2026-10-10 (iTunes lookup, read 2026-10-12).
-**Local version:** 2.2.11, build 6 in app.json.
+**Live version:** 2.2.11, published 2026-10-13 (iTunes lookup, read 2026-10-17).
+**Local version:** 2.2.12, build 17 in app.json.
 Check App Store Connect for the last uploaded build before choosing the next number.
 **Build Number:** stamped into app.json by `npm run archive -- <buildNumber>`
 

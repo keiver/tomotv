@@ -58,7 +58,11 @@ workspace cannot select an iOS library while building the Catalyst scheme.
 All three Podfiles resolve Expo autolinking from their own directory, so Mac and
 tvOS codegen writes into `macos/` and `tvos/` instead of the separate iOS tree.
 
-iOS keeps Expo's precompiled modules. After CocoaPods integration,
+All three targets build Expo modules from source (`usePrecompiledModules: false`
+in `app.json`): Expo's precompiled XCFrameworks only load in the Swift compiler
+that built them. All three Podfiles turn on `COMPILATION_CACHE_ENABLE_CACHING`;
+the cache lives in `DerivedData/CompilationCache.noindex` and survives
+`prebuild --clean`. After CocoaPods integration,
 `scripts/prebuilt-swift-imports.rb` removes source-module search paths for
 framework-only pods, preventing old Swift modules in DerivedData from shadowing
 the XCFramework interfaces. Source-built pods retain their search paths. The
@@ -113,6 +117,19 @@ Apple references: [adding a platform](https://developer.apple.com/help/app-store
 [automatic distribution signing](https://help.apple.com/xcode/mac/current/en.lproj/devff5ececf8.html),
 and [Mac screenshot sizes](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications).
 
+iPhone Duo screenshots are one landscape set (2853×2007). Each shot has two
+captures in `applestore/captures/duo/`: `<shot-id>.outer.png`, closed, portrait
+1398×2034, and `<shot-id>.inner.png`, open, landscape 2853×2007. A Desktop
+folder named `iPhone Duo` works too; `npm run shots` sorts its images by shape.
+A shot's `layout` in `applestore/shots.config.json` draws both side by side
+(`pair`, the default) or one screen (`inner`, `outer`). The Duo shows its status
+bar in the side column, which the renderer does not restamp, so set the clock
+on the simulator before capturing:
+
+```bash
+xcrun simctl status_bar booted override --time 9:41 --dataNetwork wifi --wifiMode active --wifiBars 3 --batteryState charged --batteryLevel 100
+```
+
 Local release checks:
 
 ```bash
@@ -125,13 +142,15 @@ npm run meta:upload -- --check
 
 `archive --upload` checks App Store versions, text, and real captures before
 building. It composes directly from `captures/`, rejects placeholder/stale
-screenshots, uploads Mac screenshots to `APP_DESKTOP`, and selects the exact
-shared build number after processing. The Mac PKG verification checks the
+screenshots, uploads each device's screenshots to its App Asset Library
+placement group (Mac to `MAC_PROFILE`), skips devices marked `"upload": false`
+in `applestore/shots.config.json`, and selects the exact shared build number
+after processing. The Mac PKG verification checks the
 installer/app signatures, bundle version, sandbox networking, and both Catalyst
 architectures. Initial Mac versions omit What's New because Apple does not
 accept that field on a platform's first release; later Mac releases require it.
 
-FFmpeg's Catalyst slices belong to `ffmpeg-n8.1.3-tomo.7`. Confirm iOS, Mac
+FFmpeg's Catalyst slices belong to `ffmpeg-n8.1.3-tomo.8`. Confirm iOS, Mac
 Catalyst and tvOS work locally before publishing that release. The checked-in lock must contain the
 SHA256 checksums of those exact ZIPs. Publishing/pushing remains a maintainer
 action; building locally does neither.

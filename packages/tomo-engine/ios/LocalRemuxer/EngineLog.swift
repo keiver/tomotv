@@ -14,7 +14,7 @@ import VideoToolbox
 enum EngineLog {
 
     /// AV_LOG_ERROR. The plain-integer log.h macros do not import into Swift
-    /// (same reason FrameGrabber declares SWIFT_AVSEEK_FLAG_BACKWARD), so the
+    /// (same reason Remuxer declares SWIFT_AVSEEK_FLAG_BACKWARD), so the
     /// number is hand-carried and EngineLogTests pins it.
     static let errorLevel: Int32 = 16
 

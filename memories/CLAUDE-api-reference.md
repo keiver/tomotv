@@ -131,12 +131,14 @@ This document provides a reference for the `services/jellyfinApi.ts` public surf
 
 ### How subtitles reach the player
 
-Text tracks ride as HLS renditions whose playlist points at the plain
-`/Videos/{id}/{id}/Subtitles/{i}/Stream.vtt` — **no `X-TIMESTAMP-MAP`**, absolute
-source times. Jellyfin's own `SubtitleMethod=Hls` rendition stamps every segment
-`X-TIMESTAMP-MAP=MPEGTS:900000` (10s), which fMP4 segments starting at 0 do not
-honour, so anything on the server HLS path runs 10s late. That is why the
-mode-selection gate routes text-subtitle files to the local remux engine.
+A text sidecar rides as an HLS rendition whose playlist points at the plain
+`/Videos/{id}/{id}/Subtitles/{i}/Stream.vtt`, no `X-TIMESTAMP-MAP`, absolute
+source times; Jellyfin serves the sidecar file as it is. A track inside the file
+is never requested from that endpoint: Jellyfin answers by extracting every
+subtitle track from the whole file, uncancellable (its issue #17499). The engine
+decodes such tracks from the bytes it already reads (text as its own WebVTT
+segments, images drawn by the app). The server's HLS never carries subtitle
+renditions (`SubtitleMethod=Hls` is not sent).
 
 ### Server-side constraints
 

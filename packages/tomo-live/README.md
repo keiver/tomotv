@@ -43,6 +43,14 @@ configureLive({
 `LiveChannels` in `src/config.ts` documents each member. Logging goes through the engine's
 `configureEngine({ log })`.
 
+## Playlist channels
+
+`syncPlaylistSources` builds a channel table from M3U playlists parsed on device, with
+`enginePlaylistRows` as the stock loader. A `PlaylistChannel` carries the stream URL and its
+headers, `originKey` (the provider host a read's connection lease is taken on; `playlistOriginKey`
+derives the same key for any URL of that provider), and, when the playlist declares them, the
+channel's archive (`catchup`: type, source template, days) and guide shift (`tvgShift`).
+
 ## Releasing
 
 A commit that touches this package while its version is already on npm gets a patch bump from the

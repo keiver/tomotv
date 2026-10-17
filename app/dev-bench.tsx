@@ -1,5 +1,5 @@
 import { AmbientBackground } from "@/components/ambient-background";
-import { settingsStyles } from "@/components/settings/styles";
+import { settingsStyles, sideInsets } from "@/components/settings/styles";
 import { APP_VERSION_LABEL } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { fetchItemDetails, getVideoStreamUrl } from "@/services/jellyfinApi";
@@ -105,7 +105,7 @@ export default function DevBenchScreen() {
   return (
     <View style={settingsStyles.screenContainer}>
       <AmbientBackground />
-      <View style={[styles.page, { paddingTop: (IS_TV ? 40 : 24) + insets.top, paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }]}>
+      <View style={[styles.page, { paddingTop: (IS_TV ? 40 : 24) + insets.top, paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }, sideInsets(insets)]}>
         <View style={[settingsStyles.contentContainer, styles.column]}>
           <Text style={styles.title}>Transcode bench</Text>
           <View style={[settingsStyles.section, styles.log]}>

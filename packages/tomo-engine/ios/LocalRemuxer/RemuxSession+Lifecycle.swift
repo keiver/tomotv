@@ -36,19 +36,28 @@ extension RemuxSession {
         transfers.close()
         fireStopRequests()
         // The pipeline thread notices `cancelled` between packets (or through
-        // the AVIO interrupt callback during a blocking read) and exits; the
-        // directory is removed on the next session's init as well.
-        try? FileManager.default.removeItem(at: dir)
+        // the AVIO interrupt callback during a blocking read) and exits; a directory
+        // left behind goes with sweepOrphans at the next start. Queued behind the
+        // segment writer, so a write landing now cannot keep the directory alive.
+        segmentWriter.async { [dir] in try? FileManager.default.removeItem(at: dir) }
     }
 
     /// Fire-and-forget: the app names what ends its server-side work (a transcode keyed by the
-    /// session it started) and the engine sends it as the session goes.
+    /// session it started) and the engine sends it as the session goes, then again on a schedule:
+    /// a request still queued on the server starts a new job once the first kill lands, and a
+    /// header request after the server deletes the job's files starts one at the film's start.
     func fireStopRequests() {
-        for stopRequest in config.stopRequests {
-            guard let url = URL(string: stopRequest.url) else { continue }
+        let requests: [URLRequest] = config.stopRequests.compactMap { stopRequest in
+            guard let url = URL(string: stopRequest.url) else { return nil }
             var request = URLRequest(url: url, timeoutInterval: 5)
             request.httpMethod = stopRequest.method
-            URLSession.shared.dataTask(with: request).resume()
+            return request
+        }
+        guard !requests.isEmpty else { return }
+        for delay in stopRepeatDelays {
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay) {
+                for request in requests { URLSession.shared.dataTask(with: request).resume() }
+            }
         }
     }
 
@@ -77,14 +86,10 @@ extension RemuxSession {
         return copyAnnounced
     }
 
-    /// Tracks only the demuxer can serve: an image subtitle with no raw server stream, and an
-    /// engine text track with no server WebVTT. Either one keeps the source open.
-    var demuxerOwesTracks: Bool {
-        config.subtitles.contains { ($0.isImage && $0.serverSupUrl.isEmpty) || ($0.isEngineText && $0.serverVttUrl.isEmpty) }
-    }
-
+    /// A subtitle never keeps the source open: a track inside the file pauses while the rungs
+    /// carry the session and resumes with the copy.
     func releaseSource(because reason: String, unusable: Bool = false) -> Bool {
-        guard !config.isLive, !config.tiers.isEmpty, !demuxerOwesTracks else { return false }
+        guard !config.isLive, !config.tiers.isEmpty else { return false }
         // The grid first: the ladder and its audio group exist only once it is adopted.
         awaitGrid()
         guard tierOffered, config.audioTracks.isEmpty || audioLoActive else { return false }
@@ -103,10 +108,11 @@ extension RemuxSession {
         guard free else { return false }
         NSLog("[LocalRemuxer] Slipstream: source let go, the rungs carry the session (%@)", reason)
         startServerImageSubtitles()
-        // The opening audio segment costs a server spin-up of its own; overlap it with the rung's.
+        // The audio segment at the playhead costs a server spin-up of its own; overlap it with the
+        // rung's. At the resume point, the player's own request would kill it and start again.
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self, let segments = self.adoptAudioLo(0) else { return }
-            _ = self.materializeAudioLoSegment(position: 0, n: self.audioLoIndex(segments, at: self.config.startOffsetSeconds))
+            _ = self.materializeAudioLoSegment(position: 0, n: self.audioLoIndex(segments, at: self.playheadSeconds()))
         }
         return true
     }
@@ -115,7 +121,7 @@ extension RemuxSession {
     /// from here and AVPlayer carries on with the rungs. A copy-only master has none, so it fails
     /// and the app moves to the server. Same test as releaseSource.
     func handOverToRungs(because message: String) -> Bool {
-        guard !config.isLive, !config.tiers.isEmpty, !demuxerOwesTracks, tierOffered, config.audioTracks.isEmpty || audioLoActive else { return false }
+        guard !config.isLive, !config.tiers.isEmpty, tierOffered, config.audioTracks.isEmpty || audioLoActive else { return false }
         stateLock.lock()
         let free = copyAnnounced && !copyOnlyMaster && !sourceReleased && !cancelled && !failed
         if free {
@@ -158,8 +164,8 @@ extension RemuxSession {
         let wire = testLinkBps ?? wireLinkBps ?? playlistLinkBps ?? 0
         guard !hasAlternative || sourceBandwidth <= 0 || wire >= Double(sourceBandwidth) * 1.2 else { return false }
         sourceState = .warming
-        sourceTakeoverSegment = lastRequestedSegment
-        pendingSeekSegment = lastRequestedSegment
+        sourceTakeoverSegment = lastRequestedSegmentLocked()
+        pendingSeekSegment = lastRequestedSegmentLocked()
         return true
     }
 
@@ -204,7 +210,8 @@ extension RemuxSession {
     func frameGrabberLocked() -> FrameGrabber {
         if let frameGrabber { return frameGrabber }
         let pooled = ChapterFramePool.directory(for: config.itemId)
-        let grabber = FrameGrabber(inputUrl: config.inputUrl, directory: pooled ?? dir, pool: pooled == nil ? nil : ChapterFramePool.root, epoch: poolEpoch)
+        let grabber = FrameGrabber(inputUrl: config.inputUrl, directory: pooled ?? dir, pool: pooled == nil ? nil : ChapterFramePool.root, epoch: poolEpoch,
+                                   httpHeaders: config.httpHeaders, originKey: config.liveOriginKey)
         grabber.byteMap = byteMap
         frameGrabber = grabber
         return grabber
@@ -214,7 +221,8 @@ extension RemuxSession {
     /// pictures while an I-frame request copies one keyframe. Caller holds stateLock.
     func iframeGrabberLocked() -> FrameGrabber {
         if let iframeGrabber { return iframeGrabber }
-        let grabber = FrameGrabber(inputUrl: config.inputUrl, directory: dir, pool: nil, epoch: poolEpoch)
+        let grabber = FrameGrabber(inputUrl: config.inputUrl, directory: dir, pool: nil, epoch: poolEpoch, httpHeaders: config.httpHeaders,
+                                   originKey: config.liveOriginKey)
         grabber.byteMap = byteMap
         iframeGrabber = grabber
         return grabber

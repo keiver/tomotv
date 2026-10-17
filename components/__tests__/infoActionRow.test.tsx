@@ -37,3 +37,16 @@ describe("InfoActionRow stop circle", () => {
     expect(stopCircle(renderer)).toBeUndefined();
   });
 });
+
+describe("InfoActionRow layout", () => {
+  it("wraps its circles inside the panel's width instead of overflowing it", async () => {
+    const { StyleSheet, View } = jest.requireActual("react-native");
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(<InfoActionRow onToggleFavorite={jest.fn(async () => true)} onToggleWatched={jest.fn(async () => true)} />);
+    });
+    const [wrap, row] = renderer.root.findAllByType(View).map((node: TestRenderer.ReactTestInstance) => StyleSheet.flatten(node.props.style));
+    expect(wrap).toMatchObject({ alignSelf: "center", maxWidth: "100%" });
+    expect(row).toMatchObject({ flexDirection: "row", flexWrap: "wrap", justifyContent: "center" });
+  });
+});

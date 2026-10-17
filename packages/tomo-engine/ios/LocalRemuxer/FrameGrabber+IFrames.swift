@@ -90,7 +90,7 @@ extension FrameGrabber {
             let found: UnsafeMutablePointer<AVPacket>?
             if !exact, let byteMap {
                 found = readByEstimate(input: input, stream: stream, sourceSeconds: sourceSeconds, map: byteMap)
-            } else if avformat_seek_file(input, videoIndex, Int64.min, target, target, SWIFT_AVSEEK_FLAG_BACKWARD) >= 0 {
+            } else if seekBackward(input, stream: videoIndex, to: target) >= 0 {
                 found = readIFrameKeyframe(input: input, stream: stream, atOrAfter: exact ? target : nil)
             } else {
                 found = nil

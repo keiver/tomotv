@@ -28,6 +28,8 @@ export interface EngineTierConfig {
   codecs: string;
   width: number;
   height: number;
+  /** Ends this rung's own server transcode when the player has left the rung; absent, only the session stop ends it. */
+  stopRequest?: EngineStopRequest;
 }
 
 /** A request the engine fires once, unawaited, as the session stops: what ends the session's work on a server. */
@@ -64,10 +66,100 @@ export interface EngineSessionConfig {
   liveWindowSeconds?: number;
   httpHeaders?: Record<string, string>;
   probeOrigin?: boolean;
+  /** The provider whose connection budget the session's reads spend: a live input's host when absent; a file takes leases only when given. */
   liveOriginKey?: string;
+  /** Connections a file's input reads over, the engine's default when absent. Under a provider key it opens as many as the budget spares. */
+  inputConnections?: number;
   fallbackInputUrl?: string;
   livePriority?: "playback" | "ring" | "preview";
   stopRequests?: EngineStopRequest[];
+  /**
+   * The open input names its own range, size, rate and bit rate, and whichever of `audioTracks`,
+   * `subtitles` and `durationSeconds` are left empty. Takes no `tiers` and no `serverVideoOnly`.
+   */
+  describesInput?: boolean;
+}
+
+/** What a session needs when the input describes itself: where to read, and where to resume. */
+export interface DescribedSessionInput {
+  inputUrl: string;
+  /** Keys the chapter frame pool and the remembered I-frame mean. */
+  itemId: string;
+  /** Headers the origin requires, sent on every read of the input. */
+  httpHeaders?: Record<string, string>;
+  startOffsetSeconds?: number;
+  readAheadSegments?: number;
+  /** The provider whose connection budget the session's reads spend (setOriginConnectionBudget). */
+  originKey?: string;
+  /** Connections the input reads over, the engine's default when absent. */
+  inputConnections?: number;
+}
+
+/** The config of a file session the engine describes from the input: nothing here names a stream. */
+export function describedSessionConfig(input: DescribedSessionInput): EngineSessionConfig {
+  const offset = input.startOffsetSeconds ?? 0;
+  return {
+    inputUrl: input.inputUrl,
+    itemId: input.itemId,
+    audioTracks: [],
+    durationSeconds: 0,
+    subtitles: [],
+    videoRange: "",
+    codecs: "",
+    primaryVideoCodecs: "",
+    primaryVideoBandwidth: 0,
+    sourceBandwidth: 0,
+    serverVideoOnly: false,
+    supplementalCodecs: "",
+    width: 0,
+    height: 0,
+    frameRate: 0,
+    bandwidth: 0,
+    readAheadSegments: input.readAheadSegments ?? 0,
+    startOffsetSeconds: Number.isFinite(offset) && offset > 0 ? offset : 0,
+    tiers: [],
+    isLive: false,
+    liveSegmentSeconds: 6,
+    ...(input.httpHeaders && Object.keys(input.httpHeaders).length > 0 ? { httpHeaders: input.httpHeaders } : {}),
+    ...(input.originKey ? { liveOriginKey: input.originKey } : {}),
+    ...(input.inputConnections && Number.isFinite(input.inputConnections) && input.inputConnections >= 1 ? { inputConnections: Math.floor(input.inputConnections) } : {}),
+    describesInput: true,
+  };
+}
+
+/**
+ * How many connections a provider allows this device at once, for every read that names `originKey`;
+ * 0 forgets the limit and leaves the provider's own refusals to teach it. False when the binary has no such method.
+ */
+export async function setOriginConnectionBudget(originKey: string, connections: number): Promise<boolean> {
+  if (!isLocalRemuxAvailable() || !originKey || typeof engineModule().setOriginBudget !== "function") return false;
+  try {
+    await engineModule().setOriginBudget(originKey, Number.isFinite(connections) && connections > 0 ? Math.floor(connections) : 0);
+    return true;
+  } catch (error) {
+    engineLog().warn("Failed to set an origin's connection budget", error, { service: "LocalRemux" });
+    return false;
+  }
+}
+
+/** A provider's limit as the engine holds it, and the connections this device has open on it now. */
+export interface OriginConnections {
+  /** Set by setOriginConnectionBudget or learned from the provider's refusals; null while neither has happened. */
+  budget: number | null;
+  active: number;
+}
+
+/** What the engine knows of a provider's connections, for a screen that shows or edits the limit; null without the method. */
+export async function originConnections(originKey: string): Promise<OriginConnections | null> {
+  if (!isLocalRemuxAvailable() || !originKey || typeof engineModule().originBudget !== "function") return null;
+  try {
+    const answer = (await engineModule().originBudget(originKey)) as { budget?: unknown; active?: unknown } | null;
+    if (!answer || typeof answer.active !== "number") return null;
+    return { budget: typeof answer.budget === "number" && answer.budget > 0 ? answer.budget : null, active: answer.active };
+  } catch (error) {
+    engineLog().warn("Failed to read an origin's connections", error, { service: "LocalRemux" });
+    return null;
+  }
 }
 
 export interface StartSessionOptions {
@@ -155,6 +247,20 @@ export async function reportPlayerBuffer(token: string, aheadSeconds: number, si
   }
 }
 
+/**
+ * Playback has settled: the engine brings up the converted audio tracks it left for a pick, one
+ * per segment. False when the binary has no such method or the session is gone.
+ */
+export async function prepareRemainingTracks(token: string): Promise<boolean> {
+  if (!isLocalRemuxAvailable() || !token || typeof engineModule().prepareRemainingTracks !== "function") return false;
+  try {
+    return (await engineModule().prepareRemainingTracks(token)) === true;
+  } catch (error) {
+    engineLog().debug("Track ramp request failed", { service: "LocalRemux", token, error: String(error) });
+    return false;
+  }
+}
+
 /** What a session has read so far (Remuxer.progress), or null without the session or the native method. */
 export type EngineProgress = {
   alive: boolean;
@@ -190,11 +296,15 @@ export async function engineProgress(token: string): Promise<EngineProgress | nu
   }
 }
 
-/** A live session's subtitle renditions as its master publishes them, once the input resolved; null when unknown. */
-export async function liveSubtitleRenditions(token: string | null): Promise<SubtitleRendition[] | null> {
+/**
+ * The subtitle renditions a session read off its input (live, `describesInput`) as its master
+ * publishes them, once the input resolved; null when unknown.
+ */
+export async function inputSubtitleRenditions(token: string | null): Promise<SubtitleRendition[] | null> {
   if (!isLocalRemuxAvailable() || !token || typeof engineModule().liveSubtitles !== "function") return null;
   try {
-    const tracks = (await engineModule().liveSubtitles(token)) as { index: number; name: string; language: string; isDefault: boolean; isForced: boolean; isImage: boolean }[] | null;
+    const tracks = (await engineModule().liveSubtitles(token)) as
+      { index: number; name: string; language: string; isDefault: boolean; isForced: boolean; isImage: boolean; isEngineText?: boolean; isHearingImpaired?: boolean }[] | null;
     if (!Array.isArray(tracks)) return null;
     const firstDefault = tracks.findIndex((track) => track.isDefault);
     return tracks.map((track, position) => ({
@@ -206,13 +316,16 @@ export async function liveSubtitleRenditions(token: string | null): Promise<Subt
       isDefault: position === firstDefault,
       isForced: track.isForced,
       isImage: track.isImage,
-      isEngineText: false,
+      isEngineText: track.isEngineText === true,
+      ...(track.isHearingImpaired === true ? { isHearingImpaired: true } : {}),
     }));
   } catch (error) {
     engineLog().warn("Live subtitle read failed", error, { service: "LocalRemux", token });
     return null;
   }
 }
+
+export const liveSubtitleRenditions = inputSubtitleRenditions;
 
 /**
  * Playlist shim for a remote HLS lane: its playlists re-served through the loopback, with
