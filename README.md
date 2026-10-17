@@ -2,7 +2,6 @@
 
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Tests](https://github.com/keiver/tomotv/actions/workflows/test-pr.yml/badge.svg)](https://github.com/keiver/tomotv/actions/workflows/test-pr.yml)
-[![Download on the App Store](https://img.shields.io/badge/App_Store-Download-black?logo=apple&logoColor=white)](https://apps.apple.com/us/app/tomo-tv/id6755077888)
 [![@keiver/tomo-engine](https://img.shields.io/npm/v/@keiver/tomo-engine?label=%40keiver%2Ftomo-engine)](https://www.npmjs.com/package/@keiver/tomo-engine)
 [![@keiver/tomo-live](https://img.shields.io/npm/v/@keiver/tomo-live?label=%40keiver%2Ftomo-live)](https://www.npmjs.com/package/@keiver/tomo-live)
 
@@ -13,7 +12,15 @@ Dolby Atmos, PGS subtitles and Live TV. Built with React Native (react-native-tv
 and Expo.
 
 <p align="center">
-  <img src="applestore/captures/tv/01-library.png" width="100%" alt="Tomo TV Home on Apple TV: a Libraries row of Live TV, Music, Home Videos and Photos and Films, above a Continue row of episode and movie cards with yellow progress bars"/>
+  <a href="https://apps.apple.com/us/app/tomo-tv/id6755077888">
+    <img src="assets/brand/Download_on_the_App_Store_Badge_US-UK_RGB_blk_092917.svg" height="50" alt="Download on the App Store"/>
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://apps.apple.com/us/app/tomo-tv/id6755077888">
+    <img src="applestore/captures/tv/01-library.png" width="100%" alt="Tomo TV Home on Apple TV: a Libraries row of Live TV, Music, Home Videos and Photos and Films, above a Continue row of episode and movie cards with yellow progress bars"/>
+  </a>
 </p>
 
 ## How playback works
@@ -27,17 +34,16 @@ range requests. An audio file or a download that AVPlayer opens on its own, and
 that needs nothing from the engine, plays as it is.
 
 ```
-Jellyfin server
-    |  the original file
-    v
-Engine on the device        @keiver/tomo-engine, with its own FFmpeg
-    |  copies the streams, or decodes and re-encodes through VideoToolbox
-    |  decodes subtitles, rewrites Dolby Vision profile 7 to 8.1
-    v
-HLS on loopback             a playlist and segments the engine writes
-    |
-    v
-AVPlayer / AVKit            the platform's player, transport, AirPlay, PiP
+Jellyfin server          serves the original file
+        |
+        v
+Engine on the device     @keiver/tomo-engine with its own FFmpeg
+        |
+        v
+HLS on loopback          a playlist and segments the engine writes
+        |
+        v
+AVPlayer / AVKit         Apple's player
 ```
 
 A streamed video starts in one of three lanes:
