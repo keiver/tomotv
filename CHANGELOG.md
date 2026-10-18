@@ -6,17 +6,17 @@ All notable changes to Tomo TV are documented here.
 
 ### Added
 
-- Channel Settings gains Connection limits: one row per tuner playlist on the server, with the streams its provider allows this device at once, Auto or 1 to 5. Auto learns the limit from the provider's own refusals; a number set here is handed to the engine for every host the playlist reads, at launch and whenever the channel table loads, so the guide preview, the channel ring and the frame sweep never take the connection the playing channel needs. Two playlists at one provider count together; the number is per device. A provider is keyed by host and port, so two servers on one address never share a limit
+- Channel Settings gains Connection limits: one row per tuner playlist, with the streams its provider allows this device at once, Auto or 1 to 5. Auto learns the limit from the provider's own refusals. A number set here reaches the engine at launch and whenever the tuner list reloads, for every host the playlist reads, so the guide preview, the channel ring and the wall clips never take the connection the playing channel needs
+- Two playlists at one provider count together, and the number is per device. A provider is its host and port, so two servers on one address never share a limit
 
 ### Fixed
 
-- A live channel refused with HTTP 429 (Too Many Requests) failed instead of retrying: the engine counted only 401, 403 and the other 4xx as a provider turning a connection away, and the FFmpeg build gives 429 its own code. Any HTTP answer but a 404 now makes the lower reads on that provider yield and retries the open; a 4xx also teaches the provider's limit, a 5xx teaches no number, since the same 503 can mean a full account or a channel restarting
+- A live channel refused with HTTP 429 (Too Many Requests) failed instead of retrying: the engine counted only 401, 403 and the other 4xx as a provider turning a connection away, and the FFmpeg build gives 429 its own code. Any HTTP answer but a 404 now makes the lower reads on that provider yield and retries the open; a 4xx also teaches the provider's limit, a 5xx does not, since the same 503 can mean a full account or a channel restarting (issue 104)
 - A channel opened right after another closed on a provider that still counts the closed stream failed on the refusal. The engine retries after any close on the provider, not only after a read it revoked itself
-- A limit set while lower reads already held connections past it did nothing until they closed. Setting it now makes the lowest ones yield at once
-- The channel ring no longer leaves a neighbour out for ten minutes when the provider's budget, not the channel, kept it from opening (issue 104)
+- The channel ring no longer leaves a neighbour out for ten minutes when the provider's limit, not the channel, kept it from opening
 - A live channel carrying DVB or teletext subtitles failed to open with "Video not found on server": the engine answered 404 for the subtitle rendition's segments past the first
 - Channels went Offline on a provider at its connection cap: the wall judged a channel dead after two refusals with any 4xx or 5xx, and a 429 counted. A 401, 403, 429 or any 5xx no longer counts; the other 4xx still do
-- Pluto channels showed one and the same clip on every card: Pluto answers its stream URL call with an internal error when the request carries the app's own user agent, and the fallback session serves a single slate for every channel. The call now carries a plain library agent, which Pluto answers
+- Pluto channels showed the same placeholder clip on every card: Pluto answers its stream URL call with an internal error when the request carries the app's own user agent, and the fallback session serves one placeholder for every channel. The call now carries a plain library agent, which Pluto answers
 
 ## [2.2.12]
 
