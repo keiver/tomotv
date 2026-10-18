@@ -19,6 +19,7 @@ import {
   addGuideUrl,
   normalizeGuideUrl,
   removeGuideUrl,
+  setConnectionLimit,
   setGuideSourceEnabled,
   parseLiveTvPreferences,
   renameGroup,
@@ -54,7 +55,14 @@ describe("live TV preferences", () => {
       hideOffline: false,
       compactColumn: false,
       skipCommercials: true,
+      connectionLimits: {},
     });
+    // A connection limit survives only as a listed number under a host; anything else is dropped.
+    expect(parseLiveTvPreferences({ connectionLimits: { "iptv.example": 1, "two.example": 5, "six.example": 6, "text.example": "2", "": 1 } }).connectionLimits).toEqual({
+      "iptv.example": 1,
+      "two.example": 5,
+    });
+    expect(parseLiveTvPreferences({ connectionLimits: [1] }).connectionLimits).toEqual({});
     // A favorite listed while its channel was pending keeps that mark across a restart; nothing else rides an entry.
     expect(
       parseLiveTvPreferences({
@@ -240,6 +248,15 @@ describe("guide URL list", () => {
     setGuideSourceEnabled("http://declared/x.xml", true);
     removeGuideUrl("http://lan/b.xml");
     expect(getLiveTvPreferences()).toMatchObject({ guideUrls: [], guideSourcesOff: [] });
+  });
+
+  it("sets a provider's connection limit and Auto removes it", () => {
+    setConnectionLimit("iptv.example", 1);
+    setConnectionLimit("other.example", 3);
+    expect(getLiveTvPreferences().connectionLimits).toEqual({ "iptv.example": 1, "other.example": 3 });
+    setConnectionLimit("iptv.example", 2);
+    setConnectionLimit("other.example", 0);
+    expect(getLiveTvPreferences().connectionLimits).toEqual({ "iptv.example": 2 });
   });
 });
 

@@ -27,9 +27,10 @@ describe("raw live input", () => {
     expect(splitPipeHeaders("http://h/1.ts")).toEqual({ url: "http://h/1.ts", headers: {} });
   });
 
-  it("keys a provider by host, credentials and port aside", () => {
-    expect(originKeyOf("http://user:pass@Provider.Example:8080/live/1.ts")).toBe("provider.example");
-    expect(originKeyOf("https://[2001:db8::1]:443/x.ts")).toBe("[2001:db8::1]");
+  it("keys a provider by host and port, credentials aside, so two servers on one address never share a budget", () => {
+    expect(originKeyOf("http://user:pass@Provider.Example:8080/live/1.ts")).toBe("provider.example:8080");
+    expect(originKeyOf("https://[2001:db8::1]:443/x.ts")).toBe("[2001:db8::1]:443");
+    expect(originKeyOf("http://provider.example/live/1.ts")).toBe("provider.example");
   });
 
   it("reads a reachable origin with the server's User-Agent under the line's headers, the pass-through as fallback", async () => {
@@ -37,7 +38,7 @@ describe("raw live input", () => {
     expect(input).toEqual({
       url: "http://provider.example:8080/1.ts",
       headers: { "user-agent": "Own/1", referer: "x" },
-      originKey: "provider.example",
+      originKey: "provider.example:8080",
       fallbackUrl: `${SERVER}/Videos/ch1/stream?static=true&ApiKey=k`,
       via: "origin",
     });
@@ -46,7 +47,7 @@ describe("raw live input", () => {
   it("reads through the server when this device cannot reach the host, still on the provider's budget", async () => {
     probeOriginReach.mockResolvedValue("refused");
     const input = await rawLiveInput(SERVER, "k", "ch1", source({ Path: "http://127.0.0.1:9102/live.ts" }));
-    expect(input).toEqual({ url: `${SERVER}/Videos/ch1/stream?static=true&ApiKey=k`, originKey: "127.0.0.1", via: "server" });
+    expect(input).toEqual({ url: `${SERVER}/Videos/ch1/stream?static=true&ApiKey=k`, originKey: "127.0.0.1:9102", via: "server" });
   });
 
   it("asks a host's reach once, then again after a server switch", async () => {

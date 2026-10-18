@@ -45,9 +45,10 @@ export function splitPipeHeaders(raw: string): { url: string; headers: Record<st
   return { url: raw.slice(0, pipe), headers };
 }
 
+/** The provider's host and port, the key its connection budget hangs on: two servers on one address never share it. */
 export function originKeyOf(url: string): string {
-  const match = /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/]*@)?(\[[^\]]+\]|[^/:?#]+)/i.exec(url);
-  return match ? match[1].toLowerCase() : url;
+  const match = /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/]*@)?(\[[^\]]+\]|[^/:?#]+)(:\d+)?/i.exec(url);
+  return match ? match[1].toLowerCase() + (match[2] ?? "") : url;
 }
 
 /** The server's headers under the playlist's own, one name each whatever its case. */

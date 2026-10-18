@@ -12,8 +12,6 @@ const mockResolveOrigin = jest.fn();
 const mockOpenChannel = jest.fn();
 const mockCloseLiveStream = jest.fn();
 const mockOpenRecentlyFailed = jest.fn((_id: string) => false);
-const mockPreferences = { filter: "all" as string };
-const mockPreferenceListeners = new Set<() => void>();
 let appStateListener: ((state: string) => void) | null = null;
 
 jest.mock("react-native", () => {
@@ -57,13 +55,24 @@ jest.mock("@keiver/tomo-live/src/livePreview", () => ({ showLivePreview: (id: st
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
 jest.mock("@/services/localRemux", () => ({ isLocalRemuxAvailable: () => true, nativeEmits: (event: string) => event === "onLiveFrame" }));
 jest.mock("@keiver/tomo-engine", () => ({ ...jest.requireActual("@keiver/tomo-engine"), isLocalRemuxAvailable: () => true, nativeEmits: (event: string) => event === "onLiveFrame" }));
-jest.mock("@/services/liveTvPreferences", () => ({
-  getLiveTvPreferences: () => mockPreferences,
-  subscribeLiveTvPreferences: (listener: () => void) => {
-    mockPreferenceListeners.add(listener);
-    return () => mockPreferenceListeners.delete(listener);
-  },
-}));
+// Built inside the factory: the module under test subscribes at import, before this file's own constants exist.
+jest.mock("@/services/liveTvPreferences", () => {
+  const preferences = { filter: "all" as string, connectionLimits: {} };
+  const listeners = new Set<() => void>();
+  return {
+    getLiveTvPreferences: () => preferences,
+    subscribeLiveTvPreferences: (listener: () => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    mockPreferences: preferences,
+    mockPreferenceListeners: listeners,
+  };
+});
+const { mockPreferences, mockPreferenceListeners } = jest.requireMock("@/services/liveTvPreferences") as {
+  mockPreferences: { filter: string };
+  mockPreferenceListeners: Set<() => void>;
+};
 const pickGroup = (filter: string) => {
   mockPreferences.filter = filter;
   for (const listener of mockPreferenceListeners) listener();
@@ -925,7 +934,7 @@ describe("live frames", () => {
   });
 
   it("walks every refused card once, each on its own backoff, and judges origins down by their words", async () => {
-    mockLiveFrame.mockImplementation(async () => ({ uris: [], cancelled: false, reason: "open", failure: "Server returned 403 Forbidden (access denied)" }));
+    mockLiveFrame.mockImplementation(async () => ({ uris: [], cancelled: false, reason: "open", failure: "Server returned 404 Not Found" }));
     setLiveFramesActive("guide", true);
     setLiveFrameViewable("guide", ["m1", "m2", "m3", "m4"]);
     await advance(0);

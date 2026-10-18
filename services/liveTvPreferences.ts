@@ -58,7 +58,12 @@ export interface LiveTvPreferences {
   compactColumn: boolean;
   /** Phone: playback seeks past a Commercial segment on reaching it. Apple TV shows a pill instead. */
   skipCommercials: boolean;
+  /** Streams a tuner playlist's provider allows this device at once, by playlist URL; a playlist left out is learned from its provider. */
+  connectionLimits: Record<string, ConnectionLimit>;
 }
+/** The limits a viewer can set; 0 ("Auto") removes the host's entry. */
+export const CONNECTION_LIMIT_OPTIONS = [1, 2, 3, 4, 5] as const;
+export type ConnectionLimit = (typeof CONNECTION_LIMIT_OPTIONS)[number];
 export type ChannelIdentity = Pick<JellyfinItem, "Name" | "ChannelNumber" | "playlistPending"> & { Id?: string };
 
 export const DEFAULT_LIVE_TV_PREFERENCES: LiveTvPreferences = {
@@ -75,6 +80,7 @@ export const DEFAULT_LIVE_TV_PREFERENCES: LiveTvPreferences = {
   hideOffline: false,
   compactColumn: false,
   skipCommercials: true,
+  connectionLimits: {},
 };
 
 let current: LiveTvPreferences | null = null;
@@ -159,7 +165,24 @@ export function parseLiveTvPreferences(raw: unknown): LiveTvPreferences {
     hideOffline: typeof source.hideOffline === "boolean" ? source.hideOffline : DEFAULT_LIVE_TV_PREFERENCES.hideOffline,
     compactColumn: source.compactColumn === true,
     skipCommercials: typeof source.skipCommercials === "boolean" ? source.skipCommercials : DEFAULT_LIVE_TV_PREFERENCES.skipCommercials,
+    connectionLimits: parseConnectionLimits(source.connectionLimits),
   };
+}
+
+/** Playlist URL to limit, keeping only the limits a viewer can set. */
+function parseConnectionLimits(raw: unknown): Record<string, ConnectionLimit> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const limits: Record<string, ConnectionLimit> = {};
+  for (const [url, limit] of Object.entries(raw as Record<string, unknown>)) {
+    if (url && (CONNECTION_LIMIT_OPTIONS as readonly unknown[]).includes(limit)) limits[url] = limit as ConnectionLimit;
+  }
+  return limits;
+}
+
+/** Sets or, at 0, removes the viewer's limit for a tuner playlist. */
+export function setConnectionLimit(url: string, limit: ConnectionLimit | 0): void {
+  const { [url]: _previous, ...others } = getLiveTvPreferences().connectionLimits;
+  updateLiveTvPreferences({ connectionLimits: limit === 0 ? others : { ...others, [url]: limit } });
 }
 
 /** The http(s) URLs of a stored list, deduped in order; anything else is dropped. */

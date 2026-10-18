@@ -69,7 +69,7 @@ export default function GuideChannelsScreen() {
       <PadSheet onClose={() => router.back()} fit="center">
         <View style={styles.padContent}>
           <View style={styles.padTitle}>
-            <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.matchedChannels")}</Text>
+            <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.matchedChannelsHeader")}</Text>
           </View>
           <View style={[settingsStyles.section, styles.card, styles.padCard]}>
             {list(styles.padList)}
@@ -88,7 +88,7 @@ export default function GuideChannelsScreen() {
           {/* Phone reads the title off the native bar. */}
           {IS_TV ? (
             <View style={settingsStyles.sectionHeader} onLayout={(event) => setTitleHeight(event.nativeEvent.layout.height)}>
-              <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.matchedChannels")}</Text>
+              <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.matchedChannelsHeader")}</Text>
             </View>
           ) : null}
           <View style={[settingsStyles.section, styles.card]}>

@@ -116,7 +116,7 @@ export default function GuideSourcesScreen() {
         automaticallyAdjustKeyboardInsets>
         <View style={settingsStyles.contentContainer}>
           <View style={settingsStyles.sectionHeader}>
-            <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.guideSources")}</Text>
+            <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.guideSourcesHeader")}</Text>
           </View>
           <View style={settingsStyles.section}>
             {/* The order guides are asked in: the viewer's own first. */}
