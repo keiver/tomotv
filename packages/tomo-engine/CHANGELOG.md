@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.0
+
+- On tvOS, iOS and macOS 26 and later the preferred audio track, when it is TrueHD with an Atmos presentation or DTS-HD MA carrying DTS:X, becomes APAC 7.1.4 through SpatialAudioBridge 2.0, on an audio-only rendition with its own 3.2 s grid. A session's first second is decoded by `SpatialAudioCodec.probe(_:)` before the encoder sees it, once per track per process, so plain DTS-HD MA goes back to FLAC without an encoder. `.unsupported` and `.invalidConfiguration` refusals and a conversion slower than realtime are remembered for the process, before any engine verdict; `.decoding` costs only the session. A `.discontinuity`, a timestamp jump or a decoded format change, starts a new session at the segment it interrupted, padded with silence; one in the last packets sends the track to FLAC.
+- SpatialAudioBridge's core is the dynamic `SpatialAudioCore.framework`; CocoaPods' embed phase copies and signs it into the app.
+- `SpatialAudioOutput.follow(_:id:)` and `release(id:)`: the library's `AtmosOutputActivator` follows the player while a spatial rendition is selected, on iOS outside AirPlay, which sends the track back to FLAC.
+- `spatialAudioNotices()` resolves SpatialAudioBridge's license notices, with those of its decoders, Rust crates and the Rust standard library.
+- An engine failure carries `spatialAudio` when a track the master named APAC goes back to FLAC; reopening the engine plays it as FLAC.
+
 ## 1.2.0
 
 - FFmpeg tomo.8: the `dec3` box of a copied E-AC-3 track takes its Atmos flag from the dependent substream when the stream has one (ETSI TS 103 420 8.3.1). A Blu-ray style track, an AC-3 core with a dependent E-AC-3 frame carrying the objects, used to be declared without Atmos because the muxer read the first frame of each packet. On Apple TV with AirPods, Control Center shows Dolby Atmos for such a track.

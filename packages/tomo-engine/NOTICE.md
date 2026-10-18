@@ -22,6 +22,13 @@ of that repository. The release tag and each artifact's SHA256 are in `ffmpeg-lo
 | XZ Utils (liblzma)                                                                  | 0BSD            |
 | libzvbi                                                                             | LGPL-2.1        |
 
+[SpatialAudioBridge](https://github.com/kristofferR/SpatialAudioBridge), Apache-2.0, comes through
+Swift Package Manager with its Rust core as a checksummed XCFramework, the dynamic
+`SpatialAudioCore.framework` the app embeds: its dca decoder is LGPL-3.0, so the core is never linked
+statically. `SpatialAudioBridgeNotices.text` carries its license and those of the core's components,
+the truehdd and dca decoders, Rust crates and the Rust standard library; an app that ships the core
+presents them.
+
 The LGPL libraries are linked as static archives. An app that ships them must present
 these notices and the license texts, and must offer the object files needed to relink the
 app against a modified version of each LGPL library on request. The license texts and

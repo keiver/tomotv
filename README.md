@@ -72,9 +72,13 @@ permission on the server overrides all three.
 - **Dolby Vision.** Profile 7 is rewritten to single-layer 8.1 during the copy.
   Every other profile is copied as it is.
 - **Audio.** AAC, ALAC, AC-3, E-AC-3 and well-formed FLAC are copied, so Dolby
-  Atmos in E-AC-3 reaches the receiver untouched. TrueHD, DTS-HD, PCM, MP3, Opus
-  and the rest are decoded to lossless FLAC, up to 7.1, or to AAC where FLAC
-  cannot be used. Switching audio tracks does not restart playback.
+  Atmos in E-AC-3 reaches the receiver untouched. On tvOS and iOS 26 and later,
+  a preferred TrueHD Atmos or DTS:X track becomes Apple's spatial audio codec
+  (APAC, 7.1.4) through
+  [SpatialAudioBridge](https://github.com/kristofferR/SpatialAudioBridge). The
+  other tracks, TrueHD and DTS-HD among them, PCM, MP3, Opus and the rest are
+  decoded to lossless FLAC, up to 7.1, or to AAC where FLAC cannot be used.
+  Switching audio tracks does not restart playback.
 - **Subtitles** never send a file to the server's transcoder. Embedded text
   tracks become WebVTT on the device, sidecar text files arrive as the server's
   WebVTT and sidecar image files as they are, and image tracks (PGS, VobSub,

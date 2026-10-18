@@ -162,7 +162,7 @@ enabled. The build registers **520 decoders** (271 video, 226 audio, 22
 subtitle) and exactly five audio encoders plus the two VideoToolbox video ones.
 The output side is pruned hard on purpose: one muxer (`mp4`), one bitstream
 filter (`pgs_frame_merge`), a named filter list. Decoders, demuxers and parsers
-are left entirely enabled — that is the point of owning the build.
+are left entirely enabled: that is the point of owning the build.
 
 **DASH and teletext are in the build since ffmpeg-n8.1.2-tomo.5.** The `dash` demuxer needs
 libxml2 (`build.sh` writes a pc for the SDK's `libxml2.tbd`, podspec links `xml2`); teletext
@@ -229,7 +229,7 @@ with VideoToolbox. Its input contract is the whole story:
 
 Encoder choice follows source depth: `h264_videotoolbox` for 8-bit,
 `hevc_videotoolbox` with `p010le` for 10-bit. HEVC output needs no special
-handling for the playlist — `Remuxer.buildMuxer` applies the `hvc1` sample-entry
+handling for the playlist: `Remuxer.buildMuxer` applies the `hvc1` sample-entry
 tag off the output codec id, and a non-SDR variant already declares an `hvc1`
 CODECS token through `hdrFallbackTag`.
 
@@ -277,13 +277,29 @@ can ride the pipeline whatever its format, rate or layout.
 
 Copied untouched: AAC, ALAC, AC-3, E-AC-3, and FLAC whose extradata is exactly a
 34-byte STREAMINFO block. AC-3 and E-AC-3 copying is what preserves Atmos, since
-JOC rides inside E-AC-3 as side data — the `delay_moov` path in
+JOC rides inside E-AC-3 as side data; the `delay_moov` path in
 `Remuxer.buildMuxer` is what makes the fMP4 muxer accept it.
 
 Everything else is decoded and re-encoded to **FLAC**, with AAC only as a
 fallback. That is lossless, which is why DTS and TrueHD keep their quality.
 MP3 is deliberately in the re-encode set: Apple's HLS spec allows MP3 only in
 MPEG-TS segments and AVPlayer refuses an fMP4 with an `.mp3` sample entry.
+
+**TrueHD Atmos and DTS:X become APAC** on systems 26 and later (`SpatialAudio.swift`,
+SpatialAudioBridge), since FLAC keeps only the 7.1 bed. Only the preferred track (position 0)
+converts: TrueHD when FFmpeg's profile reads Atmos, and any 48 kHz DTS-HD MA, because FFmpeg reads
+alternate DTS:X as plain. A session's first second is decoded by `SpatialAudioCodec.probe(_:)` before
+the encoder sees it, once per track per process, so plain DTS-HD MA is refused there. That track takes
+an audio-only rendition on its own 3.2 s grid whether or not it converts, every read generation
+opens one transcoder session on that grid, and a spatial segment the running session will not
+reach restarts the read at the video segment before it. The master waits, within its budget, for
+the session to take a second of audio: a refusal before that rebuilds the rendition as FLAC; after
+it the session fails with `spatialAudio` and the app reopens the engine at the playhead. The
+process remembers content refusals (`.unsupported`, `.invalidConfiguration`) and a conversion slower
+than realtime, which goes back to FLAC before any engine verdict; a `.discontinuity` starts a new
+session at the segment it interrupted, and one in the last packets costs the track for that
+session. `SpatialAudioOutput` attaches the library's `AtmosOutputActivator` to react-native-video's
+player through its plugin API, on iOS outside AirPlay, which sends the track back to FLAC.
 
 **One uncarriable track no longer condemns a file.** The carriable tracks are
 kept and the rest dropped; only a file with no carriable track at all declines.
@@ -391,7 +407,7 @@ file whose codec and container both passed inspection usually means a container
 fault, and rewrapping is exactly what fixes that; going straight to the server
 re-encoded a whole film to work around a broken wrapper. `directPlayFailedRef`
 carries that state, and it appears in **both** the remux condition and the
-transcode condition — without the second, a file the engine declines falls back
+transcode condition. Without the second, a file the engine declines falls back
 to direct play and fails identically forever.
 
 ## The server transcoding setting

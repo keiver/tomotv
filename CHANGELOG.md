@@ -2,6 +2,16 @@
 
 All notable changes to Tomo TV are documented here.
 
+## [2.2.13]
+
+### Added
+
+- On Apple TV, iPhone and iPad with tvOS or iOS 26, a preferred TrueHD Atmos or DTS:X track plays as Apple's spatial audio (APAC) instead of FLAC, which kept only the 7.1 bed. Other tracks and older systems play as before
+
+### Fixed
+
+- When the system restarts its audio server mid-start, playback reopens on the same stream at the playhead instead of falling to the server's low-quality stereo streams
+
 ## [2.2.12]
 
 ### Added
