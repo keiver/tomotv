@@ -1,4 +1,12 @@
-import { licenseParagraphs } from "../licenseParagraphs";
+import { licenseChunks, licenseParagraphs } from "../licenseParagraphs";
+
+describe("licenseChunks", () => {
+  it("groups paragraphs into blocks under the size, keeping a longer paragraph whole", () => {
+    const long = "x".repeat(30);
+    expect(licenseChunks("aaaa\n\nbbbb\n\ncccc", 12)).toEqual(["aaaa\n\nbbbb", "cccc"]);
+    expect(licenseChunks(`aaaa\n\n${long}\n\nbbbb`, 12)).toEqual(["aaaa", long, "bbbb"]);
+  });
+});
 
 describe("licenseParagraphs", () => {
   it("splits on blank lines and drops empties", () => {

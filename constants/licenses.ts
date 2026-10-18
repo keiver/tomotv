@@ -140,6 +140,14 @@ export const CREDITS: Credit[] = [
     url: "https://github.com/zapping-vbi/zvbi",
   },
   {
+    // The screen shows the package's own notices, which cover its decoders, Rust crates and the Rust standard library.
+    name: "SpatialAudioBridge",
+    role: "Dolby TrueHD Atmos and DTS:X rendered to Apple's spatial audio codec (APAC) on device",
+    license: "Apache-2.0",
+    licenseLabel: "Apache 2.0",
+    url: "https://github.com/kristofferR/SpatialAudioBridge",
+  },
+  {
     // Not built here: FFmpeg's dash demuxer links the libxml2 the iOS and tvOS SDKs ship.
     name: "libxml2",
     role: "DASH manifest parsing on live channels (FFmpeg's dash demuxer), linked from the system",

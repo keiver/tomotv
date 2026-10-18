@@ -14,6 +14,7 @@ import Foundation
 // framework-module content there, so the class only becomes visible to Swift
 // through an explicit module import. Same trap AudioQueuePlayer.swift documents.
 import React
+import SpatialAudioBridge
 import UIKit
 import VideoToolbox
 
@@ -1014,6 +1015,14 @@ class LocalRemuxer: RCTEventEmitter {
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
         DispatchQueue.global(qos: .userInitiated).async { resolve(DeviceDecode.summary()) }
+    }
+
+    /// SpatialAudioBridge's license notices for the acknowledgements, about 320 KB read off the bridge thread.
+    @objc func spatialAudioNotices(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        DispatchQueue.global(qos: .utility).async { resolve(SpatialAudioBridgeNotices.text) }
     }
 
     /// Throughput of the software-decode lane on this hardware.

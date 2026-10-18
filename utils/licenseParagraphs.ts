@@ -32,3 +32,14 @@ export function licenseParagraphs(text: string): string[] {
     .map((paragraph) => reflow(paragraph.trim()))
     .filter((paragraph) => paragraph.length > 0);
 }
+
+/** Groups a long text's paragraphs into blocks of about `size` characters, so no one text view holds all of it. */
+export function licenseChunks(text: string, size = 4000): string[] {
+  const chunks: string[] = [];
+  for (const paragraph of licenseParagraphs(text)) {
+    const last = chunks.length - 1;
+    if (last >= 0 && chunks[last].length + paragraph.length < size) chunks[last] += `\n\n${paragraph}`;
+    else chunks.push(paragraph);
+  }
+  return chunks;
+}

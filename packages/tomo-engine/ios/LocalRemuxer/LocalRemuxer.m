@@ -157,6 +157,10 @@ RCT_EXTERN_METHOD(videoDecodeSupport
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(spatialAudioNotices
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(benchmarkTranscode
                   : (NSDictionary *)config resolver
                   : (RCTPromiseResolveBlock)resolve rejecter
