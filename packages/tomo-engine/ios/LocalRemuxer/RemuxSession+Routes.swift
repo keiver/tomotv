@@ -49,7 +49,10 @@ extension RemuxSession {
             stateLock.lock()
             let subtitles = inputSubtitles ?? config.subtitles
             let dead = failed || cancelled
-            let inRange = config.isLive ? segment >= firstRetainedSegment && segment <= lastProducedSegment : segment < segmentCount
+            // Live: the window the subtitle playlist lists, the primary rendition's completed segments.
+            let inRange = config.isLive
+                ? segment >= firstRetainedSegment && renditions.first { $0.prefix.isEmpty }?.completed.contains(segment) == true
+                : segment < segmentCount
             stateLock.unlock()
             guard !dead, inRange, let subtitle = subtitles.first(where: { $0.index == index }) else { return .notFound }
             // A VOD playlist is fetched once; a re-selection asks for segments only (probed).

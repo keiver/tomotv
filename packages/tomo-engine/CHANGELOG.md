@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.0
+
+- Any HTTP answer but a 404 to a leased open (400, 401, 403, 429, the other 4xx, and 5xx) makes the reads below it on that provider yield and retries the open with the same backoff. A 4xx teaches the provider's limit as before, with 429 added: FFmpeg gives it its own tag (`AVERROR_HTTP_TOO_MANY_REQUESTS`), so it never matched the `4XX` tag. A 5xx teaches no number, since an origin answers 503 both for a full account and for a channel restarting. The frame grabber judges a refusal by the same tags on the open's error code, not by its message.
+- An open refused within 15 s of any close on its provider retries, not only after a read the broker revoked itself: a provider that keeps counting a closed stream for a moment refuses the channel opened right after it.
+- A refused neighbour or preview that finds only equal or higher reads on a full provider fails at once instead of retrying against it; a refused playback read waits out the playback it replaces.
+- `setOriginConnectionBudget` under the reads already held makes the lowest ones below playback yield until the provider fits the budget.
+- A read the app gave no key is keyed by its URL's host and port (`LiveConnectionBroker.key(forURL:)`), so two servers on one address never share a budget.
+- `isConnectionBudgetFailure(message)`: whether a session ended for its provider's budget (no connection left, or its connection yielded to a higher read) rather than for the channel.
+- A live channel with an image subtitle track (DVB, teletext) failed to open in the player: the rendition's VTT segments were served only for segment 0, since the route checked them against a counter that moves only at end of file, and AVPlayer gave up on the 404 with -1100. The route now serves every segment the subtitle playlist lists.
+- `scripts/demo-livetv/relay.py` test knobs `RELAY_CAP_STATUS` (the refusal's status line) and `RELAY_RELEASE_LAG_MS` (how long a closed reader keeps counting).
+
 ## 1.2.0
 
 - FFmpeg tomo.8: the `dec3` box of a copied E-AC-3 track takes its Atmos flag from the dependent substream when the stream has one (ETSI TS 103 420 8.3.1). A Blu-ray style track, an AC-3 core with a dependent E-AC-3 frame carrying the objects, used to be declared without Atmos because the muxer read the first frame of each packet. On Apple TV with AirPods, Control Center shows Dolby Atmos for such a track.

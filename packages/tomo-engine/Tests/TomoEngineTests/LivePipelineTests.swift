@@ -474,6 +474,12 @@ final class LivePipelineTests: XCTestCase {
         XCTAssertFalse(subs.contains("#EXT-X-MAP"), subs)
         let vttLines = subs.split(separator: "\n").filter { $0.hasPrefix("sub1-") && $0.hasSuffix(".vtt") }
         XCTAssertGreaterThanOrEqual(vttLines.count, 3, subs)
+        // Every listed segment is served: a 404 on one fails the player's open with -1100.
+        for line in vttLines {
+            guard case .data(let body, let type) = session.route(String(line)) else { return XCTFail("\(line) not served") }
+            XCTAssertEqual(type, "text/vtt")
+            XCTAssertTrue(String(decoding: body, as: UTF8.self).hasPrefix("WEBVTT"), line.description)
+        }
 
         // Decoded cues, on the output timeline, with their images written.
         let manifestData = try XCTUnwrap(session.subtitleCueManifest(streamIndex: 1))
