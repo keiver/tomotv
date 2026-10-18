@@ -393,8 +393,10 @@ final class LiveConnectionBrokerTests: XCTestCase {
         XCTAssertEqual(try relay.stats()["active"], 1, "the occupier was made to yield")
     }
 
-    /// A grab refused with a 429 beside playback teaches the limit the same as a 403 does.
-    func testAGrabRefusedWith429TeachesTheLimit() throws {
+    /// A grab refused with a 429 beside playback for its whole fight teaches the limit the same as a 403 does. The open
+    /// is tried again every second to the deadline and the answer is a refusal, never the server's copy, which reads
+    /// the origin on the same account.
+    func testAGrabRefusedWith429TeachesTheLimitAndNeverReadsTheServerCopy() throws {
         let relay = try cappedRelay(mode: "refuse", port: 19762, status: "429 Too Many Requests")
         defer { relay.stop() }
         let key = "grab-429"
@@ -404,14 +406,295 @@ final class LiveConnectionBrokerTests: XCTestCase {
         let queue = try frameQueue()
         let done = XCTestExpectation(description: "grab")
         var outcome: LiveFrameQueue.Outcome?
-        queue.request(channelId: "refused-429", inputUrl: relay.url, headers: [:], deadline: 6, span: 9, interval: 3, count: 4, originKey: key) {
+        queue.request(channelId: "refused-429", inputUrl: relay.url, headers: [:], deadline: 6, span: 9, interval: 3, count: 4, originKey: key,
+                      fallbackUrl: Self.fixture.absoluteString) {
             outcome = $0
             done.fulfill()
         }
         wait(for: [done], timeout: 15)
-        guard case .none(opened: false, _)? = outcome else { return XCTFail("the grab was not refused: \(String(describing: outcome))") }
+        guard case .refused(let failure)? = outcome else { return XCTFail("the grab was not refused: \(String(describing: outcome))") }
+        XCTAssertTrue(failure?.contains("429") == true, "\(failure ?? "no failure")")
         XCTAssertEqual(LiveConnectionBroker.shared.budget(for: key), 1)
-        XCTAssertEqual(try relay.stats()["active"], 1, "playback was made to yield")
+        let stats = try relay.stats()
+        XCTAssertGreaterThanOrEqual(stats["refused"] ?? 0, 4, "the open was not tried again through the deadline: \(stats)")
+        XCTAssertEqual(stats["active"], 1, "playback was made to yield")
+    }
+
+    /// The origin keeps counting a closed reader for a while, here 10 s: the grab after one it just closed keeps
+    /// retrying for its deadline, the refusals off the clock, and gets in once the count clears.
+    func testAGrabRefusedRightAfterACloseKeepsRetryingUntilItOpens() throws {
+        let relay = try cappedRelay(mode: "refuse", port: 19772, status: "429 Too Many Requests", lagMs: 10000)
+        defer { relay.stop() }
+        let key = "grab-after-close"
+        LiveConnectionBroker.shared.setBudget(1, for: key)
+        defer { LiveConnectionBroker.shared.setBudget(0, for: key) }
+        let queue = try frameQueue()
+        let first = XCTestExpectation(description: "first grab")
+        queue.request(channelId: "first", inputUrl: relay.url, headers: [:], deadline: 12, span: 3, interval: 3, count: 2, originKey: key) { _ in first.fulfill() }
+        wait(for: [first], timeout: 15)
+        let second = XCTestExpectation(description: "second grab")
+        var outcome: LiveFrameQueue.Outcome?
+        queue.request(channelId: "second", inputUrl: relay.url, headers: [:], deadline: 12, span: 3, interval: 3, count: 2, originKey: key) {
+            outcome = $0
+            second.fulfill()
+        }
+        wait(for: [second], timeout: 30)
+        guard case .frames? = outcome else { return XCTFail("the retry did not open: \(String(describing: outcome))") }
+        let stats = try relay.stats()
+        XCTAssertGreaterThanOrEqual(stats["refused"] ?? 0, 5, "the grab gave up before the count cleared: \(stats)")
+        XCTAssertEqual(stats["admitted"], 2, "\(stats)")
+    }
+
+    /// No connection spare on a provider: the grab waits its deadline for one to free, asks the origin nothing, and
+    /// answers busy, so the channel stays due.
+    func testAGrabWithNoConnectionSpareAnswersBusyWithoutAnOpen() throws {
+        let key = "busy-\(UUID().uuidString)"
+        let broker = LiveConnectionBroker.shared
+        broker.setBudget(1, for: key)
+        defer { broker.setBudget(0, for: key) }
+        let held = try XCTUnwrap(broker.tryAcquire(key: key, priority: .ring, onRevoke: {}))
+        defer { held.release() }
+        let queue = try frameQueue()
+        let done = XCTestExpectation(description: "grab")
+        var outcome: LiveFrameQueue.Outcome?
+        let started = Date()
+        queue.request(channelId: "busy", inputUrl: Self.unopenable, headers: [:], deadline: 1, originKey: key) {
+            outcome = $0
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 5)
+        guard case .busy? = outcome else { return XCTFail("the grab did not answer busy: \(String(describing: outcome))") }
+        XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(started), 1, "the grab did not wait for a connection")
+    }
+
+    /// A sweep waiting for a connection gets it the moment the read holding it closes.
+    func testASweepWaitsForTheSlotToFreeAndTakesIt() throws {
+        let broker = LiveConnectionBroker()
+        broker.setBudget(1, for: "k")
+        let ring = try XCTUnwrap(broker.tryAcquire(key: "k", priority: .ring, onRevoke: {}))
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { ring.release() }
+        let started = Date()
+        XCTAssertNotNil(broker.acquire(key: "k", priority: .sweep, timeout: 5, onRevoke: {}))
+        XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(started), 0.3)
+        XCTAssertNil(broker.acquire(key: "k", priority: .sweep, timeout: 0.2, onRevoke: {}), "the sweep took a slot from the sweep holding it")
+    }
+
+    // MARK: - A preview holds a slot only while one stays spare beside it
+
+    func testASweepsLostFightBesideAPreviewWithNoBudgetKnownEndsThePreviewAndTeachesOne() {
+        let broker = LiveConnectionBroker()
+        var previewRevoked = false
+        let preview = broker.tryAcquire(key: "k", priority: .preview) { previewRevoked = true }
+        let sweep = broker.tryAcquire(key: "k", priority: .sweep, onRevoke: {})
+        XCTAssertNotNil(preview)
+        broker.noteLostFight(of: sweep!, channel: "a", learn: true)
+        XCTAssertTrue(previewRevoked)
+        XCTAssertEqual(broker.budget(for: "k"), 1)
+        XCTAssertNil(broker.tryAcquire(key: "k", priority: .preview, onRevoke: {}), "a preview was granted on a one-connection key")
+    }
+
+    func testAPreviewRefusedBesideASweepLeavesTheSweepAloneAndEndsItself() {
+        let broker = LiveConnectionBroker()
+        var sweepRevoked = false
+        var previewRevoked = false
+        _ = broker.tryAcquire(key: "k", priority: .sweep) { sweepRevoked = true }
+        let preview = broker.tryAcquire(key: "k", priority: .preview) { previewRevoked = true }
+        XCTAssertFalse(broker.noteRefusal(of: preview!))
+        XCTAssertEqual(broker.budget(for: "k"), 1)
+        XCTAssertFalse(sweepRevoked)
+        XCTAssertTrue(previewRevoked)
+    }
+
+    func testABudgetOfOneSetWithAPreviewHeldEndsIt() {
+        let broker = LiveConnectionBroker()
+        var previewRevoked = false
+        _ = broker.tryAcquire(key: "k", priority: .preview) { previewRevoked = true }
+        broker.setBudget(1, for: "k")
+        XCTAssertTrue(previewRevoked)
+    }
+
+    func testAPreviewKeepsItsSlotWhileOneStaysSpareBesideIt() {
+        let broker = LiveConnectionBroker()
+        var previewRevoked = false
+        _ = broker.tryAcquire(key: "k", priority: .preview) { previewRevoked = true }
+        _ = broker.tryAcquire(key: "k", priority: .playback, onRevoke: {})
+        broker.setBudget(3, for: "k")
+        XCTAssertFalse(previewRevoked)
+        // A budget of two sent again with the sweep in the spare slot: the spare is the sweep's, the preview stays.
+        let two = LiveConnectionBroker()
+        var twoRevoked = false
+        two.setBudget(2, for: "k")
+        _ = two.tryAcquire(key: "k", priority: .preview) { twoRevoked = true }
+        XCTAssertNotNil(two.tryAcquire(key: "k", priority: .sweep, onRevoke: {}))
+        two.setBudget(2, for: "k")
+        XCTAssertFalse(twoRevoked)
+    }
+
+    func testAKickedPreviewRevokesNothingBelowIt() {
+        let broker = LiveConnectionBroker()
+        var sweepRevoked = false
+        let preview = broker.tryAcquire(key: "k", priority: .preview, onRevoke: {})!
+        Thread.sleep(forTimeInterval: 0.01)
+        _ = broker.tryAcquire(key: "k", priority: .sweep) { sweepRevoked = true }
+        broker.noteLost(preview)
+        XCTAssertEqual(broker.budget(for: "k"), 1)
+        XCTAssertFalse(sweepRevoked)
+    }
+
+    func testAKeyThatShowedRoomBesideAPreviewRevokesAndLearnsOnlyOnceTwoChannelsLost() {
+        let broker = LiveConnectionBroker()
+        var previewRevoked = false
+        let preview = broker.tryAcquire(key: "k", priority: .preview) { previewRevoked = true }!
+        broker.noteOpened(preview)
+        let sibling = broker.tryAcquire(key: "k", priority: .sweep, onRevoke: {})!
+        broker.noteOpened(sibling)
+        sibling.release()
+        // One channel losing beside a preview the origin served another read beside is that channel's own refusal.
+        let broken = broker.tryAcquire(key: "k", priority: .sweep, onRevoke: {})!
+        broker.noteLostFight(of: broken, channel: "broken", learn: true)
+        XCTAssertFalse(previewRevoked)
+        XCTAssertNil(broker.budget(for: "k"))
+        broker.noteLostFight(of: broken, channel: "broken", learn: true)
+        XCTAssertFalse(previewRevoked)
+        // A second channel losing since means the room is gone: the preview yields and the count is learned.
+        broker.noteLostFight(of: broken, channel: "other", learn: true)
+        XCTAssertTrue(previewRevoked)
+        XCTAssertEqual(broker.budget(for: "k"), 1)
+        preview.release()
+        broken.release()
+        // Previews are not stopped on a key that showed room; a fresh one is granted once the budget allows.
+        broker.setBudget(2, for: "k")
+        XCTAssertNotNil(broker.tryAcquire(key: "k", priority: .preview, onRevoke: {}))
+    }
+
+    func testAReadAdmittedBesideAnOpenedPreviewForgetsTheChannelsThatLostSince() {
+        let broker = LiveConnectionBroker()
+        var previewRevoked = false
+        let preview = broker.tryAcquire(key: "k", priority: .preview) { previewRevoked = true }!
+        broker.noteOpened(preview)
+        let first = broker.tryAcquire(key: "k", priority: .sweep, onRevoke: {})!
+        broker.noteOpened(first)
+        first.release()
+        let lost = broker.tryAcquire(key: "k", priority: .sweep, onRevoke: {})!
+        broker.noteLostFight(of: lost, channel: "a", learn: false)
+        lost.release()
+        let admitted = broker.tryAcquire(key: "k", priority: .sweep, onRevoke: {})!
+        broker.noteOpened(admitted)
+        admitted.release()
+        let again = broker.tryAcquire(key: "k", priority: .sweep, onRevoke: {})!
+        broker.noteLostFight(of: again, channel: "b", learn: false)
+        XCTAssertFalse(previewRevoked, "one channel lost since the last admission counts as two")
+    }
+
+    func testAKeyThatNeverShowedRoomStopsPreviewsAtTheSecondChannelLostWithNoNumber() {
+        let broker = LiveConnectionBroker()
+        var firstRevoked = false
+        let first = broker.tryAcquire(key: "k", priority: .preview) { firstRevoked = true }!
+        let sweep = broker.tryAcquire(key: "k", priority: .sweep, onRevoke: {})!
+        broker.noteLostFight(of: sweep, channel: "a", learn: false)
+        XCTAssertTrue(firstRevoked)
+        XCTAssertNil(broker.budget(for: "k"))
+        first.release()
+        // The next dwell's preview is still granted: one channel lost says nothing of the origin.
+        var secondRevoked = false
+        let second = broker.tryAcquire(key: "k", priority: .preview) { secondRevoked = true }
+        XCTAssertNotNil(second)
+        broker.noteLostFight(of: sweep, channel: "b", learn: false)
+        XCTAssertTrue(secondRevoked)
+        second?.release()
+        sweep.release()
+        XCTAssertNil(broker.tryAcquire(key: "k", priority: .preview, onRevoke: {}), "a preview was granted on a full origin")
+        // The viewer's own number replaces what the refusals showed.
+        broker.setBudget(2, for: "k")
+        XCTAssertNotNil(broker.tryAcquire(key: "k", priority: .preview, onRevoke: {}))
+    }
+
+    func testAPreviewStillRetryingInAGhostShowsNoRoom() {
+        let broker = LiveConnectionBroker()
+        var previewRevoked = false
+        _ = broker.tryAcquire(key: "k", priority: .preview) { previewRevoked = true }
+        // The sweep is admitted beside a preview the origin has not admitted: no room shown.
+        let sweep = broker.tryAcquire(key: "k", priority: .sweep, onRevoke: {})!
+        broker.noteOpened(sweep)
+        sweep.release()
+        let next = broker.tryAcquire(key: "k", priority: .sweep, onRevoke: {})!
+        broker.noteLostFight(of: next, channel: "a", learn: true)
+        XCTAssertTrue(previewRevoked)
+        XCTAssertEqual(broker.budget(for: "k"), 1)
+    }
+
+    /// The warm preview holds the only connection and the sweep's fight is refused for its whole deadline: the preview
+    /// yields, the sweep's next open gets in, and the origin never counted two readers.
+    func testASweepsLostFightEndsThePreviewHoldingTheOnlyConnection() throws {
+        let relay = try cappedRelay(mode: "refuse", port: 19782, status: "429 Too Many Requests")
+        defer { relay.stop() }
+        let key = "preview-yields"
+        defer { LiveConnectionBroker.shared.setBudget(0, for: key) }
+        var previewConfig = makeConfig(durationSeconds: 0, inputUrl: relay.url, width: 128, height: 96, isLive: true, liveSegmentSeconds: 2, liveWindowSeconds: 30)
+        previewConfig.liveOriginKey = key
+        previewConfig.livePriority = .preview
+        let preview = try RemuxSession(config: previewConfig)
+        let yielded = XCTestExpectation(description: "preview yielded")
+        var failure: String?
+        preview.onFailed = {
+            failure = $0["message"] as? String
+            yielded.fulfill()
+        }
+        preview.start()
+        defer { preview.stop() }
+        Thread.sleep(forTimeInterval: 3)
+        XCTAssertEqual(try relay.stats()["active"], 1, "the preview is not reading")
+
+        let queue = try frameQueue()
+        let done = XCTestExpectation(description: "grab")
+        var outcome: LiveFrameQueue.Outcome?
+        queue.request(channelId: "card", inputUrl: relay.url, headers: [:], deadline: 6, span: 3, interval: 3, count: 2, originKey: key) {
+            outcome = $0
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 15)
+        guard case .refused? = outcome else { return XCTFail("the first fight was not lost: \(String(describing: outcome))") }
+        wait(for: [yielded], timeout: 5)
+        XCTAssertTrue(failure?.contains("yielded") == true, "\(failure ?? "no failure")")
+        XCTAssertEqual(LiveConnectionBroker.shared.budget(for: key), 1)
+        let next = XCTestExpectation(description: "next grab")
+        queue.request(channelId: "card", inputUrl: relay.url, headers: [:], deadline: 12, span: 3, interval: 3, count: 2, originKey: key) {
+            outcome = $0
+            next.fulfill()
+        }
+        wait(for: [next], timeout: 20)
+        guard case .frames? = outcome else { return XCTFail("the grab after the preview yielded did not open: \(String(describing: outcome))") }
+        let stats = try relay.stats()
+        XCTAssertEqual(stats["peak"], 1, "the origin counted two readers: \(stats)")
+    }
+
+    /// The origin keeps counting the closed read for 10 s: playback's refused open keeps trying every second within the
+    /// close window and opens once the count clears, never falling to the server's copy.
+    func testPlaybackRidesOutATenSecondCountOfTheClosedRead() throws {
+        let relay = try cappedRelay(mode: "refuse", port: 19792, status: "429 Too Many Requests", lagMs: 10000)
+        defer { relay.stop() }
+        let key = "lagging-ten"
+        defer { LiveConnectionBroker.shared.setBudget(0, for: key) }
+        var config = makeConfig(durationSeconds: 0, inputUrl: relay.url, width: 128, height: 96, isLive: true, liveSegmentSeconds: 2, liveWindowSeconds: 30)
+        config.liveOriginKey = key
+        config.livePriority = .playback
+        config.fallbackInputUrl = Self.fixture.absoluteString
+        let previous = try RemuxSession(config: config)
+        previous.start()
+        Thread.sleep(forTimeInterval: 3)
+        XCTAssertEqual(try relay.stats()["active"], 1, "the first channel is not reading")
+        previous.stop()
+        Thread.sleep(forTimeInterval: 0.2)
+        let next = try RemuxSession(config: config)
+        var failure: String?
+        next.onFailed = { failure = $0["message"] as? String }
+        next.start()
+        defer { next.stop() }
+        Thread.sleep(forTimeInterval: 14)
+        XCTAssertNil(failure, "the next channel failed: \(failure ?? "")")
+        let stats = try relay.stats()
+        XCTAssertGreaterThanOrEqual(stats["refused"] ?? 0, 5, "the open was not kept up through the count: \(stats)")
+        XCTAssertEqual(stats["active"], 1, "the next channel is not reading the origin: \(stats)")
     }
 
     /// Nothing known about the origin: a ring neighbour opens beside playback and the origin kicks one of them. The

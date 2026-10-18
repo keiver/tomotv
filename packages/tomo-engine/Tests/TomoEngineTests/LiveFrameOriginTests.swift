@@ -58,6 +58,10 @@ final class LiveFrameOriginTests: XCTestCase {
             case .empty?:
                 line["outcome"] = "empty"
                 if !expectFail { XCTFail("run \(run): the source listed no streams") }
+            case .refused(let failure)?:
+                line["outcome"] = "refused"
+                line["failure"] = failure ?? ""
+                if !expectFail { XCTFail("run \(run): the provider turned the open away, \(failure ?? "")") }
             default:
                 line["outcome"] = "cancelled"
                 XCTFail("run \(run): cancelled")

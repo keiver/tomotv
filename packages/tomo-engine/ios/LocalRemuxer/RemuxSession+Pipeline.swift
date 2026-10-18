@@ -1271,6 +1271,7 @@ extension RemuxSession {
         var inputCtx: UnsafeMutablePointer<AVFormatContext>?
         var ret: Int32 = 0
         var attempt = 0
+        var firstRefusalAt: Date?
         var inputUrl = config.inputUrl
         var inputHeaders = config.httpHeaders
 
@@ -1383,12 +1384,21 @@ extension RemuxSession {
             // A failed open freed the context itself.
             if ret < 0 { openingInput = nil }
             // Only a read on a provider's budget retries its open: a live input, or a file that names its provider.
-            if ret >= 0 || lease == nil || isCancelled { break }
+            if ret >= 0 || lease == nil || isCancelled || hasFailed { break }
             // A refusal by the origin while this device holds other connections to it: the reads below this one
-            // yield, and a 4xx shows its limit. Just after any close it is the origin still counting the closed one.
-            if Self.httpOpenErrors.contains(ret), attempt < 4, inputUrl == config.inputUrl, let held = lease,
-               LiveConnectionBroker.shared.noteRefusal(of: held, learn: Self.limitErrors.contains(ret)) || LiveConnectionBroker.shared.recentlyClosed(key: originKey, within: 15) {
-                Thread.sleep(forTimeInterval: 0.5 * pow(2, Double(attempt)))
+            // yield, and a 4xx shows its limit unless a read on the origin just closed (it is still counting that
+            // one, so no number). Four tries, then one a second while the origin is within its close window.
+            var retry = false
+            if Self.httpOpenErrors.contains(ret), inputUrl == config.inputUrl, let held = lease {
+                if firstRefusalAt == nil { firstRefusalAt = Date() }
+                let closing = LiveConnectionBroker.shared.recentlyClosed(key: originKey, within: 15)
+                let room = LiveConnectionBroker.shared.noteRefusal(of: held, learn: Self.limitErrors.contains(ret) && !closing)
+                retry = attempt < 4 ? room || closing : closing && Date().timeIntervalSince(firstRefusalAt!) < 15
+            }
+            // The refusal can end this read itself: a preview left no slot spare beside it.
+            if hasFailed { break }
+            if retry {
+                Thread.sleep(forTimeInterval: attempt < 4 ? 0.5 * pow(2, Double(attempt)) : 1)
                 attempt += 1
                 // A file goes back to the reader on the one connection its lease covers.
                 openRanged(connections: 1)
@@ -1412,6 +1422,8 @@ extension RemuxSession {
             return failStartup("open_input: \(averr(ret))", retryable: !Self.isPermanentInputError(ret))
         }
         mark("open_input")
+        // The origin admitted this read; the server's copy says nothing of the origin's room.
+        if let held = lease, inputUrl == config.inputUrl { LiveConnectionBroker.shared.noteOpened(held) }
         defer {
             openingInput = nil
             var closing: UnsafeMutablePointer<AVFormatContext>? = input

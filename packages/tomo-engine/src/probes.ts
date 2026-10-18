@@ -162,8 +162,11 @@ export interface LiveFrameResult {
   unchanged?: boolean;
   missing?: boolean;
   cancelled?: boolean;
-  /** `empty`: the source opened and listed no streams. */
-  reason?: "open" | "frame" | "empty";
+  /**
+   * `empty`: the source opened and listed no streams. `refused`: the provider turned the open away, retries included.
+   * `busy` (with `cancelled`): no connection was spare on the provider, nothing was asked of it.
+   */
+  reason?: "open" | "frame" | "empty" | "refused" | "busy";
   failure?: string | null;
 }
 

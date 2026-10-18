@@ -5,7 +5,9 @@
 //  A burst per live channel on request, for the guide's cards: keyframes sampled `interval`
 //  stream seconds apart across `span`, kept in the chapter frame pool under time-named files.
 //  Jobs run one at a time on a low-priority queue of their own, so a dead origin never stalls
-//  the library's posters, and a watchdog stops a grab at its deadline.
+//  the library's posters. A grab fights for its read: it waits for a connection on its provider,
+//  tries a refused open again every second for `deadline`, and once admitted has `deadline` for
+//  its pictures and clip, a watchdog stopping the read at it.
 //
 
 import Foundation
@@ -21,6 +23,10 @@ final class LiveFrameQueue {
 
     /// Grabs in flight at once, across distinct hosts; same-host jobs serialize on their host's queue.
     static let maxConcurrent = 2
+    /// A refused open is tried again this far apart for the whole deadline: a provider keeps counting a closed
+    /// read until it next writes to it (measured on Dispatcharr: 1 to 1.5 s on a flowing feed, up to 10 s while
+    /// the feed stalls), and a preview holding its only connection yields once the fight is lost.
+    static let refusalRetryWait: TimeInterval = 1
 
     private let root: URL
     let queue = DispatchQueue(label: "tv.tomo.liveframes", qos: .utility)
@@ -66,7 +72,17 @@ final class LiveFrameQueue {
         case none(opened: Bool, failure: String?)
         /// The source opened and listed no streams: an origin serving nothing, judged by channel health.
         case empty
+        /// The provider turned the open away (a 4xx or 5xx, never a 404), the retries included: its connections
+        /// are taken, which says nothing of the channel.
+        case refused(failure: String?)
+        /// No connection spare on the provider for a sweep read: nothing was asked of it, the channel stays due.
+        case busy
         case cancelled
+    }
+
+    /// Whether the grabber's open was turned away by the provider rather than failing on the channel.
+    private static func refusedOpen(_ grabber: FrameGrabber) -> Bool {
+        !grabber.sourceOpened && grabber.openError.map(RemuxSession.httpOpenErrors.contains) == true
     }
 
     /// The channel's burst now, decoded in turn, with a `clipSpan` preview clip when over zero.
@@ -112,35 +128,61 @@ final class LiveFrameQueue {
                 outcome = .none(opened: true, failure: nil)
                 return
             }
-            guard let lease = LiveConnectionBroker.shared.tryAcquire(key: key, priority: priority, onRevoke: { [weak self] in self?.cancel(channelId: channelId) }) else {
-                outcome = .cancelled
+            // The sweep waits for a connection to free, taking none from anyone; none within the deadline is busy.
+            guard let lease = LiveConnectionBroker.shared.acquire(key: key, priority: priority, timeout: deadline, onRevoke: { [weak self] in self?.cancel(channelId: channelId) }) else {
+                outcome = .busy
                 return
             }
             defer { lease.release() }
-            var grabber = FrameGrabber(inputUrl: inputUrl, directory: directory, pool: root, epoch: epoch, httpHeaders: headers, live: true)
             let shared = LiveConnectionBroker.shared.sharesUnknownOrigin(lease)
-            grabber.reconnects = !shared
-            lock.lock()
-            let stopped = cancelled.contains(channelId)
-            if !stopped { running[channelId] = grabber }
-            lock.unlock()
-            if stopped {
+            let started = Date()
+            let base = "\(Self.filePrefix)\(Int64(started.timeIntervalSince1970 * 1000))"
+            var grabber: FrameGrabber!
+            var watchdog: DispatchWorkItem?
+            /// One try at the read: its own grabber, admitted by the origin or not, with the whole deadline once admitted.
+            func attempt() -> FrameGrabber.LiveGrab? {
+                let made = FrameGrabber(inputUrl: inputUrl, directory: directory, pool: root, epoch: epoch, httpHeaders: headers, live: true)
+                made.reconnects = !shared
+                made.onOpened = { LiveConnectionBroker.shared.noteOpened(lease) }
+                lock.lock()
+                let stopped = cancelled.contains(channelId)
+                if !stopped { running[channelId] = made }
+                lock.unlock()
+                if stopped { return nil }
+                grabber = made
+                watchdog?.cancel()
+                let guard_ = DispatchWorkItem { made.stop() }
+                watchdog = guard_
+                DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + deadline, execute: guard_)
+                return made.liveBurst(named: base, span: span, interval: interval, count: max(1, count), wall: deadline,
+                                      clipSpan: clipSpan, unlessPts: shownPts, onFrame: frame)
+            }
+            guard var result = attempt() else {
                 outcome = .cancelled
                 return
             }
-            let watchdog = DispatchWorkItem { grabber.stop() }
-            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + deadline, execute: watchdog)
-            let started = Date()
-            let base = "\(Self.filePrefix)\(Int64(started.timeIntervalSince1970 * 1000))"
-            var result = grabber.liveBurst(named: base, span: span, interval: interval, count: max(1, count), wall: deadline,
-                                           clipSpan: clipSpan, unlessPts: shownPts, onFrame: frame)
+            var refused = Self.refusedOpen(grabber)
+            var retries = 0
+            // The fight: a refused open is asked again every second for the deadline, through the provider's
+            // count of a closed read, until the origin admits it or the fight is lost.
+            while refused, Date().timeIntervalSince(started) + Self.refusalRetryWait < deadline, !isCancelled(channelId) {
+                retries += 1
+                wait(Self.refusalRetryWait, unlessCancelled: channelId)
+                if isCancelled(channelId) { break }
+                guard let again = attempt() else { break }
+                result = again
+                refused = Self.refusedOpen(grabber)
+            }
+            if refused, !isCancelled(channelId), let code = grabber.openError {
+                // A fight lost beside a preview: the preview yields; a 4xx from the origin teaches its budget.
+                LiveConnectionBroker.shared.noteLostFight(of: lease, channel: channelId, learn: RemuxSession.limitErrors.contains(code))
+            }
             let left = deadline - Date().timeIntervalSince(started)
-            // Only the origin's own answers teach its budget; the server's copy says nothing of it.
-            let originRefused = !grabber.sourceOpened && grabber.openError.map(RemuxSession.limitErrors.contains) == true
             // Channel health judges the origin by its own failure, never by the server copy's.
             let origin = (opened: grabber.sourceOpened, failure: grabber.openFailure, url: grabber.openedUrl ?? inputUrl)
             var fellBack = false
-            if case .none = result, !grabber.sourceOpened, let fallbackUrl, !fallbackUrl.isEmpty, fallbackUrl != inputUrl, left > 1, !isCancelled(channelId) {
+            // The server reads the channel on the same account, so a refusal is never asked of it.
+            if case .none = result, !grabber.sourceOpened, !refused, let fallbackUrl, !fallbackUrl.isEmpty, fallbackUrl != inputUrl, left > 1, !isCancelled(channelId) {
                 grabber.stop()
                 let fallback = FrameGrabber(inputUrl: fallbackUrl, directory: directory, pool: root, epoch: epoch, httpHeaders: [:], live: true)
                 fallback.reconnects = !shared
@@ -152,7 +194,7 @@ final class LiveFrameQueue {
                 result = fallback.liveBurst(named: base, span: span, interval: interval, count: max(1, count), wall: left,
                                             clipSpan: clipSpan, unlessPts: shownPts, onFrame: frame)
             }
-            watchdog.cancel()
+            watchdog?.cancel()
             grabber.stop()
             let elapsed = Date().timeIntervalSince(started)
             // Only a broken input is evidence of a provider kick. Unchanged pictures and a span
@@ -183,8 +225,8 @@ final class LiveFrameQueue {
                     sweepNoLaterThan(Self.nowMs() + Self.expiryMs + Self.diskGraceMs)
                 }
                 let clipBytes = clip.flatMap { (try? FileManager.default.attributesOfItem(atPath: $0.path))?[.size] as? Int } ?? 0
-                NSLog("[LiveFrame] %@", String(format: "%@ %d frames clip %@ %d packets %d bytes %.0fms %.2fs %lld bytes", channelId, files.count,
-                                                 grabber.clipMode, grabber.clipPackets, clipBytes, grabber.clipMs, elapsed, grabber.bytesRead))
+                NSLog("[LiveFrame] %@", String(format: "%@ %d frames clip %@ %d packets %d bytes %.0fms (%@) %.2fs %lld bytes", channelId, files.count,
+                                                 grabber.clipMode, grabber.clipPackets, clipBytes, grabber.clipMs, grabber.clipEnd, elapsed, grabber.bytesRead))
                 outcome = .frames(files, clip: clip, pts: pts)
             case .unchanged:
                 // The shown burst was just verified live: its files restart their validity.
@@ -196,18 +238,24 @@ final class LiveFrameQueue {
                 NSLog("[LiveFrame] %@", String(format: "%@ unchanged %.2fs %lld bytes onDisk=%d", channelId, elapsed, grabber.bytesRead, onDisk ? 1 : 0))
                 outcome = .unchanged(onDisk: onDisk)
             case .none:
-                // The pipeline's refusal set: a 404 is a dead channel, not the provider's connection cap.
-                if originRefused {
-                    LiveConnectionBroker.shared.noteRefusal(of: lease)
-                }
                 let judged = fellBack ? origin : (opened: grabber.sourceOpened, failure: grabber.openFailure, url: grabber.openedUrl ?? inputUrl)
-                NSLog("[LiveFrame] %@", String(format: "%@ none %.2fs opened=%d %@ %@%@", channelId, elapsed, judged.opened ? 1 : 0,
-                                                 judged.failure ?? "no keyframe", judged.url,
+                NSLog("[LiveFrame] %@", String(format: "%@ %@ %.2fs opened=%d %@ %@%@", channelId, refused ? "refused x\(retries + 1)" : "none", elapsed,
+                                                 judged.opened ? 1 : 0, judged.failure ?? "no keyframe", judged.url,
                                                  fellBack ? " fallback: \(grabber.openFailure ?? "no keyframe")" : ""))
-                // A fallback runs only when the origin did not open, so an empty answer is always the origin's own.
-                outcome = !fellBack && grabber.sourceEmpty ? .empty : .none(opened: judged.opened, failure: judged.failure)
+                if refused {
+                    outcome = .refused(failure: judged.failure)
+                } else {
+                    // A fallback runs only when the origin did not open, so an empty answer is always the origin's own.
+                    outcome = !fellBack && grabber.sourceEmpty ? .empty : .none(opened: judged.opened, failure: judged.failure)
+                }
             }
         }
+    }
+
+    /// Sleeps `seconds` in short steps, back as soon as the channel's grab is cancelled.
+    private func wait(_ seconds: TimeInterval, unlessCancelled channelId: String) {
+        let until = Date().addingTimeInterval(seconds)
+        while Date() < until, !isCancelled(channelId) { Thread.sleep(forTimeInterval: 0.1) }
     }
 
     /// The newest burst on disk for each channel whose burst is still valid, in order, its clip, and

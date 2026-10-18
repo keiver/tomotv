@@ -39,6 +39,8 @@ final class LiveConnectionBroker {
         fileprivate let grantedAt = Date()
         fileprivate let onRevoke: () -> Void
         fileprivate var revoking = false
+        /// The origin admitted this read's own open (never the server copy's).
+        fileprivate var opened = false
         fileprivate weak var broker: LiveConnectionBroker?
 
         fileprivate init(key: String, priority: Priority, broker: LiveConnectionBroker, onRevoke: @escaping () -> Void) {
@@ -59,12 +61,23 @@ final class LiveConnectionBroker {
     /// When a read last closed per key: the origin frees its count a moment after, so an open refused
     /// right then is the origin catching up, not a verdict.
     private var closedAt: [String: Date] = [:]
+    /// Keys whose origin admitted a read while a preview it had admitted was still held: room beside a preview.
+    private var roomShown = Set<String>()
+    /// Per key, the channels whose sweep lost a whole fight beside a preview since the origin last showed room.
+    private var lostBesidePreview: [String: Set<String>] = [:]
+    /// Keys that never showed room and refused two channels beside a preview: a full origin that teaches no number.
+    private var previewsStopped = Set<String>()
 
-    /// A budget under the reads held revokes the lowest ones below playback until the key fits it.
+    /// A budget under the reads held revokes the lowest ones below playback until the key fits it, and any
+    /// preview left with no slot spare beside it.
     func setBudget(_ budget: Int, for key: String) {
         cond.lock()
         budgets[key] = budget > 0 ? budget : nil
-        let victims = budget > 0 ? victimsLocked(key: key, limit: budget, below: .playback, keeping: nil) : []
+        // The viewer's number replaces what the origin's refusals showed.
+        previewsStopped.remove(key)
+        lostBesidePreview[key] = nil
+        var victims = budget > 0 ? victimsLocked(key: key, limit: budget, below: .playback, keeping: nil) : []
+        if budget > 0 { victims += previewsWithoutSpareLocked(key: key, limit: budget) }
         cond.broadcast()
         cond.unlock()
         victims.forEach { $0.onRevoke() }
@@ -96,17 +109,19 @@ final class LiveConnectionBroker {
         cond.unlock()
     }
 
-    /// A slot now or nil, never taking one from anyone: the sweep's terms. A preview also leaves one slot spare,
-    /// so on a provider allowing one connection the sweep keeps refreshing the cards.
+    /// A slot now or nil, never taking one from anyone. A preview also leaves one slot spare for the sweep, the
+    /// terms it holds on, and none is granted on a key that refused two channels beside one without ever showing room.
     func tryAcquire(key: String, priority: Priority, onRevoke: @escaping () -> Void) -> Lease? {
         cond.lock()
         defer { cond.unlock() }
+        if priority == .preview, previewsStopped.contains(key) { return nil }
         guard hasRoomLocked(key, spare: priority == .preview ? 1 : 0) else { return nil }
         return grantLocked(key: key, priority: priority, onRevoke: onRevoke)
     }
 
     /// A slot within `timeout`, revoking the lowest lower-priority lease on a full key and waiting for its
-    /// connection to close, so the origin never counts both. nil when nothing below this priority holds one.
+    /// connection to close, so the origin never counts both. A sweep revokes nothing and waits for the slot
+    /// to free. nil at the timeout, or when a ring finds nothing below it to revoke.
     func acquire(key: String, priority: Priority, timeout: TimeInterval, onRevoke: @escaping () -> Void) -> Lease? {
         // A preview never takes a slot from anyone and leaves one spare.
         if priority == .preview { return tryAcquire(key: key, priority: priority, onRevoke: onRevoke) }
@@ -117,8 +132,9 @@ final class LiveConnectionBroker {
             let waitingOn = (active[key] ?? []).contains { $0.revoking }
             if !waitingOn {
                 guard let victim = (active[key] ?? []).filter({ $0.priority < priority }).min(by: { $0.priority < $1.priority }) else {
-                    // Playback waits out the session it replaces, whose lease frees only once its thread exits.
-                    if priority == .playback, cond.wait(until: deadline) { continue }
+                    // Playback waits out the session it replaces, whose lease frees only once its thread exits;
+                    // the sweep waits for whatever holds the slot to close.
+                    if priority == .playback || priority == .sweep, cond.wait(until: deadline) { continue }
                     return nil
                 }
                 victim.revoking = true
@@ -139,8 +155,9 @@ final class LiveConnectionBroker {
     }
 
     /// The origin refused `lease`'s open while this device held other connections to it. The lowest reads below
-    /// `lease` are revoked to make room; with `learn`, those held were the origin's limit and the budget becomes
-    /// their count. True when room is coming: a read was revoked, or `lease` is playback and waits out what it replaces.
+    /// `lease` are revoked to make room (a preview takes nothing from anyone), and so is a preview left with no
+    /// slot spare; with `learn`, those held were the origin's limit and the budget becomes their count. True when
+    /// room is coming: another read was revoked, or `lease` is playback and waits out what it replaces.
     @discardableResult
     func noteRefusal(of lease: Lease, learn: Bool = true) -> Bool {
         cond.lock()
@@ -150,14 +167,53 @@ final class LiveConnectionBroker {
             return false
         }
         if learn { learnLocked(key: lease.key, limit: others.count) }
-        let victims = victimsLocked(key: lease.key, limit: min(budgets[lease.key] ?? .max, others.count), below: lease.priority, keeping: lease)
+        var victims = lease.priority == .preview ? [] : victimsLocked(key: lease.key, limit: min(budgets[lease.key] ?? .max, others.count), below: lease.priority, keeping: lease)
+        victims += previewsWithoutSpareLocked(key: lease.key, limit: budgets[lease.key] ?? others.count)
         cond.unlock()
         victims.forEach { $0.onRevoke() }
-        return !victims.isEmpty || lease.priority == .playback
+        return victims.contains { $0 !== lease } || lease.priority == .playback
+    }
+
+    /// The origin admitted `lease`'s own open. Admitted beside a preview it had admitted, it shows the key has
+    /// room beside one, and the channels that lost a fight there since are forgotten.
+    func noteOpened(_ lease: Lease) {
+        cond.lock()
+        lease.opened = true
+        if (active[lease.key] ?? []).contains(where: { $0 !== lease && $0.opened && $0.priority == .preview }) {
+            roomShown.insert(lease.key)
+            lostBesidePreview[lease.key] = nil
+        }
+        cond.unlock()
+    }
+
+    /// A sweep refused for its whole fight while this device held other reads on the key: a 4xx teaches their count
+    /// and a preview left no slot spare yields, unless the origin has shown room beside a preview and `channel` is
+    /// the only one to lose since (its own refusal, not the origin's). A key that never showed room stops previews
+    /// at the second channel lost beside one.
+    func noteLostFight(of lease: Lease, channel: String, learn: Bool) {
+        cond.lock()
+        let others = (active[lease.key] ?? []).filter { $0 !== lease }
+        guard !others.isEmpty else {
+            cond.unlock()
+            return
+        }
+        let besidePreview = others.contains { $0.priority == .preview }
+        if besidePreview { lostBesidePreview[lease.key, default: []].insert(channel) }
+        let lost = lostBesidePreview[lease.key]?.count ?? 0
+        guard !roomShown.contains(lease.key) || lost >= 2 else {
+            cond.unlock()
+            return
+        }
+        if learn { learnLocked(key: lease.key, limit: others.count) }
+        if besidePreview, !roomShown.contains(lease.key), lost >= 2 { previewsStopped.insert(lease.key) }
+        let victims = previewsWithoutSpareLocked(key: lease.key, limit: budgets[lease.key] ?? others.count)
+        cond.unlock()
+        victims.forEach { $0.onRevoke() }
     }
 
     /// `lease`'s live input dropped just after it or another read on its origin opened while both were held: the origin
-    /// kicked one to admit the other. The budget becomes what was held besides it, and the reads below `lease` go.
+    /// kicked one to admit the other. The budget becomes what was held besides it, and the reads below `lease` go
+    /// (a preview takes nothing from anyone), with any preview left no slot spare.
     func noteLost(_ lease: Lease) {
         cond.lock()
         let others = (active[lease.key] ?? []).filter { $0 !== lease }
@@ -167,7 +223,8 @@ final class LiveConnectionBroker {
             return
         }
         learnLocked(key: lease.key, limit: others.count)
-        let victims = victimsLocked(key: lease.key, limit: budgets[lease.key] ?? others.count, below: lease.priority, keeping: lease)
+        var victims = lease.priority == .preview ? [] : victimsLocked(key: lease.key, limit: budgets[lease.key] ?? others.count, below: lease.priority, keeping: lease)
+        victims += previewsWithoutSpareLocked(key: lease.key, limit: budgets[lease.key] ?? others.count)
         cond.unlock()
         victims.forEach { $0.onRevoke() }
     }
@@ -194,6 +251,19 @@ final class LiveConnectionBroker {
             candidate.revoking = true
             victims.append(candidate)
             over -= 1
+        }
+        return victims
+    }
+
+    /// Previews left no slot spare beside them under `limit`, the terms they were granted on (`tryAcquire`); marked
+    /// revoking. The sweep is not counted: the spare slot is the sweep's.
+    private func previewsWithoutSpareLocked(key: String, limit: Int) -> [Lease] {
+        var victims: [Lease] = []
+        for preview in (active[key] ?? []).filter({ $0.priority == .preview && !$0.revoking }) {
+            let beside = (active[key] ?? []).filter { $0 !== preview && !$0.revoking && $0.priority > .sweep }.count
+            guard beside + 1 >= limit else { continue }
+            preview.revoking = true
+            victims.append(preview)
         }
         return victims
     }

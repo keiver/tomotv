@@ -644,7 +644,9 @@ class LocalRemuxer: RCTEventEmitter {
 
     /// A live channel's burst now. Config: channelId, inputUrl, httpHeaders, deadline, span, interval, clipSpan (seconds),
     /// count, shownPts, shownUri. Each burst frame is announced as `onLiveFrame` while the burst is read.
-    /// Resolves `{uris, clip, pts}`, `{unchanged, missing}` when shownPts is still the live edge, `{cancelled}`, else `reason`: `open`, `frame`, or `empty` (opened, no streams).
+    /// Resolves `{uris, clip, pts}`, `{unchanged, missing}` when shownPts is still the live edge, `{cancelled}`, else `reason`: `open`, `frame`,
+    /// `empty` (opened, no streams) or `refused` (the provider turned the open away, retries included); `{cancelled, reason: "busy"}` when
+    /// no connection was spare on the provider and nothing was asked of it.
     @objc func liveFrame(
         _ config: NSDictionary,
         resolver resolve: @escaping RCTPromiseResolveBlock,
@@ -681,6 +683,10 @@ class LocalRemuxer: RCTEventEmitter {
                 let failed: NSObject = failure.map { $0 as NSString } ?? NSNull()
                 resolve(["uris": [], "cancelled": false, "reason": opened ? "frame" : "open", "failure": failed])
             case .empty: resolve(["uris": [], "cancelled": false, "reason": "empty"])
+            case .refused(let failure):
+                let failed: NSObject = failure.map { $0 as NSString } ?? NSNull()
+                resolve(["uris": [], "cancelled": false, "reason": "refused", "failure": failed])
+            case .busy: resolve(["uris": [], "cancelled": true, "reason": "busy"])
             case .cancelled: resolve(["uris": [], "cancelled": true])
             }
         }

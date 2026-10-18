@@ -92,6 +92,10 @@ final class FrameGrabber {
     private(set) var clipMode = "none"
     private(set) var clipMs: Double = 0
     private(set) var clipPackets = 0
+    /// What ended the clip's read: "span", "read ended", "encoder failed", "wall", "cancelled" or "no encoder".
+    private(set) var clipEnd = "none"
+    /// Runs on the grab's thread once the source opened: the origin admitted this read.
+    var onOpened: (() -> Void)?
     /// A card-sized preview: every clip is encoded down to this, so the cards that loop it decode little.
     private static let clipMaxBitrate: Int64 = 1_000_000
     private static let clipMaxHeight: Int32 = 360
@@ -197,9 +201,11 @@ final class FrameGrabber {
         clipMode = "none"
         clipMs = 0
         clipPackets = 0
+        clipEnd = "none"
         return queue.sync {
             liveReadEnded = false
             guard !isCancelled, open() else { return .none }
+            onOpened?()
             let started = Date()
             let first = decode(target: .firstKeyframe, nearestFromStart: false, batch: 1, started: started).first
             guard let first else {
@@ -258,7 +264,10 @@ final class FrameGrabber {
         let transcoder = VideoTranscoder(inputStream: inStream, keyframeInterval: span, maxBitrate: Self.clipMaxBitrate,
                                          maxHeight: Self.clipMaxHeight, maxFrameRate: Self.clipFrameRate,
                                          hardwareDecode: Self.clipHardwareDecode, quiet: true)
-        guard transcoder != nil || copyable else { return nil }
+        guard transcoder != nil || copyable else {
+            clipEnd = "no encoder"
+            return nil
+        }
         clipMode = transcoder == nil ? "copy" : "transcode"
 
         // Written under a name the disk seed never serves, and renamed once whole: a grab killed mid-write leaves no clip.
@@ -322,7 +331,10 @@ final class FrameGrabber {
         /// Onto the clip's own timeline from zero, then copied or transcoded; false once past the span.
         func take(_ packet: UnsafeMutablePointer<AVPacket>) -> Bool {
             let dts = packet.pointee.dts != SWIFT_AV_NOPTS_VALUE ? packet.pointee.dts : packet.pointee.pts
-            guard dts - decodeOrigin < spanTicks else { return false }
+            guard dts - decodeOrigin < spanTicks else {
+                clipEnd = "span"
+                return false
+            }
             guard let shifted = av_packet_clone(packet) else { return true }
             var owned: UnsafeMutablePointer<AVPacket>? = shifted
             defer { av_packet_free(&owned) }
@@ -333,14 +345,19 @@ final class FrameGrabber {
                 return true
             }
             transcoder.process(packet: shifted) { write($0) }
+            if transcoder.failed { clipEnd = "encoder failed" }
             return !transcoder.failed
         }
         guard take(keyPacket) else { return nil }
         guard let pkt = av_packet_alloc() else { return nil }
         var freeing: UnsafeMutablePointer<AVPacket>? = pkt
         defer { av_packet_free(&freeing) }
+        clipEnd = "wall"
         readLoop: while Date().timeIntervalSince(started) < wall, !isCancelled {
-            if readPacket(input, pkt) < 0 { break }
+            if readPacket(input, pkt) < 0 {
+                clipEnd = "read ended"
+                break
+            }
             defer { av_packet_unref(pkt) }
             guard pkt.pointee.stream_index == videoIndex, pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE else { continue }
             // Leading pictures of an open GOP reference the GOP before the read; nothing after them does.
@@ -352,10 +369,14 @@ final class FrameGrabber {
             }
             if !take(pkt) { break readLoop }
         }
+        if isCancelled { clipEnd = "cancelled" }
         if let transcoder {
             // The encoder and a deinterlacer's lookahead hold frames until the end is signalled.
             transcoder.process(packet: nil) { write($0) }
-            guard !transcoder.failed else { return nil }
+            guard !transcoder.failed else {
+                clipEnd = "encoder failed"
+                return nil
+            }
         }
         guard lastPts >= minTicks, av_write_trailer(output) >= 0 else { return nil }
         avio_closep(&output.pointee.pb)
