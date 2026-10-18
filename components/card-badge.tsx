@@ -46,18 +46,21 @@ interface CardBadgeProps {
   tone?: "gold" | "live";
   /** Phone only: a shorter pill with smaller text, for two pills sharing one card corner. */
   compact?: boolean;
+  /** Focused: an opaque accent pill in the palette's ink, for a pill with only moving video under it. */
+  solidFocus?: boolean;
 }
 
 /**
  * Glass card pill: what a folder holds, which disc and track a song is, which episode. The card
  * that renders it owns its position.
  */
-export function CardBadge({ segments, loading, focused, tone = "gold", compact = false }: CardBadgeProps) {
+export function CardBadge({ segments, loading, focused, tone = "gold", compact = false, solidFocus = false }: CardBadgeProps) {
   const live = tone === "live";
   const small = compact && !IS_TV;
   const thin = live;
   const palette = useCardPalette();
-  const ink = live || focused ? COLORS.TEXT_PRIMARY : palette.accent;
+  const solid = !live && solidFocus && focused;
+  const ink = solid ? palette.ink : live || focused ? COLORS.TEXT_PRIMARY : palette.accent;
   const height = thin ? SLIM_BADGE_HEIGHT : small ? COMPACT_BADGE_HEIGHT : BADGE_HEIGHT;
   const sizing = [styles.badge, small && styles.badgeCompact, thin && styles.badgeSlim];
 
@@ -82,6 +85,13 @@ export function CardBadge({ segments, loading, focused, tone = "gold", compact =
   if (live) {
     return (
       <View style={[sizing, styles.badgeLive]} pointerEvents="none">
+        {content}
+      </View>
+    );
+  }
+  if (solid) {
+    return (
+      <View style={[sizing, { borderRadius: height / 2, backgroundColor: palette.accent }]} pointerEvents="none">
         {content}
       </View>
     );

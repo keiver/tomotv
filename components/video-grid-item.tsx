@@ -470,7 +470,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
           {/* The name, always: many feeds carry their own logo, and the name tells a channel's variants apart. */}
           {liveCard ? (
             <View style={styles.cornerName} pointerEvents="none">
-              <CardBadge segments={[{ icon: trailingMark, label: cardTitle }]} focused={focused} />
+              <CardBadge segments={[{ icon: trailingMark, label: cardTitle }]} focused={focused} solidFocus />
             </View>
           ) : null}
 

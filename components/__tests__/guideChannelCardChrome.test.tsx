@@ -21,7 +21,10 @@ jest.mock("@/services/jellyfinApi", () => ({ isAudioItem: () => false, isBook: (
 
 import { CardBadge } from "@/components/card-badge";
 import { VideoGridItem } from "@/components/video-grid-item";
+import { GlassSurface } from "@/components/glass-surface";
 import { DESIGN } from "@/constants/app";
+import { COLORS } from "@/constants/colors";
+import { cardPalette } from "@/services/cardTheme";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 
 const channel = { Id: "c1", Name: "Channel One", Type: "TvChannel" } as JellyfinVideoItem;
@@ -72,6 +75,26 @@ describe("guide channel card without a title bar", () => {
     const barred = render({ liveFrame: frame });
     expect(barred.badges).not.toContainEqual(NAME_PILL);
     expect(barred.names).toBe(1);
+  });
+});
+
+describe("guide channel card name pill on focus", () => {
+  it("turns solid accent with the palette's ink, while other focused badges stay glass", () => {
+    let tree!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      tree = TestRenderer.create(<VideoGridItem video={channel} onPress={jest.fn()} index={0} liveCard liveFrame={frame} titleIcon="heart" hideAiring highlighted />);
+    });
+    const pill = tree.root.findAllByType(CardBadge)[0];
+    const fill = pill.findAll((n) => typeof n.type === "string" && StyleSheet.flatten(n.props.style)?.backgroundColor === COLORS.ACCENT);
+    expect(fill.length).toBeGreaterThan(0);
+    const name = pill.findAllByType(Text).find((n) => n.props.children === "Channel One");
+    expect(StyleSheet.flatten(name?.props.style).color).toBe(cardPalette(COLORS.ACCENT).ink);
+    act(() => tree.unmount());
+    act(() => {
+      tree = TestRenderer.create(<CardBadge segments={[{ label: "S01E05" }]} focused />);
+    });
+    expect(tree.root.findAllByType(GlassSurface)).toHaveLength(1);
+    act(() => tree.unmount());
   });
 });
 
