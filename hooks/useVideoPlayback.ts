@@ -1238,7 +1238,20 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           // The engine reports a pipeline failure as it happens, so an input it could not open
           // ends the wait now rather than at the deadline.
           const stopFailure = subscribeEngineFailure(token, (failure) => {
-            if (ownsAttempt() && localRemuxTokenRef.current === token) preflight.settle({ failed: failure.message });
+            if (!ownsAttempt() || localRemuxTokenRef.current !== token) return;
+            // A spatial track refused after the master named it: a fresh session carries it as before.
+            // The engine remembers the track, so each reopen leaves one fewer to refuse.
+            if (failure.spatialAudio) {
+              const position = currentTimeRef.current;
+              logger.warn("Spatial audio went back to FLAC, reopening the engine at the playhead", { service: "useVideoPlayback", position: Math.round(position), reason: failure.message });
+              probeEmit("engineRestart", { position: Math.round(position), reason: "spatial audio refused" });
+              stopLocalRemux(token);
+              localRemuxTokenRef.current = null;
+              dropThroughputWatch(throughputRef.current);
+              restartAtPlayhead(position);
+              return;
+            }
+            preflight.settle({ failed: failure.message });
           });
           // The engine's startup steps, as they finish: the input is open, the tracks are known.
           const stopStage = subscribeEngineStage(token, ({ stage, elapsed }) => {

@@ -42,6 +42,7 @@ import {
   stopLocalRemux,
   stopPlaylistShim,
   slipstreamEligible,
+  subscribeEngineFailure,
   subscribeEngineLink,
   subscribeEngineTier,
 } from "@/services/localRemux";
@@ -95,7 +96,7 @@ jest.mock("@/services/jellyfinApi", () => ({
 let mockTierDeclared = false;
 
 /** The engine's own failure report; null while the session lives. */
-let mockFailure: () => { token: string; message: string } | null = () => null;
+let mockFailure: () => { token: string; message: string; spatialAudio?: boolean } | null = () => null;
 let mockProgress: () => { alive: boolean; bytesRead: number; readSeconds: number; elapsedSeconds: number; sourceState?: string; recovering?: boolean; hasPlayableSupplier?: boolean } | null = () =>
   null;
 let throughputListener: ((sample: unknown) => void) | null = null;
@@ -1211,6 +1212,30 @@ describe("useVideoPlayback (mounted)", () => {
       expect(recordTimeoutVerdict).not.toHaveBeenCalled();
       expect(mockProbeEmit).toHaveBeenCalledWith("fallback", { from: "localRemux", to: "transcode", reason: "engine failed: open_input: Input/output error" });
       expect(mockProbeEmit).not.toHaveBeenCalledWith("error", expect.anything());
+    });
+
+    it("reopens the engine for each spatial track it refuses after its master named it, instead of asking the server", async () => {
+      mockNeedsTranscoding.mockReturnValue(true);
+      mockCanRemux.mockResolvedValue(true);
+
+      const { ref } = await mount({ videoId: "video-1" });
+      for (let refusal = 0; refusal < 2; refusal++) {
+        ref.current!.get().currentTimeRef.current = 42;
+        const fail = (subscribeEngineFailure as jest.Mock).mock.calls.at(-1)![1];
+        await act(async () => fail({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", message: "spatial audio refused: x", spatialAudio: true }));
+        for (let i = 0; i < 6; i++) {
+          await act(async () => {
+            await new Promise((resolve) => setImmediate(resolve));
+          });
+        }
+      }
+
+      const result = ref.current!.get();
+      expect(mockStartLocalRemux).toHaveBeenCalledTimes(3);
+      expect(mockStartLocalRemux.mock.calls.slice(1).map((call) => call[2])).toEqual([42, 42]);
+      expect(result.state).toMatchObject({ mode: "localRemux" });
+      expect(result.sourceUri).toBe("http://127.0.0.1:9999/s/abc/master.m3u8");
+      expect(mockProbeEmit).not.toHaveBeenCalledWith("fallback", expect.objectContaining({ to: "transcode" }));
     });
 
     it("keeps a below-realtime session that carries a server tier, instead of spending the file on the server lane", async () => {

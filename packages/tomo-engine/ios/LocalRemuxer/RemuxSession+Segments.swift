@@ -16,6 +16,7 @@ extension RemuxSession {
     /// held until it lands, and AVPlayer fails it after 6s without body bytes (-12889).
     func segmentResponse(_ n: Int, prefix: String = "") -> LocalHTTPResponse {
         guard n >= 0 else { return .notFound }
+        if !prefix.isEmpty, let spatial = spatialRendition(prefix) { return spatialSegmentResponse(n, spatial) }
         stateLock.lock()
         let rendition = renditions.first { $0.prefix == prefix }
         lastRequestedSegment = n

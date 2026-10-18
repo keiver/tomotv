@@ -217,6 +217,17 @@ final class RemuxSession {
     var rampArmed = false
     /// The rendition the ramp brought up at the last cut; the segment now closing is its first. Pipeline thread.
     var rampActivating: String? = nil
+    /// A restart a spatial segment's waiter asked for, past the checks a video seek gets.
+    var pendingSpatialSeek: Int? = nil
+    /// Counts spatial segment waiters; only the newest may ask for a restart.
+    var spatialWaiters = 0
+    /// The preferred track is one APAC could take, so the audio rides its own group whether it does or not.
+    var spatialSplit = false
+    /// A master has gone out; the renditions it named APAC, which can no longer turn into FLAC.
+    var spatialNamed = false
+    var spatialAnnounced: Set<String> = []
+    /// A refused spatial rendition is being rebuilt as FLAC; the master waits for its codecs.
+    var spatialConverting = false
     /// Segment indices with a live segmentURL() request currently waiting on
     /// them, with a count per index (renditions can wait on the same n
     /// concurrently). The producer refuses to throttle while one of these sits
@@ -238,6 +249,8 @@ final class RemuxSession {
     var doviSecondsInSegment: Double = 0
     var audioSecondsInSegment: Double = 0
     var subtitleSecondsInSegment: Double = 0
+    var spatialSecondsInSegment: Double = 0
+    var spatialSlowStreak = 0
     /// The muxer's per-packet writes, the fragment flush at the cut, and the segment file write.
     var muxSecondsInSegment: Double = 0
     var flushSecondsInSegment: Double = 0

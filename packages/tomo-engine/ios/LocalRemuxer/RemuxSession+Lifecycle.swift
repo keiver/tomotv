@@ -32,6 +32,7 @@ extension RemuxSession {
         frames?.stop()
         iframeFrames?.stop()
         iframes?.stop()
+        SpatialAudioOutput.forget(token: token)
         // Before the stop requests, so no request of this session reaches the server after them.
         transfers.close()
         fireStopRequests()

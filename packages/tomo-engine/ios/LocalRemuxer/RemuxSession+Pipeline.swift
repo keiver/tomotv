@@ -302,6 +302,16 @@ extension RemuxSession {
     /// Restarts for one segment that each opened past its start before it is published short instead.
     static let partialOpenLookback = 3
 
+    /// The restart for a video and a spatial seek asked at once: the earlier target when both are for
+    /// one position, else the one nearer the newest request, which a scrub's leftover is not. A spatial
+    /// seek alone outside `window` of the newest request is a leftover too; its waiter re-asserts it if not.
+    static func combinedSeek(video: Int?, spatial: Int?, playhead: Int, window: Int) -> Int? {
+        guard let spatial else { return video }
+        guard let video else { return abs(spatial - playhead) <= window ? spatial : nil }
+        if abs(video - spatial) <= seekAheadSegments { return min(video, spatial) }
+        return abs(video - playhead) <= abs(spatial - playhead) ? video : spatial
+    }
+
     /// Where a restart for `segment` seeks: its own start, then one segment earlier per opening that
     /// landed past it. MPEG-TS starts a segment early: its seek lands on a packet, not a keyframe.
     /// A byte-estimated TS seek aims this far before its target, each retry this much further.
@@ -330,14 +340,15 @@ extension RemuxSession {
         onStage?(["token": token, "stage": "source_released", "elapsed": Date().timeIntervalSince(startedAt)])
     }
 
-    func fail(_ message: String) {
+    /// `spatialAudio`: the library refused a track a master had named APAC; a reopen carries it as before.
+    func fail(_ message: String, spatialAudio: Bool = false) {
         if handOverToRungs(because: message) { return }
         NSLog("[LocalRemuxer] Pipeline failed: %@", message)
         stateLock.lock()
         let first = !failed
         failed = true
         stateLock.unlock()
-        if first { onFailed?(["token": token, "message": message]) }
+        if first { onFailed?(["token": token, "message": message, "spatialAudio": spatialAudio]) }
     }
 
     /// One output rendition: its own mp4 muxer, its own byte buffer, its own
@@ -363,6 +374,9 @@ extension RemuxSession {
         /// Present when the copied video is Dolby Vision profile 7, which Apple cannot decode
         /// dual layer. Mutually exclusive with videoTranscoder: a re-encode drops the RPU.
         var dolbyVision: DolbyVisionConverter?
+        /// Present when this rendition's TrueHD Atmos or DTS:X becomes APAC on its own grid, in
+        /// place of a muxer; the transcoder takes over if it is refused before the master names it.
+        var spatial: SpatialAudio?
 
         var ctx: UnsafeMutablePointer<AVFormatContext>?
         var avio: UnsafeMutablePointer<AVIOContext>?
@@ -491,6 +505,8 @@ extension RemuxSession {
     /// Build (or rebuild) the muxer for one rendition and write its init
     /// segment. Returns false on a fatal error.
     func buildMuxer(for rendition: Rendition, input: UnsafeMutablePointer<AVFormatContext>) -> Bool {
+        // APAC is written by the spatial rendition itself.
+        if rendition.spatial != nil { return true }
         var outputCtx: UnsafeMutablePointer<AVFormatContext>? = nil
         var ret = avformat_alloc_output_context2(&outputCtx, nil, "mp4", nil)
         guard ret >= 0, let output = outputCtx else {
@@ -718,8 +734,21 @@ extension RemuxSession {
             "activating": activating,
             "thermal": VideoTranscoder.thermalName(),
         ]
+        // The conversion stays out of the sample, which would otherwise rule this device too slow for the
+        // file; where the app would act on a slow sample, the opening one or two in a row, it goes back to FLAC.
+        let timed = !(first && generation > 0) && !sleptOnCap
+        let slow = timed && SpatialAudio.slowsSegment(produced: produced, converting: spatialSecondsInSegment, segment: segmentDurationSeconds(n))
+        spatialSlowStreak = slow ? (first ? 1 : spatialSlowStreak + 1) : 0
+        if slow, (first && generation == 0) || (spatialSlowStreak >= 2 && cushion <= 1) {
+            stateLock.lock()
+            let spatial = renditions.compactMap(\.spatial)
+            stateLock.unlock()
+            spatial.forEach { $0.decline("the conversion runs below realtime on this device", remembered: true) }
+        }
+        let reported = produced - spatialSecondsInSegment
+        spatialSecondsInSegment = 0
         if !(first && generation > 0) {
-            sample["produceSeconds"] = produced
+            sample["produceSeconds"] = reported
             sample["readSeconds"] = readSecondsInSegment
         }
         stateLock.lock()
@@ -907,7 +936,11 @@ extension RemuxSession {
                 "rendition": (rendition?.prefix).flatMap { $0.isEmpty ? nil : $0 } ?? "primary",
                 "source": EnginePlan.describe(stream.pointee.codecpar),
             ]
-            if let transcoder = rendition?.transcoder, let encoded = transcoder.encoderParameters {
+            if rendition?.spatial != nil {
+                entry["action"] = "encode"
+                entry["encoder"] = "apac"
+                entry["output"] = ["codec": "apac", "channels": SpatialAudio.channels, "bitRate": SpatialAudio.bitRate]
+            } else if let transcoder = rendition?.transcoder, let encoded = transcoder.encoderParameters {
                 entry["action"] = "encode"
                 entry["encoder"] = transcoder.encoderName
                 entry["output"] = EnginePlan.describe(encoded)
@@ -1849,16 +1882,50 @@ extension RemuxSession {
         }
 
         var builtRenditions: [Rendition] = []
+        func trackPosition(_ discoveredPosition: Int, _ audioIndex: Int32) -> Int {
+            config.isLive ? discoveredPosition : config.audioTracks.firstIndex(where: { $0.index == audioIdentity[audioIndex] }) ?? discoveredPosition
+        }
+        // The preferred track alone may become APAC, on a grid of its own, so it takes an audio-only
+        // rendition whenever it could: a refusal this process remembers leaves the layout as it was.
+        var spatialTracks: [Int32: SpatialAudio] = [:]
+        if hasVideo, !config.isLive, !config.audioTracks.isEmpty,
+           let preferred = audioIndices.enumerated().first(where: { trackPosition($0.offset, $0.element) == 0 })?.element,
+           let stream = input.pointee.streams[Int(preferred)], SpatialAudio.eligible(stream.pointee.codecpar.pointee) {
+            awaitGrid()
+            let prefix = audioPrefix(0)
+            let spatial = SpatialAudio.make(stream: stream, streamIndex: preferred, prefix: prefix, inputUrl: config.inputUrl,
+                                            durationSeconds: spatialDurationSeconds, dir: dir)
+            // A master already out keeps the codec it named; one still to come reads these.
+            stateLock.lock()
+            spatialSplit = true
+            let kept = spatial != nil && (!spatialNamed || spatialAnnounced.contains(prefix))
+            if kept {
+                resolvedAudioCodecs[prefix] = SpatialAudio.codecs
+                resolvedAudioChannels[prefix] = SpatialAudio.channels
+            }
+            stateLock.unlock()
+            if kept { spatialTracks[preferred] = spatial }
+        }
         // Slipstream sessions always de-mux audio into its own rendition group
         // (see masterPlaylist): variant switches must never touch audio. Keyed on the
         // configured ladder, not the adopted one: adoption can finish after this line runs.
+        stateLock.lock()
+        let spatialSplitKept = spatialSplit
+        stateLock.unlock()
         let splitAudio = audioIndices.count > 1 || config.audioTracks.count > 1 || !config.tiers.isEmpty || config.audioTracks.contains(where: { $0.usesServerAudio })
+            || spatialSplitKept
         if hasVideo && splitAudio {
             builtRenditions.append(Rendition(prefix: "", inputStreams: [videoIn], transcoder: nil, videoTranscoder: primaryVideoTranscoder,
                                              dolbyVision: primaryDolbyVision))
         }
         for (discoveredPosition, audioIndex) in audioIndices.enumerated() {
-            let position = config.isLive ? discoveredPosition : config.audioTracks.firstIndex(where: { $0.index == audioIdentity[audioIndex] }) ?? discoveredPosition
+            let position = trackPosition(discoveredPosition, audioIndex)
+            if let spatial = spatialTracks[audioIndex] {
+                let rendition = Rendition(prefix: audioPrefix(position), inputStreams: [audioIndex], transcoder: nil, videoTranscoder: nil)
+                rendition.spatial = spatial
+                builtRenditions.append(rendition)
+                continue
+            }
             guard let transcoder = makeTranscoder(for: audioIndex) else {
                 return failStartup("no transcode path for audio stream \(audioIndex)")
             }
@@ -1899,7 +1966,12 @@ extension RemuxSession {
         producingSegment = 0
         reachedEnd = false
         stateLock.unlock()
-        defer { builtRenditions.forEach { $0.freeMuxer() } }
+        defer {
+            builtRenditions.forEach {
+                $0.freeMuxer()
+                $0.spatial?.stop()
+            }
+        }
         // stop() deletes the segment directory, so a session torn down during the
         // open has nowhere to write and must not try.
         if goneAlready { return }
@@ -2225,6 +2297,7 @@ extension RemuxSession {
                     }
                     rendition.videoTranscoder = rebuilt
                 }
+                rendition.spatial?.reset()
 
                 guard buildMuxer(for: rendition, input: input) else { return false }
             }
@@ -2360,7 +2433,43 @@ extension RemuxSession {
         // the same condition, so nothing can request a segment before it either.
         awaitGrid()
 
+        /// A refusal arrives from the transcoder's own queue, so the loops that wait look for it too.
+        func spatialRefused() -> Bool { builtRenditions.contains { $0.spatial?.failure != nil } }
+
         readLoop: while true {
+            // A spatial track the library refused goes back to the transcoder from a restart unless a
+            // master named it APAC; then the session ends and its reopen carries it so.
+            if let refused = builtRenditions.first(where: { $0.spatial?.failure != nil }), let spatial = refused.spatial {
+                spatial.stop()
+                stateLock.lock()
+                let named = spatialAnnounced.contains(refused.prefix)
+                stateLock.unlock()
+                spatial.rememberRefusal(reopening: named)
+                stateLock.lock()
+                if !named {
+                    refused.spatial = nil
+                    spatialConverting = true
+                    // A master written before the rebuild names the track's FLAC from the config.
+                    resolvedAudioCodecs[refused.prefix] = nil
+                    resolvedAudioChannels[refused.prefix] = nil
+                }
+                stateLock.unlock()
+                if named {
+                    fail("spatial audio refused: \(spatial.failure ?? "")", spatialAudio: true)
+                    break readLoop
+                }
+                guard let made = makeTranscoder(for: spatial.streamIndex), let transcoder = made else {
+                    fail("no transcode path for audio stream \(spatial.streamIndex)")
+                    break readLoop
+                }
+                refused.transcoder = transcoder
+                let restarted = restart(at: generationRequestSegment)
+                stateLock.lock()
+                spatialConverting = false
+                stateLock.unlock()
+                guard restarted else { break readLoop }
+            }
+
             // Session control between packets: cancellation, seeks, throttle.
             var heldThisPass = false
             var closedForHold = false
@@ -2379,6 +2488,11 @@ extension RemuxSession {
                 }
                 if seekTo == nil, !stop, let late = lateOpenRestart { seekTo = late }
                 lateOpenRestart = nil
+                // Its waiter found the running session will not reach that spatial segment.
+                if sessionAnchorUs != nil, let spatial = pendingSpatialSeek {
+                    seekTo = Self.combinedSeek(video: seekTo, spatial: spatial, playhead: lastRequestedSegment, window: aheadWindow)
+                    pendingSpatialSeek = nil
+                }
                 // A pick of a track prepared on demand restarts at its segment whatever the producer
                 // holds: the track has nothing on disk there, and a segment under production would
                 // be published short for it. The picks are taken with the seek, under the one lock,
@@ -2475,6 +2589,7 @@ extension RemuxSession {
                     break
                 }
                 if !throttled { break }
+                if spatialRefused() { continue readLoop }
                 sleptOnCap = true
                 heldThisPass = true
                 usleep(100_000)
@@ -2539,6 +2654,7 @@ extension RemuxSession {
                 // cue of the file has a real end rather than an open one.
                 for decoder in imageSubtitles.values { decoder.finish(at: durationSeconds) }
                 for decoder in textSubtitles.values { decoder.finish() }
+                for rendition in builtRenditions { rendition.spatial?.finish() }
 
                 finishSegment(currentSegment)
                 for rendition in builtRenditions {
@@ -2564,9 +2680,10 @@ extension RemuxSession {
                 while !resume {
                     stateLock.lock()
                     let stop = cancelled || failed
-                    let pending = pendingSeekSegment ?? activationSeekSegment
+                    let pending = pendingSeekSegment ?? activationSeekSegment ?? pendingSpatialSeek
                     stateLock.unlock()
                     if stop { break readLoop }
+                    if spatialRefused() { break }
                     if pending != nil {
                         // Leave it queued; the control block at the top of the
                         // loop performs the restart.
@@ -2677,6 +2794,21 @@ extension RemuxSession {
                 let decodeStarted = Date()
                 subtitleDecoder.handle(packet: pkt)
                 subtitleSecondsInSegment += Date().timeIntervalSince(decodeStarted)
+                continue
+            }
+
+            // APAC takes its track's packets on the output timeline, from the generation's keyframe on.
+            if let spatial = builtRenditions.first(where: { $0.spatial?.streamIndex == pkt.pointee.stream_index })?.spatial {
+                guard !awaitingKeyframe, let inStream = input.pointee.streams[Int(pkt.pointee.stream_index)] else { continue }
+                if pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE {
+                    pkt.pointee.pts -= av_rescale_q(timelineAnchorUs, microTb, inStream.pointee.time_base)
+                    if pkt.pointee.pts < 0 { continue }
+                }
+                let encodeStarted = Date()
+                spatial.feed(pkt, timeBase: inStream.pointee.time_base)
+                let encoding = Date().timeIntervalSince(encodeStarted)
+                audioSecondsInSegment += encoding
+                spatialSecondsInSegment += encoding
                 continue
             }
 
@@ -2830,6 +2962,7 @@ extension RemuxSession {
                 }
                 // Now, not at the waiter's re-assert 2s later (measured 2.0s vs 0.8s between restarts).
                 if partialOpenSegment == generationRequestSegment, openSegment > 0 { lateOpenRestart = openSegment }
+                for rendition in builtRenditions { rendition.spatial?.open(atSessionStart: openSeconds <= 0) }
                 awaitingKeyframe = false
                 }
             }
@@ -3134,6 +3267,10 @@ extension RemuxSession {
         // window the video range spans (translated through both grids).
         let lowerTime = segmentStartSeconds(keep.lowerBound)
         let upperTime = segmentStartSeconds(keep.upperBound) + segmentDurationSeconds(keep.upperBound)
+        stateLock.lock()
+        let spatial = renditions.compactMap(\.spatial)
+        stateLock.unlock()
+        for rendition in spatial { rendition.prune(outside: lowerTime...upperTime) }
         stateLock.lock()
         var audioDoomed: [(Int, [Int])] = []
         for (key, materialized) in audioLoMaterialized {

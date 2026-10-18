@@ -15,15 +15,19 @@ function packageIosDir(projectRoot) {
   return path.join(fs.realpathSync(path.dirname(manifest)), "ios");
 }
 
-/** Returns the Podfile text with both pod lines under use_expo_modules!, or the same text when they are present. */
+/** Adds the engine pods and their shared SwiftPM build-directory configuration once. */
 function addEnginePods(podfile, podsPath) {
   const missing = PODS.filter((name) => !podfile.includes(`pod '${name}'`));
-  if (missing.length === 0) return podfile;
-  const lines = missing.map((name) => `  pod '${name}', :path => '${podsPath}'`).join("\n");
-  const updated = podfile.replace(/^(\s*use_expo_modules!.*)$/m, `$1\n${lines}`);
-  if (updated === podfile) {
-    throw new Error("[tomo-engine] Could not find use_expo_modules! in Podfile to anchor the engine pods.");
+  let updated = podfile;
+  if (missing.length > 0) {
+    const lines = missing.map((name) => `  pod '${name}', :path => '${podsPath}'`).join("\n");
+    updated = podfile.replace(/^(\s*use_expo_modules!.*)$/m, `$1\n${lines}`);
+    if (updated === podfile) {
+      throw new Error("[tomo-engine] Could not find use_expo_modules! in Podfile to anchor the engine pods.");
+    }
   }
+  const sharedDirectory = `require_relative '${podsPath}/spm-build-directory'`;
+  if (!updated.includes(sharedDirectory)) updated = `${sharedDirectory}\n\n${updated}`;
   return updated;
 }
 

@@ -3,7 +3,7 @@
 #
 # The on-device playback engine (LocalRemuxer). Its bridge is a legacy
 # RCT_EXTERN_MODULE class, so the pod depends on React-Core; FFmpeg comes from
-# the TomoFFmpeg pod beside this file. The package's app.plugin.js adds this pod,
+# the TomoFFmpeg pod beside this file, SpatialAudioBridge from Swift Package Manager. The package's app.plugin.js adds this pod,
 # TomoLiveSources and TomoFFmpeg to the app's Podfile.
 #
 require "json"
@@ -27,6 +27,12 @@ Pod::Spec.new do |s|
 
   s.dependency "React-Core"
   s.dependency "TomoFFmpeg"
+  # TrueHD Atmos and DTS:X to APAC; Package.swift declares the same package for the host tests.
+  spm_dependency(s,
+    url: "https://github.com/kristofferR/SpatialAudioBridge",
+    requirement: { kind: "upToNextMajorVersion", minimumVersion: "2.0.0" },
+    products: ["SpatialAudioBridge", "SpatialAudioPlayback"]
+  )
 
   s.pod_target_xcconfig = { "DEFINES_MODULE" => "YES" }
 end

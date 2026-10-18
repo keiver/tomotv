@@ -7,15 +7,24 @@ let ffmpeg = [
     "Libavcodec", "Libavformat", "Libavutil", "Libswresample",
     "Libswscale", "Libavfilter", "Libdav1d", "Libuavs3d", "Libass", "Mbedtls", "Libzvbi",
 ]
+let engineDependencies: [Target.Dependency] = ffmpeg.map { .byName(name: $0) } + [
+    .product(name: "SpatialAudioBridge", package: "SpatialAudioBridge"),
+    .product(name: "SpatialAudioPlayback", package: "SpatialAudioBridge"),
+]
 
 let package = Package(
     name: "TomoEngine",
-    platforms: [.macOS(.v14)],
+    // The podspec's targets beside the host's, so the package also builds for the devices.
+    platforms: [.macOS(.v14), .iOS("16.4"), .tvOS("16.4")],
     products: [
         .library(name: "TomoEngine", targets: ["TomoEngine"]),
         .library(name: "TomoLiveSources", targets: ["TomoLiveSources"]),
         // Tomo's book reader links the archive library the TomoFFmpeg pod vendors.
         .library(name: "Libarchive", targets: ["Libarchive"]),
+    ],
+    // TrueHD Atmos and DTS:X to APAC; ios/TomoEngine.podspec declares the same package for the app.
+    dependencies: [
+        .package(url: "https://github.com/kristofferR/SpatialAudioBridge", from: "2.0.0"),
     ],
     targets: [
         // XMLTV on libxml2 SAX and zlib, M3U playlists. No UIKit outside the bridge.
@@ -36,7 +45,7 @@ let package = Package(
         // or it tests code under rules the shipped build never applies.
         .target(
             name: "TomoEngine",
-            dependencies: ffmpeg.map { .byName(name: $0) },
+            dependencies: engineDependencies,
             path: "ios/LocalRemuxer",
             exclude: ["LocalRemuxer.swift", "LocalRemuxer.m"],
             swiftSettings: [.swiftLanguageMode(.v5)],

@@ -229,8 +229,11 @@ export function subscribeEngineThroughput(token: string, listener: ThroughputLis
   };
 }
 
-/** A session's first pipeline failure, as the engine reports it (Remuxer.fail). */
-export type EngineFailure = { token: string; message: string };
+/**
+ * A session's first pipeline failure, as the engine reports it (Remuxer.fail). `spatialAudio`: the
+ * library refused a track the master had named APAC; the session's reopen carries it as before.
+ */
+export type EngineFailure = { token: string; message: string; spatialAudio?: boolean };
 
 type FailureListener = (failure: EngineFailure) => void;
 const failureListeners = new Map<string, Set<FailureListener>>();
