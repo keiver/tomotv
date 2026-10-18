@@ -183,7 +183,7 @@ extension RemuxSession {
             let inRecovery = recovering
             if !config.isLive && !completed && !dead && !ended && ticks >= 20 && ticks % 10 == 0
                 && pendingSeekSegment == nil && activationSeekSegment == nil
-                && abs(n - lastRequestedSegment) <= aheadWindow,
+                && Self.reasserts(n, newest: lastRequestedSegment),
                seekForStrandedLocked(n, prefix: prefix, producing: producingNow) {
                 NSLog("[LocalRemuxer] Re-asserting seek for stranded segment %d (producing %d)", n, producingNow)
             }
@@ -209,6 +209,12 @@ extension RemuxSession {
                   n, prefix.isEmpty ? "" : " [\(prefix)]", producingAtEnd, playheadAtEnd)
         }
         return ok && FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    /// Whether a stranded request may re-assert its restart: the newest request and those beside it. The
+    /// rest a burst of skips leaves wait, or are answered once the read reaches them, and never drag it back.
+    static func reasserts(_ n: Int, newest: Int) -> Bool {
+        abs(n - newest) <= seekAheadSegments
     }
 
     /// Queues the restart a stranded request needs, and says whether it did. Caller holds stateLock.

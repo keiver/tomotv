@@ -208,6 +208,16 @@ final class SpatialAudioTests: XCTestCase {
         XCTAssertFalse(restarts(152, 152, true, [152], true), "stranded, behind a queued restart")
     }
 
+    /// The video requests a burst of skips leaves (measured on Apple TV: 119 to 135, re-asserting in turn
+    /// for 18 s behind a spatial track's slower read) wait; only the newest and its neighbours move the read.
+    func testOnlyTheNewestVideoRequestAndItsNeighboursReassert() {
+        XCTAssertTrue(RemuxSession.reasserts(135, newest: 135))
+        XCTAssertTrue(RemuxSession.reasserts(134, newest: 135), "the other track at the playhead")
+        XCTAssertTrue(RemuxSession.reasserts(137, newest: 135))
+        XCTAssertFalse(RemuxSession.reasserts(122, newest: 135), "left behind by the burst")
+        XCTAssertFalse(RemuxSession.reasserts(140, newest: 135))
+    }
+
     /// A spatial rendition is never measured: the master counts the APAC rate for it when the source
     /// declares less.
     func testTheMasterCountsTheAPACRateForASpatialRendition() throws {
