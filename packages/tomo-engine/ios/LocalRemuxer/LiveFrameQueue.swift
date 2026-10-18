@@ -92,7 +92,7 @@ final class LiveFrameQueue {
             return
         }
         let epoch = ChapterFramePool.epoch
-        let key = originKey ?? URL(string: inputUrl)?.host ?? "-"
+        let key = originKey ?? LiveConnectionBroker.key(forURL: inputUrl)
         hostQueue(for: key).async { [self] in
             // Declared first so it runs last: the caller hears once the lease, `pending` and the slot are free.
             var outcome = Outcome.cancelled
@@ -136,8 +136,7 @@ final class LiveFrameQueue {
                                            clipSpan: clipSpan, unlessPts: shownPts, onFrame: frame)
             let left = deadline - Date().timeIntervalSince(started)
             // Only the origin's own answers teach its budget; the server's copy says nothing of it.
-            let originRefused = !grabber.sourceOpened && (grabber.openFailure.map { failure in
-                ["Server returned 401", "Server returned 403", "Server returned 4XX"].contains(where: failure.contains) } ?? false)
+            let originRefused = !grabber.sourceOpened && grabber.openError.map(RemuxSession.limitErrors.contains) == true
             // Channel health judges the origin by its own failure, never by the server copy's.
             let origin = (opened: grabber.sourceOpened, failure: grabber.openFailure, url: grabber.openedUrl ?? inputUrl)
             var fellBack = false

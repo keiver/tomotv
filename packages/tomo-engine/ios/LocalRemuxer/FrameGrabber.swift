@@ -84,6 +84,8 @@ final class FrameGrabber {
     private(set) var bytesRead: Int64 = 0
     /// Why the source would not open, for the live grab's log line.
     private(set) var openFailure: String?
+    /// FFmpeg's code for an open that failed, for the broker's reading of an HTTP refusal.
+    private(set) var openError: Int32?
     /// What was opened: the variant picked off a multivariant playlist, else the input itself.
     private(set) var openedUrl: String?
     /// The last live grab's clip, for its log line: how it was made, wall time and packets written.
@@ -502,6 +504,7 @@ final class FrameGrabber {
         // copied, or one the server cannot read, fails here on every retry; a timed-out read is tried again.
         guard ret >= 0, let opened = ctx else {
             openFailure = "open: \(grabErr(ret))"
+            openError = ret
             if ret == -ETIMEDOUT { openFailed = false }
             return false
         }

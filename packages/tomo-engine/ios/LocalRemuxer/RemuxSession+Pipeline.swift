@@ -67,13 +67,18 @@ extension RemuxSession {
     // MARK: - FFmpeg pipeline
 
     /// Open and probe errors no retry fixes: no demuxer, protocol or decoder, and the HTTP 4xx a
-    /// server answers for good. FFERRTAG(0xF8, a, b, c), since the macros do not import.
-    static let permanentInputErrors: Set<Int32> = Set(["DEM", "PRO", "DEC", "400", "401", "403", "404", "4XX"].map { tag in
-        let bytes = Array(tag.utf8)
-        return -(0xF8 | Int32(bytes[0]) << 8 | Int32(bytes[1]) << 16 | Int32(bytes[2]) << 24)
-    })
+    /// server answers for good.
+    static let permanentInputErrors: Set<Int32> = errorTags(["DEM", "PRO", "DEC", "400", "401", "403", "404", "4XX"])
 
     static func isPermanentInputError(_ code: Int32) -> Bool { permanentInputErrors.contains(code) }
+
+    /// FFERRTAG(0xF8, a, b, c) for each tag, since the macros do not import.
+    private static func errorTags(_ tags: [String]) -> Set<Int32> {
+        Set(tags.map { tag in
+            let bytes = Array(tag.utf8)
+            return -(0xF8 | Int32(bytes[0]) << 8 | Int32(bytes[1]) << 16 | Int32(bytes[2]) << 24)
+        })
+    }
 
     /// A live input that dropped may have been kicked by its origin for another read this device just opened.
     func noteLiveInputLost() {
@@ -84,11 +89,11 @@ extension RemuxSession {
         if let lease { LiveConnectionBroker.shared.noteLost(lease) }
     }
 
-    /// The HTTP answers a provider gives a connection over its cap (401, 403, and 429/458 as 4XX).
-    static let refusalErrors: Set<Int32> = Set(["401", "403", "4XX"].map { tag in
-        let bytes = Array(tag.utf8)
-        return -(0xF8 | Int32(bytes[0]) << 8 | Int32(bytes[1]) << 16 | Int32(bytes[2]) << 24)
-    })
+    /// The 4xx a provider gives a connection over its cap (429 has its own tag; 458 and the rest are 4XX): teaches its limit.
+    static let limitErrors: Set<Int32> = errorTags(["401", "403", "429", "4XX"])
+    /// Any HTTP answer but a 404 to an open: the reads below make room and the open retries. A 5xx teaches no
+    /// number, since an origin answers 503 both for a full account and for a channel restarting.
+    static let httpOpenErrors: Set<Int32> = errorTags(["400", "401", "403", "429", "4XX", "5XX"])
 
     /// Interrupt callback: aborts blocking network I/O when the session dies. It runs on the pipeline
     /// thread inside the open, the probe and every read, so it is also where the bytes the input has
@@ -1230,7 +1235,7 @@ extension RemuxSession {
         var lease: LiveConnectionBroker.Lease?
         // A file's ranged connections past its first, one lease each; they go back with the input.
         var rangedLeases: [LiveConnectionBroker.Lease] = []
-        let originKey = config.liveOriginKey ?? URL(string: config.inputUrl)?.host ?? "-"
+        let originKey = config.liveOriginKey ?? LiveConnectionBroker.key(forURL: config.inputUrl)
         // A file read over ranged connections: remote, and not a playlist the demuxer reads itself.
         let rangedInput: URL? = config.isLive ? nil : URL(string: config.inputUrl).flatMap { remote in
             (remote.scheme == "http" || remote.scheme == "https") && !remote.path.hasSuffix(".m3u8") && !remote.path.hasSuffix(".mpd") ? remote : nil
@@ -1379,10 +1384,10 @@ extension RemuxSession {
             if ret < 0 { openingInput = nil }
             // Only a read on a provider's budget retries its open: a live input, or a file that names its provider.
             if ret >= 0 || lease == nil || isCancelled { break }
-            // A refusal by the origin while this device holds other connections to it shows its limit: the reads below
-            // this one yield. Just after a yield it is the origin still counting the closed one. Either way, retry.
-            if Self.refusalErrors.contains(ret), attempt < 4, inputUrl == config.inputUrl, let held = lease,
-               LiveConnectionBroker.shared.noteRefusal(of: held) || LiveConnectionBroker.shared.recentlyYielded(key: originKey, within: 15) {
+            // A refusal by the origin while this device holds other connections to it: the reads below this one
+            // yield, and a 4xx shows its limit. Just after any close it is the origin still counting the closed one.
+            if Self.httpOpenErrors.contains(ret), attempt < 4, inputUrl == config.inputUrl, let held = lease,
+               LiveConnectionBroker.shared.noteRefusal(of: held, learn: Self.limitErrors.contains(ret)) || LiveConnectionBroker.shared.recentlyClosed(key: originKey, within: 15) {
                 Thread.sleep(forTimeInterval: 0.5 * pow(2, Double(attempt)))
                 attempt += 1
                 // A file goes back to the reader on the one connection its lease covers.

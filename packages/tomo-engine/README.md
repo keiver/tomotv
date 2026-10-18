@@ -63,8 +63,17 @@ await setOriginConnectionBudget("provider.example", 2); // 0 forgets it
 const state = await originConnections("provider.example"); // { budget, active }
 ```
 
-Budgets live in memory: set them at launch. Reads rank `sweep < preview < ring < playback`, and a
-higher one takes a full budget's connection from the lowest lower one.
+Budgets live in memory and are never stored: set them at launch and after every sign-in, from a
+provider's own figure (Xtream `max_connections`) or the viewer's setting. Reads rank
+`sweep < preview < ring < playback`, and a higher one takes a full budget's connection from the
+lowest lower one; a budget set under the reads already held makes the lowest ones yield at once.
+
+A provider's refusal of an open (any HTTP answer but a 404) while this device holds other reads on
+it makes the lower reads yield and the open retry. A 4xx (401, 403, 429, 458 and the rest) also
+teaches the budget; a 5xx teaches nothing, since one 503 means a full account and the next a
+channel restarting. An open refused just after any close on the provider retries too, for a
+provider that counts a closed stream a moment longer. A learned budget only ever goes down, which
+is why it is not kept across launches: nothing could ever raise it again.
 
 - A live session holds one connection. A file session that names its provider holds one per
   input connection: `inputConnections` asks for a count (3 when absent, 16 at most) and the input

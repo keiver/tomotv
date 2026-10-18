@@ -11,6 +11,12 @@ import Foundation
 final class LiveConnectionBroker {
     static let shared = LiveConnectionBroker()
 
+    /// A read's key when the app named none: the URL's host and port, so two servers on one address never share a budget.
+    static func key(forURL url: String) -> String {
+        guard let parsed = URL(string: url), let host = parsed.host, !host.isEmpty else { return "-" }
+        return parsed.port.map { "\(host):\($0)" } ?? host
+    }
+
     /// Who yields to whom: a higher priority revokes the lowest lower one when the budget is full.
     enum Priority: Int, Comparable {
         case sweep = 0, preview, ring, playback
@@ -50,15 +56,18 @@ final class LiveConnectionBroker {
     /// A key with no budget is unlimited until its provider shows its limit.
     private var budgets: [String: Int] = [:]
     private var active: [String: [Lease]] = [:]
-    /// When a revoked read last closed per key: the origin frees its count a moment after, so an open refused
+    /// When a read last closed per key: the origin frees its count a moment after, so an open refused
     /// right then is the origin catching up, not a verdict.
-    private var yieldedAt: [String: Date] = [:]
+    private var closedAt: [String: Date] = [:]
 
+    /// A budget under the reads held revokes the lowest ones below playback until the key fits it.
     func setBudget(_ budget: Int, for key: String) {
         cond.lock()
         budgets[key] = budget > 0 ? budget : nil
+        let victims = budget > 0 ? victimsLocked(key: key, limit: budget, below: .playback, keeping: nil) : []
         cond.broadcast()
         cond.unlock()
+        victims.forEach { $0.onRevoke() }
     }
 
     func budget(for key: String) -> Int? {
@@ -123,27 +132,28 @@ final class LiveConnectionBroker {
         return grantLocked(key: key, priority: priority, onRevoke: onRevoke)
     }
 
-    func recentlyYielded(key: String, within seconds: TimeInterval) -> Bool {
+    func recentlyClosed(key: String, within seconds: TimeInterval) -> Bool {
         cond.lock()
         defer { cond.unlock() }
-        return yieldedAt[key].map { Date().timeIntervalSince($0) < seconds } ?? false
+        return closedAt[key].map { Date().timeIntervalSince($0) < seconds } ?? false
     }
 
-    /// The origin refused `lease`'s open while this device held other connections to it: those were its limit.
-    /// The budget becomes that count and the lowest reads below `lease` are revoked to make room; true when learned.
+    /// The origin refused `lease`'s open while this device held other connections to it. The lowest reads below
+    /// `lease` are revoked to make room; with `learn`, those held were the origin's limit and the budget becomes
+    /// their count. True when room is coming: a read was revoked, or `lease` is playback and waits out what it replaces.
     @discardableResult
-    func noteRefusal(of lease: Lease) -> Bool {
+    func noteRefusal(of lease: Lease, learn: Bool = true) -> Bool {
         cond.lock()
         let others = (active[lease.key] ?? []).filter { $0 !== lease }
         guard !others.isEmpty else {
             cond.unlock()
             return false
         }
-        learnLocked(key: lease.key, limit: others.count)
-        let victims = victimsLocked(key: lease.key, below: lease.priority, keeping: lease)
+        if learn { learnLocked(key: lease.key, limit: others.count) }
+        let victims = victimsLocked(key: lease.key, limit: min(budgets[lease.key] ?? .max, others.count), below: lease.priority, keeping: lease)
         cond.unlock()
         victims.forEach { $0.onRevoke() }
-        return true
+        return !victims.isEmpty || lease.priority == .playback
     }
 
     /// `lease`'s live input dropped just after it or another read on its origin opened while both were held: the origin
@@ -157,7 +167,7 @@ final class LiveConnectionBroker {
             return
         }
         learnLocked(key: lease.key, limit: others.count)
-        let victims = victimsLocked(key: lease.key, below: lease.priority, keeping: lease)
+        let victims = victimsLocked(key: lease.key, limit: budgets[lease.key] ?? others.count, below: lease.priority, keeping: lease)
         cond.unlock()
         victims.forEach { $0.onRevoke() }
     }
@@ -175,11 +185,10 @@ final class LiveConnectionBroker {
         cond.broadcast()
     }
 
-    /// Reads under `priority` to revoke until `keeping` fits the budget, lowest first.
-    private func victimsLocked(key: String, below priority: Priority, keeping: Lease) -> [Lease] {
-        guard let budget = budgets[key] else { return [] }
+    /// Reads under `priority` to revoke until the key holds `limit`, lowest first; `keeping` is never one of them.
+    private func victimsLocked(key: String, limit: Int, below priority: Priority, keeping: Lease?) -> [Lease] {
         let held = active[key] ?? []
-        var over = held.count - budget
+        var over = held.count - limit
         var victims: [Lease] = []
         for candidate in held.filter({ $0 !== keeping && $0.priority < priority && !$0.revoking }).sorted(by: { $0.priority < $1.priority }) where over > 0 {
             candidate.revoking = true
@@ -202,7 +211,7 @@ final class LiveConnectionBroker {
 
     private func release(_ lease: Lease) {
         cond.lock()
-        if lease.revoking { yieldedAt[lease.key] = Date() }
+        closedAt[lease.key] = Date()
         active[lease.key]?.removeAll { $0 === lease }
         if active[lease.key]?.isEmpty == true { active[lease.key] = nil }
         cond.broadcast()

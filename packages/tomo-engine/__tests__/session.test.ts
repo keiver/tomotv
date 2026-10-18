@@ -27,6 +27,7 @@ import {
   describedSessionConfig,
   engineProgress,
   inputSubtitleRenditions,
+  isConnectionBudgetFailure,
   liveSubtitleRenditions,
   localRemuxToken,
   originConnections,
@@ -128,6 +129,16 @@ describe("live session controls", () => {
     mockRemuxer!.setLiveWindow = jest.fn().mockRejectedValue(new Error("x"));
     await setLiveWindow("tok123", 30);
     expect(warn).toHaveBeenCalledWith("Failed to resize a live window", expect.any(Error), expect.objectContaining({ token: "tok123" }));
+  });
+});
+
+describe("isConnectionBudgetFailure", () => {
+  it("names the broker's own endings and no other", () => {
+    expect(isConnectionBudgetFailure("no connection left on the live origin")).toBe(true);
+    expect(isConnectionBudgetFailure("no connection left on the origin")).toBe(true);
+    expect(isConnectionBudgetFailure("live input yielded its connection to a higher-priority read")).toBe(true);
+    expect(isConnectionBudgetFailure("open_input: Server returned 404 Not Found")).toBe(false);
+    expect(isConnectionBudgetFailure("")).toBe(false);
   });
 });
 

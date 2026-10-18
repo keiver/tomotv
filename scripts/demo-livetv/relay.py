@@ -3,7 +3,8 @@
 
   relay.py <dir>   per channel in lineup.json: feed on tcp 127.0.0.1:<port+100>, readers on http://127.0.0.1:<port>/live.ts
 Test knobs (the demo leaves them unset): RELAY_HOST, RELAY_MAX_READERS with RELAY_CAP_MODE refuse|kick (a provider's
-connection cap across every channel), and GET /stats for the readers counted so far.
+connection cap across every channel), RELAY_CAP_STATUS (the refusal's status line, "403 Forbidden" unless set),
+RELAY_RELEASE_LAG_MS (a closed reader keeps counting this long), and GET /stats for the readers counted so far.
 
 HDHomeRun face (the rig's tuner emulation, off unless RELAY_HDHR_PORT is set): one port answering /discover.json,
 /lineup.json and /auto/v<number> the way a Connect Quatro does, with each channel's lineup labels (videoCodec,
@@ -30,6 +31,9 @@ JOIN_BEHIND = 16000 * PACKET
 FEED_OFFSET = 100
 MAX_READERS = int(os.environ.get("RELAY_MAX_READERS", "0"))
 CAP_MODE = os.environ.get("RELAY_CAP_MODE", "refuse")
+# The status line a refused reader gets, and how long a closed reader still counts (a provider freeing its slot late).
+CAP_STATUS = os.environ.get("RELAY_CAP_STATUS", "403 Forbidden")
+RELEASE_LAG = float(os.environ.get("RELAY_RELEASE_LAG_MS", "0")) / 1000
 HDHR_PORT = int(os.environ.get("RELAY_HDHR_PORT", "0"))
 ADVERTISE = os.environ.get("RELAY_ADVERTISE", f"http://{HOST}:{HDHR_PORT}").rstrip("/")
 # A paced reader gets its bytes in slices this size; a full-rate one gets whatever the ring holds.
@@ -84,6 +88,12 @@ class Readers:
             return True
 
     def leave(self, conn):
+        if RELEASE_LAG:
+            threading.Timer(RELEASE_LAG, self._drop, args=(conn,)).start()
+            return
+        self._drop(conn)
+
+    def _drop(self, conn):
         with self.lock:
             self.active = [entry for entry in self.active if entry[0] is not conn]
             self._count()
@@ -316,7 +326,7 @@ def channel_reader(channel, conn):
     except OSError:
         conn.close()
         return
-    serve_reader(channel, conn, JOIN_BEHIND, ("403 Forbidden", "text/plain", "max connections reached\n"))
+    serve_reader(channel, conn, JOIN_BEHIND, (CAP_STATUS, "text/plain", "max connections reached\n"))
 
 
 def serve_channel(channel):

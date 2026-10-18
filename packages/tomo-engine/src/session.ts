@@ -162,6 +162,11 @@ export async function originConnections(originKey: string): Promise<OriginConnec
   }
 }
 
+/** A session the broker ended for its provider's budget, not the channel: no slot was left, or a higher read took its connection. */
+export function isConnectionBudgetFailure(message: string): boolean {
+  return message.startsWith("no connection left on the") || message.endsWith("yielded its connection to a higher-priority read");
+}
+
 export interface StartSessionOptions {
   /** False for a session no player reads yet: its plan and tier are not logged or probed. */
   attributePlan?: boolean;

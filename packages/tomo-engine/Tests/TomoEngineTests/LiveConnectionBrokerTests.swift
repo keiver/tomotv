@@ -5,6 +5,13 @@ import XCTest
 /// The connection budget: its rules on their own, then the real grab and live session against relay.py capped at
 /// one reader (refuse and kick, the two ways providers enforce it), with the relay's own count as the witness.
 final class LiveConnectionBrokerTests: XCTestCase {
+    func testAKeyFromAUrlCarriesThePortSoTwoServersOnOneAddressNeverShareABudget() {
+        XCTAssertEqual(LiveConnectionBroker.key(forURL: "http://192.168.1.2:9191/live/one/pass/4"), "192.168.1.2:9191")
+        XCTAssertEqual(LiveConnectionBroker.key(forURL: "http://192.168.1.2:8096/Videos/ch/stream"), "192.168.1.2:8096")
+        XCTAssertEqual(LiveConnectionBroker.key(forURL: "https://provider.example/live.ts"), "provider.example")
+        XCTAssertEqual(LiveConnectionBroker.key(forURL: "not a url"), "-")
+    }
+
     func testAnUnbudgetedKeyAdmitsEveryReader() {
         let broker = LiveConnectionBroker()
         let leases = (0 ..< 5).compactMap { _ in broker.tryAcquire(key: "k", priority: .sweep, onRevoke: {}) }
@@ -136,6 +143,63 @@ final class LiveConnectionBrokerTests: XCTestCase {
         XCTAssertNotNil(broker.tryAcquire(key: "free", priority: .preview, onRevoke: {}))
     }
 
+    func testABudgetSetUnderTheReadsHeldRevokesTheLowestOnesAndNeverPlayback() {
+        let broker = LiveConnectionBroker()
+        var sweepRevoked = false
+        var previewRevoked = false
+        var ringRevoked = false
+        var playbackRevoked = false
+        _ = broker.tryAcquire(key: "k", priority: .sweep) { sweepRevoked = true }
+        _ = broker.tryAcquire(key: "k", priority: .preview) { previewRevoked = true }
+        _ = broker.tryAcquire(key: "k", priority: .ring) { ringRevoked = true }
+        _ = broker.tryAcquire(key: "k", priority: .playback) { playbackRevoked = true }
+        broker.setBudget(2, for: "k")
+        XCTAssertTrue(sweepRevoked)
+        XCTAssertTrue(previewRevoked)
+        XCTAssertFalse(ringRevoked)
+        XCTAssertFalse(playbackRevoked)
+        broker.setBudget(1, for: "k")
+        XCTAssertTrue(ringRevoked)
+        XCTAssertFalse(playbackRevoked)
+    }
+
+    func testAPlainReleaseCountsAsARecentCloseForTheNextRefusedOpen() {
+        let broker = LiveConnectionBroker()
+        let previous = broker.tryAcquire(key: "k", priority: .playback, onRevoke: {})
+        XCTAssertFalse(broker.recentlyClosed(key: "k", within: 15))
+        previous?.release()
+        XCTAssertTrue(broker.recentlyClosed(key: "k", within: 15))
+        XCTAssertFalse(broker.recentlyClosed(key: "k", within: 0))
+    }
+
+    func testARefusalThatTeachesNoNumberStillMakesRoom() {
+        let broker = LiveConnectionBroker()
+        var sweepRevoked = false
+        _ = broker.tryAcquire(key: "k", priority: .sweep) { sweepRevoked = true }
+        let playback = broker.tryAcquire(key: "k", priority: .playback, onRevoke: {})
+        XCTAssertTrue(broker.noteRefusal(of: playback!, learn: false))
+        XCTAssertNil(broker.budget(for: "k"))
+        XCTAssertTrue(sweepRevoked)
+    }
+
+    func testANeighbourRefusedBesideOnlyPlaybackGetsNoRoom() {
+        let broker = LiveConnectionBroker()
+        var playbackRevoked = false
+        _ = broker.tryAcquire(key: "k", priority: .playback) { playbackRevoked = true }
+        let ring = broker.tryAcquire(key: "k", priority: .ring, onRevoke: {})
+        XCTAssertFalse(broker.noteRefusal(of: ring!))
+        XCTAssertEqual(broker.budget(for: "k"), 1)
+        XCTAssertFalse(playbackRevoked)
+    }
+
+    func testPlaybackRefusedBesideThePlaybackItReplacesWaitsForRoom() {
+        let broker = LiveConnectionBroker()
+        _ = broker.tryAcquire(key: "k", priority: .playback, onRevoke: {})
+        let next = broker.tryAcquire(key: "k", priority: .playback, onRevoke: {})
+        XCTAssertTrue(broker.noteRefusal(of: next!))
+        XCTAssertEqual(broker.budget(for: "k"), 1)
+    }
+
     // MARK: - Against a capped origin
 
     private static let ffmpeg = "/opt/homebrew/bin/ffmpeg"
@@ -157,7 +221,8 @@ final class LiveConnectionBrokerTests: XCTestCase {
         func stop() { processes.forEach { $0.terminate() } }
     }
 
-    private func cappedRelay(mode: String, port: Int) throws -> Relay {
+    /// `status` is the refusal's status line; `lagMs` is how long the relay keeps counting a closed reader.
+    private func cappedRelay(mode: String, port: Int, status: String = "403 Forbidden", lagMs: Int = 0) throws -> Relay {
         guard FileManager.default.isExecutableFile(atPath: Self.ffmpeg) else { throw XCTSkip("needs \(Self.ffmpeg)") }
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("broker-relay-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -165,7 +230,8 @@ final class LiveConnectionBrokerTests: XCTestCase {
         let relay = Process()
         relay.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         relay.arguments = ["python3", Self.repo.appendingPathComponent("scripts/demo-livetv/relay.py").path, dir.path]
-        relay.environment = ProcessInfo.processInfo.environment.merging(["RELAY_MAX_READERS": "1", "RELAY_CAP_MODE": mode]) { $1 }
+        relay.environment = ProcessInfo.processInfo.environment.merging(
+            ["RELAY_MAX_READERS": "1", "RELAY_CAP_MODE": mode, "RELAY_CAP_STATUS": status, "RELAY_RELEASE_LAG_MS": String(lagMs)]) { $1 }
         relay.standardOutput = FileHandle.nullDevice
         try relay.run()
         // The feed connects once and exits on a refusal, and a cold python takes over a second to listen.
@@ -228,11 +294,23 @@ final class LiveConnectionBrokerTests: XCTestCase {
     }
 
     /// Nothing known about the origin: playback's open is refused while the grab holds the only connection. The
-    /// refusal teaches the limit, the grab yields, and playback's retry gets in.
+    /// grab yields and playback's retry gets in; a 4xx teaches the limit, a 5xx teaches no number.
     func testARefusedPlaybackTeachesTheLimitAndTakesTheGrabsConnection() throws {
-        let relay = try cappedRelay(mode: "refuse", port: 19562)
+        try assertARefusedPlaybackTakesTheGrabsConnection(status: "403 Forbidden", learns: true, port: 19562)
+    }
+
+    func testAPlaybackRefusedWith429TeachesTheLimitAndTakesTheGrabsConnection() throws {
+        try assertARefusedPlaybackTakesTheGrabsConnection(status: "429 Too Many Requests", learns: true, port: 19722)
+    }
+
+    func testAPlaybackRefusedWith503TakesTheGrabsConnectionAndLearnsNoNumber() throws {
+        try assertARefusedPlaybackTakesTheGrabsConnection(status: "503 Service Unavailable", learns: false, port: 19732)
+    }
+
+    private func assertARefusedPlaybackTakesTheGrabsConnection(status: String, learns: Bool, port: Int) throws {
+        let relay = try cappedRelay(mode: "refuse", port: port, status: status)
         defer { relay.stop() }
-        let key = "learn-refuse"
+        let key = "learn-refuse-\(port)"
         defer { LiveConnectionBroker.shared.setBudget(0, for: key) }
         let queue = try frameQueue()
         let reading = XCTestExpectation(description: "grab reading")
@@ -255,9 +333,85 @@ final class LiveConnectionBrokerTests: XCTestCase {
         if case .cancelled? = outcome {} else { XCTFail("the grab did not yield: \(String(describing: outcome))") }
         Thread.sleep(forTimeInterval: 5)
         XCTAssertNil(failure, "playback failed: \(failure ?? "")")
-        XCTAssertEqual(LiveConnectionBroker.shared.budget(for: key), 1)
+        XCTAssertEqual(LiveConnectionBroker.shared.budget(for: key), learns ? 1 : nil, "\(status)")
         let stats = try relay.stats()
         XCTAssertEqual(stats["active"], 1, "playback is not reading: \(stats)")
+    }
+
+    /// Nothing known about the origin, which keeps counting a closed reader for a while: the channel the viewer just
+    /// left still holds the only connection when the next one opens. The refusal is the origin catching up; the retry gets in.
+    func testPlaybackReplacingPlaybackOpensWhileTheOriginStillCountsTheClosedRead() throws {
+        let relay = try cappedRelay(mode: "refuse", port: 19742, status: "429 Too Many Requests", lagMs: 1500)
+        defer { relay.stop() }
+        let key = "lagging-release"
+        defer { LiveConnectionBroker.shared.setBudget(0, for: key) }
+        var config = makeConfig(durationSeconds: 0, inputUrl: relay.url, width: 128, height: 96, isLive: true, liveSegmentSeconds: 2, liveWindowSeconds: 30)
+        config.liveOriginKey = key
+        config.livePriority = .playback
+        let previous = try RemuxSession(config: config)
+        previous.start()
+        Thread.sleep(forTimeInterval: 3)
+        XCTAssertEqual(try relay.stats()["active"], 1, "the first channel is not reading")
+        previous.stop()
+        Thread.sleep(forTimeInterval: 0.2)
+        let next = try RemuxSession(config: config)
+        var failure: String?
+        next.onFailed = { failure = $0["message"] as? String }
+        next.start()
+        defer { next.stop() }
+        Thread.sleep(forTimeInterval: 6)
+        XCTAssertNil(failure, "the next channel failed: \(failure ?? "")")
+        let stats = try relay.stats()
+        XCTAssertGreaterThanOrEqual(stats["refused"] ?? 0, 1, "the origin never refused the open: \(stats)")
+        XCTAssertEqual(stats["active"], 1, "the next channel is not reading: \(stats)")
+    }
+
+    /// A 404 beside another read is a dead channel, not the origin's cap: nothing is learned and nothing yields.
+    func testA404BesideAnotherReadTeachesNothing() throws {
+        let relay = try cappedRelay(mode: "refuse", port: 19752, status: "404 Not Found")
+        defer { relay.stop() }
+        let key = "dead-channel"
+        defer { LiveConnectionBroker.shared.setBudget(0, for: key) }
+        let occupier = try occupy(relay, key: key)
+        defer { occupier.stop() }
+        XCTAssertEqual(try relay.stats()["active"], 1, "the relay is not occupied")
+        var config = makeConfig(durationSeconds: 0, inputUrl: relay.url, width: 128, height: 96, isLive: true, liveSegmentSeconds: 2, liveWindowSeconds: 30)
+        config.liveOriginKey = key
+        config.livePriority = .playback
+        let session = try RemuxSession(config: config)
+        let failed = XCTestExpectation(description: "404")
+        var failure: String?
+        session.onFailed = {
+            failure = $0["message"] as? String
+            failed.fulfill()
+        }
+        session.start()
+        defer { session.stop() }
+        wait(for: [failed], timeout: 10)
+        XCTAssertTrue(failure?.contains("404") == true, "\(failure ?? "no failure")")
+        XCTAssertNil(LiveConnectionBroker.shared.budget(for: key))
+        XCTAssertEqual(try relay.stats()["active"], 1, "the occupier was made to yield")
+    }
+
+    /// A grab refused with a 429 beside playback teaches the limit the same as a 403 does.
+    func testAGrabRefusedWith429TeachesTheLimit() throws {
+        let relay = try cappedRelay(mode: "refuse", port: 19762, status: "429 Too Many Requests")
+        defer { relay.stop() }
+        let key = "grab-429"
+        defer { LiveConnectionBroker.shared.setBudget(0, for: key) }
+        let playing = try occupy(relay, key: key)
+        defer { playing.stop() }
+        let queue = try frameQueue()
+        let done = XCTestExpectation(description: "grab")
+        var outcome: LiveFrameQueue.Outcome?
+        queue.request(channelId: "refused-429", inputUrl: relay.url, headers: [:], deadline: 6, span: 9, interval: 3, count: 4, originKey: key) {
+            outcome = $0
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 15)
+        guard case .none(opened: false, _)? = outcome else { return XCTFail("the grab was not refused: \(String(describing: outcome))") }
+        XCTAssertEqual(LiveConnectionBroker.shared.budget(for: key), 1)
+        XCTAssertEqual(try relay.stats()["active"], 1, "playback was made to yield")
     }
 
     /// Nothing known about the origin: a ring neighbour opens beside playback and the origin kicks one of them. The
