@@ -1,4 +1,4 @@
-import { engineLog, localRemuxToken, setLiveSessionPriority, setLiveWindow, stopLocalRemux, subscribeEngineFailure, subscribeEngineThroughput } from "@keiver/tomo-engine";
+import { engineLog, isConnectionBudgetFailure, localRemuxToken, setLiveSessionPriority, setLiveWindow, stopLocalRemux, subscribeEngineFailure, subscribeEngineThroughput } from "@keiver/tomo-engine";
 import { AppState } from "react-native";
 import { liveChannels } from "./config";
 import { noteOpenFailed, openRecentlyFailed } from "./openFailures";
@@ -130,6 +130,11 @@ function watch(entry: HotEntry): void {
     if (hot.get(entry.channelId) !== entry) return;
     hot.delete(entry.channelId);
     release(entry);
+    // The provider's budget, not the channel, ended it: it heats again the next time a connection is spare.
+    if (isConnectionBudgetFailure(failure.message)) {
+      engineLog().info("Live ring: neighbour gave its connection up", { service: "LiveRing", channel: liveChannels().name(entry.details), message: failure.message });
+      return;
+    }
     coldUntil.set(entry.channelId, Date.now() + COLD_ONLY_MS);
     engineLog().info("Live ring: neighbour's engine failed, left cold", { service: "LiveRing", channel: liveChannels().name(entry.details), message: failure.message });
   });
