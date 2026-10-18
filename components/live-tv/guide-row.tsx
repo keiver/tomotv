@@ -41,8 +41,6 @@ interface GuideRowProps {
   nextFocusUp?: number;
   /** TV: asked on a cell's focus; the answer rides that cell until it blurs. */
   targetsFor?: FocusTargetsFor;
-  /** The one cell that claims focus on mount, until the latch retires the claim. */
-  focusProgramId?: string;
   onProgramPress: (program: JellyfinProgram, channel: JellyfinItem) => void;
   onProgramLongPress: (program: JellyfinProgram, channel: JellyfinItem) => void;
   onCellFocus?: (program: JellyfinProgram, channel: JellyfinItem) => void;
@@ -93,7 +91,6 @@ function GuideRowComponent({
   snapOffset,
   nextFocusUp,
   targetsFor,
-  focusProgramId,
   onProgramPress,
   onProgramLongPress,
   onCellFocus,
@@ -110,7 +107,7 @@ function GuideRowComponent({
       if (targetsFor && program.Id) {
         const programId = program.Id;
         focusedIdRef.current = programId;
-        // A tick later: the mount claim's focus event lands inside React's commit, where
+        // A tick later: a focus event can land inside React's commit, where
         // targetsFor may not read the scroll offset's shared value.
         setTimeout(() => {
           if (focusedIdRef.current === programId) setFocusTargets({ programId, ...targetsFor(rowIndex, program) });
@@ -158,7 +155,6 @@ function GuideRowComponent({
             showArt={showArt}
             nextFocusUp={targets?.up ?? nextFocusUp}
             nextFocusDown={targets?.down}
-            hasTVPreferredFocus={focusProgramId === programId}
             onFocus={focus}
             onBlur={IS_TV ? blur : undefined}
             onHandle={onCellHandle}

@@ -239,10 +239,6 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
     });
   }, [isScreenFocused, scrollY, rewindToTop]);
 
-  // One-shot latch (home-shelves pattern): the first row's airing cell claims focus on mount
-  // while the screen is on top; once any cell or channel reports focus the claim retires for good.
-  const [focusLatched, setFocusLatched] = useState(false);
-
   // Up and Down from a cell land on the neighbouring row's cell under its visible left edge,
   // named by handle: left to geometry, the focus engine picks the wide cell's far end.
   const handlesRef = useRef(new Map<string, number>());
@@ -258,7 +254,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
     else cellNodesRef.current.delete(programId);
     if (programId === entryProgramIdRef.current) setEntryHandle(handle);
   }, []);
-  // The first row's airing cell, else its first: the way in from the HUD and the mount's focus claim.
+  // The first row's airing cell, else its first: the way in from the HUD.
   const entryProgramId = useMemo(() => {
     const first = rows[0];
     if (!IS_TV || !first) return undefined;
@@ -324,7 +320,6 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
       lastCellRowRef.current = channel.Id;
       focusedCellRef.current = { program, channelId: channel.Id };
       driver.set("grid");
-      setFocusLatched(true);
       // A dwell on the row promotes its channel to the sampler's front; its card plays its clip.
       setLiveFrameFocus(channel.Id);
       setFocusedGuideRow(channel.Id);
@@ -368,9 +363,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   const handleChannelFocus = useCallback(() => {
     if (!IS_TV) return;
     driver.set("column");
-    setFocusLatched(true);
   }, [driver]);
-  const focusProgramId = focusLatched || !isScreenFocused ? undefined : entryProgramId;
 
   // A press that covers the guide (info panel, player) names its cell or card; the reveal hands focus
   // back to it, since UIKit's pop restoration can drop it on the tab bar. A tab switch arms nothing.
@@ -428,7 +421,6 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
         snapOffset={rowSnapOffset}
         nextFocusUp={index === 0 ? topFocusHandle : undefined}
         targetsFor={IS_TV ? targetsFor : undefined}
-        focusProgramId={index === 0 ? focusProgramId : undefined}
         onProgramPress={programPress}
         onProgramLongPress={programLongPress}
         onCellFocus={handleCellFocus}
@@ -450,7 +442,6 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
       rowSnapOffset,
       topFocusHandle,
       targetsFor,
-      focusProgramId,
       programPress,
       programLongPress,
       handleCellFocus,

@@ -52,7 +52,6 @@ interface GuideCellProps {
   onHandle?: (programId: string, handle: number | undefined, node: View | null) => void;
   nextFocusUp?: number;
   nextFocusDown?: number;
-  hasTVPreferredFocus?: boolean;
 }
 
 /**
@@ -80,7 +79,6 @@ function GuideCellComponent({
   onHandle,
   nextFocusUp,
   nextFocusDown,
-  hasTVPreferredFocus = false,
 }: GuideCellProps) {
   const programName = cleanLabel(program.Name);
   const episodeTitle = cleanLabel(program.EpisodeTitle);
@@ -232,7 +230,6 @@ function GuideCellComponent({
             onBlur={handleBlur}
             onLayout={handleLabelLayout}
             isTVSelectable
-            hasTVPreferredFocus={hasTVPreferredFocus}
             nextFocusUp={nextFocusUp}
             nextFocusDown={nextFocusDown}
             tvParallaxProperties={{ enabled: false }}
@@ -251,7 +248,6 @@ function GuideCellComponent({
             onFocus={handleFocus}
             onBlur={handleBlur}
             isTVSelectable
-            hasTVPreferredFocus={hasTVPreferredFocus}
             nextFocusUp={nextFocusUp}
             nextFocusDown={nextFocusDown}
             tvParallaxProperties={{ enabled: false }}

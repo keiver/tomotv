@@ -24,7 +24,7 @@ import { programInfoParams } from "@/utils/programInfo";
 import { Stack, useIsFocused, useLocalSearchParams, useRouter, type NativeStackNavigationOptions } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, findNodeHandle, Platform, StyleSheet, View } from "react-native";
+import { ActivityIndicator, findNodeHandle, Platform, StyleSheet, TVFocusGuideView, View } from "react-native";
 import { SafeAreaListener, useSafeAreaInsets, type EdgeInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -32,6 +32,8 @@ const IS_PAD = !IS_TV && Platform.OS === "ios" && Platform.isPad;
 const COLUMN_WIDTH = guideMetrics(IS_TV).channelColumnWidth;
 // Phone: the guide refresh cell pinned before the groups, a 44pt touch target.
 const PHONE_REFRESH_CELL_WIDTH = 44;
+/** TV: the strip over the guide's top edge that carries Down from the tab bar to Channels. */
+const TAB_BAR_GUIDE_HEIGHT = 1;
 
 /**
  * The Live TV screen: the guide, whose channel column tunes on select, with Recordings and
@@ -72,13 +74,28 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
   const insets = IS_TV ? measuredInsets : contextInsets;
   const headerHeight = useHeaderHeight();
   const { showGlobalLoader } = useLoadingActions();
-  const params = useLocalSearchParams<{ name?: string }>();
+  const params = useLocalSearchParams<{ name?: string; opened?: string }>();
   const [topFocusHandle, setTopFocusHandle] = useState<number | undefined>(undefined);
+  const channelsNodeRef = useRef<View | null>(null);
   const handleFirstActionRef = useCallback((node: View | null) => {
     if (!IS_TV) return;
+    channelsNodeRef.current = node;
     const handle = node ? findNodeHandle(node) : null;
     setTopFocusHandle(handle ?? undefined);
   }, []);
+  // TV: Channels claims focus as the screen opens; the claim retires once focus is inside (home-shelves latch).
+  const [focusClaimed, setFocusClaimed] = useState(false);
+  const [focusInside, setFocusInside] = useState(false);
+  const handleFocusEnter = useCallback(() => {
+    setFocusInside(true);
+    setFocusClaimed(true);
+  }, []);
+  const handleFocusLeave = useCallback(() => setFocusInside(false), []);
+  // Each press of the Home tab's Live TV card stamps `opened`, and lands on Channels again.
+  useEffect(() => {
+    if (!IS_TV || !params.opened) return;
+    (channelsNodeRef.current as unknown as { requestTVFocus?: () => void } | null)?.requestTVFocus?.();
+  }, [params.opened]);
 
   const guide = useGuide();
   // Opens the guide sources at mount, so airing lines elsewhere and the first search never pay the parse.
@@ -149,7 +166,7 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
   // TV frames the column half a grid edge in; phone runs it flush to the screen edge.
   const edgeLeft = IS_TV ? gridEdgePadding(insets?.left ?? 0, IS_TV) / 2 : (insets?.left ?? 0);
   // Phone: the transparent native header floats over the content, so the body starts under it.
-  const topClearance = IS_TV ? 10 + (insets?.top ?? 0) : headerHeight + (IS_PAD ? 20 : 8);
+  const topClearance = IS_TV ? 10 + (insets?.top ?? 0) - TAB_BAR_GUIDE_HEIGHT : headerHeight + (IS_PAD ? 20 : 8);
   // Phone: Channels, Recordings and Schedule are native bar items; TV draws them as labelled glass pills.
   const screenOptions = useMemo<NativeStackNavigationOptions>(
     () =>
@@ -194,6 +211,7 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
             refreshing={guide.isUpdating}
             recording={recording}
             onFirstRef={handleFirstActionRef}
+            claimFocus={isFocused && !focusClaimed}
           />
         ) : (
           <HudAction
@@ -214,7 +232,14 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
       <SafeAreaListener style={styles.container} onChange={handleInsets}>
         <AmbientBackground />
         {insets && (
-          <View style={[styles.body, { paddingLeft: edgeLeft, paddingTop: topClearance }]}>
+          <TVFocusGuideView
+            style={[styles.body, { paddingLeft: edgeLeft, paddingTop: topClearance }]}
+            onFocusEnter={IS_TV ? handleFocusEnter : undefined}
+            onFocusLeave={IS_TV ? handleFocusLeave : undefined}>
+            {/* Mounted only while focus is outside the screen, so Up from the guide still reaches the tab bar. */}
+            {IS_TV ? (
+              <View style={styles.tabBarGuideSlot}>{!focusInside && topFocusHandle !== undefined ? <TVFocusGuideView style={styles.tabBarGuide} destinations={[topFocusHandle]} /> : null}</View>
+            ) : null}
             <GuideCanvas
               key={session}
               guide={guide}
@@ -226,7 +251,7 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
               onChannelPress={handleChannelPress}
               onChannelLongPress={openChannel}
             />
-          </View>
+          </TVFocusGuideView>
         )}
       </SafeAreaListener>
     </>
@@ -238,6 +263,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   body: {
+    flex: 1,
+  },
+  tabBarGuideSlot: {
+    height: TAB_BAR_GUIDE_HEIGHT,
+  },
+  tabBarGuide: {
     flex: 1,
   },
 });
