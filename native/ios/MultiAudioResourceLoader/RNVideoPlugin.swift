@@ -9,6 +9,7 @@
 import Foundation
 import AVFoundation
 import react_native_video
+import TomoEngine
 
 /// Plugin for react-native-video that intercepts AVAsset creation
 /// and attaches the MultiAudioResourceLoaderDelegate for custom protocol handling
@@ -17,9 +18,18 @@ class MultiAudioVideoPlugin: RNVAVPlayerPlugin {
 
     // Do NOT set `appliesMediaSelectionCriteriaAutomatically = false` here. It
     // was tried to stop AVFoundation reverting a subtitle selection to Off, and
-    // it disables the INITIAL selection too — including the playlist's
-    // DEFAULT=YES — so the bitmap overlay, which draws from that selection, went
+    // it disables the INITIAL selection too, including the playlist's
+    // DEFAULT=YES, so the bitmap overlay, which draws from that selection, went
     // blank. Measured on the tvOS simulator 2026-08-12.
+
+    /// The engine's APAC renditions switch the receiver to Atmos only beside a silent Atmos stream.
+    override public func onInstanceCreated(id: String, player: AVPlayer) {
+        SpatialAudioOutput.follow(player, id: id)
+    }
+
+    override public func onInstanceRemoved(id: String, player: AVPlayer) {
+        SpatialAudioOutput.release(id: id)
+    }
 
     override public func overridePlayerAsset(source: VideoSource, asset: AVAsset) async -> OverridePlayerAssetResult? {
         NSLog("[MultiAudioVideoPlugin] overridePlayerAsset called")
