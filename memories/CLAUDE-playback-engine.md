@@ -459,13 +459,19 @@ neighbour with nothing below it to revoke fails at once; playback waits out the 
 replaces. A preview takes nothing from anyone and holds a slot only while one stays spare beside
 it for the sweep (`previewsWithoutSpareLocked`): a learned or set budget that leaves none ends it.
 The sweep's grab is a fight (`LiveFrameQueue.swift`): it waits for a slot, tries a refused open
-every second for its deadline and, once admitted, has the deadline again; a fight lost beside
+every second for its deadline, leaves an open the origin admitted to the origin (a 75 s silence
+guard aside: Dispatcharr holds an admitted client silent up to its 60 s client wait and counts
+a hung-up unserved client as a ghost for 50 s, so our cut never frees the slot) and, once served,
+has the deadline for its pictures and clip. The origin ending an unserved open (`ended`: EOF,
+invalid data, I/O error, reset) is the channel's own answer; the sampler strikes it (two make it
+down: read last, never first on focus, no preview) and brings no refused sibling back. A fight lost beside
 other reads calls `noteLostFight`, which ends the preview and teaches on a 4xx, unless the
 provider has shown room beside a preview (`noteOpened`: a read admitted while an admitted preview
 was held) and only one channel has lost since (its own 403 or 503). A provider that never showed
 room stops previews at the second channel lost beside one. Tests: `LiveConnectionBrokerTests`
-against `scripts/demo-livetv/relay.py` with `RELAY_CAP_STATUS` 403, 429, 503 and 404 and
-`RELAY_RELEASE_LAG_MS`. Issue 104 was a 429 answered by a one-connection provider's server.
+against `scripts/demo-livetv/relay.py` with `RELAY_CAP_STATUS` 403, 429, 503 and 404,
+`RELAY_RELEASE_LAG_MS` and `RELAY_HOLD_MS` (admitted, silent, then closed). Issue 104 was a 429
+answered by a one-connection provider's server.
 
 ## Rules of engagement
 

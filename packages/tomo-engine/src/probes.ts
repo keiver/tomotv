@@ -168,6 +168,8 @@ export interface LiveFrameResult {
    */
   reason?: "open" | "frame" | "empty" | "refused" | "busy";
   failure?: string | null;
+  /** With `open`: the origin itself ended an open it had admitted (closed it, or served no stream), the channel's own answer. */
+  ended?: boolean;
 }
 
 export function canGrabLiveFrames(): boolean {

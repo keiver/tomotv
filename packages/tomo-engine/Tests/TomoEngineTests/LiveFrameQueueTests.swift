@@ -534,12 +534,14 @@ final class LiveFrameQueueTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let queue = LiveFrameQueue(root: root)
 
-        // A non-routable address: the connect hangs until the watchdog's stop interrupts it.
+        // A non-routable address: no origin admitted anything, so FFmpeg's 5 s connect bound ends each connect (the
+        // playlist's, then the input's), never the silence guard, and the host's own answer is not the channel's.
         let started = Date()
-        let outcome = settle(queue, "chan-dead", "http://10.255.255.1:9/live.m3u8", deadline: 1, timeout: 12)
-        guard case .none(let opened, _)? = outcome else { return XCTFail("a dead origin gives no frame") }
+        let outcome = settle(queue, "chan-dead", "http://10.255.255.1:9/live.m3u8", deadline: 1, timeout: 20)
+        guard case .none(let opened, _, let ended)? = outcome else { return XCTFail("a dead origin gives no frame") }
         XCTAssertFalse(opened)
-        XCTAssertLessThan(Date().timeIntervalSince(started), 6, "the deadline bounds the grab, not rw_timeout")
+        XCTAssertFalse(ended, "an unanswered connect is not the origin ending the open")
+        XCTAssertLessThan(Date().timeIntervalSince(started), 12, "the connect bound ends the grab, not the silence guard")
     }
 
     /// A playlist with no segments, as an origin serves a channel it will not play here.
@@ -565,7 +567,7 @@ final class LiveFrameQueueTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let queue = LiveFrameQueue(root: root)
 
-        guard case .none(let opened, _)? = settle(queue, "chan-radio", audio.absoluteString) else {
+        guard case .none(let opened, _, _)? = settle(queue, "chan-radio", audio.absoluteString) else {
             return XCTFail("a source with streams but no video answers none")
         }
         XCTAssertTrue(opened)
@@ -584,7 +586,7 @@ final class LiveFrameQueueTests: XCTestCase {
         }
         wait(for: [done], timeout: 15)
 
-        guard case .none(let opened, let failure)? = outcome else { return XCTFail("neither read gives a frame") }
+        guard case .none(let opened, let failure, _)? = outcome else { return XCTFail("neither read gives a frame") }
         XCTAssertFalse(opened)
         XCTAssertTrue(failure?.hasPrefix("open: ") == true, "the origin's failure, not the fallback's: \(failure ?? "nil")")
     }
@@ -593,7 +595,7 @@ final class LiveFrameQueueTests: XCTestCase {
         let queue = LiveFrameQueue()
         var outcome: LiveFrameQueue.Outcome?
         queue.request(channelId: "../escape", inputUrl: "file:///nowhere", headers: [:]) { outcome = $0 }
-        guard case .none(let opened, _)? = outcome else { return XCTFail("refused before any open") }
+        guard case .none(let opened, _, _)? = outcome else { return XCTFail("refused before any open") }
         XCTAssertTrue(opened)
     }
 }

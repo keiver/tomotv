@@ -78,7 +78,8 @@ final class FrameGrabber {
     private(set) var sourceEmpty = false
     /// The live input stopped delivering packets before cancellation, rather than a sampling limit.
     private(set) var liveReadEnded = false
-    /// Off for a live read opened beside another on an origin whose limit is unknown: a kick then ends the read.
+    /// Off for a live read: a drop ends it and the card fights again, and an origin that admits an open and then ends
+    /// it unserved is not asked again (FFmpeg would re-open and re-wait it three times).
     var reconnects = true
     /// Bytes the last live grab read through the container's own I/O: the whole pull for a raw stream, the playlist alone for HLS.
     private(set) var bytesRead: Int64 = 0

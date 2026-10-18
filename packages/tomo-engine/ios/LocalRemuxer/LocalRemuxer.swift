@@ -679,9 +679,9 @@ class LocalRemuxer: RCTEventEmitter {
                 let clipUri: Any = clip?.absoluteString ?? NSNull()
                 resolve(["uris": urls.map(\.absoluteString), "clip": clipUri, "cancelled": false, "pts": shown])
             case .unchanged(let onDisk): resolve(["uris": [], "cancelled": false, "unchanged": true, "missing": !onDisk])
-            case .none(let opened, let failure):
+            case .none(let opened, let failure, let ended):
                 let failed: NSObject = failure.map { $0 as NSString } ?? NSNull()
-                resolve(["uris": [], "cancelled": false, "reason": opened ? "frame" : "open", "failure": failed])
+                resolve(["uris": [], "cancelled": false, "reason": opened ? "frame" : "open", "failure": failed, "ended": ended])
             case .empty: resolve(["uris": [], "cancelled": false, "reason": "empty"])
             case .refused(let failure):
                 let failed: NSObject = failure.map { $0 as NSString } ?? NSNull()

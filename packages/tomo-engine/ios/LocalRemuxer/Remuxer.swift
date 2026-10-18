@@ -89,6 +89,9 @@ func probeStreamInfo(_ ctx: UnsafeMutablePointer<AVFormatContext>) -> Int32 {
 /// A file read silent this long reconnects at its offset (http.c). A tvOS receiver can withhold its
 /// reopened window until the sender's 5s persist probe (measured; XNU tcp_output.c), so 15s waits it out.
 let fileSourceReadTimeoutMicros = "2000000"
+/// A live read's silence guard, past any origin's own wait on a channel still starting (Dispatcharr holds an
+/// admitted client silent up to its 60 s client wait): the origin ends the open first, this only ends a dead socket.
+let liveSourceSilenceMicros = "75000000"
 
 /// The terms a source read opens with: reconnects on a dropped link, a bounded wait per I/O call, no
 /// trust store to verify against, and the origin's headers.
@@ -97,7 +100,7 @@ func sourceHttpOptions(headers: [String: String], reconnects: Bool = true, file:
     av_dict_set(&opts, "reconnect", reconnects ? "1" : "0", 0)
     av_dict_set(&opts, "reconnect_streamed", reconnects ? "1" : "0", 0)
     av_dict_set(&opts, "reconnect_delay_max", "5", 0)
-    av_dict_set(&opts, "rw_timeout", file ? fileSourceReadTimeoutMicros : "15000000", 0)
+    av_dict_set(&opts, "rw_timeout", file ? fileSourceReadTimeoutMicros : liveSourceSilenceMicros, 0)
     av_dict_set(&opts, "tls_verify", "0", 0)
     for (name, value) in headers {
         if name.caseInsensitiveCompare("User-Agent") == .orderedSame {

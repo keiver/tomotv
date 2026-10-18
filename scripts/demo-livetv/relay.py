@@ -4,7 +4,9 @@
   relay.py <dir>   per channel in lineup.json: feed on tcp 127.0.0.1:<port+100>, readers on http://127.0.0.1:<port>/live.ts
 Test knobs (the demo leaves them unset): RELAY_HOST, RELAY_MAX_READERS with RELAY_CAP_MODE refuse|kick (a provider's
 connection cap across every channel), RELAY_CAP_STATUS (the refusal's status line, "403 Forbidden" unless set),
-RELAY_RELEASE_LAG_MS (a closed reader keeps counting this long), and GET /stats for the readers counted so far.
+RELAY_RELEASE_LAG_MS (a closed reader keeps counting this long), RELAY_HOLD_MS (an admitted reader is sent nothing
+this long, then closed: a provider whose channel never starts; RELAY_HOLD_HEADERS=1 sends the 200 first), and GET
+/stats for the readers counted so far.
 
 HDHomeRun face (the rig's tuner emulation, off unless RELAY_HDHR_PORT is set): one port answering /discover.json,
 /lineup.json and /auto/v<number> the way a Connect Quatro does, with each channel's lineup labels (videoCodec,
@@ -34,6 +36,8 @@ CAP_MODE = os.environ.get("RELAY_CAP_MODE", "refuse")
 # The status line a refused reader gets, and how long a closed reader still counts (a provider freeing its slot late).
 CAP_STATUS = os.environ.get("RELAY_CAP_STATUS", "403 Forbidden")
 RELEASE_LAG = float(os.environ.get("RELAY_RELEASE_LAG_MS", "0")) / 1000
+HOLD = float(os.environ.get("RELAY_HOLD_MS", "0")) / 1000
+HOLD_HEADERS = os.environ.get("RELAY_HOLD_HEADERS", "0") == "1"
 HDHR_PORT = int(os.environ.get("RELAY_HDHR_PORT", "0"))
 ADVERTISE = os.environ.get("RELAY_ADVERTISE", f"http://{HOST}:{HDHR_PORT}").rstrip("/")
 # A paced reader gets its bytes in slices this size; a full-rate one gets whatever the ring holds.
@@ -303,6 +307,11 @@ def serve_reader(channel, conn, behind, refusal, tuner=False):
             respond(conn, *refusal)
             return
         admitted = True
+        if HOLD:
+            if HOLD_HEADERS:
+                conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: video/mp2t\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n")
+            time.sleep(HOLD)
+            return
         conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: video/mp2t\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n")
         channel.stream(conn, behind, tuner)
     except OSError:

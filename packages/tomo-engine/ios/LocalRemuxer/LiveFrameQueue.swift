@@ -6,11 +6,16 @@
 //  stream seconds apart across `span`, kept in the chapter frame pool under time-named files.
 //  Jobs run one at a time on a low-priority queue of their own, so a dead origin never stalls
 //  the library's posters. A grab fights for its read: it waits for a connection on its provider,
-//  tries a refused open again every second for `deadline`, and once admitted has `deadline` for
-//  its pictures and clip, a watchdog stopping the read at it.
+//  tries a refused open again every second for `deadline`, and once the origin serves it has
+//  `deadline` for its pictures and clip, a watchdog stopping the read at it. An open the origin
+//  admitted and has not served yet waits on the origin: it serves, or ends the open itself.
 //
 
 import Foundation
+
+// FFmpeg's error macros don't survive the Clang importer.
+private let SWIFT_AVERROR_EOF: Int32 = -541_478_725 // FFERRTAG('E','O','F',' ')
+private let SWIFT_AVERROR_INVALIDDATA: Int32 = -1_094_995_529 // FFERRTAG('I','N','D','A')
 
 final class LiveFrameQueue {
     static let defaultDeadline: TimeInterval = 8
@@ -68,8 +73,9 @@ final class LiveFrameQueue {
         /// The keyframe at the live edge is still the one `shownPts` names; nothing was written.
         /// `onDisk` false when the shown burst's files are gone, so there is nothing to re-verify.
         case unchanged(onDisk: Bool)
-        /// Nothing came: `opened` false when the source would not even open, `failure` its words.
-        case none(opened: Bool, failure: String?)
+        /// Nothing came: `opened` false when the source would not even open, `failure` its words, `ended` when the
+        /// origin itself ended an open it had admitted (closed it, or served no stream), the channel's own answer.
+        case none(opened: Bool, failure: String?, ended: Bool)
         /// The source opened and listed no streams: an origin serving nothing, judged by channel health.
         case empty
         /// The provider turned the open away (a 4xx or 5xx, never a 404), the retries included: its connections
@@ -78,6 +84,13 @@ final class LiveFrameQueue {
         /// No connection spare on the provider for a sweep read: nothing was asked of it, the channel stays due.
         case busy
         case cancelled
+    }
+
+    /// Whether the origin ended an open it admitted: the connection closed or served no stream. Our own cut, a
+    /// silent socket and an HTTP refusal are not the channel's answer.
+    static func originEnded(_ code: Int32?) -> Bool {
+        guard let code else { return false }
+        return [SWIFT_AVERROR_EOF, SWIFT_AVERROR_INVALIDDATA, -EIO, -ECONNRESET, -EPIPE].contains(code)
     }
 
     /// Whether the grabber's open was turned away by the provider rather than failing on the channel.
@@ -96,7 +109,7 @@ final class LiveFrameQueue {
                  clipSpan: TimeInterval = 0, originKey: String? = nil, priority: LiveConnectionBroker.Priority = .sweep, fallbackUrl: String? = nil,
                  shownPts: Int64? = nil, shownFile: URL? = nil, frame: ((URL, Int) -> Void)? = nil, completion: @escaping (Outcome) -> Void) {
         guard let location = ChapterFramePool.location(for: channelId, in: root) else {
-            completion(.none(opened: true, failure: nil))
+            completion(.none(opened: true, failure: nil, ended: false))
             return
         }
         lock.lock()
@@ -125,7 +138,7 @@ final class LiveFrameQueue {
                 return
             }
             guard let directory = ChapterFramePool.directory(for: channelId, in: root) else {
-                outcome = .none(opened: true, failure: nil)
+                outcome = .none(opened: true, failure: nil, ended: false)
                 return
             }
             // The sweep waits for a connection to free, taking none from anyone; none within the deadline is busy.
@@ -139,11 +152,19 @@ final class LiveFrameQueue {
             let base = "\(Self.filePrefix)\(Int64(started.timeIntervalSince1970 * 1000))"
             var grabber: FrameGrabber!
             var watchdog: DispatchWorkItem?
-            /// One try at the read: its own grabber, admitted by the origin or not, with the whole deadline once admitted.
+            /// One try at the read: its own grabber, admitted by the origin or not, with the whole deadline once the origin
+            /// serves it. Until then the open waits on the origin alone (its silence guard aside): cutting an open the
+            /// origin admitted loses a channel that serves late, and a provider that counts the closed read still counts it.
             func attempt() -> FrameGrabber.LiveGrab? {
                 let made = FrameGrabber(inputUrl: inputUrl, directory: directory, pool: root, epoch: epoch, httpHeaders: headers, live: true)
-                made.reconnects = !shared
-                made.onOpened = { LiveConnectionBroker.shared.noteOpened(lease) }
+                made.reconnects = false
+                // Weak: the closure lives on the grabber, a strong capture would keep every grabber alive for good.
+                made.onOpened = { [weak made] in
+                    LiveConnectionBroker.shared.noteOpened(lease)
+                    let guard_ = DispatchWorkItem { made?.stop() }
+                    watchdog = guard_
+                    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + deadline, execute: guard_)
+                }
                 lock.lock()
                 let stopped = cancelled.contains(channelId)
                 if !stopped { running[channelId] = made }
@@ -151,9 +172,6 @@ final class LiveFrameQueue {
                 if stopped { return nil }
                 grabber = made
                 watchdog?.cancel()
-                let guard_ = DispatchWorkItem { made.stop() }
-                watchdog = guard_
-                DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + deadline, execute: guard_)
                 return made.liveBurst(named: base, span: span, interval: interval, count: max(1, count), wall: deadline,
                                       clipSpan: clipSpan, unlessPts: shownPts, onFrame: frame)
             }
@@ -179,13 +197,13 @@ final class LiveFrameQueue {
             }
             let left = deadline - Date().timeIntervalSince(started)
             // Channel health judges the origin by its own failure, never by the server copy's.
-            let origin = (opened: grabber.sourceOpened, failure: grabber.openFailure, url: grabber.openedUrl ?? inputUrl)
+            let origin = (opened: grabber.sourceOpened, failure: grabber.openFailure, url: grabber.openedUrl ?? inputUrl, error: grabber.openError)
             var fellBack = false
             // The server reads the channel on the same account, so a refusal is never asked of it.
             if case .none = result, !grabber.sourceOpened, !refused, let fallbackUrl, !fallbackUrl.isEmpty, fallbackUrl != inputUrl, left > 1, !isCancelled(channelId) {
                 grabber.stop()
                 let fallback = FrameGrabber(inputUrl: fallbackUrl, directory: directory, pool: root, epoch: epoch, httpHeaders: [:], live: true)
-                fallback.reconnects = !shared
+                fallback.reconnects = false
                 lock.lock()
                 running[channelId] = fallback
                 lock.unlock()
@@ -238,15 +256,16 @@ final class LiveFrameQueue {
                 NSLog("[LiveFrame] %@", String(format: "%@ unchanged %.2fs %lld bytes onDisk=%d", channelId, elapsed, grabber.bytesRead, onDisk ? 1 : 0))
                 outcome = .unchanged(onDisk: onDisk)
             case .none:
-                let judged = fellBack ? origin : (opened: grabber.sourceOpened, failure: grabber.openFailure, url: grabber.openedUrl ?? inputUrl)
-                NSLog("[LiveFrame] %@", String(format: "%@ %@ %.2fs opened=%d %@ %@%@", channelId, refused ? "refused x\(retries + 1)" : "none", elapsed,
-                                                 judged.opened ? 1 : 0, judged.failure ?? "no keyframe", judged.url,
+                let judged = fellBack ? origin : (opened: grabber.sourceOpened, failure: grabber.openFailure, url: grabber.openedUrl ?? inputUrl, error: grabber.openError)
+                let ended = !judged.opened && Self.originEnded(judged.error)
+                NSLog("[LiveFrame] %@", String(format: "%@ %@ %.2fs opened=%d ended=%d %@ %@%@", channelId, refused ? "refused x\(retries + 1)" : "none", elapsed,
+                                                 judged.opened ? 1 : 0, ended ? 1 : 0, judged.failure ?? "no keyframe", judged.url,
                                                  fellBack ? " fallback: \(grabber.openFailure ?? "no keyframe")" : ""))
                 if refused {
                     outcome = .refused(failure: judged.failure)
                 } else {
                     // A fallback runs only when the origin did not open, so an empty answer is always the origin's own.
-                    outcome = !fellBack && grabber.sourceEmpty ? .empty : .none(opened: judged.opened, failure: judged.failure)
+                    outcome = !fellBack && grabber.sourceEmpty ? .empty : .none(opened: judged.opened, failure: judged.failure, ended: ended)
                 }
             }
         }

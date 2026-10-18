@@ -221,8 +221,9 @@ final class LiveConnectionBrokerTests: XCTestCase {
         func stop() { processes.forEach { $0.terminate() } }
     }
 
-    /// `status` is the refusal's status line; `lagMs` is how long the relay keeps counting a closed reader.
-    private func cappedRelay(mode: String, port: Int, status: String = "403 Forbidden", lagMs: Int = 0) throws -> Relay {
+    /// `status` is the refusal's status line; `lagMs` is how long the relay keeps counting a closed reader; `holdMs` has
+    /// an admitted reader sent nothing that long and then closed (the 200 first when `holdHeaders`).
+    private func cappedRelay(mode: String, port: Int, status: String = "403 Forbidden", lagMs: Int = 0, holdMs: Int = 0, holdHeaders: Bool = false) throws -> Relay {
         guard FileManager.default.isExecutableFile(atPath: Self.ffmpeg) else { throw XCTSkip("needs \(Self.ffmpeg)") }
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("broker-relay-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -231,7 +232,8 @@ final class LiveConnectionBrokerTests: XCTestCase {
         relay.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         relay.arguments = ["python3", Self.repo.appendingPathComponent("scripts/demo-livetv/relay.py").path, dir.path]
         relay.environment = ProcessInfo.processInfo.environment.merging(
-            ["RELAY_MAX_READERS": "1", "RELAY_CAP_MODE": mode, "RELAY_CAP_STATUS": status, "RELAY_RELEASE_LAG_MS": String(lagMs)]) { $1 }
+            ["RELAY_MAX_READERS": "1", "RELAY_CAP_MODE": mode, "RELAY_CAP_STATUS": status, "RELAY_RELEASE_LAG_MS": String(lagMs),
+             "RELAY_HOLD_MS": String(holdMs), "RELAY_HOLD_HEADERS": holdHeaders ? "1" : "0"]) { $1 }
         relay.standardOutput = FileHandle.nullDevice
         try relay.run()
         // The feed connects once and exits on a refusal, and a cold python takes over a second to listen.
@@ -465,6 +467,37 @@ final class LiveConnectionBrokerTests: XCTestCase {
         wait(for: [done], timeout: 5)
         guard case .busy? = outcome else { return XCTFail("the grab did not answer busy: \(String(describing: outcome))") }
         XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(started), 1, "the grab did not wait for a connection")
+    }
+
+    /// An origin admits the read and sends nothing while its channel starts: the grab waits on the origin past its own
+    /// deadline, and the origin's close of the open is the channel's own answer (`ended`), never a refusal.
+    func testAGrabTheOriginAdmitsAndHoldsWaitsForTheOriginToEndIt() throws {
+        try assertAHeldOpenWaitsForTheOrigin(port: 19802, headers: false)
+    }
+
+    func testAGrabTheOriginAdmitsWithA200AndHoldsWaitsForTheOriginToEndIt() throws {
+        try assertAHeldOpenWaitsForTheOrigin(port: 19812, headers: true)
+    }
+
+    private func assertAHeldOpenWaitsForTheOrigin(port: Int, headers: Bool) throws {
+        let relay = try cappedRelay(mode: "refuse", port: port, holdMs: 6000, holdHeaders: headers)
+        defer { relay.stop() }
+        let queue = try frameQueue()
+        let done = XCTestExpectation(description: "grab")
+        var outcome: LiveFrameQueue.Outcome?
+        let started = Date()
+        queue.request(channelId: "held", inputUrl: relay.url, headers: [:], deadline: 3, originKey: "held-\(port)") {
+            outcome = $0
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 20)
+        let elapsed = Date().timeIntervalSince(started)
+        guard case .none(opened: false, failure: _, ended: true)? = outcome else {
+            return XCTFail("the origin's close was not the answer: \(String(describing: outcome))")
+        }
+        XCTAssertGreaterThanOrEqual(elapsed, 6, "the grab's own deadline cut an open the origin had admitted")
+        XCTAssertLessThan(elapsed, 12, "the grab opened again after the origin ended it")
+        XCTAssertEqual(try relay.stats()["admitted"], 1)
     }
 
     /// A sweep waiting for a connection gets it the moment the read holding it closes.
@@ -867,7 +900,7 @@ final class LiveConnectionBrokerTests: XCTestCase {
             done.fulfill()
         }
         wait(for: [done], timeout: 15)
-        guard case .none(opened: false, failure: let failure)? = outcome else { return XCTFail("the fallback was not refused: \(String(describing: outcome))") }
+        guard case .none(opened: false, failure: let failure, ended: _)? = outcome else { return XCTFail("the fallback was not refused: \(String(describing: outcome))") }
         XCTAssertGreaterThanOrEqual(try relay.stats()["refused"] ?? 0, 1, "the fallback was never refused")
         XCTAssertFalse(failure?.contains("403") ?? false, "the grab reports the server copy's failure, not the origin's: \(failure ?? "no failure")")
         XCTAssertNil(LiveConnectionBroker.shared.budget(for: key), "the server's refusal is no limit of the origin")
