@@ -23,6 +23,7 @@ All notable changes to Tomo TV are documented here.
 - A live channel carrying DVB or teletext subtitles failed to open with "Video not found on server": the engine answered 404 for the subtitle rendition's segments past the first
 - Channels went Offline on a provider at its connection cap: the wall judged a channel dead after two refusals with any 4xx or 5xx, and a 429 counted. A 401, 403, 429 or any 5xx no longer counts; the other 4xx still do
 - Pluto channels showed the same placeholder clip on every card: Pluto answers its stream URL call with an internal error when the request carries the app's own user agent, and the fallback session serves one placeholder for every channel. The call now carries a plain library agent, which Pluto answers
+- The live mark on a channel card animated every frame on every card with a picture (the draining wedge, then a pulsing dot), which kept the whole wall redrawing. It is now two still states: LIVE while the picture is seconds old, an hourglass while the next picture waits its turn
 
 ## [2.2.12]
 

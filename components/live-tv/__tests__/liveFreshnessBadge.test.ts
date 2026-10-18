@@ -1,32 +1,98 @@
-import { freshnessTimings, LIVE_FRESH_MS } from "@/components/live-tv/live-freshness-badge";
+/** LiveFreshnessBadge: LIVE while the picture is seconds old, an hourglass while the next picture waits, no animation. */
+import { LIVE_FRESH_MS, LiveFreshnessBadge, liveRemainMs } from "@/components/live-tv/live-freshness-badge";
+import React from "react";
+import { Text } from "react-native";
+import TestRenderer, { act } from "react-test-renderer";
 
-jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
+const mockIcon = jest.fn((_props: { name: string }) => null);
+jest.mock("@expo/vector-icons", () => ({ Ionicons: (props: { name: string }) => mockIcon(props) }));
 jest.mock("expo-image", () => ({ Image: () => null }));
+jest.mock("@/services/i18n", () => ({ t: (key: string) => key }));
 
-describe("freshnessTimings", () => {
-  const at = 1_000_000;
-  const dueAt = at + 120_000;
+let mockReel: { frames: { uri: string }[]; at: number } | undefined;
+let mockDueAt: number | undefined;
+const mockListeners = new Set<() => void>();
+jest.mock("@/services/liveFrames", () => ({
+  liveFrameReel: () => mockReel,
+  liveFrameDueAt: () => mockDueAt,
+  subscribeLiveFrame: (_id: string, listener: () => void) => {
+    mockListeners.add(listener);
+    return () => mockListeners.delete(listener);
+  },
+}));
+const notify = () => {
+  for (const listener of mockListeners) listener();
+};
 
-  it("holds LIVE for the fresh window of a just-landed burst, nothing elapsed", () => {
-    expect(freshnessTimings(at, at, at, dueAt)).toEqual({ liveRemainMs: LIVE_FRESH_MS, dueRemainMs: 120_000, startFraction: 0 });
+describe("liveRemainMs", () => {
+  it("holds LIVE for the fresh window from the picture's last change, then stops claiming", () => {
+    expect(liveRemainMs(1_000_000, 1_000_000)).toBe(LIVE_FRESH_MS);
+    expect(liveRemainMs(1_000_000 + 2_000, 1_000_000)).toBe(LIVE_FRESH_MS - 2_000);
+    expect(liveRemainMs(1_000_000 + 60_000, 1_000_000)).toBe(0);
+  });
+});
+
+describe("LiveFreshnessBadge", () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(1_000_000);
+    mockIcon.mockClear();
+    mockListeners.clear();
+    mockReel = undefined;
+    mockDueAt = undefined;
+  });
+  afterEach(() => {
+    jest.useRealTimers();
   });
 
-  it("drops LIVE once the picture sits past the window, the pie drained to the elapsed share", () => {
-    const now = at + 60_000;
-    expect(freshnessTimings(now, at, at, dueAt)).toEqual({ liveRemainMs: 0, dueRemainMs: 60_000, startFraction: 0.5 });
+  const badge = () => React.createElement(LiveFreshnessBadge, { channelId: "c1" });
+  const texts = (renderer: TestRenderer.ReactTestRenderer) => renderer.root.findAllByType(Text).map((node) => node.props.children);
+  const glyphs = () => mockIcon.mock.calls.map(([props]) => props.name);
+
+  it("shows LIVE for a just-landed burst, the hourglass once the window passes, and LIVE again on a new burst", () => {
+    mockReel = { frames: [{ uri: "a" }], at: 1_000_000 };
+    mockDueAt = 1_000_000 + 120_000;
+    let renderer!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      renderer = TestRenderer.create(badge());
+    });
+    expect(texts(renderer)).toEqual(["liveTv.live"]);
+    expect(glyphs()).toEqual([]);
+
+    act(() => {
+      jest.advanceTimersByTime(LIVE_FRESH_MS);
+    });
+    expect(texts(renderer)).toEqual([]);
+    expect(glyphs()).toEqual(["hourglass-outline"]);
+
+    // A fresh burst is a new reel object: LIVE again from now.
+    mockReel = { frames: [{ uri: "b" }], at: Date.now() };
+    act(() => notify());
+    expect(texts(renderer)).toEqual(["liveTv.live"]);
+    act(() => renderer.unmount());
   });
 
-  it("keeps LIVE while frames land mid-burst: the window follows the picture, not the grab", () => {
-    const now = at + 30_000;
-    const { liveRemainMs } = freshnessTimings(now, now - 2_000, at, dueAt);
-    expect(liveRemainMs).toBe(LIVE_FRESH_MS - 2_000);
+  it("counts an unchanged verify as fresh: the reel is re-dated in place and its due moves", () => {
+    mockReel = { frames: [{ uri: "a" }], at: 1_000_000 - 60_000 };
+    mockDueAt = 1_000_000 + 60_000;
+    let renderer!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      renderer = TestRenderer.create(badge());
+    });
+    expect(glyphs()).toEqual(["hourglass-outline"]);
+    mockReel.at = Date.now();
+    mockDueAt = Date.now() + 120_000;
+    act(() => notify());
+    expect(texts(renderer)).toEqual(["liveTv.live"]);
+    act(() => renderer.unmount());
   });
 
-  it("floors an overdue picture at an empty pie and no time left", () => {
-    expect(freshnessTimings(dueAt + 5_000, at, at, dueAt)).toEqual({ liveRemainMs: 0, dueRemainMs: 0, startFraction: 1 });
-  });
-
-  it("treats a due at or before the capture as already elapsed", () => {
-    expect(freshnessTimings(at + 1, at, at, at).startFraction).toBe(1);
+  it("renders nothing without a picture", () => {
+    let renderer!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      renderer = TestRenderer.create(badge());
+    });
+    expect(renderer.toJSON()).toBeNull();
+    act(() => renderer.unmount());
   });
 });
