@@ -11,8 +11,11 @@ export type ChannelHealth = "up" | "down" | "unknown";
 
 /** Conclusive origin refusals before the verdict. */
 export const HEALTH_STRIKES = 2;
-/** The origin's own words prove death: an HTTP error status in the open failure. */
-const DEFINITIVE = /\b[45]\d\d\b/;
+/**
+ * The origin's own words prove death: a 4xx in the open failure, except the ones providers answer at their
+ * connection cap (401, 403, 429). A 5xx is a busy or stopping server (503 on TVHeadend and Dispatcharr), never death.
+ */
+const DEFINITIVE = /\b4(?!01\b|03\b|29\b)\d\d\b/;
 
 interface Entry {
   verdict: ChannelHealth;

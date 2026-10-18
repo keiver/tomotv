@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.0
+
+- A ring neighbour the engine ended for its provider's budget (`isConnectionBudgetFailure`) is released without the ten-minute cold mark a dead channel gets, so it heats again the next time a connection is spare.
+- Channel health no longer strikes a channel for a 401, 403, 429 or any 5xx: providers answer those at their connection cap (Dispatcharr 429 and 503, TVHeadend 503) and the channel is not dead. The other 4xx still count, two for a down verdict.
+- `playlistOrigins()`: every provider host across the sources in first-seen order, with how many channels read it and which sources list it, so a limit set per source reaches every host that source reads.
+- `@keiver/tomo-engine` 1.3.0 or later, for `isConnectionBudgetFailure`.
+
 ## 1.3.0
 
 - A playlist channel carries its archive and its guide shift: `catchup` (`type`, `source`, `days`) and `tvgShift` on `PlaylistChannel`, each value the channel's own over the playlist header's, and absent when neither declares one. `playlistChannelFromEntry(entry, id, header?)` takes the header; `enginePlaylistRows` passes it.
