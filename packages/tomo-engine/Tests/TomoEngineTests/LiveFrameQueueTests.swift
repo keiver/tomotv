@@ -265,9 +265,10 @@ final class LiveFrameQueueTests: XCTestCase {
         XCTAssertFalse(LiveFrameQueue.touch(burstOf: nil, in: root.appendingPathComponent("chan-none", isDirectory: true), now: now))
     }
 
-    /// The clip as AVFoundation opens it: its one video track's codec, its duration in seconds and where its
-    /// first media segment starts (over zero means an empty edit leads the file; timeRange.start stays 0 for one).
-    private func playable(_ url: URL) throws -> (tracks: Int, codec: String, seconds: Double, start: Double) {
+    /// The clip as AVFoundation opens it: its one video track's codec, its duration in seconds, where its first
+    /// media segment starts (over zero means an empty edit leads the file; timeRange.start stays 0 for one) and
+    /// its shortest sample in seconds (0 when the last sample has no length).
+    private func playable(_ url: URL) throws -> (tracks: Int, codec: String, seconds: Double, start: Double, shortestFrame: Double) {
         let asset = AVURLAsset(url: url)
         let tracks = asset.tracks(withMediaType: .video)
         let format = tracks.first?.formatDescriptions.first.map { $0 as! CMFormatDescription }
@@ -275,7 +276,8 @@ final class LiveFrameQueueTests: XCTestCase {
         let codec = String(bytes: [24, 16, 8, 0].map { UInt8((fourcc >> $0) & 0xFF) }, encoding: .ascii) ?? ""
         let media = tracks.first?.segments.first { !$0.isEmpty }
         let start = media.map { CMTimeGetSeconds($0.timeMapping.target.start) } ?? -1
-        return (asset.tracks.count, codec, CMTimeGetSeconds(asset.duration), start)
+        let shortestFrame = tracks.first.map { CMTimeGetSeconds($0.minFrameDuration) } ?? -1
+        return (asset.tracks.count, codec, CMTimeGetSeconds(asset.duration), start, shortestFrame)
     }
 
     private func grab(_ queue: LiveFrameQueue, _ stream: URL, clipSpan: TimeInterval) -> LiveFrameQueue.Outcome? {
@@ -303,6 +305,8 @@ final class LiveFrameQueueTests: XCTestCase {
         XCTAssertEqual(opened.tracks, 1, "video only, no audio")
         XCTAssertEqual(opened.codec, "avc1")
         XCTAssertEqual(opened.seconds, 5, accuracy: 0.1)
+        // 25 fps in, capped to 15: every second frame kept, and the last sample lasts a frame like the rest.
+        XCTAssertEqual(opened.shortestFrame, 0.08, accuracy: 0.001, "a last sample of no length reads as an endless frame rate")
 
         let found = queue.queue.sync { queue.latest(channelIds: ["chan-a"]) }
         XCTAssertEqual(found["chan-a"]?.urls.map(\.lastPathComponent), urls.map(\.lastPathComponent))
@@ -321,6 +325,7 @@ final class LiveFrameQueueTests: XCTestCase {
         XCTAssertEqual(opened.seconds, 2, accuracy: 0.25)
         // B-frames hold the keyframe's presentation behind its decode time; the clip's zero is its presentation.
         XCTAssertEqual(opened.start, 0, "no empty edit leads the clip")
+        XCTAssertEqual(opened.shortestFrame, 0.08, accuracy: 0.001, "the last sample lasts a frame like the rest")
     }
 
     func testAClipCutShortOfThreeOfItsFiveSecondsIsNotWritten() throws {

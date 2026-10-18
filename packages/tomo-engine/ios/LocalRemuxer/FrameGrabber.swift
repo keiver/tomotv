@@ -317,12 +317,20 @@ final class FrameGrabber {
         var keysLeft = keys
         var written = 0
         var lastPts: Int64 = 0
+        var lastDts: Int64?
+        var frameTicks: Int64 = 0
         func write(_ packet: UnsafeMutablePointer<AVPacket>) {
             guard let copy = av_packet_clone(packet) else { return }
             var owned: UnsafeMutablePointer<AVPacket>? = copy
             defer { av_packet_free(&owned) }
             copy.pointee.stream_index = 0
             let pts = copy.pointee.pts
+            // The muxer lengthens each sample to the next one's dts and the last by the packet's own duration, which
+            // neither the encoder nor a TS demux sets: a last sample of no length reads as an endless frame rate.
+            let dts = copy.pointee.dts != SWIFT_AV_NOPTS_VALUE ? copy.pointee.dts : pts
+            if let last = lastDts, dts > last { frameTicks = frameTicks > 0 ? min(frameTicks, dts - last) : dts - last }
+            if dts != SWIFT_AV_NOPTS_VALUE { lastDts = dts }
+            if copy.pointee.duration <= 0 { copy.pointee.duration = frameTicks }
             av_packet_rescale_ts(copy, packetTb, outTb)
             if av_interleaved_write_frame(output, copy) >= 0 {
                 written += 1
