@@ -31,6 +31,11 @@ def load_lineup(directory):
     return lineup
 
 
+def broadcast(lineup):
+    """The channels the box streams; a `url` channel is read from that URL and has no broadcaster or relay port."""
+    return [channel for channel in lineup["channels"] if "url" not in channel]
+
+
 def compose_yaml(lineup):
     lines = ["services:"]
     lines += [
@@ -51,7 +56,7 @@ def compose_yaml(lineup):
         "    volumes: [/opt/tomotv/livetv:/livetv:ro]",
         '    command: ["python3", "/livetv/relay.py", "/livetv"]',
     ]
-    for channel in lineup["channels"]:
+    for channel in broadcast(lineup):
         lines += [
             f"  livetv-{channel['id']}:",
             "    image: jellyfin/jellyfin:latest",
@@ -69,7 +74,7 @@ def compose_yaml(lineup):
 def flatten(directory, out):
     lineup = load_lineup(directory)
     os.makedirs(os.path.join(out, "channels"), exist_ok=True)
-    for channel in lineup["channels"]:
+    for channel in broadcast(lineup):
         with open(os.path.join(out, "channels", f"{channel['id']}.list"), "w") as f:
             f.write("".join(f"{s}\n" for s in channel["sources"]))
     with open(os.path.join(out, "epoch.txt"), "w") as f:
@@ -194,6 +199,29 @@ def programme_xml(directory, channel, start, stop, sources, items, base):
     return "".join(parts)
 
 
+def fixed_slots(epoch, start, end, pattern):
+    """(start, stop) of every positive slot overlapping [start, end), the pattern anchored on the epoch."""
+    unit = sum(abs(s) for s in pattern)
+    if unit == 0:
+        return []
+    out = []
+    t = epoch + math.floor((start - epoch) / unit) * unit
+    while t < end:
+        for slot in pattern:
+            if slot > 0 and t + slot > start:
+                out.append((t, t + slot))
+            t += abs(slot)
+    return out
+
+
+def fixed_programme_xml(channel, start, stop):
+    """A `url` channel has no sources to name: every slot lists the lineup's own `title` and `desc`."""
+    return (
+        f'  <programme start="{stamp(start)}" stop="{stamp(stop)}" channel="{channel["id"]}">'
+        f"<title>{escape(channel['title'])}</title><desc>{escape(channel['desc'])}</desc></programme>"
+    )
+
+
 def frame_version(directory, frame):
     """A regrabbed frame gets a new URL, so Jellyfin fetches it instead of keeping the old image."""
     path = os.path.join(directory, "frames", frame)
@@ -224,18 +252,23 @@ def generate(directory):
     xml = ['<?xml version="1.0" encoding="UTF-8"?>', "<tv>"]
     ready = []
     for channel in lineup["channels"]:
-        durations = read_durations(directory, channel)
-        if durations is None:
+        durations = None if "url" in channel else read_durations(directory, channel)
+        if durations is None and "url" not in channel:
             print(f"{channel['id']}: no channels/{channel['id']}.dur yet, left out", flush=True)
             continue
         ready.append((channel, durations))
         logo = logo_url(directory, base, channel)
         m3u.append(f'#EXTINF:-1 tvg-id="{channel["id"]}" tvg-chno="{channel["number"]}" tvg-logo="{logo}" tvg-name="{channel["name"]}",{channel["name"]}')
-        m3u.append(f"http://127.0.0.1:{channel['port']}/live.ts")
+        m3u.append(channel.get("url") or f"http://127.0.0.1:{channel['port']}/live.ts")
         xml.append(f'  <channel id="{channel["id"]}"><display-name>{escape(channel["name"])}</display-name><icon src="{logo}"/></channel>')
     count = 0
     for channel, durations in ready:
         pattern = [60 * m for m in channel.get("slots", lineup.get("slots", [30]))]
+        if durations is None:
+            for p_start, p_stop in fixed_slots(epoch, start, end, pattern):
+                xml.append(fixed_programme_xml(channel, p_start, p_stop))
+                count += 1
+            continue
         for p_start, p_stop, sources in programmes(channel, durations, epoch, start, end, pattern):
             xml.append(programme_xml(directory, channel, p_start, p_stop, sources, items, base))
             count += 1

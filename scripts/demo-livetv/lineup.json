@@ -126,6 +126,16 @@
       ],
       "category": "Movie",
       "slots": [30]
+    },
+    {
+      "number": 12,
+      "id": "blackhole",
+      "name": "Black Hole",
+      "colour": "#B57F05",
+      "url": "https://tomotv.cubita.studio/livetv/blackhole.ts",
+      "slots": [60],
+      "title": "Intentionally Offline",
+      "desc": "Black Hole is a test channel that never airs. Its stream answers 404 on purpose, so you can see how Tomo TV shows an offline channel."
     }
   ]
 }

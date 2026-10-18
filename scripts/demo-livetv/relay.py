@@ -413,7 +413,7 @@ class HdHomeRunFace:
 def main(directory):
     with open(os.path.join(directory, "lineup.json")) as f:
         lineup = json.load(f)
-    channels = [Channel(entry) for entry in lineup["channels"]]
+    channels = [Channel(entry) for entry in lineup["channels"] if "port" in entry]
     for channel in channels:
         # Bound before the reader port, so a reader-port answer means a feed can connect.
         threading.Thread(target=channel.feed, args=(channel.listen_for_feed(),), daemon=True).start()

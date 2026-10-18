@@ -52,7 +52,7 @@ def main(directory, db, ip):
         lineup = json.load(f)
     paths = {i["Path"] for i in items}
     # A source outside the libraries has no item; the guide titles it by its file name.
-    loose = [s for ch in lineup["channels"] for s in ch["sources"] if "/media/" + s not in paths]
+    loose = [s for ch in lineup["channels"] for s in ch.get("sources", []) if "/media/" + s not in paths]
     print(f"items.json: {len(items)} items" + "".join(f"\n  no item, titled by file name: {s}" for s in loose))
 
     cfg = jf("/System/Configuration/livetv")

@@ -1,6 +1,6 @@
 # Demo Live TV (tomotv.cubita.studio)
 
-Ten always-on channels built from the demo media, served to Jellyfin as an M3U tuner with an XMLTV guide, the same shape as the Live TV rig in `test/playback/README.md`. `lineup.json` is the single source of truth; `npm run demo:livetv` deploys it and reruns are idempotent.
+Eleven always-on channels built from the demo media and one offline on purpose, served to Jellyfin as an M3U tuner with an XMLTV guide, the same shape as the Live TV rig in `test/playback/README.md`. `lineup.json` is the single source of truth; `npm run demo:livetv` deploys it and reruns are idempotent.
 
 ## What runs on the box
 
@@ -50,6 +50,8 @@ scp -i ~/.ssh/tomotv_deploy "Spring.mp4" "$DEMO_SSH:/opt/tomotv/media/Live TV/Sp
 Add a channel: append to `lineup.json` (unique `id`, `number`, `port` 91NN but never 9109, the guide's, codec-uniform sources, `category` Movie / Series / Kids / Sports / News for Jellyfin's genre rows) and draw `logos/<id>.svg`, rerun.
 
 A negative slot is a guide gap: the stream keeps playing, the guide lists nothing for those minutes. Empty `slots` silence a channel's guide entirely (Utopia). Elono's source is `Live TV/Elono.mp4`, an 83 s reel of 2-12 s clips from twelve episodes' full-story renders, re-encoded to the rig format and concatenated.
+
+A channel with a `url` in place of `sources` and `port` streams from that URL, with no broadcaster or relay port, and its guide lists the lineup's `title` and `desc` in every slot. Black Hole (12) is one: its URL answers 404 on the public host, so the device reads it directly (the tuner allows direct play), the engine reports the origin's own 404, and two grabs judge it Offline.
 
 ## Check on the box
 
