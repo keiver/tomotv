@@ -1,9 +1,9 @@
-/** invalidateItemRemoved evicts every cached family that can list a deleted item, and only that user's. */
+/** invalidateItemRemoved evicts every cached family that can list a deleted item, and only that user's; invalidateFolderListing evicts one folder's pages. */
 
 jest.mock("@/services/folderContentsCache", () => ({ patchFolderCacheItem: jest.fn() }));
 jest.mock("@/services/jellyfin/events", () => ({ notifyItemRemoved: jest.fn(), notifyResumeChange: jest.fn(), notifyRecordingsChange: jest.fn() }));
 
-import { invalidateItemRemoved } from "@/services/jellyfin/cacheKeys";
+import { invalidateFolderListing, invalidateItemRemoved } from "@/services/jellyfin/cacheKeys";
 import { cachedRequest, clearRequestCache } from "@/services/requestCache";
 
 const TTL = 60_000;
@@ -16,7 +16,6 @@ const LISTING_KEYS = [
   "folder:u:f",
   "playlist:u:p",
   "filtered:u:f",
-  "latest:u:v",
   "recursive:u:f",
   "recursivesized:u:f",
   "recursivephotos:u:f",
@@ -67,5 +66,25 @@ describe("invalidateItemRemoved", () => {
     finish(["abc"]);
     await pending;
     expect(await cachedRequest(key, async () => [], TTL)).toEqual([]);
+  });
+});
+
+describe("invalidateFolderListing", () => {
+  const OWN = ["folder:u:f:0:60:none", "folder:u:f:60:60:fav", "playlist:u:f:0:60", "viewLeaves:u:f:none"];
+  const OTHERS = ["folder:u:f2:0:60:none", "folder:other:f:0:60:none", "views:u", "details:u:f"];
+
+  it("drops every page of that folder and nothing else", async () => {
+    for (const key of [...OWN, ...OTHERS]) await cachedRequest(key, async () => "old", TTL);
+    invalidateFolderListing("u", "f");
+    for (const key of OWN) expect([key, await isCached(key)]).toEqual([key, false]);
+    for (const key of OTHERS) expect([key, await isCached(key)]).toEqual([key, true]);
+  });
+
+  it("drops the libraries list for the root and leaves folders alone", async () => {
+    await cachedRequest("views:u", async () => "old", TTL);
+    await cachedRequest("folder:u:f:0:60:none", async () => "old", TTL);
+    invalidateFolderListing("u", null);
+    expect(await isCached("views:u")).toBe(false);
+    expect(await isCached("folder:u:f:0:60:none")).toBe(true);
   });
 });

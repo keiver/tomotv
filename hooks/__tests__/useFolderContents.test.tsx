@@ -18,6 +18,7 @@ import {
   fetchPlaylistContents,
   fetchUserViews,
   fetchVideoDetails,
+  invalidateFolderReads,
   subscribeItemRemoved,
   subscribeItemRemoving,
   subscribePlayedChange,
@@ -37,6 +38,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   fetchPlaylistContents: jest.fn(),
   fetchFavoriteIds: jest.fn(() => Promise.resolve(new Set<string>())),
   fetchVideoDetails: jest.fn(() => Promise.resolve(null)),
+  invalidateFolderReads: jest.fn(),
   isLiveChannel: jest.fn((item: { Type?: string } | null | undefined) => item?.Type === "TvChannel"),
   subscribeFavoriteChange: jest.fn(() => jest.fn()),
   subscribeItemRemoved: jest.fn(() => jest.fn()),
@@ -310,15 +312,62 @@ describe("useFolderContents", () => {
   });
 
   describe("caching", () => {
-    it("serves the first page from cache within the TTL (no second fetch)", async () => {
+    /** Mounts a revisit and records every render's ids, so the first frame and the last can be told apart. */
+    async function revisit(folderId = "folder-1") {
+      const frames: { ids: string[]; items: JellyfinItem[]; error: string | null }[] = [];
+      function Probe() {
+        const state = useFolderContents(folderId);
+        frames.push({ ids: state.items.map((i) => i.Id), items: state.items, error: state.error });
+        return null;
+      }
+      await act(async () => {
+        TestRenderer.create(<Probe />);
+      });
+      return frames;
+    }
+
+    it("paints the cached first page on a revisit and reads the server behind it, past the request cache", async () => {
       mockFolder.mockResolvedValue({ items: items("a"), total: 1 });
       await mount("folder-1");
       expect(mockFolder).toHaveBeenCalledTimes(1);
 
       (Date.now as jest.Mock).mockReturnValue(NOW + 60_000); // +1 min, within the 5 min TTL
       const ref = await mount("folder-1");
-      expect(mockFolder).toHaveBeenCalledTimes(1);
+      expect(mockFolder).toHaveBeenCalledTimes(2);
+      expect(invalidateFolderReads).toHaveBeenLastCalledWith("folder-1");
       expect(ref.current!.get().items[0].Id).toBe("a");
+    });
+
+    it("swaps in what the server added behind the cached paint", async () => {
+      mockFolder.mockResolvedValueOnce({ items: items("a"), total: 1 }).mockResolvedValueOnce({ items: items("a", "b"), total: 2 });
+      await mount("folder-1");
+      (Date.now as jest.Mock).mockReturnValue(NOW + 60_000);
+
+      const frames = await revisit();
+
+      expect(frames[0].ids).toEqual(["a"]);
+      expect(frames.at(-1)!.ids).toEqual(["a", "b"]);
+    });
+
+    it("keeps the painted list untouched when the server read matches it", async () => {
+      mockFolder.mockResolvedValue({ items: items("a", "b"), total: 2 });
+      await mount("folder-1");
+      (Date.now as jest.Mock).mockReturnValue(NOW + 60_000);
+
+      const frames = await revisit();
+
+      expect(mockFolder).toHaveBeenCalledTimes(2);
+      expect(frames.at(-1)!.items).toBe(frames[0].items);
+    });
+
+    it("keeps the painted list, with no error, when the read behind it fails", async () => {
+      mockFolder.mockResolvedValueOnce({ items: items("a"), total: 1 }).mockRejectedValueOnce(new Error("offline"));
+      await mount("folder-1");
+      (Date.now as jest.Mock).mockReturnValue(NOW + 60_000);
+
+      const frames = await revisit();
+
+      expect(frames.at(-1)).toMatchObject({ ids: ["a"], error: null });
     });
 
     it("refetches once the cache entry is older than the TTL", async () => {
@@ -483,9 +532,17 @@ describe("useFolderContents", () => {
           void ref.current!.get().loadMore();
         });
         expect(mockFolder).toHaveBeenNthCalledWith(4, "folder-1", { limit: 60, startIndex: 2 });
-        const again = await mount("folder-1");
-        expect(mockFolder).toHaveBeenCalledTimes(4);
-        expect(again.current!.get().items.map((i) => i.Id)).toEqual(["b", "c"]);
+        mockFolder.mockResolvedValueOnce({ items: items("b", "c"), total: 3 });
+        const firstFrame: string[][] = [];
+        function Probe() {
+          firstFrame.push(useFolderContents("folder-1").items.map((i) => i.Id));
+          return null;
+        }
+        await act(async () => {
+          TestRenderer.create(<Probe />);
+        });
+        expect(mockFolder).toHaveBeenCalledTimes(5);
+        expect(firstFrame[0]).toEqual(["b", "c"]);
       });
 
       it("a refresh that lands while a delete is in flight waits for it to settle", async () => {
@@ -589,16 +646,17 @@ describe("useFolderContents", () => {
       expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["a", "b", "c", "d", "e", "f"]);
     });
 
-    it("refuses a cached seed that lacks the target and walks on from it", async () => {
+    it("refuses a cached seed that lacks the target and walks from a fresh first page", async () => {
       mockFolder.mockResolvedValueOnce({ items: items("a", "b"), total: 4 });
       await mount("folder-1"); // caches page one only
       (Date.now as jest.Mock).mockReturnValue(NOW + 60_000);
-      mockFolder.mockResolvedValueOnce({ items: items("c", "d"), total: 4 });
+      mockFolder.mockResolvedValueOnce({ items: items("a", "b"), total: 4 }).mockResolvedValueOnce({ items: items("c", "d"), total: 4 });
 
       const renders = await mountFocused("d");
 
       expect(renders[0]).toEqual({ isLoading: true, ids: [] });
-      expect(mockFolder).toHaveBeenCalledTimes(2);
+      expect(mockFolder).toHaveBeenCalledTimes(3);
+      expect(mockFolder).toHaveBeenNthCalledWith(2, "folder-1", { limit: 60, startIndex: 0 });
       expect(mockFolder).toHaveBeenLastCalledWith("folder-1", { limit: 60, startIndex: 2 });
       expect(renders[renders.length - 1].ids).toEqual(["a", "b", "c", "d"]);
     });
@@ -791,7 +849,7 @@ describe("useFolderContents", () => {
         TestRenderer.create(<Probe />);
       });
 
-      expect(mockFolder).toHaveBeenCalledTimes(1);
+      expect(mockFolder).toHaveBeenCalledTimes(2);
       expect(firstFrame[0]).toEqual(["e1", "e2"]);
     });
 
@@ -851,9 +909,18 @@ describe("useFolderContents", () => {
       await mountWithFilters("folder-1", { ...EMPTY_FILTERS, favorite: true }); // must not read the cache
       expect(mockFolder).toHaveBeenCalledTimes(2);
 
-      const ref = await mount("folder-1"); // unfiltered again, within TTL — original cache survives
-      expect(mockFolder).toHaveBeenCalledTimes(2);
-      expect(ref.current!.get().items[0].Id).toBe("plain");
+      // Unfiltered again, within TTL: the first frame is the original entry.
+      mockFolder.mockResolvedValue({ items: items("plain"), total: 1 });
+      const firstFrame: string[][] = [];
+      function Probe() {
+        firstFrame.push(useFolderContents("folder-1").items.map((i) => i.Id));
+        return null;
+      }
+      await act(async () => {
+        TestRenderer.create(<Probe />);
+      });
+      expect(mockFolder).toHaveBeenCalledTimes(3);
+      expect(firstFrame[0]).toEqual(["plain"]);
     });
 
     it("drops repeated ids across shuffled pages (SortBy=Random reshuffles per request)", async () => {
@@ -960,6 +1027,73 @@ describe("useFolderContents", () => {
       await mountHidden();
       await act(async () => latestCall(subscribeAuthChange as jest.Mock)());
       expect(mockFolder).toHaveBeenCalledTimes(1);
+    });
+
+    describe("shown again", () => {
+      async function mountShown(filters?: LibraryFilters) {
+        focused.mockReturnValue(true);
+        const ref = React.createRef<HookRef>();
+        let tree!: TestRenderer.ReactTestRenderer;
+        await act(async () => {
+          tree = TestRenderer.create(<Harness ref={ref} folderId="folder-1" filters={filters} />);
+        });
+        const showAgain = async () => {
+          focused.mockReturnValue(false);
+          await act(async () => tree.update(<Harness ref={ref} folderId="folder-1" filters={filters} />));
+          focused.mockReturnValue(true);
+          await act(async () => tree.update(<Harness ref={ref} folderId="folder-1" filters={filters} />));
+        };
+        return { ref, showAgain, tree };
+      }
+      const range = (from: number, count: number) => Array.from({ length: count }, (_, i) => `i${from + i}`);
+
+      it("reads every loaded item again in one request, and the next page starts after them", async () => {
+        mockFolder.mockReset();
+        mockFolder
+          .mockResolvedValueOnce({ items: items(...range(0, 60)), total: 130 })
+          .mockResolvedValueOnce({ items: items(...range(60, 60)), total: 130 })
+          .mockResolvedValueOnce({ items: items("added", ...range(0, 119)), total: 131 })
+          .mockResolvedValueOnce({ items: items(...range(119, 11)), total: 131 });
+        const { ref, showAgain } = await mountShown();
+        await act(async () => {
+          ref.current!.get().loadMore();
+        });
+
+        await showAgain();
+
+        expect(mockFolder).toHaveBeenNthCalledWith(3, "folder-1", { limit: 120, startIndex: 0 });
+        expect(invalidateFolderReads).toHaveBeenLastCalledWith("folder-1");
+        expect(ref.current!.get().items).toHaveLength(120);
+        expect(ref.current!.get().items[0].Id).toBe("added");
+        await act(async () => {
+          ref.current!.get().loadMore();
+        });
+        expect(mockFolder).toHaveBeenNthCalledWith(4, "folder-1", { limit: 60, startIndex: 120 });
+      });
+
+      it("leaves a shuffled view alone", async () => {
+        const { showAgain } = await mountShown({ ...EMPTY_FILTERS, shuffle: true });
+        mockFolder.mockClear();
+        await showAgain();
+        expect(mockFolder).not.toHaveBeenCalled();
+      });
+
+      it("waits for playback to let go of the link, then reads", async () => {
+        const { setPlaybackHold } = require("@/services/playbackHold") as { setPlaybackHold: (owner: string, active: boolean) => void };
+        const { showAgain, tree } = await mountShown();
+        mockFolder.mockClear();
+        try {
+          setPlaybackHold("video", true);
+          await showAgain();
+          expect(mockFolder).not.toHaveBeenCalled();
+
+          await act(async () => setPlaybackHold("video", false));
+          expect(mockFolder).toHaveBeenCalledTimes(1);
+        } finally {
+          setPlaybackHold("video", false);
+          tree.unmount();
+        }
+      });
     });
   });
 });

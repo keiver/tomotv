@@ -928,7 +928,8 @@ export async function fetchRecursivePhotos(parentId: string): Promise<JellyfinIt
  * The endpoint answers a BARE BaseItemDto array (no Items/TotalRecordCount wrapper), groups
  * episodes into their Series and songs into their MusicAlbum by default, and excludes
  * Virtual (unaired) entries server-side. Non-critical display data: never throws, null on
- * failure so callers can tell a transient error from a genuinely empty list.
+ * failure so callers can tell a transient error from a genuinely empty list. Never cached:
+ * the shelf reads it on each visit to show what the server just added.
  */
 export async function fetchLatestItems(limit = 20): Promise<JellyfinItem[] | null> {
   const config = await getConfig();
@@ -945,32 +946,25 @@ export async function fetchLatestItems(limit = 20): Promise<JellyfinItem[] | nul
     EnableUserData: "true",
   });
 
-  const cacheKey = `latest:${config.userId}:${limit}`;
   try {
-    return await cachedRequest(
-      cacheKey,
-      async () => {
-        const response = await fetchWithTimeout(
-          `${config.server}/Items/Latest?${query.toString()}`,
-          {
-            method: "GET",
-            headers: {
-              Accept: "application/json",
-              Authorization: getAuthHeader(config.deviceId, config.apiKey),
-            },
-          },
-          API_TIMEOUTS.QUICK,
-        );
-
-        if (!response.ok) {
-          throwRequestError(response, `Failed to fetch latest items: ${response.status}`);
-        }
-
-        const data = await response.json();
-        return (Array.isArray(data) ? data : []) as JellyfinItem[];
+    const response = await fetchWithTimeout(
+      `${config.server}/Items/Latest?${query.toString()}`,
+      {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          Authorization: getAuthHeader(config.deviceId, config.apiKey),
+        },
       },
-      CACHE.DEFAULT_TTL_MS,
+      API_TIMEOUTS.QUICK,
     );
+
+    if (!response.ok) {
+      throwRequestError(response, `Failed to fetch latest items: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return (Array.isArray(data) ? data : []) as JellyfinItem[];
   } catch (error) {
     logger.warn("Failed to fetch latest items", error, { service: "JellyfinAPI" });
     return null;

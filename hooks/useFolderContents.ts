@@ -10,6 +10,7 @@ import {
   fetchPlaylistContents,
   fetchUserViews,
   fetchVideoDetails,
+  invalidateFolderReads,
   isLiveChannel,
   subscribeAuthChange,
   subscribeFavoriteChange,
@@ -20,7 +21,7 @@ import {
   subscribeResumeChange,
 } from "@/services/jellyfinApi";
 import { attemptConnectionRecovery } from "@/services/connectionRecovery";
-import { onPlaybackHoldReleased } from "@/services/playbackHold";
+import { isPlaybackHeld, onPlaybackHoldReleased } from "@/services/playbackHold";
 import { countActiveFilters, JellyfinItem, LibraryFilters } from "@/types/jellyfin";
 import { getLoadErrorMessage, isConnectivityError } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
@@ -34,7 +35,13 @@ const MAX_FOCUS_PAGES = 10;
 
 // Whether more pages remain. Prefer the server's TotalRecordCount; when it's omitted (it's optional
 // on the response) fall back to "a full page probably has more" so pagination still works.
-const hasMorePages = (loadedCount: number, lastPageLength: number, total: number | undefined): boolean => (total !== undefined ? loadedCount < total : lastPageLength === PAGE_SIZE);
+const hasMorePages = (loadedCount: number, lastPageLength: number, total: number | undefined, pageSize = PAGE_SIZE): boolean =>
+  total !== undefined ? loadedCount < total : lastPageLength === pageSize;
+
+/** Whether a read returned exactly the listing on screen, every server field included. */
+function sameListing(read: { items: JellyfinItem[]; total?: number }, shown: JellyfinItem[], shownTotal: number | undefined): boolean {
+  return read.total === shownTotal && read.items.length === shown.length && JSON.stringify(read.items) === JSON.stringify(shown);
+}
 
 interface FolderContentsState {
   items: JellyfinItem[];
@@ -94,7 +101,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   const activeFilters = useMemo(() => (filterKey ? (JSON.parse(filterKey) as LibraryFilters) : undefined), [filterKey]);
 
   // Seed synchronously from the folder cache ONCE, at mount, so a fresh revisit paints its content on
-  // the first frame with no spinner — the async first-page effect below then just confirms it.
+  // the first frame with no spinner; the first-page effect below then reads the server behind it.
   // Filtered views are never cached (entries are keyed by folder only), so they still spin.
   // Held in state with a lazy initializer, not a ref written during render: same
   // once-at-mount evaluation, without reading or writing a ref mid-render.
@@ -120,6 +127,8 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   // Pagination bookkeeping in refs so loadMore never reads stale closure state.
   const nextStartIndex = useRef(seed ? seed.items.length : 0);
   const totalRef = useRef<number | undefined>(seed?.total);
+  // The list as the server sent it, before annotation: a read that matches it swaps nothing in.
+  const rawItemsRef = useRef<JellyfinItem[]>(seed ? seed.items : []);
   const isFetchingRef = useRef(false);
   // Mirrors the first-page error state so runFirstPage can read it without depending on `error`
   // (that dependency would re-run the mount effect on every failure, looping the fetch).
@@ -133,7 +142,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   const pageGenRef = useRef(0);
   const deletesInFlightRef = useRef(0);
   const pageWaitingRef = useRef(false);
-  const firstPageWaitingRef = useRef(false);
+  const firstPageWaitingRef = useRef<{ limit: number; quiet: boolean } | null>(null);
   const [firstPageRetry, setFirstPageRetry] = useState(0);
 
   // Paint favorite hearts on the normal (unfiltered) browse from the cached favorite ids. Filtered
@@ -148,30 +157,29 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   );
 
   const fetchPage = useCallback(
-    (startIndex: number) => {
+    (startIndex: number, limit = PAGE_SIZE) => {
       if (!folderId) return fetchUserViews();
-      if (type === "playlist") return fetchPlaylistContents(folderId, { limit: PAGE_SIZE, startIndex });
+      if (type === "playlist") return fetchPlaylistContents(folderId, { limit, startIndex });
       // The Live TV view is not a folder: its channels page from /LiveTv/Channels, in channel order.
-      if (type === "livetv") return fetchChannels({ limit: PAGE_SIZE, startIndex });
-      return fetchFolderContents(folderId, { limit: PAGE_SIZE, startIndex, filters: activeFilters });
+      if (type === "livetv") return fetchChannels({ limit, startIndex });
+      return fetchFolderContents(folderId, { limit, startIndex, filters: activeFilters });
     },
     [folderId, type, activeFilters],
   );
 
-  // Resolve the first page from cache (fresh) or the network. A pure read — the caller writes the
-  // cache only when its request is still the latest, so an overlapping stale load can't clobber it.
-  // Always returns a promise, so callers only ever setState from a .then()/.catch() callback.
+  // Read the first `limit` items from the server, past every cached page of this folder. A pure
+  // read: the caller writes the folder cache only when its request is still the latest, so an
+  // overlapping stale load can't clobber it. Always a promise, so callers setState from callbacks.
   const loadFirstPage = useCallback(
-    async (useCache: boolean): Promise<{ items: JellyfinItem[]; total?: number; nextStartIndex: number; lastPageLength: number; fromCache: boolean }> => {
-      // Filtered views bypass the cache entirely: entries are keyed by folder only, and a
-      // filtered result must never be served as (or overwrite) the unfiltered listing.
-      const cached = activeFilters ? undefined : getFolderCache(cacheKey);
-      const fresh = useCache && cached && Date.now() - cached.timestamp < CACHE.DEFAULT_TTL_MS;
-      const first = fresh ? { items: cached.items, total: cached.total } : await fetchPage(0);
+    async (limit: number): Promise<{ items: JellyfinItem[]; total?: number; nextStartIndex: number; lastPageLength: number; pageSize: number }> => {
+      // Later pages are dropped too: a fresh first page followed by an older second would repeat or skip an item at the seam.
+      invalidateFolderReads(folderId);
+      const first = await fetchPage(0, limit);
       let loaded = first.items;
       let total = first.total;
       let nextStartIndex = first.items.length;
       let lastPageLength = first.items.length;
+      let pageSize = limit;
       // "Show In Folder": read on until the target is in hand, so the grid mounts once, already holding it.
       // A failed later page keeps what arrived; the grid then opens at the top.
       if (focusId) {
@@ -191,11 +199,12 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
           total = more.total;
           nextStartIndex += more.items.length;
           lastPageLength = more.items.length;
+          pageSize = PAGE_SIZE;
         }
       }
-      return { items: loaded, total, nextStartIndex, lastPageLength, fromCache: !!fresh && loaded === cached.items };
+      return { items: loaded, total, nextStartIndex, lastPageLength, pageSize };
     },
-    [cacheKey, fetchPage, activeFilters, focusId],
+    [cacheKey, folderId, fetchPage, focusId],
   );
 
   // The server's SortName order has no tie-break past Name; same-named episodes come back in row
@@ -207,12 +216,13 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   );
 
   const applyFirstPage = useCallback(
-    (result: { items: JellyfinItem[]; total?: number; nextStartIndex: number; lastPageLength: number }) => {
+    (result: { items: JellyfinItem[]; total?: number; nextStartIndex: number; lastPageLength: number; pageSize: number }) => {
       setItems(orderTies(annotateFavorites(annotateWithPlayed(result.items))));
+      rawItemsRef.current = result.items;
       seenIdsRef.current = new Set(result.items.map((item) => item.Id));
       totalRef.current = result.total;
       nextStartIndex.current = result.nextStartIndex;
-      setHasMoreResults(hasMorePages(result.nextStartIndex, result.lastPageLength, result.total));
+      setHasMoreResults(hasMorePages(result.nextStartIndex, result.lastPageLength, result.total, result.pageSize));
       hasLoadErrorRef.current = false;
       setError(null);
       setIsLoading(false);
@@ -234,13 +244,15 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
     [cacheKey],
   );
 
-  // Run a first-page load (initial mount, refresh, or foreground). First-page loads can overlap —
+  // Run a first-page load (mount, refresh, foreground, shown again). First-page loads can overlap,
   // e.g. a slow initial fetch is still in flight when an auth change fires refresh(). Tagging each
   // with a request id and applying only when it is still the latest means an older promise resolving
   // last can't overwrite newer state or write a stale page into the cache. The effect cleanup bumps
-  // the id too, so nothing applies after unmount / folder change.
+  // the id too, so nothing applies after unmount / folder change. `quiet`: a read behind a list on
+  // screen, which swaps in only a changed listing and keeps the list when it fails.
   const runFirstPage = useCallback(
-    (useCache: boolean) => {
+    (limit: number, quiet: boolean) => {
+      const behindList = quiet && !hasLoadErrorRef.current;
       // A load starting from the error state returns to the loading state, so a stale error
       // (e.g. pre-login failure) never stays on screen while the new fetch is in flight.
       if (hasLoadErrorRef.current) {
@@ -251,28 +263,27 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
       const requestId = ++requestIdRef.current;
       const pageGen = pageGenRef.current;
       isFetchingRef.current = true;
-      loadFirstPage(useCache)
+      loadFirstPage(limit)
         .then((result) => {
           if (requestId !== requestIdRef.current) return;
           // A delete sent or landing during the read moved the server's positions under it: nothing
           // of it is cached or shown, and the page is read again once no delete is in flight.
           if (pageGen !== pageGenRef.current) {
-            firstPageWaitingRef.current = true;
+            firstPageWaitingRef.current = { limit, quiet };
             if (deletesInFlightRef.current === 0) setFirstPageRetry((n) => n + 1);
             return;
           }
-          // Cache hit on the entry the useState initializer already seeded and annotated
-          // (reference-equal items array): every state applyFirstPage would set is already
-          // set, so applying again only burns a second render+commit mid push-transition.
-          // Late-arriving favorites still re-annotate via the fetchFavoriteIds chain below.
-          if (result.fromCache && seed && result.items === seed.items) return;
-          if (!result.fromCache && !activeFilters) {
+          if (!activeFilters) {
             setFolderCache(cacheKey, { items: result.items, total: result.total, timestamp: Date.now() });
           }
+          // Nothing changed on the server: a swap would only cost a render, often mid push-transition.
+          if (behindList && sameListing(result, rawItemsRef.current, totalRef.current)) return;
           applyFirstPage(result);
         })
         .catch((err) => {
-          if (requestId === requestIdRef.current) onLoadError(err);
+          if (requestId !== requestIdRef.current) return;
+          if (behindList) logger.warn("Folder read failed, keeping the list on screen", err, { service: "useFolderContents", cacheKey });
+          else onLoadError(err);
         })
         .finally(() => {
           if (requestId === requestIdRef.current) isFetchingRef.current = false;
@@ -289,18 +300,22 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
           .catch((err) => logger.warn("Favorite ids load failed", err, { service: "useFolderContents", cacheKey }));
       }
     },
-    [cacheKey, folderId, loadFirstPage, applyFirstPage, onLoadError, activeFilters, annotateFavorites, seed],
+    [cacheKey, folderId, loadFirstPage, applyFirstPage, onLoadError, activeFilters, annotateFavorites],
   );
 
+  // The mount's read sits behind the seed, every page it holds; a changed selection reads page one.
+  const behindSeedRef = useRef(!!seed);
   useEffect(() => {
-    runFirstPage(true);
+    const behindSeed = behindSeedRef.current;
+    behindSeedRef.current = false;
+    runFirstPage(behindSeed && seed ? Math.max(PAGE_SIZE, seed.items.length) : PAGE_SIZE, behindSeed);
     return () => {
       // Bump the live id so any in-flight first-page load can't apply state after unmount / folder
       // change. Mutating requestIdRef.current here is intentional (not a captured DOM node).
       // eslint-disable-next-line react-hooks/exhaustive-deps
       requestIdRef.current++;
     };
-  }, [runFirstPage]);
+  }, [runFirstPage, seed]);
 
   const loadMore = useCallback(async () => {
     if (isFetchingRef.current || !hasMoreResults) return;
@@ -336,6 +351,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
         return;
       }
       fresh.forEach((item) => seenIdsRef.current.add(item.Id));
+      rawItemsRef.current = [...rawItemsRef.current, ...fresh];
       setItems((prev) => orderTies([...prev, ...annotateFavorites(annotateWithPlayed(fresh))]));
       nextStartIndex.current += more.length;
       totalRef.current = total;
@@ -352,8 +368,15 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
 
   const refresh = useCallback(() => {
     deleteFolderCache(cacheKey);
-    runFirstPage(false);
+    runFirstPage(PAGE_SIZE, false);
   }, [cacheKey, runFirstPage]);
+
+  // Read every loaded item again in one request and swap in what changed, so the viewer keeps their
+  // place. A shuffled view is left alone: the server would deal it a new order under the viewer.
+  const revalidate = useCallback(() => {
+    if (activeFilters?.shuffle) return;
+    runFirstPage(Math.max(PAGE_SIZE, nextStartIndex.current), true);
+  }, [activeFilters, runFirstPage]);
 
   // Re-derive hearts on the current list whenever any favorite changes (markFavorite has already
   // updated the authoritative set, so annotate reflects it instantly — no refetch). In the Favorites
@@ -387,6 +410,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
     return subscribeItemRemoved((itemId) => {
       // The server's later items shift back one; the next page starts one earlier to keep the one that crossed.
       if (itemsRef.current.some((item) => item.Id === itemId)) nextStartIndex.current = Math.max(0, nextStartIndex.current - 1);
+      rawItemsRef.current = rawItemsRef.current.filter((item) => item.Id !== itemId);
       setItems((prev) => prev.filter((item) => item.Id !== itemId));
     });
   }, []);
@@ -409,10 +433,11 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   }, [loadMore]);
 
   useEffect(() => {
-    if (!firstPageWaitingRef.current) return;
-    firstPageWaitingRef.current = false;
+    const waiting = firstPageWaitingRef.current;
+    if (!waiting) return;
+    firstPageWaitingRef.current = null;
     pageWaitingRef.current = false;
-    runFirstPage(false);
+    runFirstPage(waiting.limit, waiting.quiet);
   }, [firstPageRetry, runFirstPage]);
 
   // A resume write names its item and, when the app wrote the value, the ticks the server now
@@ -449,20 +474,27 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
     return subscribeAuthChange(() => refresh());
   }, [refresh]);
 
-  // A screen out of sight owes a read instead of making it, and pays it once when shown.
+  // Shown again (a pop back, a tab switch) the screen reads the server behind its list. A screen out
+  // of sight owes a read instead of making it, and playback holding the link owes it to the release.
   const isFocused = useIsFocused();
   const focusedRef = useRef(isFocused);
   const staleRef = useRef(false);
   useEffect(() => {
+    const shown = isFocused && !focusedRef.current;
     focusedRef.current = isFocused;
-    if (!isFocused || !staleRef.current) return;
+    // A read already in flight (the mount's) answers for this showing.
+    if (!shown || isFetchingRef.current) return;
+    if (isPlaybackHeld()) {
+      staleRef.current = true;
+      return;
+    }
     staleRef.current = false;
-    refresh();
-  }, [isFocused, refresh]);
+    revalidate();
+  }, [isFocused, revalidate]);
   const refreshWhenShown = useCallback(() => {
-    if (focusedRef.current) refresh();
+    if (focusedRef.current) revalidate();
     else staleRef.current = true;
-  }, [refresh]);
+  }, [revalidate]);
   // A foreground return playback swallowed is owed: the screen reads once it is next shown.
   const markStale = useCallback(() => {
     staleRef.current = true;
@@ -474,9 +506,9 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
       onPlaybackHoldReleased(() => {
         if (!focusedRef.current || !staleRef.current) return;
         staleRef.current = false;
-        refresh();
+        revalidate();
       }),
-    [refresh],
+    [revalidate],
   );
 
   // A timer write starts or stops a recording, so a mounted recordings-library browse refetches.

@@ -17,12 +17,12 @@ import { logger } from "@/utils/logger";
 import { orderSortNameTies } from "@/utils/seasonEpisode";
 import { retryWithBackoff } from "@/utils/retry";
 import { API_TIMEOUTS, BROWSE_ITEM_TYPES, INCLUDED_LOCATION_TYPES, FOLDER_TYPE_SET, PLAYABLE_ITEM_TYPES, STANDALONE_VIDEO_TYPES } from "./constants";
-import { filtersCacheKey } from "./cacheKeys";
+import { filtersCacheKey, invalidateFolderListing } from "./cacheKeys";
 import { fetchWithTimeout } from "./http";
 import { fetchAllPlaylistItems } from "./items";
 import { fetchChannels } from "./liveTv";
 import { isAudioItem } from "./media";
-import { getAuthHeader, getConfig, JellyfinConfig, throwRequestError } from "./session";
+import { getAuthHeader, getCachedConfig, getConfig, JellyfinConfig, throwRequestError } from "./session";
 
 /**
  * Check if item is a folder type
@@ -852,6 +852,11 @@ export async function fetchFolderContents(
       ),
     CACHE.DEFAULT_TTL_MS,
   );
+}
+
+/** Drop one listing's cached pages for the signed-in account, so its next read reaches the server. */
+export function invalidateFolderReads(folderId: string | null): void {
+  invalidateFolderListing(getCachedConfig().userId, folderId);
 }
 
 /** Page size for the folder-wide photo sweep, the same 500 the other whole-set sweeps use. */

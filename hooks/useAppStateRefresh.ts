@@ -7,8 +7,8 @@ import { logger } from "@/utils/logger";
  * Custom hook that triggers a callback when the app returns from the background.
  * Launch reads "inactive" in a release build, and inactive alone never left the foreground.
  *
- * Skipped while playback holds the link: the refresh storm (cache wipe plus one
- * refetch per mounted folder screen) competes with stream startup. Screens refetch on focus.
+ * Skipped while playback holds the link: the refetches (the library manager's, and the
+ * focused folder screen's) compete with stream startup. Screens refetch on focus.
  *
  * @param onForeground - Callback to execute when app enters foreground
  * @param context - Context name for logging (e.g., "LibraryContext")

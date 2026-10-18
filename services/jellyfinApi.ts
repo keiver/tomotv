@@ -153,6 +153,7 @@ export {
   FolderMediaKinds,
   fetchUserViews,
   fetchViewItemCount,
+  invalidateFolderReads,
   isBook,
   isFolder,
   isPhoto,
