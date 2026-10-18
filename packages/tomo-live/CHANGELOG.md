@@ -5,7 +5,11 @@
 - A ring neighbour the engine ended for its provider's budget (`isConnectionBudgetFailure`) is released without the ten-minute cold mark a dead channel gets, so it heats again the next time a connection is spare.
 - Channel health no longer strikes a channel for a 401, 403, 429 or any 5xx: providers answer those at their connection cap (Dispatcharr 429 and 503, TVHeadend 503) and the channel is not dead. The other 4xx still count, two for a down verdict.
 - `playlistOrigins()`: every provider host across the sources in first-seen order, with how many channels read it and which sources list it, so a limit set per source reaches every host that source reads.
-- `@keiver/tomo-engine` 1.3.0 or later, for `isConnectionBudgetFailure`.
+- Every card fights for its clip, and nothing waits on a timer while a card in view lacks one. One deadline, `LIVE_FRAME_DEADLINE_S` (15 s), for every grab; `LIVE_FRAME_COLD_DEADLINE_S` is gone. A grab the provider turned away for its whole fight (the engine's `refused` answer) or that found no connection spare (`busy`) strikes no channel: it counts as a failure of the card, so the card goes behind the cards that never failed, and any grab the provider admits makes its refused cards due again at once, their failure count kept. A card with a picture and no clip stays due, behind the cards with no picture (`clipAsked` is gone). `LIVE_FRAME_REFUSED_REST_MS`, `LIVE_FRAME_REFUSED_REST_CAP_MS` and `LIVE_FRAME_BUSY_WAIT_MS` are gone.
+- A card's first failure costs it no wait, only its place behind the never-failed cards; from the second in a row it waits `LIVE_FRAME_RETRY_MS`, doubling to the cap. `LIVE_FRAME_RETRY_FIRST_MS` is gone, and an open our own watchdog cut counts like any other failure.
+- Among the cards due now: no picture before no clip, never-failed before failed, the one that tried longest ago first, then nearest the focused row.
+- The card focused past the dwell reads before any other while its burst is older than `LIVE_FRAME_FOCUS_REFRESH_MS`: the dwell stops the grab of any other card, and while it is read only a card known to read another provider reads beside it; the others read while it is fresh or while it waits out a failure.
+- `@keiver/tomo-engine` 1.3.0 or later, for `isConnectionBudgetFailure` and the grab's `refused` answer.
 
 ## 1.3.0
 

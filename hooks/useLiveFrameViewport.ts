@@ -1,17 +1,20 @@
 import { setLiveFramesActive, setLiveFrameViewable, type LiveFrameSurface } from "@/services/liveFrames";
 import { useIsFocused } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ViewToken } from "react-native";
+import { Platform, type ViewToken } from "react-native";
 
-/** Any visible pixel counts, held a beat so a fling past a row never asks for its frame. */
-export const LIVE_FRAME_VIEWABILITY = { viewAreaCoveragePercentThreshold: 0, minimumViewTime: 300 };
+/**
+ * Held a beat, so a fling past a row never asks for its frame. On a phone any visible pixel counts; on TV only a
+ * row wholly on screen, so the rows a scroll leaves half shown wait their turn until they are in full view.
+ */
+export const LIVE_FRAME_VIEWABILITY = Platform.isTV ? { itemVisiblePercentThreshold: 100, minimumViewTime: 300 } : { viewAreaCoveragePercentThreshold: 0, minimumViewTime: 300 };
 
-/** The channels in the rows in view, in order, plus the row below the last one. */
-export function viewportChannelIds<T>(viewableItems: ViewToken<T>[], items: readonly T[], idsOf: (item: T) => string[]): string[] {
+/** The channels in the rows in view, in order, plus the row below the last one on a phone; on TV the rows in view alone. */
+export function viewportChannelIds<T>(viewableItems: ViewToken<T>[], items: readonly T[], idsOf: (item: T) => string[], lookahead = !Platform.isTV): string[] {
   const ids = viewableItems.filter((token) => token.isViewable && token.index !== null).flatMap((token) => idsOf(token.item));
   const last = viewableItems.reduce((max, token) => Math.max(max, token.index ?? -1), -1);
-  const lookahead = last >= 0 ? items[last + 1] : undefined;
-  return lookahead ? ids.concat(idsOf(lookahead)) : ids;
+  const next = lookahead && last >= 0 ? items[last + 1] : undefined;
+  return next ? ids.concat(idsOf(next)) : ids;
 }
 
 /**

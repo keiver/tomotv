@@ -451,12 +451,20 @@ this device holds other reads sets it to what was held. Nothing stores a learned
 ever goes down (`learnLocked`), so a stored one could never be corrected.
 
 A refused open (`httpOpenErrors` in `RemuxSession+Pipeline.swift`: every HTTP tag but 404) makes
-the lower reads yield and retries with backoff 0.5, 1, 2, 4 s; a 4xx (`limitErrors`, 429 has its
-own FFmpeg tag) also teaches the number, a 5xx never does. An open refused within 15 s of any
-close on the provider retries too (`recentlyClosed`). A neighbour or preview with nothing below
-it to revoke fails at once; playback waits out the playback it replaces. The grabber judges by
-`openError` against the same tags. Tests: `LiveConnectionBrokerTests` against
-`scripts/demo-livetv/relay.py` with `RELAY_CAP_STATUS` 403, 429, 503 and 404 and
+the lower reads yield and retries with backoff 0.5, 1, 2, 4 s, then once a second while the
+provider had a close in the last 15 s (it counts a closed read until it next writes to it, up to
+10 s on a stalling Dispatcharr feed); a 4xx (`limitErrors`, 429 has its own FFmpeg tag) also
+teaches the number unless a read on the provider closed in the last 15 s, a 5xx never does. A
+neighbour with nothing below it to revoke fails at once; playback waits out the playback it
+replaces. A preview takes nothing from anyone and holds a slot only while one stays spare beside
+it for the sweep (`previewsWithoutSpareLocked`): a learned or set budget that leaves none ends it.
+The sweep's grab is a fight (`LiveFrameQueue.swift`): it waits for a slot, tries a refused open
+every second for its deadline and, once admitted, has the deadline again; a fight lost beside
+other reads calls `noteLostFight`, which ends the preview and teaches on a 4xx, unless the
+provider has shown room beside a preview (`noteOpened`: a read admitted while an admitted preview
+was held) and only one channel has lost since (its own 403 or 503). A provider that never showed
+room stops previews at the second channel lost beside one. Tests: `LiveConnectionBrokerTests`
+against `scripts/demo-livetv/relay.py` with `RELAY_CAP_STATUS` 403, 429, 503 and 404 and
 `RELAY_RELEASE_LAG_MS`. Issue 104 was a 429 answered by a one-connection provider's server.
 
 ## Rules of engagement

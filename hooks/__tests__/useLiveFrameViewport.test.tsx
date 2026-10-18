@@ -1,4 +1,4 @@
-/** useLiveFrameViewport: the rows in view plus one lookahead reach the sampler on its surface, active with the screen, cleared on unmount. */
+/** useLiveFrameViewport: the rows in view (plus one lookahead on a phone) reach the sampler on its surface, active with the screen, cleared on unmount. */
 import { useLiveFrameViewport, viewportChannelIds } from "@/hooks/useLiveFrameViewport";
 import { setLiveFramesActive, setLiveFrameViewable } from "@/services/liveFrames";
 import React, { forwardRef, useImperativeHandle } from "react";
@@ -30,6 +30,19 @@ describe("viewportChannelIds", () => {
     expect(viewportChannelIds([token(rows[0], 0), token(rows[1], 1)], rows, idsOf)).toEqual(["a", "b", "c", "d", "e"]);
     expect(viewportChannelIds([token(rows[2], 2, false), token(rows[3], 3)], rows, idsOf)).toEqual(["f"]);
     expect(viewportChannelIds([], rows, idsOf)).toEqual([]);
+  });
+
+  it("on TV counts only a row wholly on screen and adds no row after the last one", () => {
+    const rows: Row[] = [{ ids: ["a", "b"] }, { ids: ["c"] }, { ids: ["d", "e"] }];
+    jest.isolateModules(() => {
+      const { Platform } = require("react-native") as { Platform: { isTV: boolean } };
+      Object.defineProperty(Platform, "isTV", { configurable: true, value: true });
+      const tv = require("@/hooks/useLiveFrameViewport") as typeof import("@/hooks/useLiveFrameViewport");
+      expect(tv.LIVE_FRAME_VIEWABILITY).toEqual({ itemVisiblePercentThreshold: 100, minimumViewTime: 300 });
+      expect(tv.viewportChannelIds([token(rows[0], 0), token(rows[1], 1)], rows, idsOf)).toEqual(["a", "b", "c"]);
+      Object.defineProperty(Platform, "isTV", { configurable: true, value: false });
+    });
+    expect(viewportChannelIds([token(rows[0], 0)], rows, idsOf, false)).toEqual(["a", "b"]);
   });
 });
 
