@@ -12,7 +12,8 @@ HDHomeRun face (the rig's tuner emulation, off unless RELAY_HDHR_PORT is set): o
 /lineup.json and /auto/v<number> the way a Connect Quatro does, with each channel's lineup labels (videoCodec,
 audioCodec, hd) copied verbatim, a reader joining at the live edge like a tuner, and 503 past RELAY_MAX_READERS.
 RELAY_ADVERTISE is the base URL the tuner's clients reach it at. RELAY_PACE=<fraction>:<seconds> feeds each reader
-at that fraction of the channel's live rate for its first seconds, then at full rate. RELAY_VIDEO_DELAY=<seconds>
+at that fraction of the channel's live rate for its first seconds, then at full rate, in slices of RELAY_PACE_SLICE
+packets (350 unless set). RELAY_VIDEO_DELAY=<seconds>
 withholds the channel's video PID (lineup `videoPid`) from each new reader for that long, a tuner whose picture
 lags its lock: Jellyfin 12.1 then probes a video stream with no dimensions and keeps its lineup placeholders.
 """
@@ -41,7 +42,7 @@ HOLD_HEADERS = os.environ.get("RELAY_HOLD_HEADERS", "0") == "1"
 HDHR_PORT = int(os.environ.get("RELAY_HDHR_PORT", "0"))
 ADVERTISE = os.environ.get("RELAY_ADVERTISE", f"http://{HOST}:{HDHR_PORT}").rstrip("/")
 # A paced reader gets its bytes in slices this size; a full-rate one gets whatever the ring holds.
-PACE_SLICE = 350 * PACKET
+PACE_SLICE = int(os.environ.get("RELAY_PACE_SLICE", "350")) * PACKET
 RATE_WINDOW = 5.0
 
 

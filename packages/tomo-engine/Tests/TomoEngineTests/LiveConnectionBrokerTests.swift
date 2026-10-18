@@ -222,8 +222,10 @@ final class LiveConnectionBrokerTests: XCTestCase {
     }
 
     /// `status` is the refusal's status line; `lagMs` is how long the relay keeps counting a closed reader; `holdMs` has
-    /// an admitted reader sent nothing that long and then closed (the 200 first when `holdHeaders`).
-    private func cappedRelay(mode: String, port: Int, status: String = "403 Forbidden", lagMs: Int = 0, holdMs: Int = 0, holdHeaders: Bool = false) throws -> Relay {
+    /// an admitted reader sent nothing that long and then closed (the 200 first when `holdHeaders`); `pace` feeds each
+    /// reader at a fraction of the live rate for its first seconds, in `paceSlice` packets at a time.
+    private func cappedRelay(mode: String, port: Int, status: String = "403 Forbidden", lagMs: Int = 0, holdMs: Int = 0, holdHeaders: Bool = false,
+                             pace: String = "", paceSlice: Int = 350) throws -> Relay {
         guard FileManager.default.isExecutableFile(atPath: Self.ffmpeg) else { throw XCTSkip("needs \(Self.ffmpeg)") }
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("broker-relay-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -233,7 +235,8 @@ final class LiveConnectionBrokerTests: XCTestCase {
         relay.arguments = ["python3", Self.repo.appendingPathComponent("scripts/demo-livetv/relay.py").path, dir.path]
         relay.environment = ProcessInfo.processInfo.environment.merging(
             ["RELAY_MAX_READERS": "1", "RELAY_CAP_MODE": mode, "RELAY_CAP_STATUS": status, "RELAY_RELEASE_LAG_MS": String(lagMs),
-             "RELAY_HOLD_MS": String(holdMs), "RELAY_HOLD_HEADERS": holdHeaders ? "1" : "0"]) { $1 }
+             "RELAY_HOLD_MS": String(holdMs), "RELAY_HOLD_HEADERS": holdHeaders ? "1" : "0", "RELAY_PACE": pace,
+             "RELAY_PACE_SLICE": String(paceSlice)]) { $1 }
         relay.standardOutput = FileHandle.nullDevice
         try relay.run()
         // The feed connects once and exits on a refusal, and a cold python takes over a second to listen.
@@ -498,6 +501,25 @@ final class LiveConnectionBrokerTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(elapsed, 6, "the grab's own deadline cut an open the origin had admitted")
         XCTAssertLessThan(elapsed, 12, "the grab opened again after the origin ended it")
         XCTAssertEqual(try relay.stats()["admitted"], 1)
+    }
+
+    /// An origin serving a trickle: the grab's deadline counts from the first byte, so a probe the trickle drags out
+    /// is cut by it, and our cut is not the channel's answer.
+    func testAGrabOnATrickleEndsAtItsDeadlineFromTheFirstByte() throws {
+        let relay = try cappedRelay(mode: "refuse", port: 19822, pace: "0.05:120", paceSlice: 7)
+        defer { relay.stop() }
+        let queue = try frameQueue()
+        let done = XCTestExpectation(description: "grab")
+        var outcome: LiveFrameQueue.Outcome?
+        let started = Date()
+        queue.request(channelId: "trickle", inputUrl: relay.url, headers: [:], deadline: 3, originKey: "trickle") {
+            outcome = $0
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 90)
+        let elapsed = Date().timeIntervalSince(started)
+        XCTAssertLessThan(elapsed, 10, "the deadline waited for the probe instead of counting from the first byte")
+        if case .none(_, _, let ended)? = outcome { XCTAssertFalse(ended, "our own cut was taken for the channel's answer") }
     }
 
     /// A sweep waiting for a connection gets it the moment the read holding it closes.

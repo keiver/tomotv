@@ -159,8 +159,8 @@ final class LiveFrameQueue {
                 let made = FrameGrabber(inputUrl: inputUrl, directory: directory, pool: root, epoch: epoch, httpHeaders: headers, live: true)
                 made.reconnects = false
                 // Weak: the closure lives on the grabber, a strong capture would keep every grabber alive for good.
-                made.onOpened = { [weak made] in
-                    LiveConnectionBroker.shared.noteOpened(lease)
+                made.onOpened = { LiveConnectionBroker.shared.noteOpened(lease) }
+                made.onServed = { [weak made] in
                     let guard_ = DispatchWorkItem { made?.stop() }
                     watchdog = guard_
                     DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + deadline, execute: guard_)
