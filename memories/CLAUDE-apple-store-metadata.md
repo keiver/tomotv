@@ -99,6 +99,27 @@ Tomo TV ships no media, channels, playlists or guides. It plays what your Jellyf
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
 ```
 
+### What's New (2.2.13), macOS (171 / 4000)
+
+```text
+- Live TV: set how many streams your provider allows at once, or let Tomo learn it
+- Channels from a provider that allows one stream open reliably when you change channels
+```
+
+### What's New (2.2.13), iOS (171 / 4000)
+
+```text
+- Live TV: set how many streams your provider allows at once, or let Tomo learn it
+- Channels from a provider that allows one stream open reliably when you change channels
+```
+
+### What's New (2.2.13), tvOS (171 / 4000)
+
+```text
+- Live TV: set how many streams your provider allows at once, or let Tomo learn it
+- Channels from a provider that allows one stream open reliably when you change channels
+```
+
 ### What's New (2.2.12), macOS (546 / 4000)
 
 ```text
@@ -480,6 +501,27 @@ Tomo TV enthält keine Medien, Kanäle, Wiedergabelisten oder Fernsehprogramme. 
 Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin und steht in keiner Verbindung zum Jellyfin-Projekt und wird von ihm nicht unterstützt. Jellyfin ist eine Marke des jeweiligen Inhabers.
 ```
 
+#### What's New (2.2.13), macOS (191 / 4000)
+
+```text
+- Live-TV: lege fest, wie viele Streams dein Anbieter gleichzeitig erlaubt, oder lass Tomo es lernen
+- Kanäle eines Anbieters, der nur einen Stream erlaubt, öffnen beim Umschalten zuverlässig
+```
+
+#### What's New (2.2.13), iOS (191 / 4000 chars)
+
+```text
+- Live-TV: lege fest, wie viele Streams dein Anbieter gleichzeitig erlaubt, oder lass Tomo es lernen
+- Kanäle eines Anbieters, der nur einen Stream erlaubt, öffnen beim Umschalten zuverlässig
+```
+
+#### What's New (2.2.13), tvOS (191 / 4000 chars)
+
+```text
+- Live-TV: lege fest, wie viele Streams dein Anbieter gleichzeitig erlaubt, oder lass Tomo es lernen
+- Kanäle eines Anbieters, der nur einen Stream erlaubt, öffnen beim Umschalten zuverlässig
+```
+
 #### What's New (2.2.12), macOS (668 / 4000)
 
 ```text
@@ -839,6 +881,27 @@ Tomo TV ne fournit aucun média, chaîne, liste de lecture ni guide. L'app lit c
 Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'est ni affilié au projet Jellyfin ni approuvé par lui. Jellyfin est une marque de son détenteur respectif.
 ```
 
+#### What's New (2.2.13), macOS (214 / 4000)
+
+```text
+- TV en direct : indiquez combien de flux votre fournisseur autorise à la fois, ou laissez Tomo l'apprendre
+- Les chaînes d'un fournisseur qui n'autorise qu'un flux s'ouvrent sans échec quand vous changez de chaîne
+```
+
+#### What's New (2.2.13), iOS (214 / 4000 chars)
+
+```text
+- TV en direct : indiquez combien de flux votre fournisseur autorise à la fois, ou laissez Tomo l'apprendre
+- Les chaînes d'un fournisseur qui n'autorise qu'un flux s'ouvrent sans échec quand vous changez de chaîne
+```
+
+#### What's New (2.2.13), tvOS (214 / 4000 chars)
+
+```text
+- TV en direct : indiquez combien de flux votre fournisseur autorise à la fois, ou laissez Tomo l'apprendre
+- Les chaînes d'un fournisseur qui n'autorise qu'un flux s'ouvrent sans échec quand vous changez de chaîne
+```
+
 #### What's New (2.2.12), macOS (698 / 4000)
 
 ```text
@@ -1196,6 +1259,27 @@ Sin analítica, sin rastreo, sin anuncios, sin cuenta con nosotros. Tus credenci
 Tomo TV no incluye contenido, canales, listas de reproducción ni guías. Reproduce lo que ofrecen tu servidor Jellyfin y las fuentes que añades. Tú eres responsable de tener derecho a usarlos.
 
 Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin, y no está afiliado al proyecto Jellyfin ni respaldado por él. Jellyfin es una marca de su titular correspondiente.
+```
+
+#### What's New (2.2.13), macOS (195 / 4000)
+
+```text
+- TV en vivo: indica cuántas emisiones permite tu proveedor a la vez, o deja que Tomo lo aprenda
+- Los canales de un proveedor que permite una sola emisión se abren sin fallos al cambiar de canal
+```
+
+#### What's New (2.2.13), iOS (195 / 4000 chars)
+
+```text
+- TV en vivo: indica cuántas emisiones permite tu proveedor a la vez, o deja que Tomo lo aprenda
+- Los canales de un proveedor que permite una sola emisión se abren sin fallos al cambiar de canal
+```
+
+#### What's New (2.2.13), tvOS (195 / 4000 chars)
+
+```text
+- TV en vivo: indica cuántas emisiones permite tu proveedor a la vez, o deja que Tomo lo aprenda
+- Los canales de un proveedor que permite una sola emisión se abren sin fallos al cambiar de canal
 ```
 
 #### What's New (2.2.12), macOS (611 / 4000)

@@ -126,6 +126,7 @@ Every feature needs a Jellyfin server. The Notes column says when a feature also
 | Guide source status, matched channels and storage               | Yes      | Yes          | Yes |                                                |
 | Playlist channels listed before the server finishes adding them | Yes      | Yes          | Yes | Not for accounts with parental rules           |
 | Channels read from their own source when the server allows it   | Yes      | Yes          | Yes | Otherwise through the server                   |
+| Connection limit per tuner playlist, learned or set             | Yes      | Yes          | Yes | Auto, or 1 to 5 streams at once                |
 | Captions and subtitles on live channels                         | Yes      | Yes          | Yes | CEA-608/708, DVB, teletext                     |
 | Flip channels with the remote                                   | Yes      | No           | No  |                                                |
 | Channels panel in the player                                    | Yes      | No           | No  |                                                |
