@@ -19,9 +19,10 @@ import { JellyfinVideoItem } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
 import { withAlpha } from "@/utils/color";
 import { formatClock, formatDayLabel } from "@/utils/guide";
+import { liveFrameBox, livePictureAspect, rememberLivePictureAspect } from "@/utils/liveFrameFit";
 import { formatIndexBadge } from "@/utils/seasonEpisode";
 import { Ionicons } from "@expo/vector-icons";
-import { Image } from "expo-image";
+import { Image, type ImageLoadEventData } from "expo-image";
 import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Dimensions, Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 import { MarqueeText } from "./MarqueeText";
@@ -37,8 +38,6 @@ const TITLE_SIZE = IS_TV ? 22 : IS_TABLET ? 15 : 13;
 const QUIET_MARK_SIZE = Math.round(TITLE_SIZE * 0.8);
 /** A channel's title centres wherever the card is wide: TV, iPad, Mac. */
 const CHANNEL_TITLE_CENTERED = IS_TV || IS_TABLET;
-/** The channel logo over a live frame: the badge's height, twice as wide. */
-const LOGO_MARK_HEIGHT = IS_TV ? 40 : 26;
 const CARD_PADDING = IS_TV ? 16 : 8;
 // The title bar's own padding, and how far past the card's bottom edge the bar hangs. The
 // overhang is clipped by the image container, and it is what puts the bar's fill UNDER the
@@ -47,6 +46,7 @@ const CARD_PADDING = IS_TV ? 16 : 8;
 const BAR_PADDING_V = IS_TV ? 10 : 8;
 const BAR_DROP = 2;
 const POSTER_SIZE = IS_TV ? 300 : 200; // Optimized for memory
+const BACKDROP_BLUR = IS_TV ? 24 : 16;
 
 /** Badge pill contents: "S01E05" alone, or the disc (when past the first) beside the track. */
 export function indexBadgeSegments(video: JellyfinVideoItem, nowMs: number = Date.now(), recording = false): BadgeSegment[] | null {
@@ -139,6 +139,10 @@ interface VideoGridItemProps {
   offline?: boolean;
   /** Channel and programme cards: a timer covers it; REC takes LIVE's place, a scheduled programme's time wears the camera. */
   recording?: boolean;
+  /** Guide channel cards: a 16:9 slot with no title bar or bottom wash over the live picture; the name is a top-right pill led by the title mark, so an ellipsized name keeps it. */
+  liveCard?: boolean;
+  /** Square corners, for a card that sits flush among the guide's square program cells. */
+  square?: boolean;
   /** No resting depth shadow, for hosts that clip it; the focus glow stays. */
   flat?: boolean;
   /** Overrides the card's padding, for hosts that size the slot themselves. */
@@ -187,6 +191,8 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     liveMark = true,
     offline = false,
     recording = false,
+    liveCard = false,
+    square = false,
     flat = false,
     inset,
     inert = false,
@@ -247,9 +253,20 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   const trailingMark = isChannel ? titleMarkIcon : showsFavoriteHeart(video) ? "heart" : undefined;
   const cardTitle = cleanLabel(airingName) || (video.Type === "Program" ? programCardTitle(video) || t("common.unknown") : videoName || t("common.unknown"));
 
-  // The card's slot ratio (see cardSlotRatio — shared with the row packer so rendered and
-  // allocated widths agree). The art always cover-fills the slot — a crop beats a letterbox.
-  const cardRatio = cardSlotRatio(fitArtwork, video.PrimaryImageAspectRatio, slotOrientation);
+  // The card's slot ratio, shared with the row packer so rendered and allocated widths agree. The art
+  // cover-fills the slot, except a live picture liveFrameBox keeps whole.
+  const cardRatio = liveCard ? GRID.LIVE_RATIO : cardSlotRatio(fitArtwork, video.PrimaryImageAspectRatio, slotOrientation);
+  // The live picture's own shape, remembered per channel so a remounted card starts in place.
+  const [pictureAspect, setPictureAspect] = useState(() => (liveCard ? livePictureAspect(video.Id) : undefined));
+  const handleLiveFrameLoad = useCallback(
+    ({ source }: ImageLoadEventData) => {
+      if (source.width <= 0 || source.height <= 0) return;
+      rememberLivePictureAspect(video.Id, source.width / source.height);
+      setPictureAspect(source.width / source.height);
+    },
+    [video.Id],
+  );
+  const liveBox = liveCard && liveFrame ? liveFrameBox(pictureAspect, cardRatio) : null;
 
   // Focus handlers - no animations
   const handleFocus = useCallback(() => {
@@ -341,13 +358,29 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             : { width: `${100 / (numColumns ?? slotColumns(slotOrientation, IS_TV))}%` },
         inset && { paddingVertical: inset.vertical, paddingHorizontal: inset.horizontal },
       ]}>
-      <View style={[styles.card, flat && styles.cardFlat, focused && [styles.cardFocused, { shadowColor: palette.accent }]]}>
-        <View style={[styles.imageContainer, { aspectRatio: cardRatio }]}>
+      <View style={[styles.card, flat && styles.cardFlat, focused && [styles.cardFocused, { shadowColor: palette.accent }], square && styles.square]}>
+        <View style={[styles.imageContainer, { aspectRatio: cardRatio }, square && styles.square]}>
           {liveFrame || poster || posterSource ? (
             <>
+              {liveBox ? (
+                <>
+                  <Image
+                    source={liveFrame}
+                    style={StyleSheet.absoluteFill}
+                    contentFit="cover"
+                    blurRadius={BACKDROP_BLUR}
+                    transition={LIVE_FRAME_TRANSITION_MS}
+                    cachePolicy="none"
+                    recyclingKey={`${video.Id}-backdrop`}
+                    accessible={false}
+                  />
+                  <View style={styles.backdropDim} pointerEvents="none" />
+                </>
+              ) : null}
               <Image
                 source={liveFrame ?? poster ?? posterSource}
-                style={[styles.poster, logoPoster && styles.posterLogo, offline && styles.posterOffline]}
+                style={[styles.poster, liveBox, logoPoster && styles.posterLogo, offline && styles.posterOffline]}
+                onLoad={liveCard && liveFrame ? handleLiveFrameLoad : undefined}
                 contentFit={logoPoster ? "contain" : "cover"}
                 // A newer grab's frame fades in; at rest the card holds still.
                 transition={liveFrame ? LIVE_FRAME_TRANSITION_MS : 0}
@@ -358,26 +391,9 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
                 accessible={true}
                 accessibilityLabel={t("a11y.poster").replace("{name}", videoName || t("a11y.video"))}
               />
-              {(focused || clipActive) && liveFrame && liveClip ? <LiveClip clip={liveClip} /> : null}
-              <CardScrim />
+              {(focused || clipActive) && liveFrame && liveClip ? <LiveClip clip={liveClip} style={liveBox ?? undefined} /> : null}
+              {liveCard ? null : <CardScrim />}
               {focused && badgeSegments && !isChannel ? <CardCornerScrim /> : null}
-              {liveFrame && posterSource ? (
-                <>
-                  <CardCornerScrim corner="right" />
-                  <View style={styles.logoHalo} pointerEvents="none">
-                    <Image
-                      source={posterSource}
-                      style={styles.logoMark}
-                      contentFit="contain"
-                      transition={0}
-                      cachePolicy="memory-disk"
-                      recyclingKey={`${video.Id}-logo`}
-                      accessible={false}
-                      pointerEvents="none"
-                    />
-                  </View>
-                </>
-              ) : null}
             </>
           ) : (
             // No artwork: a glyph for the item's kind on the dark card fill. The title
@@ -404,7 +420,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               now per-pixel and automatic. */}
           {nowPlaying ? (
             <NowPlayingTitleBar video={video} focused={focused} kind={nowPlayingAudio ? "audio" : "video"} progressPercent={progressPercent} playing={nowPlayingVideo.playing} />
-          ) : hasProgress ? (
+          ) : liveCard ? null : hasProgress ? (
             // Glass bar: the gold fill stays opaque, the difference-blended title
             // rides the near-black bottom scrim (gold over the remainder, black
             // over the fill). Decorative to a11y — the card announces name + value.
@@ -451,9 +467,15 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               ) : null}
             </View>
           ) : null}
+          {/* The name, always: many feeds carry their own logo, and the name tells a channel's variants apart. */}
+          {liveCard ? (
+            <View style={styles.cornerName} pointerEvents="none">
+              <CardBadge segments={[{ icon: trailingMark, label: cardTitle }]} focused={focused} />
+            </View>
+          ) : null}
 
           {/* The lit edge and the focus border, on top so the art and the title bar sit under them */}
-          <View style={[styles.borderOverlay, focused && [styles.borderOverlayFocused, { borderColor: palette.accent }]]} pointerEvents="none" />
+          <View style={[styles.borderOverlay, focused && [styles.borderOverlayFocused, { borderColor: palette.accent }], square && styles.square]} pointerEvents="none" />
 
           {/* Per-card feedback while the pressed card's destination loads:
               the title bar becomes a sweeping gold progress fill. Resume
@@ -512,6 +534,8 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.liveMark === nextProps.liveMark &&
     prevProps.offline === nextProps.offline &&
     prevProps.recording === nextProps.recording &&
+    prevProps.liveCard === nextProps.liveCard &&
+    prevProps.square === nextProps.square &&
     prevProps.flat === nextProps.flat &&
     prevProps.inset?.vertical === nextProps.inset?.vertical &&
     prevProps.inset?.horizontal === nextProps.inset?.horizontal &&
@@ -590,23 +614,6 @@ const styles = StyleSheet.create({
   posterOffline: {
     opacity: 0.4,
   },
-  // The channel's logo over its live frame. No background, so the layer shadow traces the logo's
-  // own alpha: a white halo round a dark mark.
-  logoHalo: {
-    position: "absolute",
-    top: CARD_BADGE_INSET,
-    right: CARD_BADGE_INSET,
-    width: LOGO_MARK_HEIGHT * 2,
-    height: LOGO_MARK_HEIGHT,
-    shadowColor: "#FFFFFF",
-    shadowOpacity: 0.9,
-    shadowRadius: IS_TV ? 3 : 2,
-    shadowOffset: { width: 0, height: 0 },
-  },
-  logoMark: {
-    width: "100%",
-    height: "100%",
-  },
   // Anchors the index pill to the top-left corner of the card.
   indexBadge: {
     position: "absolute",
@@ -616,6 +623,25 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: IS_TV ? 8 : 5,
+  },
+  square: {
+    borderRadius: 0,
+  },
+  // Holds the blurred fill behind a whole picture under the sharp one.
+  backdropDim: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0, 0, 0, 0.35)",
+  },
+  // Half the card, so a long name ellipsizes before it reaches the left badges.
+  cornerName: {
+    position: "absolute",
+    top: CARD_BADGE_INSET,
+    right: CARD_BADGE_INSET,
+    maxWidth: "50%",
   },
   // About two words of programme name; the badge ellipsizes the rest and yields to LIVE first.
   // The watched fraction, drawn as the title bar's own background: a solid

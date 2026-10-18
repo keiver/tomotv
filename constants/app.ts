@@ -76,6 +76,8 @@ export const GRID = {
    * with cover, trimming the left/right edges, so a raised row height widens landscape cards
    * less than a true 16:9 slot and posters get the reclaimed height. */
   LANDSCAPE_RATIO: 3 / 2,
+  /** Live channel card frame: the broadcast's own 16:9, so crop-to-fill cuts nothing off an HD picture. */
+  LIVE_RATIO: 16 / 9,
   /** Columns for a portrait grid (TV / narrow phone / wide phone-family screens). */
   COLUMNS_PORTRAIT: { tv: 6, phone: 3, phoneWide: 5 },
   /** Columns for a landscape grid — wider cards, fewer columns. */
@@ -233,6 +235,11 @@ export interface SlotRowHeights {
   portrait: number;
   square: number;
   landscape: number;
+}
+
+/** A 16:9 live card's row height: shorter than the landscape row by the shapes' ratio, so it is as wide as a 3:2 card and a row holds as many. */
+export function liveRowHeight(landscapeHeight: number, padding: number): number {
+  return ((landscapeHeight - 2 * padding) * GRID.LANDSCAPE_RATIO) / GRID.LIVE_RATIO + 2 * padding;
 }
 
 export function slotRowHeights(windowWidth: number, windowHeight: number, insetLeft: number, insetRight: number, isTV: boolean, surface: "shelf" | "grid" = "shelf"): SlotRowHeights {

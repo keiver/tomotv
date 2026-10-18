@@ -1,7 +1,7 @@
 import { LiveClipView } from "@keiver/tomo-live";
 import { LIVE_CLIP_SCROLL_SETTLE_MS, type LiveFrame } from "@/services/liveFrames";
 import React, { useEffect, useState } from "react";
-import { StyleSheet } from "react-native";
+import { type StyleProp, StyleSheet, type ViewStyle } from "react-native";
 import { useReducedMotion } from "react-native-reanimated";
 
 /** When the last clip's card took focus: one taken right after it is a scroll passing through. */
@@ -12,7 +12,7 @@ let lastArrivalAt = 0;
  * with a hard cut at the seam. Focus at rest plays it at once; mid-scroll it waits for focus to
  * settle, so a scroll past starts no player. Nothing plays under Reduce Motion.
  */
-export function LiveClip({ clip }: { clip: LiveFrame }) {
+export function LiveClip({ clip, style }: { clip: LiveFrame; style?: StyleProp<ViewStyle> }) {
   const reducedMotion = useReducedMotion();
   const [settled, setSettled] = useState(() => Date.now() - lastArrivalAt >= LIVE_CLIP_SCROLL_SETTLE_MS);
   useEffect(() => {
@@ -21,5 +21,5 @@ export function LiveClip({ clip }: { clip: LiveFrame }) {
     return () => clearTimeout(timer);
   }, []);
   if (reducedMotion || !settled) return null;
-  return <LiveClipView uri={clip.uri} style={StyleSheet.absoluteFill} />;
+  return <LiveClipView uri={clip.uri} style={style ?? StyleSheet.absoluteFill} />;
 }

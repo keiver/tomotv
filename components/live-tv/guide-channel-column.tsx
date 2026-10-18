@@ -92,7 +92,7 @@ export function GuideChannelColumn({
   // The wrapper is the row: exactly rowHeight, so the column never drifts off the grid's rows.
   const renderItem = useCallback(
     ({ item, index }: { item: JellyfinItem; index: number }) => (
-      <View style={{ height: metrics.rowHeight, justifyContent: "center" }} scrollSnapOffset={rowSnapOffset}>
+      <View style={[styles.row, { height: metrics.rowHeight }]} scrollSnapOffset={rowSnapOffset}>
         {IS_TV ? (
           <GuideChannelCard
             ref={index === 0 ? firstCardRef : undefined}
@@ -101,6 +101,7 @@ export function GuideChannelColumn({
             cardWidth={metrics.channelColumnWidth}
             hideAiring
             flat
+            square
             inset={metrics.cardInset}
             titleIcon={favoriteMark(preferences, item)}
             recording={recordingChannelIds.has(item.Id)}
@@ -212,6 +213,7 @@ function ChannelMorph({
           cardWidth={metrics.channelColumnWidth}
           hideAiring
           flat
+          square
           inset={metrics.cardInset}
           titleIcon={titleIcon}
           recording={recording}
@@ -232,6 +234,12 @@ const styles = StyleSheet.create({
   // The seam is drawn over the grid by the canvas (TV) or the resize divider (phone), since the grid reaches under it.
   column: {
     overflow: "hidden",
+  },
+  // The program rows' grid line, so the card above it reads as the row's first cell.
+  row: {
+    justifyContent: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: GRID_LINE,
   },
   // The card keeps its full width and is clipped by the column as it narrows; it shrinks from its left edge.
   cardLayer: {

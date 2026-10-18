@@ -10,7 +10,7 @@ import { LibraryHeader, type HeaderAction } from "@/components/library-header";
 import { sideInsets } from "@/components/settings/styles";
 import { GuideChannelCard } from "@/components/live-tv/guide-channel-card";
 import { VideoGridItem } from "@/components/video-grid-item";
-import { gridEdgePadding, itemSlotRatio, itemSlotShape, slotCardPadding, slotRatio, slotRowHeights } from "@/constants/app";
+import { GRID, gridEdgePadding, itemSlotRatio, itemSlotShape, liveRowHeight, slotCardPadding, slotRatio, slotRowHeights } from "@/constants/app";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { useLiveFrameViewport } from "@/hooks/useLiveFrameViewport";
 import { clearLiveFrameFocus, setLiveFrameFocus } from "@/services/liveFrames";
@@ -299,9 +299,9 @@ export function LibraryGrid({
         windowWidth - edgeLeft - edgeRight,
         // itemSlotShape is the same mapping the cards render with (see cardSlotRatio) — the
         // packer and the cards MUST agree or justified rows misalign around no-art items.
-        // A channel card is landscape whatever its logo's shape: its live frame is.
+        // A channel card is 16:9 whatever its logo's shape: its live frame is.
         (item) => {
-          if (liveChannels) return { ratio: slotRatio("landscape"), height: rowHeights.landscape };
+          if (liveChannels) return { ratio: GRID.LIVE_RATIO, height: liveRowHeight(rowHeights.landscape, CARD_PADDING) };
           // An episode card is landscape whatever its still's shape: a portrait still is a
           // scraper anomaly, and honoring it shrinks the card below legibility on phones.
           if (item.Type === "Episode") return { ratio: slotRatio("landscape"), height: rowHeights.landscape };
@@ -362,18 +362,20 @@ export function LibraryGrid({
   // positioned overlay, so a row occupies exactly that plus its wrapper padding. The first
   // offset carries the content container's own top padding and the header, which sit ahead of
   // every row.
+  // TV channel wall: shorter 16:9 rows, so three rows sit with room under them and the fourth stays off screen.
+  const rowPadding = IS_TV && liveChannels ? 16 : ROW_VERTICAL_PADDING;
   const rowLayout = useMemo(() => {
     const lengths: number[] = [];
     const offsets: number[] = [];
     let offset = topClearance + headerLength;
     for (const row of packedRows) {
-      const length = (row.cards[0]?.cardHeight ?? 0) + 2 * ROW_VERTICAL_PADDING;
+      const length = (row.cards[0]?.cardHeight ?? 0) + 2 * rowPadding;
       lengths.push(length);
       offsets.push(offset);
       offset += length;
     }
     return { lengths, offsets };
-  }, [packedRows, topClearance, headerLength]);
+  }, [packedRows, topClearance, headerLength, rowPadding]);
   const contentLength = (rowLayout.offsets[rowLayout.offsets.length - 1] ?? 0) + (rowLayout.lengths[rowLayout.lengths.length - 1] ?? 0) + bottomClearance;
 
   const getItemLayout = useCallback(
@@ -511,7 +513,7 @@ export function LibraryGrid({
       const isLastRow = rowIndex === packedRows.length - 1;
       const rowStart = rowStartIndices[rowIndex] ?? 0;
       return (
-        <View style={styles.rowWrapper}>
+        <View style={[styles.rowWrapper, { paddingVertical: rowPadding }]}>
           {row.cards.map((card, cardIndex) => {
             const item = card.item;
             // Down out of a ragged last row: a card in the row above starting past the last
@@ -627,6 +629,7 @@ export function LibraryGrid({
       visibleChannelIds,
       titleIconFor,
       recordingFor,
+      rowPadding,
     ],
   );
 

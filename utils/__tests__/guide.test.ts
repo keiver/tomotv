@@ -482,3 +482,14 @@ describe("the day strip", () => {
     expect(dayStripFirst(13, 0, 4)).toBe(10);
   });
 });
+
+describe("guideMetrics", () => {
+  it.each([true, false])("makes the channel card a 16:9 picture as tall as a program cell, in whole points (TV %s)", (isTV) => {
+    const metrics = guideMetrics(isTV);
+    const cellHeight = metrics.rowHeight - 1;
+    expect(metrics.channelColumnWidth * (9 / 16)).toBe(cellHeight);
+    expect(Number.isInteger(metrics.channelColumnWidth)).toBe(true);
+    expect(Number.isInteger(metrics.rowHeight)).toBe(true);
+    expect(metrics.cardInset).toEqual({ vertical: 0, horizontal: 0 });
+  });
+});
