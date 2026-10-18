@@ -1,5 +1,5 @@
 import { setLanguage } from "@/services/i18n";
-import { classifyPlaybackError, getLoadErrorMessage, getPlaybackErrorMessage, isConnectivityError, PlaybackErrorType } from "../errorClassification";
+import { classifyPlaybackError, getLoadErrorMessage, getPlaybackErrorMessage, isAudioSessionExpired, isConnectivityError, PlaybackErrorType } from "../errorClassification";
 
 describe("errorClassification", () => {
   describe("getLoadErrorMessage", () => {
@@ -78,6 +78,26 @@ describe("errorClassification", () => {
       }
       setLanguage("en");
       expect(getPlaybackErrorMessage(PlaybackErrorType.UNKNOWN)).toBe("Failed to load video");
+    });
+  });
+
+  describe("isAudioSessionExpired", () => {
+    // What react-native-video delivered on an Apple TV whose audio server the system had just killed.
+    const expired = {
+      code: -11800,
+      domain: "AVFoundationErrorDomain",
+      localizedDescription: "The operation could not be completed",
+      localizedFailureReason: "An unknown error occurred (-19221)",
+    };
+
+    it("recognises the expired audio session", () => {
+      expect(isAudioSessionExpired(expired)).toBe(true);
+    });
+
+    it("leaves every other -11800 to the ladder", () => {
+      expect(isAudioSessionExpired({ ...expired, localizedFailureReason: "An unknown error occurred (-12860)" })).toBe(false);
+      expect(isAudioSessionExpired({ ...expired, domain: "CoreMediaErrorDomain" })).toBe(false);
+      expect(isAudioSessionExpired(new Error("An unknown error occurred (-19221)"))).toBe(false);
     });
   });
 });

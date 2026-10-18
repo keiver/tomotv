@@ -60,6 +60,19 @@ export interface ErrorRecoveryInput {
   serverTranscodingAllowed?: boolean;
   /** The engine already took its one fresh session for this item. */
   hasRetriedGateway?: boolean;
+  /** The system audio server restarted under the player (isAudioSessionExpired). */
+  audioSessionExpired?: boolean;
+  /** Reopens this item already spent waiting out an audio server restart. */
+  audioResetReopens?: number;
+}
+
+/** An audio server restart expires the session for about 3 s (measured on Apple TV): wait, then reopen, at most this often. */
+export const AUDIO_RESET_WAIT_MS = 2000;
+export const AUDIO_RESET_REOPENS = 3;
+
+/** The stream is fine and so is the lane: spending a rung on it would land on the server's ladder. */
+function waitsForAudio(input: { audioSessionExpired?: boolean; audioResetReopens?: number }): boolean {
+  return input.audioSessionExpired === true && (input.audioResetReopens ?? 0) < AUDIO_RESET_REOPENS;
 }
 
 /** Failures of the link, which a later attempt can outlast. */
@@ -86,7 +99,7 @@ export interface ErrorRecoveryDecision {
   dropSubtitles: boolean;
   /** The server fallback owes the viewer playback, not fidelity: enter at the floor preset. */
   stallFallback: boolean;
-  action: { kind: "refreshCredentials" } | { kind: "restartRemux" } | { kind: "transcodeSeekRecovery" } | { kind: "reportError" };
+  action: { kind: "refreshCredentials" } | { kind: "restartRemux" } | { kind: "transcodeSeekRecovery" } | { kind: "reopenAfterAudioReset" } | { kind: "reportError" };
 }
 
 /**
@@ -95,6 +108,19 @@ export interface ErrorRecoveryDecision {
  */
 export function planErrorRecovery(input: ErrorRecoveryInput): ErrorRecoveryDecision {
   const midPlayback = input.currentTimeSec > 1;
+  if (waitsForAudio(input)) {
+    return {
+      retryGateway: false,
+      engineSpent: false,
+      latchTranscodeUpFront: false,
+      willRetryWithTranscode: true,
+      carryPositionSec: midPlayback ? input.currentTimeSec : null,
+      stopRemuxSession: input.mode === "localRemux",
+      dropSubtitles: false,
+      stallFallback: false,
+      action: { kind: "reopenAfterAudioReset" },
+    };
+  }
   const engineSpent = input.networkGateway === true && !input.hasTriedTranscoding && engineSpentWithoutServer(input);
   const retryGateway = input.networkGateway === true && !input.hasTriedTranscoding && !engineSpent && (input.serverTranscodingAllowed === false || LINK_FAILURES.includes(input.errorType));
   const restartRemux = input.mode === "localRemux" && input.errorType === PlaybackErrorType.STALLED && midPlayback && !input.hasTriedRemuxRestart;
@@ -144,6 +170,8 @@ export interface LiveErrorInput {
   lane: "engine" | "server";
   /** False when the device or the server rules the server rung out. */
   serverTranscodingAllowed?: boolean;
+  audioSessionExpired?: boolean;
+  audioResetReopens?: number;
 }
 
 export interface LiveErrorDecision {
@@ -153,10 +181,13 @@ export interface LiveErrorDecision {
   toServer: boolean;
   /** Either rung: a retry is coming, so the reducer must not treat this as terminal. */
   retry: boolean;
+  /** The audio server restarted: retry the same lane once it is back, spending nothing. */
+  waitForAudio?: boolean;
 }
 
 /** The live ladder: one fresh engine open, then the server's transcode, then the error. */
 export function planLiveErrorRecovery(input: LiveErrorInput): LiveErrorDecision {
+  if (waitsForAudio(input)) return { reopen: false, toServer: false, retry: true, waitForAudio: true };
   const engineLane = input.mode === "localRemux";
   // A 401 fails every rung the same way; a reopen would only spend two cold opens on it.
   const retriable = input.errorType !== PlaybackErrorType.UNAUTHORIZED;

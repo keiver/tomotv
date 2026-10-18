@@ -116,6 +116,13 @@ export function classifyPlaybackError(error: unknown): PlaybackErrorType {
   return PlaybackErrorType.UNKNOWN;
 }
 
+/** AVFoundation -11800 over -19221: the system audio server restarted and expired the app's audio session. */
+export function isAudioSessionExpired(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const { code, domain, localizedFailureReason } = error as { code?: unknown; domain?: unknown; localizedFailureReason?: unknown };
+  return domain === "AVFoundationErrorDomain" && Number(code) === -11800 && typeof localizedFailureReason === "string" && /\(-19221\)/.test(localizedFailureReason);
+}
+
 const PLAYBACK_ERROR_KEYS: Record<PlaybackErrorType, StringKey> = {
   [PlaybackErrorType.NOT_FOUND]: "player.error.notFound",
   [PlaybackErrorType.UNAUTHORIZED]: "player.error.unauthorized",

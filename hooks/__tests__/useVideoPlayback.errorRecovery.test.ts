@@ -10,7 +10,7 @@
  */
 
 import { PlaybackErrorType, planErrorRecovery, type ErrorRecoveryInput } from "../useVideoPlayback";
-import { AUTOMATIC_RETRY_BUDGET_MS, automaticRetryDelay, planLiveErrorRecovery, shouldAutomaticallyRetry } from "../videoPlayback/errorRecovery";
+import { AUDIO_RESET_REOPENS, AUTOMATIC_RETRY_BUDGET_MS, automaticRetryDelay, planLiveErrorRecovery, shouldAutomaticallyRetry } from "../videoPlayback/errorRecovery";
 
 describe("automatic network recovery", () => {
   it("caps the delay without exhausting retries", () => {
@@ -290,6 +290,26 @@ describe("planErrorRecovery — a held file degrades instead of reaching a serve
   });
 });
 
+describe("planErrorRecovery: the system audio server restarted", () => {
+  const expired: ErrorRecoveryInput = { ...base, networkGateway: true, audioSessionExpired: true };
+
+  it("reopens the same engine lane at the playhead instead of spending the server rung", () => {
+    const d = planErrorRecovery(expired);
+    expect(d.action).toEqual({ kind: "reopenAfterAudioReset" });
+    expect(d).toMatchObject({ latchTranscodeUpFront: false, retryGateway: false, stallFallback: false, carryPositionSec: 120, stopRemuxSession: true });
+  });
+
+  it("reopens a server stream the same way instead of seeking it", () => {
+    expect(planErrorRecovery({ ...expired, mode: "transcode", networkGateway: false, hasTriedTranscoding: true }).action).toEqual({ kind: "reopenAfterAudioReset" });
+  });
+
+  it("falls back to the ladder once its reopens are spent", () => {
+    const d = planErrorRecovery({ ...expired, networkGateway: false, audioResetReopens: AUDIO_RESET_REOPENS });
+    expect(d.action).toEqual({ kind: "reportError" });
+    expect(d.latchTranscodeUpFront).toBe(true);
+  });
+});
+
 describe("planLiveErrorRecovery", () => {
   const base = { mode: "localRemux" as const, errorType: PlaybackErrorType.STALLED, hasReopened: false, lane: "engine" as const };
 
@@ -311,6 +331,15 @@ describe("planLiveErrorRecovery", () => {
 
   it("does not reopen from the server lane, which is the last rung", () => {
     expect(planLiveErrorRecovery({ ...base, mode: "transcode", lane: "server" })).toEqual({ reopen: false, toServer: false, retry: false });
+  });
+
+  it("waits out an audio server restart on the same lane, spending neither the fresh open nor the server", () => {
+    expect(planLiveErrorRecovery({ ...base, audioSessionExpired: true })).toEqual({ reopen: false, toServer: false, retry: true, waitForAudio: true });
+    expect(planLiveErrorRecovery({ ...base, mode: "transcode", lane: "server", hasReopened: true, audioSessionExpired: true }).retry).toBe(true);
+  });
+
+  it("takes the live ladder once the audio reopens are spent", () => {
+    expect(planLiveErrorRecovery({ ...base, audioSessionExpired: true, audioResetReopens: AUDIO_RESET_REOPENS })).toEqual({ reopen: true, toServer: false, retry: true });
   });
 
   it("ends at the error after the one reopen when the server rung is ruled out", () => {
