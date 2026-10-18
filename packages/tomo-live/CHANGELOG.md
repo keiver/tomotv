@@ -9,6 +9,7 @@
 - A card's first failure costs it no wait, only its place behind the never-failed cards; from the second in a row it waits `LIVE_FRAME_RETRY_MS`, doubling to the cap. `LIVE_FRAME_RETRY_FIRST_MS` is gone, and an open our own watchdog cut counts like any other failure.
 - Among the cards due now: no picture before no clip, never-failed before failed, the one that tried longest ago first, then nearest the focused row.
 - The card focused past the dwell reads before any other while its burst is older than `LIVE_FRAME_FOCUS_REFRESH_MS`: the dwell stops the grab of any other card, and while it is read only a card known to read another provider reads beside it; the others read while it is fresh or while it waits out a failure.
+- `setLiveFrameViewable(surface, channelIds, partlyShownIds)` takes the rows only partly on screen: they are read once no whole row is reading or due for its picture or clip, and a whole row waiting out a failure holds none of them back.
 - `@keiver/tomo-engine` 1.3.0 or later, for `isConnectionBudgetFailure` and the grab's `refused` answer.
 
 ## 1.3.0

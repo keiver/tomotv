@@ -69,7 +69,7 @@ export function GuideChannelColumn({
   onEndReached,
 }: GuideChannelColumnProps) {
   const preferences = useLiveTvPreferences();
-  const { viewabilityConfig, onViewableItemsChanged, visibleChannelIds } = useLiveFrameViewport("guide", preferences.autoUpdate, channels, channelIds);
+  const { viewabilityPairs, visibleChannelIds } = useLiveFrameViewport("guide", preferences.autoUpdate, channels, channelIds);
   const firstCardRef = useCallback(
     (node: React.ElementRef<typeof GuideChannelCard> | null) => {
       onFirstHandle?.(node ? (findNodeHandle(node) ?? undefined) : undefined);
@@ -153,8 +153,7 @@ export function GuideChannelColumn({
         scrollEventThrottle={16}
         onEndReached={onEndReached}
         onEndReachedThreshold={1}
-        viewabilityConfig={viewabilityConfig}
-        onViewableItemsChanged={onViewableItemsChanged}
+        viewabilityConfigCallbackPairs={viewabilityPairs}
         showsVerticalScrollIndicator={false}
         removeClippedSubviews={!IS_TV}
         maxToRenderPerBatch={4}

@@ -312,19 +312,19 @@ export function LibraryGrid({
       ),
     [items, windowWidth, edgeLeft, edgeRight, rowHeights, liveChannels],
   );
-  const { viewabilityConfig, onViewableItemsChanged, visibleChannelIds } = useLiveFrameViewport("wall", liveChannels && liveFramesEnabled, packedRows, rowChannelIds);
+  const { viewabilityPairs: framePairs, visibleChannelIds } = useLiveFrameViewport("wall", liveChannels && liveFramesEnabled, packedRows, rowChannelIds);
   const [clipIds, setClipIds] = useState(NO_CLIPS);
   // Stable for the list's life: a list reads its viewability pairs once, at mount.
   const viewabilityPairs = useMemo(
     () => [
-      { viewabilityConfig, onViewableItemsChanged },
+      ...framePairs,
       {
         viewabilityConfig: CLIP_VIEWABILITY,
         onViewableItemsChanged: ({ viewableItems }: { viewableItems: ViewToken<PackedRow<JellyfinItem>>[] }) =>
           setClipIds(new Set(viewableItems.flatMap((token) => (token.isViewable ? rowChannelIds(token.item) : [])))),
       },
     ],
-    [viewabilityConfig, onViewableItemsChanged],
+    [framePairs],
   );
   const lastRowWidth = packedRows.length > 0 ? packedRows[packedRows.length - 1].width : 0;
   // Global item index of each row's first card (drives image-priority for the first cards).

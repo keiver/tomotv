@@ -227,6 +227,41 @@ describe("live frames", () => {
     setLiveFrameFocus(null);
   });
 
+  it("reads a row only partly on screen once every whole row has its clip, never beside a whole row still reading", async () => {
+    const answers = new Map<string, (result: unknown) => void>();
+    mockLiveFrame.mockImplementation(({ channelId }: { channelId: string }) => new Promise((resolve) => answers.set(channelId, resolve)));
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1"], ["m2", "m3"]);
+    await advance(0);
+    expect(grabs()).toEqual(["m1"]);
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m1"]);
+    answers.get("m1")?.(frames({ channelId: "m1" }));
+    await flush();
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m1", "m2"]);
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m1", "m2", "m3"]);
+    for (const answer of answers.values()) answer({ uris: [], cancelled: true });
+    await flush();
+  });
+
+  it("a whole row waiting out its failures holds no row partly on screen back", async () => {
+    mockLiveFrame.mockImplementation(async ({ channelId }: { channelId: string }) => {
+      if (channelId === "m1") throw new Error("refused");
+      return frames({ channelId });
+    });
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1"], ["m2"]);
+    await advance(0);
+    expect(grabs()).toEqual(["m1"]);
+    // The first failure waits nothing, so the whole row fights once more before the partly shown row reads.
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m1", "m1"]);
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m1", "m1", "m2"]);
+  });
+
   it("reads a picture still missing its clip again at once, and again when the grab brought none, behind a card with nothing", async () => {
     mockOnDisk.mockResolvedValue({ m1: { ...onDisk("m1", 1_000_000 - 2_000, 2), clip: undefined } });
     mockLiveFrame.mockImplementation(async ({ channelId }: { channelId: string }) => (channelId === "m1" ? { ...frames({ channelId }), clip: null } : frames({ channelId })));

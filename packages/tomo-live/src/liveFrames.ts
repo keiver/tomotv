@@ -98,10 +98,12 @@ let seeding: Promise<void> | null = null;
 /** The guide's channel column or the channel wall: whichever is the screen feeds the sampler. */
 export type LiveFrameSurface = "guide" | "wall";
 
-/** Channels in view on the active surface, in its order, plus the lookahead row. */
+/** Channels in view on the active surface: the rows wholly on screen in order, the lookahead row, then the rows partly shown. */
 let viewable: string[] = [];
-/** Each surface's last reported set; the one that turns active plays its set back. */
-const viewableBySurface = new Map<LiveFrameSurface, string[]>();
+/** The rows only partly on screen: read once no whole row is reading or due for its picture or clip. */
+let partlyShown = new Set<string>();
+/** Each surface's last reported rows; the one that turns active plays them back. */
+const viewableBySurface = new Map<LiveFrameSurface, { whole: string[]; partly: string[] }>();
 let activeSurface: LiveFrameSurface | null = null;
 /** Grabs at once; the native queue serializes same-host jobs itself. */
 const MAX_INFLIGHT = 2;
@@ -346,7 +348,8 @@ function byFocus(): string[] {
 /** The channel due next: the focused card past its dwell while its burst is stale, then a card missing its
  *  picture or clip (no picture first, then a never-failed one, then the one that tried longest ago, nearest the
  *  focused row), then the promoted one on its short floor, else the one longest without a burst once its refresh
- *  has passed. Backoff binds them all: staring at a dead channel never hammers it. */
+ *  has passed. A row only partly on screen comes after every whole row has its clip. Backoff binds them all:
+ *  staring at a dead channel never hammers it. */
 function nextDue(now: number): { channelId: string; waitMs: number } | null {
   // The focused card first: while it reads, only a card known to read another provider reads beside it; nothing
   // else does while it is stale, except while it waits out a failure.
@@ -357,9 +360,13 @@ function nextDue(now: number): { channelId: string; waitMs: number } | null {
     else if (grabbing.has(stale)) held = entry(stale).originKey ?? "";
     else return { channelId: stale, waitMs: 0 };
   }
+  // A row only partly on screen waits while any whole row is reading or due for its picture or clip; a whole row
+  // waiting out a failure holds nobody.
+  const wholeBusy = viewable.some((channelId) => !partlyShown.has(channelId) && needsGrab(channelId, now) && (grabbing.has(channelId) || waitingUntil(entry(channelId)) <= now));
   const order = byFocus();
   const needy = order
     .filter((channelId) => !grabbing.has(channelId) && needsGrab(channelId, now) && waitingUntil(entry(channelId)) <= now)
+    .filter((channelId) => !wholeBusy || !partlyShown.has(channelId))
     .filter((channelId) => held === undefined || (entry(channelId).originKey !== undefined && entry(channelId).originKey !== held))
     .map((channelId) => ({ channelId, item: entry(channelId), rank: order.indexOf(channelId) }))
     .sort((a, b) => {
@@ -380,7 +387,7 @@ function nextDue(now: number): { channelId: string; waitMs: number } | null {
   }
   let pick: { channelId: string; readyAt: number } | null = null;
   for (const channelId of viewable) {
-    if (grabbing.has(channelId)) continue;
+    if (grabbing.has(channelId) || (wholeBusy && partlyShown.has(channelId))) continue;
     const item = entry(channelId);
     // A card still missing its picture or clip is due the moment its waits end; one with both waits the refresh.
     const floor = needsGrab(channelId, now) ? 0 : item.lastAt + (item.intervalMs ?? LIVE_FRAME_REFRESH_MS);
@@ -586,18 +593,20 @@ async function grab(channelId: string): Promise<void> {
   }
 }
 
-function applyViewable(channelIds: string[]): void {
-  viewable = channelIds;
+function applyViewable(rows: { whole: string[]; partly: string[] }): void {
+  viewable = rows.whole.concat(rows.partly);
+  partlyShown = new Set(rows.partly);
   // Grabs for cards that scrolled away free their slots; frames they already wrote stay.
-  cancelGrabs(channelIds);
+  cancelGrabs(viewable);
   if (running()) schedule(0);
   else stop();
 }
 
-/** The rows in view on a surface, in order. Applied at once on the active surface, kept for the others. */
-export function setLiveFrameViewable(surface: LiveFrameSurface, channelIds: string[]): void {
-  viewableBySurface.set(surface, channelIds);
-  if (surface === activeSurface) applyViewable(channelIds);
+/** The rows in view on a surface, in order, and the rows only partly on screen. Applied at once on the active surface, kept for the others. */
+export function setLiveFrameViewable(surface: LiveFrameSurface, channelIds: string[], partlyShownIds: string[] = []): void {
+  const rows = { whole: channelIds, partly: partlyShownIds };
+  viewableBySurface.set(surface, rows);
+  if (surface === activeSurface) applyViewable(rows);
 }
 
 /** The surface turning active takes over with its set; one leaving after another took over changes nothing. */
@@ -605,7 +614,7 @@ export function setLiveFramesActive(surface: LiveFrameSurface, active: boolean):
   wire();
   if (active) {
     activeSurface = surface;
-    applyViewable(viewableBySurface.get(surface) ?? []);
+    applyViewable(viewableBySurface.get(surface) ?? { whole: [], partly: [] });
     startTicker();
     return;
   }
