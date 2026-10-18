@@ -8,7 +8,7 @@
 import { canReadLiveFramesOnDisk, cancelLiveFrame, engineEmitter, engineLog, isLocalRemuxAvailable, liveFrame, liveFramesOnDisk, nativeEmits } from "@keiver/tomo-engine";
 import { AppState } from "react-native";
 import type { ChannelOrigin } from "./channelOrigin";
-import { clearChannelHealth, noteChannelAlive, noteChannelEmpty, noteChannelGone, noteChannelOpenFailure } from "./channelHealth";
+import { clearChannelHealth, healthFor, noteChannelAlive, noteChannelEmpty, noteChannelGone, noteChannelOpenFailure } from "./channelHealth";
 import { liveChannels } from "./config";
 import { showLivePreview, stopLivePreview } from "./livePreview";
 import { openRecentlyFailed } from "./openFailures";
@@ -328,9 +328,14 @@ function needsGrab(channelId: string, now: number): boolean {
   return !burst || !burst.clip;
 }
 
+/** A channel its origin judged down: read only once every other card in view is done, never first, never previewed. */
+function down(channelId: string): boolean {
+  return healthFor(channelId) === "down";
+}
+
 /** The card focused past its dwell, in view, whose burst is older than the focus floor: it reads before any other. */
 function focusedStale(now: number): string | null {
-  if (!priority || !viewable.includes(priority)) return null;
+  if (!priority || !viewable.includes(priority) || down(priority)) return null;
   const burst = validBurst(priority, now);
   return burst && now - burst.at < LIVE_FRAME_FOCUS_REFRESH_MS ? null : priority;
 }
@@ -348,8 +353,8 @@ function byFocus(): string[] {
 /** The channel due next: the focused card past its dwell while its burst is stale, then a card missing its
  *  picture or clip (no picture first, then a never-failed one, then the one that tried longest ago, nearest the
  *  focused row), then the promoted one on its short floor, else the one longest without a burst once its refresh
- *  has passed. A row only partly on screen comes after every whole row has its clip. Backoff binds them all:
- *  staring at a dead channel never hammers it. */
+ *  has passed. A row only partly on screen comes after every whole row has its clip, and a channel judged down
+ *  after every other card in view. Backoff binds them all: staring at a dead channel never hammers it. */
 function nextDue(now: number): { channelId: string; waitMs: number } | null {
   // The focused card first: while it reads, only a card known to read another provider reads beside it; nothing
   // else does while it is stale, except while it waits out a failure.
@@ -360,13 +365,15 @@ function nextDue(now: number): { channelId: string; waitMs: number } | null {
     else if (grabbing.has(stale)) held = entry(stale).originKey ?? "";
     else return { channelId: stale, waitMs: 0 };
   }
-  // A row only partly on screen waits while any whole row is reading or due for its picture or clip; a whole row
-  // waiting out a failure holds nobody.
-  const wholeBusy = viewable.some((channelId) => !partlyShown.has(channelId) && needsGrab(channelId, now) && (grabbing.has(channelId) || waitingUntil(entry(channelId)) <= now));
+  // A card reading or due for its picture or clip; one waiting out a failure, or judged down, holds nobody.
+  const busy = (channelId: string) => !down(channelId) && needsGrab(channelId, now) && (grabbing.has(channelId) || waitingUntil(entry(channelId)) <= now);
+  // A row only partly on screen waits on the whole rows; a down channel waits on every other card in view.
+  const wholeBusy = viewable.some((channelId) => !partlyShown.has(channelId) && busy(channelId));
+  const anyBusy = wholeBusy || viewable.some(busy);
   const order = byFocus();
   const needy = order
     .filter((channelId) => !grabbing.has(channelId) && needsGrab(channelId, now) && waitingUntil(entry(channelId)) <= now)
-    .filter((channelId) => !wholeBusy || !partlyShown.has(channelId))
+    .filter((channelId) => (!wholeBusy || !partlyShown.has(channelId)) && (!anyBusy || !down(channelId)))
     .filter((channelId) => held === undefined || (entry(channelId).originKey !== undefined && entry(channelId).originKey !== held))
     .map((channelId) => ({ channelId, item: entry(channelId), rank: order.indexOf(channelId) }))
     .sort((a, b) => {
@@ -380,14 +387,14 @@ function nextDue(now: number): { channelId: string; waitMs: number } | null {
     });
   if (needy[0]) return { channelId: needy[0].channelId, waitMs: 0 };
   if (held !== undefined) return null;
-  if (priority && viewable.includes(priority) && !grabbing.has(priority)) {
+  if (priority && viewable.includes(priority) && !grabbing.has(priority) && !down(priority)) {
     const item = entry(priority);
     const readyAt = Math.max(item.lastAt + LIVE_FRAME_FOCUS_REFRESH_MS, waitingUntil(item));
     if (readyAt <= now) return { channelId: priority, waitMs: 0 };
   }
   let pick: { channelId: string; readyAt: number } | null = null;
   for (const channelId of viewable) {
-    if (grabbing.has(channelId) || (wholeBusy && partlyShown.has(channelId))) continue;
+    if (grabbing.has(channelId) || (wholeBusy && partlyShown.has(channelId)) || (anyBusy && down(channelId))) continue;
     const item = entry(channelId);
     // A card still missing its picture or clip is due the moment its waits end; one with both waits the refresh.
     const floor = needsGrab(channelId, now) ? 0 : item.lastAt + (item.intervalMs ?? LIVE_FRAME_REFRESH_MS);
@@ -419,9 +426,17 @@ export function setLiveFrameFocus(channelId: string | null): void {
     // A stale focused card takes the link from whatever other card is reading: it is fresh first, the rest after.
     if (focusedStale(Date.now())) cancelGrabs([channelId]);
     schedule(0);
-    // The card promoted past its dwell warms an engine session on its origin, so a play press binds to it.
-    showLivePreview(channelId);
+    warmPreview(channelId);
   }, LIVE_FRAME_FOCUS_DWELL_MS);
+}
+
+/**
+ * The card promoted past its dwell warms an engine session on its origin, so a play press binds to it: once the card
+ * has a picture, so a channel that never serves costs one connection, its grab's, not a second one beside it.
+ */
+function warmPreview(channelId: string): void {
+  if (priority !== channelId || !running() || down(channelId) || !validBurst(channelId, Date.now())) return;
+  showLivePreview(channelId);
 }
 
 /** A focused card missing its picture or clip takes a slot from a refresh, never from another card's first grab. */
@@ -554,7 +569,8 @@ async function grab(channelId: string): Promise<void> {
       notify(channelId);
       return;
     }
-    admitOrigin(item.originKey);
+    // Only an open the origin served proves it has room: one it admitted and never served proves nothing.
+    if (result?.reason !== "open") admitOrigin(item.originKey);
     if (result?.unchanged && result.missing) {
       // The shown files are gone from disk: the burst goes and the channel is due for a fresh one.
       if (item.burst) dropBurst(channelId, item);
@@ -570,6 +586,7 @@ async function grab(channelId: string): Promise<void> {
       noteChannelAlive(channelId);
       // The due moved and the pictures re-dated: the freshness badge re-reads; picture hooks bail on the same burst object.
       notify(channelId);
+      warmPreview(channelId);
     } else if (result?.uris?.length) {
       item.burst = burstOf(channelId, result.uris, now, result.clip);
       item.pts = result.pts ?? undefined;
@@ -578,10 +595,12 @@ async function grab(channelId: string): Promise<void> {
       noteChannelAlive(channelId);
       notify(channelId);
       startTicker();
+      warmPreview(channelId);
     } else {
       recordFailure(item, now);
-      // "open" is a refusal at the source and its own words judge the channel; "empty" opened with no streams.
-      if (item.lane === "origin" && result?.reason === "open") noteChannelOpenFailure(channelId, result.failure ?? undefined);
+      // "open" failed at the source: its own HTTP words, or its own end of an open it admitted, judge the channel;
+      // "empty" opened with no streams.
+      if (item.lane === "origin" && result?.reason === "open") noteChannelOpenFailure(channelId, result.failure ?? undefined, result.ended === true);
       if (item.lane === "origin" && result?.reason === "empty") noteChannelEmpty(channelId);
     }
   } catch (error) {

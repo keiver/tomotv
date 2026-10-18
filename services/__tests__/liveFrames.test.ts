@@ -932,6 +932,24 @@ describe("live frames", () => {
       expect(healthFor("m1")).toBe("unknown");
     });
 
+    it("an open the provider admitted and never served brings no refused card back", async () => {
+      mockResolveOrigin.mockImplementation(byProvider);
+      const unserved = { uris: [], cancelled: false, reason: "open", failure: "open: End of file", ended: true };
+      mockLiveFrame.mockImplementation(async (config: { channelId: string }) => (config.channelId === "m1" ? refused : unserved));
+      setLiveFramesActive("guide", true);
+      setLiveFrameViewable("guide", ["m1", "m2"]);
+      await advance(0);
+      await advance(LIVE_FRAME_SPACING_MS);
+      await advance(LIVE_FRAME_SPACING_MS);
+      await advance(LIVE_FRAME_SPACING_MS);
+      // m1 refused, m2 unserved, m1 refused again (its first failure costs no wait), m2 unserved again.
+      expect(grabs()).toEqual(["m1", "m2", "m1", "m2"]);
+      // m2's unserved opens proved no room: m1 stays on its ladder.
+      await advance(LIVE_FRAME_RETRY_MS - LIVE_FRAME_SPACING_MS * 2);
+      expect(grabs()).toEqual(["m1", "m2", "m1", "m2"]);
+      expect(healthFor("m2")).toBe("down");
+    });
+
     it("a refusal through the server parks nothing either: the next server channel opens at once", async () => {
       mockLiveFrame.mockResolvedValue(refused);
       setLiveFramesActive("guide", true);
@@ -1230,6 +1248,61 @@ describe("live frames", () => {
     for (let i = 0; i < 12; i += 1) await advance(LIVE_FRAME_SPACING_MS);
     expect(liveFrameFor("m4")).toBeDefined();
     expect(healthFor("m4")).toBe("up");
+  });
+
+  it("a channel its origin judged down reads after every other card in view, is never put first by focus, and is not previewed", async () => {
+    const unserved = { uris: [], cancelled: false, reason: "open", failure: "open: End of file", ended: true };
+    mockLiveFrame.mockImplementation(async (config: { channelId: string }) => (config.channelId === "m1" ? unserved : frames(config)));
+    mockShowLivePreview.mockClear();
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1", "m2"]);
+    await advance(0);
+    await advance(LIVE_FRAME_SPACING_MS);
+    await advance(LIVE_FRAME_SPACING_MS);
+    // m1's first failure costs no wait but puts it behind m2; the origin ends both its opens: down.
+    expect(grabs()).toEqual(["m1", "m2", "m1"]);
+    expect(healthFor("m1")).toBe("down");
+    // Focus on the down card promotes nothing and warms no preview.
+    setLiveFrameFocus("m1");
+    await advance(LIVE_FRAME_FOCUS_DWELL_MS);
+    expect(mockShowLivePreview).not.toHaveBeenCalledWith("m1");
+    setLiveFrameFocus(null);
+    // A new card in view reads before the down one, which is on its ladder and then comes last.
+    setLiveFrameViewable("guide", ["m1", "m2", "m3"]);
+    await advance(0);
+    expect(grabs()).toEqual(["m1", "m2", "m1", "m3"]);
+    await advance(LIVE_FRAME_RETRY_MS);
+    expect(grabs().slice(0, 5)).toEqual(["m1", "m2", "m1", "m3", "m1"]);
+  });
+
+  it("a down whole row holds no row partly on screen back", async () => {
+    const unserved = { uris: [], cancelled: false, reason: "open", failure: "open: End of file", ended: true };
+    mockLiveFrame.mockImplementation(async (config: { channelId: string }) => (config.channelId === "m1" ? unserved : frames(config)));
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1"], ["m2"]);
+    await advance(0);
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m1", "m1"]);
+    expect(healthFor("m1")).toBe("down");
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m1", "m1", "m2"]);
+  });
+
+  it("warms the focused card's preview once its grab has served, not beside the grab", async () => {
+    const answers = new Map<string, (result: unknown) => void>();
+    mockLiveFrame.mockImplementation(({ channelId }: { channelId: string }) => new Promise((resolve) => answers.set(channelId, resolve)));
+    mockShowLivePreview.mockClear();
+    setLiveFramesActive("guide", true);
+    setLiveFrameFocus("m1");
+    setLiveFrameViewable("guide", ["m1"]);
+    await advance(0);
+    expect(grabs()).toEqual(["m1"]);
+    await advance(LIVE_FRAME_FOCUS_DWELL_MS);
+    expect(mockShowLivePreview).not.toHaveBeenCalledWith("m1");
+    answers.get("m1")?.(frames({ channelId: "m1" }));
+    await flush();
+    expect(mockShowLivePreview).toHaveBeenLastCalledWith("m1");
+    setLiveFrameFocus(null);
   });
 
   it("judges an origin that opens with no streams down after its retry", async () => {

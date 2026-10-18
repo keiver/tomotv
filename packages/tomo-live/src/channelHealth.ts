@@ -1,7 +1,7 @@
 /**
  * Channel health, fed entirely by the frame sampler's own outcomes: a burst marks a channel
- * alive, and an origin refusing with an HTTP error status or serving no streams strikes it,
- * twice for a down verdict. Nothing here touches the network, so health never competes with a grab for the
+ * alive, and an origin refusing with an HTTP error status, serving no streams, or ending an open it
+ * admitted strikes it, twice for a down verdict. Nothing here touches the network, so health never competes with a grab for the
  * link or a provider's connection slot. Server-carried channels stay unknown until the server
  * refuses one no tuner carries.
  */
@@ -62,9 +62,9 @@ function strike(channelId: string, failure: string): void {
   }
 }
 
-/** A grab's origin open was refused; only the origin's own HTTP error words count. */
-export function noteChannelOpenFailure(channelId: string, failure?: string): void {
-  if (failure && DEFINITIVE.test(failure)) strike(channelId, failure);
+/** A grab's origin open failed: the origin's own HTTP error words count, and so does its own end of an open it admitted. */
+export function noteChannelOpenFailure(channelId: string, failure?: string, ended = false): void {
+  if (ended || (failure && DEFINITIVE.test(failure))) strike(channelId, failure ?? "the origin ended the open");
 }
 
 /** The origin opened and listed no streams: a playlist with no segments in it. */

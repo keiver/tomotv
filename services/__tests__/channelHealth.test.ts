@@ -52,6 +52,13 @@ describe("channelHealth", () => {
     expect(healthFor("a")).toBe("unknown");
   });
 
+  it("an origin ending an open it admitted counts, whatever its words, twice for a down verdict", () => {
+    noteChannelOpenFailure("a", "open: End of file", true);
+    expect(healthFor("a")).toBe("unknown");
+    noteChannelOpenFailure("a", undefined, true);
+    expect(healthFor("a")).toBe("down");
+  });
+
   it("a burst redeems a down channel and notifies", () => {
     noteChannelOpenFailure("a", "open: Server returned 404 Not Found");
     noteChannelOpenFailure("a", "open: Server returned 404 Not Found");
