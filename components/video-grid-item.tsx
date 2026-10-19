@@ -1,6 +1,7 @@
 import { type BadgeSegment, CARD_BADGE_INSET, CardBadge, showsFavoriteHeart } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardCornerScrim, CardScrim } from "@/components/card-scrim";
+import { ChannelStand } from "@/components/live-tv/channel-stand";
 import { LiveClip } from "@/components/live-tv/live-clip";
 import { LiveFreshnessBadge } from "@/components/live-tv/live-freshness-badge";
 import { NowPlayingTitleBar } from "@/components/now-playing-title-bar";
@@ -139,8 +140,10 @@ interface VideoGridItemProps {
   offline?: boolean;
   /** Channel and programme cards: a timer covers it; REC takes LIVE's place, a scheduled programme's time wears the camera. */
   recording?: boolean;
-  /** Guide channel cards: a 16:9 slot with no title bar or bottom wash over the live picture; the name is a top-right pill led by the title mark, so an ellipsized name keeps it. */
+  /** Guide channel cards: a 16:9 slot with no title bar, name or bottom wash over the live picture. */
   liveCard?: boolean;
+  /** Live cards on the channel wall: the name sits on a stand under the card, led by the title mark. */
+  stand?: boolean;
   /** Square corners, for a card that sits flush among the guide's square program cells. */
   square?: boolean;
   /** No resting depth shadow, for hosts that clip it; the focus glow stays. */
@@ -192,6 +195,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     offline = false,
     recording = false,
     liveCard = false,
+    stand = false,
     square = false,
     flat = false,
     inset,
@@ -267,6 +271,8 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     [video.Id],
   );
   const liveBox = liveCard && liveFrame ? liveFrameBox(pictureAspect, cardRatio) : null;
+  const standed = liveCard && stand;
+  const offlinePill = offline && !standed;
 
   // Focus handlers - no animations
   const handleFocus = useCallback(() => {
@@ -359,7 +365,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
         inset && { paddingVertical: inset.vertical, paddingHorizontal: inset.horizontal },
       ]}>
       <View style={[styles.card, flat && styles.cardFlat, focused && [styles.cardFocused, { shadowColor: palette.accent }], square && styles.square]}>
-        <View style={[styles.imageContainer, { aspectRatio: cardRatio }, square && styles.square]}>
+        <View style={[styles.imageContainer, { aspectRatio: cardRatio }, square && styles.square, standed && styles.squareBottom]}>
           {liveFrame || poster || posterSource ? (
             <>
               {liveBox ? (
@@ -450,9 +456,10 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
 
           {/* The music note is what separates "track 5" from the item count the folder
               cards put in this same corner; "S01E05" needs no help. */}
-          {offline || badgeSegments || (isChannel && (recording || (liveFrame ? liveMark : airingName))) ? (
-            <View style={styles.indexBadge} pointerEvents="none">
-              {offline ? (
+          {/* A wall card's stand says offline with its glyph, so its picture skips the pill. */}
+          {offlinePill || badgeSegments || (isChannel && (recording || (liveFrame ? liveMark : airingName))) ? (
+            <View style={[styles.indexBadge, liveCard && styles.indexBadgeChannel]} pointerEvents="none">
+              {offlinePill ? (
                 // A fact pill, not a broadcast mark: red stays for LIVE and REC.
                 <CardBadge segments={[{ label: t("liveTv.offline") }]} focused={focused} />
               ) : isChannel && recording ? (
@@ -467,15 +474,11 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               ) : null}
             </View>
           ) : null}
-          {/* The name, always: many feeds carry their own logo, and the name tells a channel's variants apart. */}
-          {liveCard ? (
-            <View style={styles.cornerName} pointerEvents="none">
-              <CardBadge segments={[{ icon: trailingMark, label: cardTitle }]} focused={focused} solidFocus />
-            </View>
-          ) : null}
-
           {/* The lit edge and the focus border, on top so the art and the title bar sit under them */}
-          <View style={[styles.borderOverlay, focused && [styles.borderOverlayFocused, { borderColor: palette.accent }], square && styles.square]} pointerEvents="none" />
+          <View
+            style={[styles.borderOverlay, focused && [styles.borderOverlayFocused, { borderColor: palette.accent }], square && styles.square, standed && styles.squareBottom]}
+            pointerEvents="none"
+          />
 
           {/* Per-card feedback while the pressed card's destination loads:
               the title bar becomes a sweeping gold progress fill. Resume
@@ -484,6 +487,8 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               cards carry no overlay. */}
           {navBarVisible ? <CardNavProgress active={navigating} title={cardTitle} startFraction={hasProgress ? watchedPercent / 100 : undefined} /> : null}
         </View>
+        {/* Inside the card, under the picture's slot: the glow wraps both and the picture keeps its size. */}
+        {standed ? <ChannelStand name={cardTitle} icon={titleIcon} focused={focused} offline={offline} liveChannelId={liveFrame && liveMark ? video.Id : undefined} /> : null}
       </View>
     </TouchableOpacity>
   );
@@ -535,6 +540,7 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.offline === nextProps.offline &&
     prevProps.recording === nextProps.recording &&
     prevProps.liveCard === nextProps.liveCard &&
+    prevProps.stand === nextProps.stand &&
     prevProps.square === nextProps.square &&
     prevProps.flat === nextProps.flat &&
     prevProps.inset?.vertical === nextProps.inset?.vertical &&
@@ -624,8 +630,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: IS_TV ? 8 : 5,
   },
+  // A channel's mark tucks into the corner, off the channel's own logo.
+  indexBadgeChannel: {
+    top: CARD_BADGE_INSET - 2,
+    left: CARD_BADGE_INSET - 2,
+  },
   square: {
     borderRadius: 0,
+  },
+  squareBottom: {
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
   },
   // Holds the blurred fill behind a whole picture under the sharp one.
   backdropDim: {
@@ -635,13 +650,6 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     backgroundColor: "rgba(0, 0, 0, 0.35)",
-  },
-  // Half the card, so a long name ellipsizes before it reaches the left badges.
-  cornerName: {
-    position: "absolute",
-    top: CARD_BADGE_INSET,
-    right: CARD_BADGE_INSET,
-    maxWidth: "50%",
   },
   // About two words of programme name; the badge ellipsizes the rest and yields to LIVE first.
   // The watched fraction, drawn as the title bar's own background: a solid

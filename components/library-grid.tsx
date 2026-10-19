@@ -8,6 +8,7 @@ import { LoadingRow } from "@/components/loading-row";
 import { FolderLoadingBar } from "@/components/folder-loading-bar";
 import { LibraryHeader, type HeaderAction } from "@/components/library-header";
 import { sideInsets } from "@/components/settings/styles";
+import { STAND_HEIGHT } from "@/components/live-tv/channel-stand";
 import { GuideChannelCard } from "@/components/live-tv/guide-channel-card";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { GRID, gridEdgePadding, itemSlotRatio, itemSlotShape, liveRowHeight, slotCardPadding, slotRatio, slotRowHeights } from "@/constants/app";
@@ -364,18 +365,20 @@ export function LibraryGrid({
   // every row.
   // TV channel wall: shorter 16:9 rows, so three rows sit with room under them and the fourth stays off screen.
   const rowPadding = IS_TV && liveChannels ? 16 : ROW_VERTICAL_PADDING;
+  // A channel card's stand hangs under it, inside the card's own frame.
+  const standHeight = liveChannels ? STAND_HEIGHT : 0;
   const rowLayout = useMemo(() => {
     const lengths: number[] = [];
     const offsets: number[] = [];
     let offset = topClearance + headerLength;
     for (const row of packedRows) {
-      const length = (row.cards[0]?.cardHeight ?? 0) + 2 * rowPadding;
+      const length = (row.cards[0]?.cardHeight ?? 0) + standHeight + 2 * rowPadding;
       lengths.push(length);
       offsets.push(offset);
       offset += length;
     }
     return { lengths, offsets };
-  }, [packedRows, topClearance, headerLength, rowPadding]);
+  }, [packedRows, topClearance, headerLength, rowPadding, standHeight]);
   const contentLength = (rowLayout.offsets[rowLayout.offsets.length - 1] ?? 0) + (rowLayout.lengths[rowLayout.lengths.length - 1] ?? 0) + bottomClearance;
 
   const getItemLayout = useCallback(
@@ -572,6 +575,7 @@ export function LibraryGrid({
                   cardHeight={card.cardHeight}
                   titleIcon={titleIconFor?.(item)}
                   hideAiring
+                  stand
                   recording={recordingFor?.(item)}
                   playsClipInView={clipIds.has(item.Id)}
                   inView={visibleChannelIds.has(item.Id)}
