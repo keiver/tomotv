@@ -230,7 +230,7 @@
   "settings.showLyrics": "Afficher les paroles",
   "lyrics.find": "Chercher les paroles manquantes",
   "lyrics.findHint": "Sur lrclib.net",
-  "lyrics.listen": "Écouter pour trouver les paroles",
+  "lyrics.listen": "Transcrire avec Apple Speech",
   "lyrics.listenHint": "Sur cet appareil. Certains mots peuvent être faux.",
   "lyrics.listenElsewhere": "Transcription vocale indisponible. Des appareils plus récents peuvent obtenir les paroles pour cet appareil.",
   "lyrics.save": "Enregistrer les paroles sur mon serveur",

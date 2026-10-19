@@ -230,7 +230,7 @@
   "settings.showLyrics": "Show lyrics",
   "lyrics.find": "Find missing lyrics",
   "lyrics.findHint": "On lrclib.net",
-  "lyrics.listen": "Listen for lyrics",
+  "lyrics.listen": "Transcribe with Apple Speech",
   "lyrics.listenHint": "On this device. It can get words wrong.",
   "lyrics.listenElsewhere": "Speech transcription unavailable. Newer devices can get lyrics for this device.",
   "lyrics.save": "Save lyrics to my server",

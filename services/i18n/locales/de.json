@@ -230,7 +230,7 @@
   "settings.showLyrics": "Liedtext anzeigen",
   "lyrics.find": "Fehlende Liedtexte suchen",
   "lyrics.findHint": "Auf lrclib.net",
-  "lyrics.listen": "Liedtext durch Zuhören erkennen",
+  "lyrics.listen": "Mit Apple Speech transkribieren",
   "lyrics.listenHint": "Auf diesem Gerät. Einzelne Wörter können falsch sein.",
   "lyrics.listenElsewhere": "Sprachtranskription nicht verfügbar. Neuere Geräte können Liedtexte für dieses Gerät abrufen.",
   "lyrics.save": "Liedtexte auf meinem Server speichern",

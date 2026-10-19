@@ -230,7 +230,7 @@
   "settings.showLyrics": "Mostrar la letra",
   "lyrics.find": "Buscar letras que faltan",
   "lyrics.findHint": "En lrclib.net",
-  "lyrics.listen": "Escuchar para obtener la letra",
+  "lyrics.listen": "Transcribir con Apple Speech",
   "lyrics.listenHint": "En este dispositivo. Puede equivocarse con algunas palabras.",
   "lyrics.listenElsewhere": "Transcripción de voz no disponible. Los dispositivos más nuevos pueden obtener la letra para este dispositivo.",
   "lyrics.save": "Guardar letras en mi servidor",
