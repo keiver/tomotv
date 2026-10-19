@@ -1,4 +1,18 @@
-import { padFitMaxHeight } from "@/components/pad-sheet";
+import { padFitMargins, padFitMaxHeight } from "@/components/pad-sheet";
+
+describe("padFitMargins", () => {
+  it("centres the card between the top and bottom insets", () => {
+    expect(padFitMargins(52, 0, "center")).toEqual({ marginTop: 52, marginBottom: 0 });
+  });
+
+  it("keeps the bottom card clear of the home indicator", () => {
+    expect(padFitMargins(59, 34, "bottom")).toEqual({ marginTop: 0, marginBottom: 34 });
+  });
+
+  it("holds the bottom card's margin when the device has no bottom inset", () => {
+    expect(padFitMargins(20, 0, "bottom")).toEqual({ marginTop: 0, marginBottom: 8 });
+  });
+});
 
 describe("padFitMaxHeight", () => {
   it("caps iPad's centred card at 900pt on a screen taller than that", () => {

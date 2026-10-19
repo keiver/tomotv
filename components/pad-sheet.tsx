@@ -32,6 +32,11 @@ export function padFitMaxHeight(windowHeight: number, insetTop: number, insetBot
   return Math.min(isMac && fit === "center" ? Math.round(windowHeight * MAC_WINDOW_SHARE) : inWindow, inWindow, FIT_MAX_HEIGHT[fit]);
 }
 
+/** The centred card centres in the safe area, under the Mac title-bar tabs; the bottom card clears the home indicator. */
+export function padFitMargins(insetTop: number, insetBottom: number, fit: "center" | "bottom"): { marginTop: number; marginBottom: number } {
+  return fit === "center" ? { marginTop: insetTop, marginBottom: insetBottom } : { marginTop: 0, marginBottom: Math.max(insetBottom, FIT_MARGIN) };
+}
+
 interface PadSheetProps {
   onClose: () => void;
   closeHint?: string;
@@ -78,7 +83,7 @@ export function PadSheetFrame({ onClose, closeHint, fit, children }: PadSheetPro
         {
           width: padFitWidth(width, insets.left + insets.right, fit),
           maxHeight: padFitMaxHeight(height, insets.top, insets.bottom, fit),
-          marginBottom: fit === "bottom" ? Math.max(insets.bottom, FIT_MARGIN) : 0,
+          ...padFitMargins(insets.top, insets.bottom, fit),
         },
       ]
     : [styles.sheet, { width: padSheetWidth(width), marginTop: insets.top + 8 }];
