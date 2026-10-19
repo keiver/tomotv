@@ -17,7 +17,9 @@ All notable changes to Tomo TV are documented here.
 - A guide cell's first line names the channel after its favorite heart, then the program title, shown once when the guide titles the block with the channel name. A cell without listings names the channel, and its second line reads No listings, after the Seen at time once a picture was seen
 - On the channel wall a card rests on a strip under its picture that names the channel: black with the name in the theme accent at rest, accent on focus, led by the favorite heart and, for a channel judged down, a cloud glyph in place of the Offline pill. A fresh picture turns the strip LIVE red under a white name, and the red steps down to black by the two-minute refresh floor in nine one-second native opacity fades
 - On Apple TV, focus starts on the guide's Channels button when Live TV opens, on Down from the tab bar and on each press of the Home Live TV card
-- On iPhone, iPad and Mac a channel's groups show as the band in the info panel's footer, as on Apple TV, and the new group name screen opens as a sheet
+- On iPhone, iPad and Mac a channel's groups show as the band in the info panel's footer, as on Apple TV, and naming or renaming a group opens the system text prompt
+- The channel wall opens with the guide's groups as a band above the cards, inside the cards' margins with round ends: New group, then All, Favorites, your groups, the playlist groups and the server's categories, one picked at a time. The filter button in the bar shows only while a group is picked, and pressing it shows every channel again. Picking a group keeps the band in place, and on Apple TV focus stays on the picked group; Up from a group under the bar's empty middle goes to Back or search, whichever is nearer. While a group loads, the hourglass sits centered under the band and the loading bar names the group
+- A programme card in search reads NOW while it airs (JETZT, AHORA, MAINTENANT), REC while it records and its start time before then. LIVE stays the mark of a channel picture seconds old
 
 ### Fixed
 
