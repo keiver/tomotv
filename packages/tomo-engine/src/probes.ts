@@ -162,6 +162,8 @@ export interface LiveFrameResult {
   unchanged?: boolean;
   missing?: boolean;
   cancelled?: boolean;
+  /** The original input delivered a body; a successful server fallback alone never sets this. */
+  originServed?: boolean;
   /**
    * `empty`: the source opened and listed no streams. `refused`: the provider turned the open away, retries included.
    * `busy` (with `cancelled`): no connection was spare on the provider, nothing was asked of it.

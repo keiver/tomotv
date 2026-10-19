@@ -132,7 +132,7 @@ const clipOf = (channelId: string, stamp: number) => `file:///pool/${channelId}/
 /** The pool's answer for a channel: its newest burst with its clip, and when its validity counts from. */
 const onDisk = (channelId: string, at: number, count = LIVE_FRAME_BURST_COUNT) => ({ uris: burst(channelId, at, count), clip: clipOf(channelId, at), at });
 /** The engine's answer to a grab: the burst and its clip. */
-const frames = ({ channelId }: { channelId: string }) => ({ uris: burst(channelId, Date.now()), clip: clipOf(channelId, Date.now()), pts: 1, cancelled: false });
+const frames = ({ channelId }: { channelId: string }) => ({ uris: burst(channelId, Date.now()), clip: clipOf(channelId, Date.now()), pts: 1, cancelled: false, originServed: true });
 
 describe("live frames", () => {
   beforeEach(() => {
@@ -997,6 +997,45 @@ describe("live frames", () => {
       await advance(LIVE_FRAME_SPACING_MS);
       expect(grabs()).toEqual(["m1", "m2", "m1", "m2", "m1", "m2", "m1"]);
       expect(healthFor("m1")).toBe("unknown");
+    });
+
+    it.each([
+      { label: "fallback frames", unchanged: false, originServed: false },
+      { label: "fallback verification", unchanged: true, originServed: false },
+      { label: "a legacy result without source evidence", unchanged: false, originServed: undefined },
+    ])("$label preserves sibling backoff until the origin itself serves a grab", async ({ unchanged, originServed }) => {
+      mockResolveOrigin.mockImplementation(async (id: string) => ({ url: `https://origin/${id}.m3u8`, originKey: "origin", fallbackUrl: `https://server/${id}.ts` }));
+      let siblingGrabs = 0;
+      mockLiveFrame.mockImplementation(async (config: { channelId: string }) => {
+        if (config.channelId === "m1") return refused;
+        siblingGrabs += 1;
+        return unchanged && siblingGrabs > 1 ? { unchanged: true, cancelled: false, originServed } : { ...frames(config), originServed };
+      });
+      setLiveFramesActive("guide", true);
+      setLiveFrameViewable("guide", ["m1", "m2"]);
+      await advance(0);
+      await advance(LIVE_FRAME_SPACING_MS);
+      await advance(LIVE_FRAME_SPACING_MS);
+      expect(grabs()).toEqual(["m1", "m2", "m1"]);
+
+      // Refresh the sibling on the focus floor while m1 is still on its two-minute backoff.
+      await advance(LIVE_FRAME_FOCUS_REFRESH_MS);
+      setLiveFrameFocus("m2");
+      await advance(LIVE_FRAME_FOCUS_DWELL_MS);
+      await advance(1);
+      await advance(LIVE_FRAME_SPACING_MS);
+      expect(grabs()).toEqual(["m1", "m2", "m1", "m2"]);
+      expect(liveFrameFor("m2")).toBeDefined();
+
+      // Direct success still releases the refused sibling immediately, before its timer expires.
+      clearLiveFrameFocus("m2");
+      mockLiveFrame.mockImplementation(async (config: { channelId: string }) => (config.channelId === "m1" ? refused : frames(config)));
+      await advance(LIVE_FRAME_FOCUS_REFRESH_MS);
+      setLiveFrameFocus("m2");
+      await advance(LIVE_FRAME_FOCUS_DWELL_MS);
+      await advance(1);
+      await advance(LIVE_FRAME_SPACING_MS);
+      expect(grabs()).toEqual(["m1", "m2", "m1", "m2", "m2", "m1"]);
     });
 
     it("an open the provider admitted and never served brings no refused card back", async () => {

@@ -1235,6 +1235,8 @@ extension RemuxSession {
         var lease: LiveConnectionBroker.Lease?
         // A file's ranged connections past its first, one lease each; they go back with the input.
         var rangedLeases: [LiveConnectionBroker.Lease] = []
+        let originRead = SourceReadEvidence()
+        var rangedServedBody = false
         let originKey = config.liveOriginKey ?? LiveConnectionBroker.key(forURL: config.inputUrl)
         // A file read over ranged connections: remote, and not a playlist the demuxer reads itself.
         let rangedInput: URL? = config.isLive ? nil : URL(string: config.inputUrl).flatMap { remote in
@@ -1266,7 +1268,8 @@ extension RemuxSession {
             inputIsFallback = false
             stateLock.unlock()
             rangedLeases.forEach { $0.release() }
-            lease?.release()
+            // A rejected open (or only a served fallback) leaves no origin connection behind to count.
+            lease?.release(counted: originRead.served || rangedServedBody)
         }
         var inputCtx: UnsafeMutablePointer<AVFormatContext>?
         var ret: Int32 = 0
@@ -1281,7 +1284,6 @@ extension RemuxSession {
         // path below unchanged.
         var parallelBox: Unmanaged<RangeReaderBox>? = nil
         var parallelAvio: UnsafeMutablePointer<AVIOContext>? = nil
-        var rangedServedBody = false
         // The interrupt callback's condition: custom IO has no other way to end a blocked probe or read.
         let readerCancelled: () -> Bool = { [weak self] in self.map { $0.isCancelled || $0.hasFailed } ?? true }
         // One connection reads through the reader too: read by FFmpeg's own HTTP, a one-connection origin
@@ -1336,6 +1338,7 @@ extension RemuxSession {
         while true {
             inputCtx = avformat_alloc_context()
             guard inputCtx != nil else { return fail("avformat_alloc_context") }
+            if lease != nil, inputUrl == config.inputUrl { originRead.install(on: inputCtx!) }
             inputCtx!.pointee.interrupt_callback = AVIOInterruptCB(callback: Self.interruptCallback, opaque: opaque)
             stateLock.lock()
             pulledBase = pulledBytes
@@ -1438,7 +1441,9 @@ extension RemuxSession {
                 avio_context_free(&freeing)
             }
             if let box = parallelBox {
-                box.takeUnretainedValue().reader.close()
+                let reader = box.takeUnretainedValue().reader
+                reader.close()
+                rangedServedBody = rangedServedBody || reader.servedBody
                 box.release()
             }
         }

@@ -14,6 +14,9 @@ final class ParallelRangeReaderTests: XCTestCase {
     let active = 0, peak = 0, requests = 0, frozen = 0, single = 0;
     const server = http.createServer((req, res) => {
       if (req.url === "/stats") return res.end(JSON.stringify({ active, peak, requests, frozen, single }));
+      if (req.url === "/reject") { single++; res.writeHead(403); return res.end("provider connection limit"); }
+      if (req.url === "/empty") { res.writeHead(200, { "Content-Length": 0 }); return res.end(); }
+      if (req.url === "/headers-only") { single++; res.writeHead(200); return res.flushHeaders(); }
       // "hang" accepts the request and never answers it.
       if (mode === "hang") return;
       const m = ranges && /^bytes=(\\d+)-(\\d+)?$/.exec(req.headers.range || "");
@@ -180,20 +183,81 @@ final class ParallelRangeReaderTests: XCTestCase {
     func testARangedBodyRejectedByTheDemuxerStillCountsAsARecentClose() throws {
         // Random bytes have a successful HTTP response but no media format.
         try startServer(ranges: true, bytes: 3 * ParallelRangeReader.chunkBytes, mode: "invalid")
-        let key = "invalid-\(UUID().uuidString)"
-        var config = makeConfig(durationSeconds: 13, inputUrl: url().absoluteString, width: 640, height: 360, frameRate: 25)
-        config.liveOriginKey = key
-        config.inputConnections = 3
-        let session = try RemuxSession(config: config)
-        session.start()
-        defer { session.stop() }
-        let retrying = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in (try? self.serverStat("single")) == 1 }, object: nil)
-        wait(for: [retrying], timeout: 10)
+        for connections in [1, 3] {
+            let key = "invalid-\(UUID().uuidString)"
+            let previousSingles = try serverStat("single")
+            var config = makeConfig(durationSeconds: 13, inputUrl: url().absoluteString, width: 640, height: 360, frameRate: 25)
+            config.liveOriginKey = key
+            config.inputConnections = connections
+            let session = try RemuxSession(config: config)
+            session.start()
+            defer { session.stop() }
+            let retrying = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in (try? self.serverStat("single")) == previousSingles + 1 }, object: nil)
+            wait(for: [retrying], timeout: 10)
 
-        XCTAssertFalse(session.hasFailed)
-        XCTAssertEqual(LiveConnectionBroker.shared.activeCount(for: key), 1, "the surplus reservations must have returned")
-        XCTAssertTrue(LiveConnectionBroker.shared.recentlyClosed(key: key, within: 15), "a served body still counts even when it is not media")
-        XCTAssertNil(LiveConnectionBroker.shared.budget(for: key))
+            XCTAssertFalse(session.hasFailed)
+            XCTAssertEqual(LiveConnectionBroker.shared.activeCount(for: key), 1, "the surplus reservations must have returned")
+            XCTAssertEqual(LiveConnectionBroker.shared.recentlyClosed(key: key, within: 15), connections > 1)
+            XCTAssertNil(LiveConnectionBroker.shared.budget(for: key))
+            session.stop()
+            let released = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in LiveConnectionBroker.shared.activeCount(for: key) == 0 }, object: nil)
+            wait(for: [released], timeout: 5)
+            XCTAssertTrue(LiveConnectionBroker.shared.recentlyClosed(key: key, within: 15), "the main lease also counts a served ranged body rejected by the demuxer")
+        }
+    }
+
+    private func awaitFailedSessionRelease(_ session: RemuxSession, key: String) {
+        let released = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            session.hasFailed && LiveConnectionBroker.shared.activeCount(for: key) == 0
+        }, object: nil)
+        wait(for: [released], timeout: 5)
+    }
+
+    func testTwoRefusedSessionsLeaveNoRecentCloseAndAskOnceEach() throws {
+        try startServer(ranges: false, bytes: 65536)
+        let key = "refused-sessions-\(UUID().uuidString)"
+        for _ in 0..<2 {
+            var config = makeConfig(durationSeconds: 0, inputUrl: "http://127.0.0.1:\(port)/reject", isLive: true)
+            config.liveOriginKey = key
+            let session = try RemuxSession(config: config)
+            defer { session.stop() }
+            session.start()
+            awaitFailedSessionRelease(session, key: key)
+            XCTAssertFalse(LiveConnectionBroker.shared.recentlyClosed(key: key, within: 15))
+        }
+        XCTAssertEqual(try serverStat("single"), 2, "a rejected session must not make the next open retry")
+    }
+
+    func testTheMainLeaseCountsAnInvalidOriginBodyButNotAnEmptyBodyOrFallback() throws {
+        try startServer(ranges: false, bytes: 65536)
+        for (path, fallback, counted) in [("/payload.bin", false, true), ("/empty", false, false), ("/reject", true, false)] {
+            let key = "main-body-\(UUID().uuidString)"
+            var config = makeConfig(durationSeconds: 0, inputUrl: "http://127.0.0.1:\(port)\(path)", isLive: true)
+            config.liveOriginKey = key
+            if fallback { config.fallbackInputUrl = url().absoluteString }
+            let session = try RemuxSession(config: config)
+            defer { session.stop() }
+            session.start()
+            awaitFailedSessionRelease(session, key: key)
+            XCTAssertEqual(LiveConnectionBroker.shared.recentlyClosed(key: key, within: 15), counted,
+                           "only the origin's own successful body counts, even when the demuxer cannot read it")
+        }
+    }
+
+    func testCancellingAHeadersOnlySessionLeavesNoRecentClose() throws {
+        try startServer(ranges: false, bytes: 65536)
+        let key = "headers-only-\(UUID().uuidString)"
+        var config = makeConfig(durationSeconds: 0, inputUrl: "http://127.0.0.1:\(port)/headers-only", isLive: true)
+        config.liveOriginKey = key
+        let session = try RemuxSession(config: config)
+        defer { session.stop() }
+        session.start()
+        let headers = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in (try? self.serverStat("single")) == 1 }, object: nil)
+        wait(for: [headers], timeout: 5)
+        session.stop()
+        let released = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in LiveConnectionBroker.shared.activeCount(for: key) == 0 }, object: nil)
+        wait(for: [released], timeout: 5)
+        XCTAssertFalse(LiveConnectionBroker.shared.recentlyClosed(key: key, within: 15))
     }
 
     /// One connection means one request in flight, however far the window reaches.

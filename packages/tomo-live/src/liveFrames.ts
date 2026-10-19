@@ -572,8 +572,8 @@ async function grab(channelId: string): Promise<void> {
       notify(channelId);
       return;
     }
-    // Only an open the origin served proves it has room: one it admitted and never served proves nothing.
-    if (result?.reason !== "open") admitOrigin(item.originKey);
+    // Only the origin's own body proves it has room; fallback success or missing native evidence does not.
+    if (result?.originServed === true) admitOrigin(item.originKey);
     if (result?.unchanged && result.missing) {
       // The shown files are gone from disk: the burst goes and the channel is due for a fresh one.
       if (item.burst) dropBurst(channelId, item);

@@ -99,9 +99,7 @@ final class FrameGrabber {
     var onOpened: (() -> Void)?
     /// Runs on the grab's thread at a live source's first byte, before its container is probed: the origin serves it.
     var onServed: (() -> Void)?
-    private var defaultIoOpen: (@convention(c) (UnsafeMutablePointer<AVFormatContext>?, UnsafeMutablePointer<UnsafeMutablePointer<AVIOContext>?>?,
-                                                UnsafePointer<CChar>?, Int32, UnsafeMutablePointer<OpaquePointer?>?) -> Int32)?
-    private var servedPending = false
+    private var readEvidence: SourceReadEvidence?
     /// A card-sized preview: every clip is encoded down to this, so the cards that loop it decode little.
     private static let clipMaxBitrate: Int64 = 1_000_000
     private static let clipMaxHeight: Int32 = 360
@@ -149,24 +147,6 @@ final class FrameGrabber {
     private static let interruptCallback: @convention(c) (UnsafeMutableRawPointer?) -> Int32 = { opaque in
         guard let opaque else { return 0 }
         return Unmanaged<FrameGrabber>.fromOpaque(opaque).takeUnretainedValue().isCancelled ? 1 : 0
-    }
-
-    /// The context's own open, then, for the source's first stream, a wait for its first byte, stepped back unread.
-    private static let ioOpenNotingServed: @convention(c) (UnsafeMutablePointer<AVFormatContext>?, UnsafeMutablePointer<UnsafeMutablePointer<AVIOContext>?>?,
-                                                           UnsafePointer<CChar>?, Int32, UnsafeMutablePointer<OpaquePointer?>?) -> Int32 = { s, pb, url, flags, options in
-        guard let s, let opaque = s.pointee.opaque else { return -EINVAL }
-        let grabber = Unmanaged<FrameGrabber>.fromOpaque(opaque).takeUnretainedValue()
-        guard let open = grabber.defaultIoOpen else { return -EINVAL }
-        let ret = open(s, pb, url, flags, options)
-        guard ret >= 0, grabber.servedPending, let io = pb?.pointee else { return ret }
-        grabber.servedPending = false
-        // An origin that closes before its first byte leaves the stream at its end, for the probe to fail on as before.
-        _ = avio_r8(io)
-        if avio_tell(io) == 1 {
-            avio_seek(io, -1, SEEK_CUR)
-            grabber.onServed?()
-        }
-        return ret
     }
 
     /// The JPEG for the keyframe at or before `ms`, written on the first request and served from the
@@ -546,10 +526,9 @@ final class FrameGrabber {
         let interrupt = AVIOInterruptCB(callback: Self.interruptCallback, opaque: Unmanaged.passUnretained(self).toOpaque())
         ctx!.pointee.interrupt_callback = interrupt
         if live {
-            ctx!.pointee.opaque = Unmanaged.passUnretained(self).toOpaque()
-            defaultIoOpen = ctx!.pointee.io_open
-            ctx!.pointee.io_open = Self.ioOpenNotingServed
-            servedPending = true
+            let evidence = SourceReadEvidence { [weak self] in self?.onServed?() }
+            readEvidence = evidence
+            evidence.install(on: ctx!)
         }
 
         var opts = httpOptions()
@@ -635,6 +614,7 @@ final class FrameGrabber {
         let ret = avio_open2(&pb, inputUrl, AVIO_FLAG_READ, &cb, &opts)
         av_dict_free(&opts)
         guard ret >= 0, let reader = pb else { return inputUrl }
+        readEvidence?.observeFirstByte(reader)
         var text = Data()
         var chunk = [UInt8](repeating: 0, count: 64 * 1024)
         while text.count < 1024 * 1024 {

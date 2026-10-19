@@ -665,29 +665,36 @@ class LocalRemuxer: RCTEventEmitter {
         let clipSpan = max(0, (config["clipSpan"] as? Double) ?? 0)
         let shownPts = (config["shownPts"] as? NSNumber)?.int64Value
         let shownFile = (config["shownUri"] as? String).flatMap(URL.init(string:))
+        var originServed = false
         Self.liveFrames.request(channelId: channelId, inputUrl: inputUrl, headers: headers, deadline: deadline,
                                 span: span, interval: interval, count: count, clipSpan: clipSpan,
                                 originKey: config["originKey"] as? String, priority: LiveConnectionBroker.Priority(name: config["priority"] as? String),
                                 fallbackUrl: config["fallbackUrl"] as? String,
                                 shownPts: shownPts, shownFile: shownFile,
+                                onOriginServed: { originServed = true },
                                 frame: { [weak self] url, index in
                                     self?.publish(liveFrame: ["channelId": channelId, "uri": url.absoluteString, "index": index])
                                 }) { outcome in
+            func finish(_ payload: [String: Any]) {
+                var answer = payload
+                answer["originServed"] = originServed
+                resolve(answer)
+            }
             switch outcome {
             case .frames(let urls, let clip, let pts):
                 let shown: Any = pts.map { NSNumber(value: $0) } ?? NSNull()
                 let clipUri: Any = clip?.absoluteString ?? NSNull()
-                resolve(["uris": urls.map(\.absoluteString), "clip": clipUri, "cancelled": false, "pts": shown])
-            case .unchanged(let onDisk): resolve(["uris": [], "cancelled": false, "unchanged": true, "missing": !onDisk])
+                finish(["uris": urls.map(\.absoluteString), "clip": clipUri, "cancelled": false, "pts": shown])
+            case .unchanged(let onDisk): finish(["uris": [], "cancelled": false, "unchanged": true, "missing": !onDisk])
             case .none(let opened, let failure, let ended):
                 let failed: NSObject = failure.map { $0 as NSString } ?? NSNull()
-                resolve(["uris": [], "cancelled": false, "reason": opened ? "frame" : "open", "failure": failed, "ended": ended])
-            case .empty: resolve(["uris": [], "cancelled": false, "reason": "empty"])
+                finish(["uris": [], "cancelled": false, "reason": opened ? "frame" : "open", "failure": failed, "ended": ended])
+            case .empty: finish(["uris": [], "cancelled": false, "reason": "empty"])
             case .refused(let failure):
                 let failed: NSObject = failure.map { $0 as NSString } ?? NSNull()
-                resolve(["uris": [], "cancelled": false, "reason": "refused", "failure": failed])
-            case .busy: resolve(["uris": [], "cancelled": true, "reason": "busy"])
-            case .cancelled: resolve(["uris": [], "cancelled": true])
+                finish(["uris": [], "cancelled": false, "reason": "refused", "failure": failed])
+            case .busy: finish(["uris": [], "cancelled": true, "reason": "busy"])
+            case .cancelled: finish(["uris": [], "cancelled": true])
             }
         }
     }

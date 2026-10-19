@@ -549,8 +549,8 @@ final class LiveFrameQueueTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(started), 12, "the connect bound ends the grab, not the silence guard")
     }
 
-    /// Both paths must interrupt a probe fed continuously but too slowly to produce a frame.
-    func testATricklingFallbackKeepsTheServedReadDeadline() throws {
+    /// Direct and fallback reads bound both a trickling probe and the manifest read before it.
+    func testTricklingStreamsAndManifestsKeepTheServedReadDeadline() throws {
         let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Fixtures/tier-segment.mpegts")
         let server = Process()
@@ -563,15 +563,18 @@ final class LiveFrameQueueTests: XCTestCase {
             def log_message(self, *args): pass
             def do_GET(self):
                 self.send_response(200)
-                self.send_header('Content-Type', 'video/mp2t')
+                manifest = self.path.endswith('.m3u8')
+                self.send_header('Content-Type', 'application/vnd.apple.mpegurl' if manifest else 'video/mp2t')
                 self.end_headers()
+                if self.path == '/late.m3u8': time.sleep(3)
+                body = b'#EXTM3U\\n#keepalive\\n' if manifest else payload
                 until = time.monotonic() + 7
                 offset = 0
                 try:
                     while time.monotonic() < until:
-                        self.wfile.write(payload[offset:offset+188])
+                        self.wfile.write(body[offset:offset+188])
                         self.wfile.flush()
-                        offset = (offset + 188) % len(payload)
+                        offset = (offset + 188) % len(body)
                         time.sleep(.05)
                 except (BrokenPipeError, ConnectionResetError): pass
         server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
@@ -584,22 +587,61 @@ final class LiveFrameQueueTests: XCTestCase {
         defer { server.terminate() }
         let output = String(decoding: pipe.fileHandleForReading.availableData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         let port = try XCTUnwrap(Int(output))
-        let url = "http://127.0.0.1:\(port)/live.ts"
         let root = try scratchRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let queue = LiveFrameQueue(root: root)
-        for fallback in [false, true] {
+        for (path, fallback, delay) in [("live.ts", false, 0.0), ("live.ts", true, 0.0), ("live.m3u8", false, 0.0), ("live.m3u8", true, 0.0), ("late.m3u8", false, 3.0)] {
+            let url = "http://127.0.0.1:\(port)/\(path)"
             let key = "trickle-\(UUID().uuidString)"
             let done = XCTestExpectation(description: "served read")
+            var originServed = false
             let started = Date()
             queue.request(channelId: fallback ? "fallback" : "direct", inputUrl: fallback ? "file:///nonexistent/review.ts" : url,
-                          headers: [:], deadline: 2, count: 1, originKey: key, fallbackUrl: fallback ? url : nil) { _ in done.fulfill() }
+                          headers: [:], deadline: 2, count: 1, originKey: key, fallbackUrl: fallback ? url : nil,
+                          onOriginServed: { originServed = true }) { _ in done.fulfill() }
             wait(for: [done], timeout: 12)
-            XCTAssertLessThan(Date().timeIntervalSince(started), 4, "a served read retains its two-second deadline, including the fallback")
+            let elapsed = Date().timeIntervalSince(started)
+            XCTAssertLessThan(elapsed, delay + 4, "\(path): a served read retains its two-second deadline, including the fallback")
+            XCTAssertGreaterThanOrEqual(elapsed, delay + 1.5, "the deadline starts at the first byte, not at the response headers")
+            XCTAssertEqual(originServed, !fallback)
             XCTAssertEqual(LiveConnectionBroker.shared.activeCount(for: key), 0)
             XCTAssertNil(LiveConnectionBroker.shared.budget(for: key))
             XCTAssertEqual(LiveConnectionBroker.shared.recentlyClosed(key: key, within: 15), !fallback,
                            "the fallback's body must not count as a served origin read")
+        }
+    }
+
+    func testOriginEvidenceDistinguishesDirectAndFallbackFramesAndUnchangedResults() throws {
+        let stream = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/tier-segment.mpegts")
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = LiveFrameQueue(root: root)
+        for fallback in [false, true] {
+            let channel = fallback ? "fallback-evidence" : "direct-evidence"
+            var shownPts: Int64?
+            var shownFile: URL?
+            for verify in [false, true] {
+                let done = XCTestExpectation(description: "source evidence")
+                var servedCalls = 0
+                var outcome: LiveFrameQueue.Outcome?
+                queue.request(channelId: channel, inputUrl: fallback ? "file:///nonexistent/live.ts" : stream.absoluteString,
+                              headers: [:], count: 1, originKey: channel, fallbackUrl: fallback ? stream.absoluteString : nil,
+                              shownPts: shownPts, shownFile: shownFile, onOriginServed: { servedCalls += 1 }) {
+                    outcome = $0
+                    done.fulfill()
+                }
+                wait(for: [done], timeout: 15)
+                XCTAssertEqual(servedCalls, fallback ? 0 : 1)
+                if verify {
+                    guard case .unchanged(let onDisk)? = outcome else { return XCTFail("expected an unchanged verification") }
+                    XCTAssertTrue(onDisk)
+                } else {
+                    guard case .frames(let files, _, let pts)? = outcome else { return XCTFail("expected frames") }
+                    shownPts = try XCTUnwrap(pts)
+                    shownFile = try XCTUnwrap(files.first)
+                }
+            }
         }
     }
 

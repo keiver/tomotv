@@ -102,13 +102,15 @@ final class LiveFrameQueue {
     /// The channel's burst now, decoded in turn, with a `clipSpan` preview clip when over zero.
     /// `shownFile` names a frame of the burst on screen, the one an unchanged answer re-verifies.
     /// `frame` announces each burst file as it is written; it and the completion run on the queue's thread.
+    /// `onOriginServed` runs before completion if the original input delivers a body; never for the fallback.
     /// `originKey` names the provider whose connection budget the read spends (the URL's host when nil); no free
     /// slot answers busy, so the channel stays due. `fallbackUrl` (the channel through the server) is read once
     /// when the input itself does not open, in the time the deadline has left.
     func request(channelId: String, inputUrl: String, headers: [String: String], deadline: TimeInterval = defaultDeadline,
                  span: TimeInterval = defaultSpan, interval: TimeInterval = defaultInterval, count: Int = defaultCount,
                  clipSpan: TimeInterval = 0, originKey: String? = nil, priority: LiveConnectionBroker.Priority = .sweep, fallbackUrl: String? = nil,
-                 shownPts: Int64? = nil, shownFile: URL? = nil, frame: ((URL, Int) -> Void)? = nil, completion: @escaping (Outcome) -> Void) {
+                 shownPts: Int64? = nil, shownFile: URL? = nil, onOriginServed: (() -> Void)? = nil,
+                 frame: ((URL, Int) -> Void)? = nil, completion: @escaping (Outcome) -> Void) {
         guard let location = ChapterFramePool.location(for: channelId, in: root) else {
             completion(.none(opened: true, failure: nil, ended: false))
             return
@@ -176,6 +178,7 @@ final class LiveFrameQueue {
                 // Weak: the closure lives on the grabber, a strong capture would keep every grabber alive for good.
                 made.onOpened = { LiveConnectionBroker.shared.noteOpened(lease) }
                 made.onServed = { [weak made] in
+                    if !served { onOriginServed?() }
                     served = true
                     if let made { stopRead(made, in: deadline) }
                 }
