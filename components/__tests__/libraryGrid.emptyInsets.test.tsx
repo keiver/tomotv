@@ -7,7 +7,7 @@ import TestRenderer, { act } from "react-test-renderer";
 jest.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, left: 0, right: 86, bottom: 20 }) }));
 jest.mock("expo-router", () => ({ useRouter: () => ({ push: jest.fn(), dismissTo: jest.fn() }), useIsFocused: () => true }));
 jest.mock("@/hooks/useCardPalette", () => ({ useCardPalette: () => ({ accent: "#FFC312", onAccent: "#000" }), themedStyles: () => () => ({}) }));
-jest.mock("@/hooks/useLiveFrameViewport", () => ({ useLiveFrameViewport: () => ({ viewabilityConfig: {}, onViewableItemsChanged: jest.fn(), visibleChannelIds: new Set() }) }));
+jest.mock("@/hooks/useLiveFrameViewport", () => ({ useLiveFrameViewport: () => ({ viewabilityPairs: [], visibleChannelIds: new Set() }) }));
 jest.mock("@/services/liveFrames", () => ({ clearLiveFrameFocus: jest.fn(), setLiveFrameFocus: jest.fn() }));
 jest.mock("@/services/connectionRecovery", () => ({ getRecoveryStatus: () => "idle", subscribeRecoveryStatus: () => () => {} }));
 jest.mock("@/services/jellyfinApi", () => ({ isFolder: () => false, signOut: jest.fn() }));
