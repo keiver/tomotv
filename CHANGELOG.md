@@ -8,12 +8,16 @@ All notable changes to Tomo TV are documented here.
 
 - Channel Settings gains Connection limits: one row per tuner playlist, with the streams its provider allows this device at once, Auto or 1 to 5. Auto learns the limit from the provider's own refusals. A number set here reaches the engine at launch and whenever the tuner list reloads, for every host the playlist reads, so the guide preview, the channel ring and the wall clips never take the connection the playing channel needs
 - Two playlists at one provider count together, and the number is per device. A provider is its host and port, so two servers on one address never share a limit
+- On iPhone, iPad and Mac a channel's info panel shows the channel's latest grabbed picture while it is on air, and plays its preview clip there unless auto update is off or playback holds the link
 
 ### Changed
 
 - Channel cards show the whole live picture: a picture that would lose more than 3.5% a side to cropping shows whole over a blurred copy of itself, and its clip plays in the same box
-- Guide channel cards are 16:9, with no title bar or wash over the picture. The name is a pill at the top right, led by the favorite heart, solid accent while focused
+- Guide channel cards are 16:9, with no title bar, name or wash over the picture, and their LIVE badge sits 2 points nearer the corner
+- A guide cell's first line leads with the favorite heart and the channel name, then the programme title, shown once when the guide titles the block with the channel name. A cell without listings reads the channel name, with Seen at and No listings on its second line
+- On the channel wall a card rests on a strip under its picture that names the channel: black with a gold name at rest, gold on focus, led by the favorite heart and, for a channel judged down, a cloud glyph in place of the Offline pill. A fresh picture turns the strip LIVE red under a white name, and the red steps down to black by the two-minute refresh floor in nine one-second native opacity fades
 - On Apple TV, Live TV opens on Channels, and Down from the tab bar and each press of the Home Live TV card land there too
+- On iPhone, iPad and Mac a channel's groups show as the band in the info panel's footer, as on Apple TV, and the new group name screen opens as a sheet
 
 ### Fixed
 
@@ -32,7 +36,8 @@ All notable changes to Tomo TV are documented here.
 - A live channel carrying DVB or teletext subtitles failed to open with "Video not found on server": the engine answered 404 for the subtitle rendition's segments past the first
 - Channels went Offline on a provider at its connection cap: the wall judged a channel dead after two refusals with any 4xx or 5xx, and a 429 counted. A 401, 403, 429 or any 5xx no longer counts; the other 4xx still do
 - Pluto channels showed the same placeholder clip on every card: Pluto answers its stream URL call with an internal error when the request carries the app's own user agent, and the fallback session serves one placeholder for every channel. The call now carries a plain library agent, which Pluto answers
-- The live mark on a channel card animated every frame on every card with a picture (the draining wedge, then a pulsing dot), which kept the whole wall redrawing. It is now two still states: LIVE while the picture is seconds old, an hourglass while the next picture waits its turn
+- The live mark on a channel card animated every frame on every card with a picture (the draining wedge, then a pulsing dot), which kept the whole wall redrawing. LIVE now shows only while the picture is seconds old and nothing animates in the badge
+- The iPad and Mac info card centres in the safe area, under the title-bar tabs
 
 ## [2.2.12]
 
