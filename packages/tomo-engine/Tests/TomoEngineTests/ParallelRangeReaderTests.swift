@@ -11,15 +11,18 @@ final class ParallelRangeReaderTests: XCTestCase {
     const file = process.argv[1], mode = process.argv[2], ranges = mode !== "plain", freezeAt = Number(process.argv[3] || 0);
     const size = fs.statSync(file).size;
     // Bodies being sent at once, and the most there ever were: what a provider's connection cap counts.
-    let active = 0, peak = 0, requests = 0, frozen = 0;
+    let active = 0, peak = 0, requests = 0, frozen = 0, single = 0;
     const server = http.createServer((req, res) => {
-      if (req.url === "/stats") return res.end(JSON.stringify({ active, peak, requests, frozen }));
+      if (req.url === "/stats") return res.end(JSON.stringify({ active, peak, requests, frozen, single }));
       // "hang" accepts the request and never answers it.
       if (mode === "hang") return;
       const m = ranges && /^bytes=(\\d+)-(\\d+)?$/.exec(req.headers.range || "");
+      // Keep the ordinary FFmpeg retry pending, so a test can inspect the failed ranged read's close.
+      if (mode === "invalid" && (!m || !m[2])) { single++; return; }
       if (m) {
         const start = Number(m[1]), end = m[2] ? Number(m[2]) : size - 1;
         if (end > start) requests++;
+        if (mode === "refuse" && end > start) { res.writeHead(403); return res.end("provider connection limit"); }
         // "cap" is a provider allowing one connection: a body asked for beside another is refused.
         if (mode === "cap" && end > start && active >= 1) { res.writeHead(403); return res.end(); }
         res.writeHead(206, { "Content-Range": `bytes ${start}-${end}/${size}`, "Content-Length": end - start + 1 });
@@ -165,6 +168,34 @@ final class ParallelRangeReaderTests: XCTestCase {
         while reader.read(into: buffer, count: 65536) > 0 {}
     }
 
+    func testAProbeAndRefusedChunkBodiesDoNotCountAsAServedRead() throws {
+        try startServer(ranges: true, mode: "refuse")
+        let reader = try XCTUnwrap(ParallelRangeReader.open(url: url(), headers: [:]))
+        drain(reader)
+        reader.close()
+        XCTAssertGreaterThanOrEqual(try serverStat("requests"), 1)
+        XCTAssertFalse(reader.servedBody)
+    }
+
+    func testARangedBodyRejectedByTheDemuxerStillCountsAsARecentClose() throws {
+        // Random bytes have a successful HTTP response but no media format.
+        try startServer(ranges: true, bytes: 3 * ParallelRangeReader.chunkBytes, mode: "invalid")
+        let key = "invalid-\(UUID().uuidString)"
+        var config = makeConfig(durationSeconds: 13, inputUrl: url().absoluteString, width: 640, height: 360, frameRate: 25)
+        config.liveOriginKey = key
+        config.inputConnections = 3
+        let session = try RemuxSession(config: config)
+        session.start()
+        defer { session.stop() }
+        let retrying = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in (try? self.serverStat("single")) == 1 }, object: nil)
+        wait(for: [retrying], timeout: 10)
+
+        XCTAssertFalse(session.hasFailed)
+        XCTAssertEqual(LiveConnectionBroker.shared.activeCount(for: key), 1, "the surplus reservations must have returned")
+        XCTAssertTrue(LiveConnectionBroker.shared.recentlyClosed(key: key, within: 15), "a served body still counts even when it is not media")
+        XCTAssertNil(LiveConnectionBroker.shared.budget(for: key))
+    }
+
     /// One connection means one request in flight, however far the window reaches.
     func testAReaderGivenOneConnectionKeepsOneRequestInFlight() throws {
         try startServer(ranges: true, mode: "slow")
@@ -284,6 +315,8 @@ final class ParallelRangeReaderTests: XCTestCase {
             collected.append(Data(bytes: buffer, count: got))
         }
         XCTAssertEqual(collected, payload)
+        reader.close()
+        XCTAssertTrue(reader.servedBody, "closing retains the evidence that this read was served")
     }
 
     func testSeekServesTheTailFromTheNewOffset() throws {
@@ -320,6 +353,8 @@ final class ParallelRangeReaderTests: XCTestCase {
         cancelAt = started.addingTimeInterval(0.5)
         XCTAssertEqual(reader.read(into: buffer, count: 65536), -1)
         XCTAssertLessThan(Date().timeIntervalSince(started), 5)
+        reader.close()
+        XCTAssertFalse(reader.servedBody, "probe success and chunk headers alone are not a served body")
     }
 
     /// A chunk whose body stops arriving is fetched again after the silence limit, well inside the read timeout,

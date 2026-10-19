@@ -1281,6 +1281,7 @@ extension RemuxSession {
         // path below unchanged.
         var parallelBox: Unmanaged<RangeReaderBox>? = nil
         var parallelAvio: UnsafeMutablePointer<AVIOContext>? = nil
+        var rangedServedBody = false
         // The interrupt callback's condition: custom IO has no other way to end a blocked probe or read.
         let readerCancelled: () -> Bool = { [weak self] in self.map { $0.isCancelled || $0.hasFailed } ?? true }
         // One connection reads through the reader too: read by FFmpeg's own HTTP, a one-connection origin
@@ -1315,6 +1316,7 @@ extension RemuxSession {
                     avio_context_free(&freeingIO)
                     box.release()
                     reader.close()
+                    rangedServedBody = rangedServedBody || reader.servedBody
                     NSLog("[LocalRemuxer] Parallel input open failed (%@), using one connection", averr(ret))
                 }
             } else {
@@ -1322,13 +1324,14 @@ extension RemuxSession {
                 avformat_free_context(ctx)
                 box.release()
                 reader.close()
+                rangedServedBody = rangedServedBody || reader.servedBody
             }
         }
         openRanged(connections: inputConnections)
 
         if parallelBox == nil {
-        // One connection reads the input from here: the leases its ranged ones would have held go back.
-        rangedLeases.forEach { $0.release() }
+        // Unused reservations are no recent close; only a body the origin served can still count there.
+        rangedLeases.forEach { $0.release(counted: rangedServedBody) }
         rangedLeases = []
         while true {
             inputCtx = avformat_alloc_context()
