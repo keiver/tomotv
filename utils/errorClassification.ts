@@ -24,6 +24,8 @@ export enum PlaybackErrorType {
   STALLED = "STALLED",
   /** A stream behind real DRM (FairPlay, Widevine, PlayReady, SAMPLE-AES): no lane can play it. */
   PROTECTED = "PROTECTED",
+  /** A live provider refused the channel (429): its streams at once are in use elsewhere. */
+  PROVIDER_LIMIT = "PROVIDER_LIMIT",
   UNKNOWN = "UNKNOWN",
 }
 
@@ -125,6 +127,7 @@ const PLAYBACK_ERROR_KEYS: Record<PlaybackErrorType, StringKey> = {
   [PlaybackErrorType.DECODE]: "player.error.decode",
   [PlaybackErrorType.STALLED]: "player.error.stalled",
   [PlaybackErrorType.PROTECTED]: "player.error.protected",
+  [PlaybackErrorType.PROVIDER_LIMIT]: "player.error.providerLimit",
   [PlaybackErrorType.UNKNOWN]: "player.error.unknown",
 };
 

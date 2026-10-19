@@ -72,6 +72,7 @@ export {
   clearPosterFrameCache,
   engineCodecAllowlists,
   engineInputMissing,
+  engineInputOverLimit,
   engineProgress,
   engineStarving,
   fetchImageSubtitleTrack,

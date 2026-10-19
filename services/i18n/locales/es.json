@@ -359,6 +359,7 @@
   "player.error.decode": "No se puede decodificar el video. Prueba otra calidad",
   "player.error.stalled": "La reproducción se detuvo esperando al servidor",
   "player.error.protected": "Este canal está protegido con DRM y no se puede reproducir",
+  "player.error.providerLimit": "Tu proveedor de televisión en vivo limita cuántas emisiones se reproducen a la vez, y otro dispositivo las está usando",
   "player.error.unknown": "No se pudo cargar el video",
   "player.error.streamFailed": "No se pudo crear la transmisión de video. Revisa tus ajustes.",
   "player.error.startFailed": "No se pudo iniciar la reproducción. Puede que el archivo de video esté dañado o no sea compatible.",

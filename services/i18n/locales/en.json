@@ -359,6 +359,7 @@
   "player.error.decode": "Unable to decode video. Try a different quality setting",
   "player.error.stalled": "Playback stalled while waiting for the server",
   "player.error.protected": "This channel is DRM protected and cannot be played",
+  "player.error.providerLimit": "Your live TV provider limits how many streams can play at once, and another device is using them",
   "player.error.unknown": "Failed to load video",
   "player.error.streamFailed": "Failed to create video stream. Please check your settings.",
   "player.error.startFailed": "Failed to start video playback. The video file may be corrupted or incompatible.",

@@ -7,6 +7,7 @@ export {
   forwardBufferFor,
   keptForReason,
   linkAffordsChapterFrames,
+  LiveProviderFullError,
   nextLinkCap,
   stillPullingInput,
   type EngineProgressReading,

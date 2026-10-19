@@ -4,6 +4,7 @@ import {
   canRemuxLocally,
   dolbyVisionSupplementalCodecs,
   engineInputMissing,
+  engineInputOverLimit,
   engineProgress,
   engineStarving,
   liveStarving,
@@ -1313,6 +1314,7 @@ describe("startLocalRemux", () => {
     // Metro serves this JS to whatever binary is installed. Subscribing to an event the running
     // build does not declare is a hard error in RCTEventEmitter and takes the player with it.
     jest.resetModules();
+    const registered = new Map(mockListeners);
     mockListeners.clear();
     mockNativeEvents.splice(mockNativeEvents.indexOf("onEngineTier"), 1);
     try {
@@ -1321,6 +1323,8 @@ describe("startLocalRemux", () => {
       expect(mockListeners.has("onEngineTier")).toBe(false);
     } finally {
       mockNativeEvents.push("onEngineTier");
+      mockListeners.clear();
+      registered.forEach((handler, name) => mockListeners.set(name, handler));
     }
   });
 
@@ -1364,6 +1368,39 @@ describe("startLocalRemux", () => {
     expect(engineInputMissing("open_input: Input/output error")).toBe(false);
     expect(engineInputMissing("open_input: Server returned 5XX Server Error reply")).toBe(false);
     expect(engineInputMissing("read_frame: Immediate exit requested")).toBe(false);
+  });
+
+  it("reads FFmpeg's 429 wording as a provider over its limit and nothing else", () => {
+    expect(engineInputOverLimit("open_input: Server returned 429 Too Many Requests")).toBe(true);
+    expect(engineInputOverLimit("open_input: Server returned 4XX Client Error, but not one of 40{0,1,3,4}")).toBe(false);
+    expect(engineInputOverLimit("open_input: Server returned 5XX Server Error reply")).toBe(false);
+    expect(engineInputOverLimit("open_input: Server returned 404 Not Found")).toBe(false);
+  });
+
+  it("hands a failure reported before startRemux resolved to the subscriber that arrives after, until the session stops", async () => {
+    const token = "early-failure-session";
+    const failure = { token, message: "open_input: Server returned 429 Too Many Requests" };
+    mockStartRemux.mockImplementationOnce(async () => {
+      mockListeners.get("onEngineFailed")!(failure);
+      return `http://127.0.0.1:5000/${token}/master.m3u8`;
+    });
+    await startLocalRemux(item());
+    const onFailure = jest.fn();
+    const other = jest.fn();
+    const stop = subscribeEngineFailure(token, onFailure);
+    const stopOther = subscribeEngineFailure("another-session", other);
+    expect(onFailure).not.toHaveBeenCalled();
+    await Promise.resolve();
+    expect(onFailure).toHaveBeenCalledWith(failure);
+    expect(other).not.toHaveBeenCalled();
+    stop();
+    stopOther();
+    await stopLocalRemux(token);
+    const afterStop = jest.fn();
+    const stopAfter = subscribeEngineFailure(token, afterStop);
+    await Promise.resolve();
+    expect(afterStop).not.toHaveBeenCalled();
+    stopAfter();
   });
 
   it("ignores a replayed plan from a previous session", async () => {

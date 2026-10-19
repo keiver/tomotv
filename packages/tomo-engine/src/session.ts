@@ -1,5 +1,5 @@
 import { engineLog } from "./config";
-import { attributeSession, forgetSession, watchEngineLink, watchEnginePlan, watchEngineStage, watchEngineTier } from "./events";
+import { attributeSession, forgetSession, watchEngineFailure, watchEngineLink, watchEnginePlan, watchEngineStage, watchEngineTier } from "./events";
 import { engineModule, isLocalRemuxAvailable } from "./native";
 import type { SourcePosition, SubtitleRendition } from "./subtitles";
 
@@ -191,6 +191,7 @@ export async function startSession(config: EngineSessionConfig, options: StartSe
   }
   watchEngineLink();
   watchEngineStage();
+  watchEngineFailure();
   const url: string = await engineModule().startRemux(config);
   // The token is the path segment of the master URL (.../<token>/master.m3u8).
   // The CALLER owns it and must hand it back to stopLocalRemux.

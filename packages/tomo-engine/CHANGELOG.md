@@ -13,6 +13,8 @@
 - `setOriginConnectionBudget` under the reads already held makes the lowest ones below playback yield until the provider fits the budget.
 - A read the app gave no key is keyed by its URL's host and port (`LiveConnectionBroker.key(forURL:)`), so two servers on one address never share a budget.
 - `isConnectionBudgetFailure(message)`: whether a session ended for its provider's budget (no connection left, or its connection yielded to a higher read) rather than for the channel.
+- `engineInputOverLimit(message)`: whether a failure is FFmpeg's 429 on the input. `LiveProviderFullError` carries `PLAYBACK_ERROR_IDS.LIVE_LIMIT` (`PB-LIVE-LIMIT`).
+- `subscribeEngineFailure` hands a subscriber the failure its session reported before it subscribed, on the next microtask, until the session stops. `startSession` subscribes to the failure event before `startRemux`, so a failure that beats the start promise is kept.
 - A live channel with an image subtitle track (DVB, teletext) failed to open in the player: the rendition's VTT segments were served only for segment 0, since the route checked them against a counter that moves only at end of file, and AVPlayer gave up on the 404 with -1100. The route now serves every segment the subtitle playlist lists.
 - `scripts/demo-livetv/relay.py` test knobs `RELAY_CAP_STATUS` (the refusal's status line) and `RELAY_RELEASE_LAG_MS` (how long a closed reader keeps counting).
 

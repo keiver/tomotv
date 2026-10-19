@@ -148,6 +148,7 @@ jest.mock("@/services/localRemux", () => ({
     return jest.fn();
   }),
   engineInputMissing: jest.requireActual("@/services/localRemux").engineInputMissing,
+  engineInputOverLimit: jest.requireActual("@/services/localRemux").engineInputOverLimit,
   engineProgress: jest.fn(() => Promise.resolve(mockProgress())),
   readBound: jest.requireActual("@/services/localRemux").readBound,
   READ_BOUND_SHARE: jest.requireActual("@/services/localRemux").READ_BOUND_SHARE,
@@ -1724,6 +1725,35 @@ describe("useVideoPlayback (mounted)", () => {
       const { ref } = await mount({ videoId: "video-1" });
 
       expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: false });
+      expect(closeLiveStream).toHaveBeenCalledWith("ls-1");
+    });
+
+    it("says the provider's streams are in use when the channel's open gets a 429, without opening it on the server", async () => {
+      mockDetails.mockResolvedValue(originChannel());
+      mockPreflight = () => null;
+      mockFailure = () => ({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", message: "open_input: Server returned 429 Too Many Requests" });
+
+      const { ref } = await mount({ videoId: "video-1" });
+
+      expect(ref.current!.get().state).toEqual({
+        type: "ERROR",
+        error: "Your live TV provider limits how many streams can play at once, and another device is using them",
+        canRetryWithTranscode: false,
+        ref: { id: "PB-LIVE-LIMIT", lane: "ENG" },
+      });
+      expect(openChannel).not.toHaveBeenCalled();
+      expect(noteOpenFailed).not.toHaveBeenCalled();
+      expect(mockProbeEmit).not.toHaveBeenCalledWith("fallback", expect.anything());
+    });
+
+    it("says the same on a server-lane channel whose 429 would come back through the server", async () => {
+      mockPreflight = () => null;
+      mockFailure = () => ({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", message: "open_input: Server returned 429 Too Many Requests" });
+
+      const { ref } = await mount({ videoId: "video-1" });
+
+      expect(ref.current!.get().state).toMatchObject({ type: "ERROR", ref: { id: "PB-LIVE-LIMIT", lane: "ENG" } });
+      expect(ref.current!.get().sourceUri).not.toBe(SERVER_MASTER);
       expect(closeLiveStream).toHaveBeenCalledWith("ls-1");
     });
 

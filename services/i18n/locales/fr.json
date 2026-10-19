@@ -359,6 +359,7 @@
   "player.error.decode": "Impossible de décoder la vidéo. Essaie une autre qualité",
   "player.error.stalled": "La lecture s'est bloquée en attendant le serveur",
   "player.error.protected": "Cette chaîne est protégée par DRM et ne peut pas être lue",
+  "player.error.providerLimit": "Ton fournisseur de TV en direct limite le nombre de flux à la fois, et un autre appareil les utilise",
   "player.error.unknown": "Impossible de charger la vidéo",
   "player.error.streamFailed": "Impossible de créer le flux vidéo. Vérifie tes réglages.",
   "player.error.startFailed": "Impossible de démarrer la lecture. Le fichier vidéo est peut-être endommagé ou incompatible.",

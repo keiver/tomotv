@@ -26,6 +26,13 @@ export class EngineInputMissingError extends IdentifiedError {
   }
 }
 
+/** A channel's provider answered the engine's read with a 429; the server reads the same account. */
+export class LiveProviderFullError extends IdentifiedError {
+  constructor(message: string) {
+    super(PLAYBACK_ERROR_IDS.LIVE_LIMIT, message);
+  }
+}
+
 export interface PreflightGate {
   /** Hand the gate an outcome. False once the gate is closed. */
   settle: (outcome: PreflightOutcome) => boolean;

@@ -359,6 +359,7 @@
   "player.error.decode": "Video kann nicht dekodiert werden. Probiere eine andere Qualität",
   "player.error.stalled": "Wiedergabe hängt beim Warten auf den Server",
   "player.error.protected": "Dieser Sender ist DRM-geschützt und kann nicht abgespielt werden",
+  "player.error.providerLimit": "Dein Live-TV-Anbieter begrenzt, wie viele Streams gleichzeitig laufen, und ein anderes Gerät nutzt sie gerade",
   "player.error.unknown": "Video konnte nicht geladen werden",
   "player.error.streamFailed": "Videostream konnte nicht erstellt werden. Prüfe deine Einstellungen.",
   "player.error.startFailed": "Wiedergabe konnte nicht gestartet werden. Die Videodatei ist möglicherweise beschädigt oder nicht kompatibel.",

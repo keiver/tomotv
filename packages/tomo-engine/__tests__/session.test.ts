@@ -14,6 +14,7 @@ jest.mock("react-native", () => ({
 jest.mock("../src/events", () => ({
   attributeSession: jest.fn(),
   forgetSession: jest.fn(),
+  watchEngineFailure: jest.fn(),
   watchEngineLink: jest.fn(),
   watchEnginePlan: jest.fn(),
   watchEngineStage: jest.fn(),

@@ -36,6 +36,7 @@ import {
   needsSingleServerTranscode,
   tierDeclaredFor,
   engineInputMissing,
+  engineInputOverLimit,
   engineProgress,
   engineStarving,
   liveStarving,
@@ -129,6 +130,7 @@ import {
   keptForReason,
   nextLinkCap,
   linkAffordsChapterFrames,
+  LiveProviderFullError,
   stillPullingInput,
   type PreflightOutcome,
   type ThroughputWatch,
@@ -1285,7 +1287,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             probeEmit("preflight", { produceSeconds: null, segmentSeconds: null, readSeconds: null, thermal: "unknown", remembered: false, keptForTier: true });
             logger.info("Ladder offered, opening without timing the engine primary", { service: "useVideoPlayback" });
           } else {
-            // A failure reported before these listeners existed is never replayed: ask the session itself.
+            // A session that ended with no failure report: ask the session itself.
             const startedAlive = await engineProgress(token);
             if (startedAlive !== null && !startedAlive.alive) preflight.settle({ failed: "engine session ended before its pre-flight" });
             // A deadline that finds the session alive and still pulling bytes at the link's pace
@@ -1329,6 +1331,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               localRemuxTokenRef.current = null;
               dropThroughputWatch(throughputRef.current);
               if (engineInputMissing(outcome.failed) && !playsFromDisk(videoId)) throw new EngineInputMissingError(outcome.failed);
+              if (isLiveRef.current && engineInputOverLimit(outcome.failed)) throw new LiveProviderFullError(outcome.failed);
               throw new IdentifiedError(PLAYBACK_ERROR_IDS.ENGINE_FAILED, `engine failed: ${outcome.failed}`);
             }
             const sample = outcome;
@@ -1592,8 +1595,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // A run the viewer already left: its session is torn down, and every ref below belongs
             // to the item that replaced it.
             if (requestIdRef.current !== currentRequestId) return false;
-            if (serverDenied) throw remuxError;
-            const liveServerUrl = isLiveRef.current ? await openLiveServerRung() : null;
+            // The server reads the provider on the same account, and its pass-through answers the same 429.
+            const providerFull = remuxError instanceof LiveProviderFullError;
+            if (serverDenied && !providerFull) throw remuxError;
+            const liveServerUrl = isLiveRef.current && !providerFull ? await openLiveServerRung() : null;
             if (requestIdRef.current !== currentRequestId) return false;
             if (liveServerUrl) {
               // The server's transcode is the rung below the engine; its open stays held for it.
@@ -1613,8 +1618,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               probeEmit("error", { mode: "localRemux", message: remuxError instanceof Error ? remuxError.message : String(remuxError), willRetry: false });
               void closeLiveStream(liveStreamIdRef.current);
               liveStreamIdRef.current = null;
-              const errorType = classifyPlaybackError(remuxError);
-              const serverOff = serverOffForError(remuxError, errorType, serverTranscodeBlock(details), false);
+              const errorType = providerFull ? PlaybackErrorType.PROVIDER_LIMIT : classifyPlaybackError(remuxError);
+              const serverOff = providerFull ? null : serverOffForError(remuxError, errorType, serverTranscodeBlock(details), false);
               dispatch({
                 type: "PLAYER_ERROR",
                 error: { message: getPlaybackErrorMessage(errorType), ref: { id: errorIdOf(remuxError, PLAYBACK_ERROR_IDS.STREAM), lane: "ENG" }, ...(serverOff ? { serverOff } : {}) },
