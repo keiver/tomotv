@@ -42,6 +42,11 @@ import { useItemPoster } from "@/hooks/useItemPoster";
 import { PosterCollage } from "@/components/poster-collage";
 import { ChannelGroupBand } from "@/components/live-tv/channel-group-band";
 import { ChannelGroupSection } from "@/components/live-tv/channel-group-section";
+import { LiveClip } from "@/components/live-tv/live-clip";
+import { useLiveClip, useLiveFrame } from "@/hooks/useLiveFrame";
+import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
+import { usePlaybackHeld } from "@/hooks/usePlaybackHeld";
+import { LIVE_FRAME_TRANSITION_MS } from "@/services/liveFrames";
 import { folderPosterSource, heroArtBoxed, heroArtFrame, heroBoxFrame } from "@/services/itemArtwork";
 import { useFolderDownload } from "@/hooks/useFolderDownload";
 import { useItemDownload } from "@/hooks/useItemDownload";
@@ -485,6 +490,13 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   const programAiring = !!liveProgram && detailsAtMs > 0 && isAiring(liveProgram, detailsAtMs);
   const programEnded = !!liveProgram && detailsAtMs > 0 && programTimes(liveProgram).endMs <= detailsAtMs;
   const watchable = !!liveChannelId && (liveChannel || programAiring);
+  // Touch platforms: while the channel airs, its last grabbed picture and preview clip outrank its art.
+  const liveArtChannel = !IS_TV && watchable ? liveChannelId : "";
+  const liveFrame = useLiveFrame(liveArtChannel);
+  const liveClip = useLiveClip(liveArtChannel);
+  const { autoUpdate } = useLiveTvPreferences();
+  const playbackHeld = usePlaybackHeld();
+  const clipShown = !!liveFrame && !!liveClip && active && autoUpdate && !playbackHeld;
   const handleWatch = useCallback(() => {
     if (!liveChannelId) return;
     showGlobalLoader();
@@ -1004,7 +1016,20 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
           setHeroWidth(event.nativeEvent.layout.width);
           setHeroMeasured(true);
         }}>
-        {heroRef && heroArt ? (
+        {liveFrame ? (
+          <View pointerEvents="none" style={[styles.liveArt, { height: heroArtArea }]}>
+            <Image
+              source={liveFrame}
+              style={StyleSheet.absoluteFill}
+              contentFit="cover"
+              transition={LIVE_FRAME_TRANSITION_MS}
+              cachePolicy="none"
+              accessible
+              accessibilityLabel={t("a11y.artwork").replace("{title}", title)}
+            />
+            {clipShown && liveClip ? <LiveClip clip={liveClip} /> : null}
+          </View>
+        ) : heroRef && heroArt ? (
           heroBoxed ? null : (
             <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, heroFadeStyle]}>
               <Image key={heroUri} source={heroRef} style={heroCropStyle} contentFit="cover" transition={0} accessible accessibilityLabel={t("a11y.artwork").replace("{title}", title)} />
@@ -1026,7 +1051,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
         )}
         <View style={[StyleSheet.absoluteFill, styles.heroScrim, footScrim]} />
         {/* Above the fade: a box has edges of its own to show. */}
-        {heroRef && heroArt && heroBoxed ? (
+        {!liveFrame && heroRef && heroArt && heroBoxed ? (
           <Animated.View pointerEvents="none" style={[heroCropStyle, heroFadeStyle]}>
             <Image key={heroUri} source={heroRef} style={StyleSheet.absoluteFill} contentFit="contain" transition={0} accessible accessibilityLabel={t("a11y.artwork").replace("{title}", title)} />
           </Animated.View>
@@ -1149,6 +1174,13 @@ const styles = StyleSheet.create({
   // Bottom stop matches the surface under the hero: the section bg on TV, the sheet on phone.
   heroScrim: {
     experimental_backgroundImage: `linear-gradient(to bottom, ${HERO_FADE_RGB}0) 15%, ${HERO_FADE_RGB}0.3) 50%, ${HERO_FADE_RGB}0.7) 80%, ${HERO_FADE_RGB}1) 100%)`,
+  },
+  // The art area itself, which the fade covers by its foot; the clip fills it as the picture does.
+  liveArt: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
   },
   heroEdge: {
     position: "absolute",
