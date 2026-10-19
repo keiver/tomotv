@@ -228,7 +228,10 @@ jest.mock("@/services/subtitlePreference", () => ({
 }));
 
 jest.mock("@/services/jellyfin/bitrateTest", () => ({ rememberedBitrate: jest.fn(() => Promise.resolve(null)) }));
-jest.mock("@/services/jellyfin/session", () => ({ getQualitySettings: jest.fn(() => Promise.resolve({ mode: "auto", index: 5, label: "Original" })) }));
+jest.mock("@/services/jellyfin/session", () => ({
+  getQualitySettings: jest.fn(() => Promise.resolve({ mode: "auto", index: 5, label: "Original" })),
+  getCachedConfig: jest.fn(() => ({ server: "", apiKey: "", userId: "", deviceId: "" })),
+}));
 
 const mockDetails = fetchVideoDetails as jest.Mock;
 const mockNeedsTranscoding = needsTranscoding as jest.Mock;
