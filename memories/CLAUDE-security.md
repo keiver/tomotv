@@ -725,7 +725,7 @@ request.timeoutInterval = timeout
 ```
 
 **Implementation:**
-Add `configureTimeout(_ timeout: TimeInterval)` method to Swift module and expose via React Native bridge.
+Add `configureTimeout(_ timeout: TimeInterval)` method to Swift module and expose it to JS.
 
 **Impact:** Allows tuning for slow connections or fast local servers.
 

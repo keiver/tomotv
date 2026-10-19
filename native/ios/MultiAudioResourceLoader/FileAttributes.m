@@ -2,7 +2,7 @@
 //  FileAttributes.m
 //  TomoTV
 //
-//  React Native bridge for the FileAttributes Swift module.
+//  React Native export of the FileAttributes Swift module.
 //
 
 #import <React/RCTBridgeModule.h>

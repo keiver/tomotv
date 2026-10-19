@@ -2,7 +2,7 @@
 import PackageDescription
 
 // Host-side test package for the engine. The app builds the same sources as the
-// TomoEngine pod (ios/TomoEngine.podspec); only the two React bridges stay out here.
+// TomoEngine pod (ios/TomoEngine.podspec); only the two React Native module files stay out here.
 let ffmpeg = [
     "Libavcodec", "Libavformat", "Libavutil", "Libswresample",
     "Libswscale", "Libavfilter", "Libdav1d", "Libuavs3d", "Libass", "Mbedtls", "Libzvbi",
@@ -18,7 +18,7 @@ let package = Package(
         .library(name: "Libarchive", targets: ["Libarchive"]),
     ],
     targets: [
-        // XMLTV on libxml2 SAX and zlib, M3U playlists. No UIKit outside the bridge.
+        // XMLTV on libxml2 SAX and zlib, M3U playlists. No UIKit outside the native module.
         .target(
             name: "TomoLiveSources",
             path: "ios/LiveSources",

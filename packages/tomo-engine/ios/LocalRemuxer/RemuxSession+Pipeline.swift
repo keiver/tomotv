@@ -97,7 +97,7 @@ extension RemuxSession {
 
     /// Interrupt callback: aborts blocking network I/O when the session dies. It runs on the pipeline
     /// thread inside the open, the probe and every read, so it is also where the bytes the input has
-    /// pulled before the read loop get published (`progress()` runs on the bridge queue and may not
+    /// pulled before the read loop get published (`progress()` runs on the module's method queue and may not
     /// touch the input context itself).
     static let interruptCallback: @convention(c) (UnsafeMutableRawPointer?) -> Int32 = { opaque in
         guard let opaque else { return 0 }

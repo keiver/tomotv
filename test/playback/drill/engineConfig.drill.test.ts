@@ -1,5 +1,5 @@
 /**
- * Captures the exact engine config the app's startLocalRemux hands the native bridge, for the
+ * Captures the exact engine config the app's startLocalRemux hands the native module, for the
  * host Slipstream drill (packages/tomo-engine/Tests/TomoEngineTests/SlipstreamDrillTests.swift). Skipped
  * unless DRILL_ITEM_ID is set; scripts/abr-drill.mjs sets the rest.
  *
@@ -60,7 +60,7 @@ describe("Slipstream drill engine config", () => {
     if (process.env.JELLYFIN_API_KEY) expect(serialized).not.toContain(process.env.JELLYFIN_API_KEY);
   });
 
-  run("writes the bridge config startLocalRemux builds for the item", async () => {
+  run("writes the config startLocalRemux sends to native for the item", async () => {
     const outPath = process.env.DRILL_OUT ?? "drill-config.json";
     const upstream = process.env.JELLYFIN_URL;
     const apiKey = process.env.JELLYFIN_API_KEY;

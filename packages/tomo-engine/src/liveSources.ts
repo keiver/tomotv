@@ -140,7 +140,7 @@ export async function guideProgrammes(token: string, channelIds: readonly string
 /**
  * The loaded guide's programmes on the given channels overlapping the window whose title, sub-title or
  * description carries every word of `query`, case and accents folded; earliest first, at most `limit`.
- * Matched natively, so a search never carries the whole guide across the bridge.
+ * Matched natively, so a search never carries the whole guide to JS.
  */
 export async function searchGuide(token: string, channelIds: readonly string[], windowMs: { from: number; to: number }, query: string, limit: number): Promise<GuideProgramme[]> {
   const programmes = (await liveSourcesModule().searchGuide({ token, channelIds, from: windowMs.from, to: windowMs.to, query, limit })) as unknown;

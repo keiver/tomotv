@@ -2,7 +2,7 @@
 //  LocalRemuxer.m
 //  TomoTV
 //
-//  Objective-C bridge exposing the LocalRemuxer Swift module to React Native.
+//  Objective-C export of the LocalRemuxer Swift module to React Native.
 //
 
 #import <React/RCTBridgeModule.h>

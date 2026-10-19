@@ -227,7 +227,7 @@ class LocalRemuxer: RCTEventEmitter {
         return current.route(parts[1])
     }
 
-    // MARK: - Bridge API
+    // MARK: - JS API
 
     /// Start a remux session. Config keys:
     ///   inputUrl: String           : Jellyfin /stream?Static=true URL
@@ -1013,7 +1013,7 @@ class LocalRemuxer: RCTEventEmitter {
         resolve(nil)
     }
 
-    /// What this device decodes (DeviceDecode). Off the bridge thread: the first
+    /// What this device decodes (DeviceDecode). Off the module's method queue: the first
     /// answer opens VideoToolbox sessions.
     @objc func videoDecodeSupport(
         _ resolve: @escaping RCTPromiseResolveBlock,

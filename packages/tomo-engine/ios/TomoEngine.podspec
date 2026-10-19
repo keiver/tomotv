@@ -1,7 +1,7 @@
 #
 # TomoEngine.podspec
 #
-# The on-device playback engine (LocalRemuxer). Its bridge is a legacy
+# The on-device playback engine (LocalRemuxer). Its React Native module is a legacy
 # RCT_EXTERN_MODULE class, so the pod depends on React-Core; FFmpeg comes from
 # the TomoFFmpeg pod beside this file. The package's app.plugin.js adds this pod,
 # TomoLiveSources and TomoFFmpeg to the app's Podfile.

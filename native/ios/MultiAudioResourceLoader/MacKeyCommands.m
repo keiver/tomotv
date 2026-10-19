@@ -2,7 +2,7 @@
 //  MacKeyCommands.m
 //  TomoTV
 //
-//  React Native bridge for the MacKeyCommands Swift module: the event stream, plus the
+//  React Native export of the MacKeyCommands Swift module: the event stream, plus the
 //  one setter a screen uses to claim the bare arrow keys while it is on screen.
 //
 

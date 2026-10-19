@@ -122,7 +122,7 @@ class LiveSources: NSObject {
     }
 
     /// The programmes on the channels in the window that carry every word of the query, matched here
-    /// so a search never ships the whole guide across the bridge.
+    /// so a search never ships the whole guide to JS.
     @objc func searchGuide(_ config: NSDictionary, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
         guard let token = config["token"] as? String, let channelIds = config["channelIds"] as? [String], let query = config["query"] as? String else {
             reject("invalid_config", "searchGuide needs token, channelIds and query", nil)

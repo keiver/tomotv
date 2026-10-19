@@ -2,7 +2,7 @@
 //  TunerGroups.m
 //  TomoTV
 //
-//  Objective-C bridge exposing the TunerGroups Swift module to React Native.
+//  Objective-C export of the TunerGroups Swift module to React Native.
 //
 
 #import <React/RCTBridgeModule.h>

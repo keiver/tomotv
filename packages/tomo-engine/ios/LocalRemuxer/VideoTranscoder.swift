@@ -817,7 +817,7 @@ final class VideoTranscoder {
 
     /// Runs `inputUrl` through the decoder, conversion and encoder playback uses for
     /// `wallSeconds` of wall clock, looping the file at EOF; `encode == false` stops at the
-    /// decoder. Bridge-ready record; a run that cannot start or breaks carries `failed`.
+    /// decoder. A record ready to send to JS; a run that cannot start or breaks carries `failed`.
     static func benchmark(inputUrl: String, wallSeconds: Double, encode: Bool) -> [String: Any] {
         var result: [String: Any] = ["encode": encode, "thermalBefore": thermalName()]
         var inputCtx: UnsafeMutablePointer<AVFormatContext>? = nil

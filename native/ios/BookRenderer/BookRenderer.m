@@ -2,7 +2,7 @@
 //  BookRenderer.m
 //  TomoTV
 //
-//  Objective-C bridge exposing the BookRenderer Swift module to React Native.
+//  Objective-C export of the BookRenderer Swift module to React Native.
 //
 
 #import <React/RCTBridgeModule.h>

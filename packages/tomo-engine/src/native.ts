@@ -1,11 +1,11 @@
 import { NativeEventEmitter, NativeModules, Platform } from "react-native";
 
-/** The LocalRemuxer bridge, read at call time so a module installed after import is seen. */
+/** The LocalRemuxer native module, read at call time so a module installed after import is seen. */
 export function engineModule() {
   return NativeModules.LocalRemuxer;
 }
 
-/** The LiveSources bridge: XMLTV guides and M3U playlists. */
+/** The LiveSources native module: XMLTV guides and M3U playlists. */
 export function liveSourcesModule() {
   return NativeModules.LiveSources;
 }

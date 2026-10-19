@@ -19,7 +19,7 @@ npm run test:playback -- --list              # print the manifest and exit
 ### Host manifest acceptance
 
 Unit tests cannot establish which HLS variant AVPlayer actually selects. The host
-drill captures the app's bridge configuration and plays the native engine's
+drill captures the engine configuration the app sends and plays the native engine's
 loopback HLS through macOS AVPlayer. It does not launch or control the Apple TV.
 
 For a captured config on an unthrottled link, run:
@@ -305,7 +305,7 @@ evidence before these results can be a release gate. Simulator results never
 replace the physical Apple TV matrix. Results append to `$TMPDIR/tomotv-drill/drill-results.md`
 with each run's timeline, proxy log and engine log beside them.
 
-The host path captures the app's real bridge config through
+The host path captures the app's real engine config through
 `test/playback/drill/engineConfig.drill.test.ts` and plays it in
 `SlipstreamDrillTests`; the device path signs the TV into the proxy with
 `tomotv://dev-session`, plays through the app itself, and restores the TV to

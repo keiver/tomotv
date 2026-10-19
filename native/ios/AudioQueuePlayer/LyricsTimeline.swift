@@ -34,7 +34,7 @@ struct Lyrics {
         lines = rawLines.map { raw in
             let text = raw["text"] as? String ?? ""
             let length = (text as NSString).length
-            // NSNumber, not Int or Double: the bridge sends 3 and 3.0 alike, and a cast to one fails the other.
+            // NSNumber, not Int or Double: JS sends 3 and 3.0 alike, and a cast to one fails the other.
             let cues: [LyricCue] = ((raw["cues"] as? [[String: Any]]) ?? []).compactMap { cue in
                 guard let position = (cue["position"] as? NSNumber)?.intValue,
                       let endPosition = (cue["endPosition"] as? NSNumber)?.intValue,

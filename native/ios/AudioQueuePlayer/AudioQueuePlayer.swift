@@ -183,7 +183,7 @@ class AudioQueuePlayer: RCTEventEmitter {
         super.invalidate()
     }
 
-    // MARK: - Bridge API
+    // MARK: - JS API
 
     /// Start a queue. Config keys:
     ///   tracks: [{id, url, title, artist, album, description, artworkUrl, durationSeconds}]

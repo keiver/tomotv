@@ -1,6 +1,6 @@
 import Foundation
 
-/// The loopback routes of one session, shared by the app bridge (LocalRemuxer.route) and the drills.
+/// The loopback routes of one session, shared by the native module (LocalRemuxer.route) and the drills.
 extension RemuxSession {
     /// The time in "frame-{ms}.jpg"; the path carries it because the server strips queries.
     static func frameMilliseconds(_ name: String) -> Int64? {

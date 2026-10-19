@@ -2,7 +2,7 @@
 //  EnginePlan.swift
 //  TomoTV
 //
-//  Turns the engine's per-stream decisions into JS-bridgeable dictionaries, so
+//  Turns the engine's per-stream decisions into dictionaries JS can receive, so
 //  the app can report what the remuxer actually did instead of anyone inferring
 //  it from the output.
 //

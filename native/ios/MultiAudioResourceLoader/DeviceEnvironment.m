@@ -2,7 +2,7 @@
 //  DeviceEnvironment.m
 //  TomoTV
 //
-//  React Native bridge for the DeviceEnvironment Swift module.
+//  React Native export of the DeviceEnvironment Swift module.
 //
 
 #import <React/RCTBridgeModule.h>
