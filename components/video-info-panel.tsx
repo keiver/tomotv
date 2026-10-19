@@ -489,8 +489,8 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   const programAiring = !!liveProgram && detailsAtMs > 0 && isAiring(liveProgram, detailsAtMs);
   const programEnded = !!liveProgram && detailsAtMs > 0 && programTimes(liveProgram).endMs <= detailsAtMs;
   const watchable = !!liveChannelId && (liveChannel || programAiring);
-  // Touch platforms: while the channel airs, its last grabbed picture and preview clip outrank its art.
-  const liveArtChannel = !IS_TV && watchable ? liveChannelId : "";
+  // While the channel airs, its last grabbed picture and preview clip outrank its art.
+  const liveArtChannel = watchable ? liveChannelId : "";
   const liveFrame = useLiveFrame(liveArtChannel);
   const liveClip = useLiveClip(liveArtChannel);
   const { autoUpdate } = useLiveTvPreferences();
