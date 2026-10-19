@@ -44,7 +44,7 @@ jest.mock("@/components/info-action-row", () => ({ InfoActionRow: () => null }))
 jest.mock("@/components/info-focus-row", () => ({ InfoFocusRow: () => null }));
 jest.mock("@/components/FocusableButton", () => ({ FocusableButton: () => null }));
 jest.mock("@/components/progress-button", () => ({ ProgressButton: () => null }));
-jest.mock("@/components/live-tv/channel-group-section", () => ({ ChannelGroupSection: () => null }));
+jest.mock("@/components/live-tv/channel-group-band", () => ({ ChannelGroupBand: () => null }));
 jest.mock("@/components/live-tv/live-clip", () => ({ LiveClip: () => null }));
 jest.mock("expo-image", () => ({ Image: Object.assign(() => null, { loadAsync: async () => ({ width: 16, height: 9 }) }) }));
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
@@ -118,6 +118,13 @@ describe("Video info panel: a channel's live picture", () => {
     mockAutoUpdate = true;
     mockHeld = true;
     expect((await mount()).root.findAllByType(LiveClip)).toHaveLength(0);
+  });
+
+  it("shows the channel's groups as the footer band, square-cornered on iPhone", async () => {
+    const tree = await mount();
+    const band = tree.root.findByType(require("@/components/live-tv/channel-group-band").ChannelGroupBand);
+    expect(band.props.channel).toEqual(expect.objectContaining({ Id: "ch-1", Name: "Channel One" }));
+    expect(band.props.cornerRadius).toBe(0);
   });
 
   it("keeps the brand face when no picture was grabbed", async () => {

@@ -1,5 +1,5 @@
 import { AmbientBackground } from "@/components/ambient-background";
-import { padFitWidth } from "@/components/pad-sheet";
+import { PAD_CARD_RADIUS, padFitWidth } from "@/components/pad-sheet";
 import { SiblingPagerGesture } from "@/components/sibling-pager";
 
 import { FocusableButton } from "@/components/FocusableButton";
@@ -41,7 +41,6 @@ import { useCardPalette } from "@/hooks/useCardPalette";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { PosterCollage } from "@/components/poster-collage";
 import { ChannelGroupBand } from "@/components/live-tv/channel-group-band";
-import { ChannelGroupSection } from "@/components/live-tv/channel-group-section";
 import { LiveClip } from "@/components/live-tv/live-clip";
 import { useLiveClip, useLiveFrame } from "@/hooks/useLiveFrame";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
@@ -896,15 +895,6 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
         )
       )}
 
-      {!IS_TV && groupChannel && (
-        <>
-          <View style={[settingsStyles.sectionHeader, styles.groupsHeader]}>
-            <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.groups")}</Text>
-          </View>
-          <ChannelGroupSection channel={groupChannel} visibleRows={3} />
-        </>
-      )}
-
       {/* A channel carries no description or streams worth a section; its groups say the rest. */}
       {!groupChannel && (
         <>
@@ -1002,10 +992,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   ) : (
     <ScrollView
       style={IS_PAD ? styles.padScroll : styles.scroll}
-      // A channel's New group field: the panel scrolls it clear of the keyboard.
-      keyboardShouldPersistTaps="handled"
-      automaticallyAdjustKeyboardInsets
-      contentContainerStyle={IS_TV ? [styles.footedContent, !groupChannel && styles.tvContentPad] : { paddingBottom: IS_PAD ? 28 : insets.bottom + 28 }}
+      contentContainerStyle={IS_TV ? [styles.footedContent, !groupChannel && styles.tvContentPad] : groupChannel ? styles.footedContent : { paddingBottom: IS_PAD ? 28 : insets.bottom + 28 }}
       showsVerticalScrollIndicator={false}>
       {/* Artwork heading on both platforms, whole; the scrim fades it into
           the panel. Artless items keep the same hero with the brand face
@@ -1082,14 +1069,15 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
         )}
         {sections}
       </View>
-      {/* TV: the guide's groups bar in the card's footer. Touch platforms list them inline (sections). */}
-      {IS_TV && details && groupChannel && (
+      {/* The guide's groups bar in the card's footer. */}
+      {details && groupChannel && (
         <>
           {/* Pushes the footer to the card's foot when the content is short. */}
           <View style={styles.footerGap} />
           <SectionFooter focusable>
-            <View style={styles.groupFooter}>
-              <ChannelGroupBand channel={groupChannel} nextFocusUp={leadCtaHandle} />
+            {/* iPhone's sheet runs to the screen's foot: the band sits above the home indicator, square. */}
+            <View style={[styles.groupFooter, !IS_TV && !IS_PAD && { paddingBottom: insets.bottom }]}>
+              <ChannelGroupBand channel={groupChannel} nextFocusUp={leadCtaHandle} cornerRadius={IS_TV ? undefined : IS_PAD ? PAD_CARD_RADIUS : 0} />
             </View>
           </SectionFooter>
         </>
@@ -1306,11 +1294,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 16,
   },
-  // 12 + the header's 10 top padding: the 22 settings leaves between sections.
-  groupsHeader: {
-    marginTop: 12,
-  },
-  // TV content grows to the card so the re-painted rim (heroEdge) ends at its foot, where a channel's groups footer sits.
+  // Content grows to the card so a channel's groups footer sits at its foot (and on TV the re-painted rim, heroEdge, ends there).
   footedContent: {
     flexGrow: 1,
   },

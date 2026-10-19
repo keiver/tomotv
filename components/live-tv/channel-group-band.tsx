@@ -16,10 +16,12 @@ interface ChannelGroupBandProps {
   channel: ChannelIdentity;
   /** TV: where Up from + lands, since no CTA sits straight above the corner. */
   nextFocusUp?: number;
+  /** The host card's bottom radius, which the end cells round to. */
+  cornerRadius?: number;
 }
 
 /** The guide's groups for one channel, own and playlist alike: + names a new group holding it, a cell press adds or removes it. */
-export function ChannelGroupBand({ channel, nextFocusUp }: ChannelGroupBandProps) {
+export function ChannelGroupBand({ channel, nextFocusUp, cornerRadius = CARD_RADIUS }: ChannelGroupBandProps) {
   const router = useRouter();
   const { accent } = useCardPalette();
   const choices = useChannelGroupChoices(channel);
@@ -29,7 +31,7 @@ export function ChannelGroupBand({ channel, nextFocusUp }: ChannelGroupBandProps
       cornerActions={
         <HudAction
           titled
-          bottomLeftRadius={CARD_RADIUS}
+          bottomLeftRadius={cornerRadius}
           nextFocusUp={nextFocusUp}
           label={t("liveTv.newGroup")}
           onPress={() => router.push({ pathname: "/channel-group", params: { channelName: channel.Name, channelNumber: channel.ChannelNumber ?? "" } })}
@@ -37,7 +39,7 @@ export function ChannelGroupBand({ channel, nextFocusUp }: ChannelGroupBandProps
         />
       }>
       {choices.map((choice, index) => (
-        <GuideGroupCell key={choice.key} label={choice.label} selected={choice.member} onPress={choice.toggle} bottomRightRadius={index === choices.length - 1 ? CARD_RADIUS : undefined} />
+        <GuideGroupCell key={choice.key} label={choice.label} selected={choice.member} onPress={choice.toggle} bottomRightRadius={index === choices.length - 1 ? cornerRadius : undefined} />
       ))}
     </HudBand>
   );

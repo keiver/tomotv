@@ -16,6 +16,8 @@ const FIT_MAX_WIDTH = { center: 640, bottom: 600 } as const;
 /** iPad's centred card stops short of the screen's edges; a longer panel scrolls inside it. */
 const FIT_MAX_HEIGHT = { center: 900, bottom: Infinity } as const;
 const FIT_MARGIN = 8;
+/** The fitted card's corner radius. */
+export const PAD_CARD_RADIUS = 28;
 /** A Mac window is short and its title-bar tabs sit on the content's top edge: the card keeps a window-proportional gap. */
 const MAC_WINDOW_SHARE = 0.85;
 
@@ -119,7 +121,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.BACKGROUND,
   },
   fitted: {
-    borderRadius: 28,
+    borderRadius: PAD_CARD_RADIUS,
     overflow: "hidden",
     backgroundColor: COLORS.BACKGROUND,
   },
