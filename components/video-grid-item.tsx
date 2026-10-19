@@ -53,12 +53,12 @@ const BACKDROP_BLUR = IS_TV ? 24 : 16;
 export function indexBadgeSegments(video: JellyfinVideoItem, nowMs: number = Date.now(), recording = false): BadgeSegment[] | null {
   // A channel's mark is the freshness badge, keyed to its own pictures, never a pill from here.
   if (video.Type === "TvChannel") return null;
-  // A programme from search: live while it airs, when it starts before then, nothing once it ended.
-  // Recording, REC takes LIVE's place and a scheduled start wears the camera.
+  // A programme from search: NOW while it airs, when it starts before then, nothing once it ended. LIVE stays the
+  // picture's claim. Recording, REC takes NOW's place and a scheduled start wears the camera.
   if (video.Type === "Program") {
     const startMs = Date.parse(video.StartDate ?? "");
     if (Number.isNaN(startMs)) return null;
-    if (startMs <= nowMs) return Date.parse(video.EndDate ?? "") > nowMs ? [{ label: t(recording ? "liveTv.rec" : "liveTv.live") }] : null;
+    if (startMs <= nowMs) return Date.parse(video.EndDate ?? "") > nowMs ? [{ label: t(recording ? "liveTv.rec" : "liveTv.now") }] : null;
     const label = `${formatDayLabel(startMs, nowMs, { today: t("liveTv.today"), tomorrow: t("liveTv.tomorrow") })} ${formatClock(startMs)}`;
     return [recording ? { icon: "videocam", label } : { label }];
   }

@@ -34,12 +34,12 @@ describe("indexBadgeSegments", () => {
     expect(indexBadgeSegments(item({ Type: "TvChannel" }))).toBeNull();
   });
 
-  it("marks a searched programme live only while it airs", () => {
+  it("marks a searched programme NOW only while it airs, never LIVE", () => {
     const now = Date.UTC(2026, 8, 29, 20, 0);
     const program = (startMin: number, endMin: number) => item({ Type: "Program", StartDate: new Date(now + startMin * 60_000).toISOString(), EndDate: new Date(now + endMin * 60_000).toISOString() });
-    expect(indexBadgeSegments(program(-30, 30), now)).toEqual([{ label: "LIVE" }]);
+    expect(indexBadgeSegments(program(-30, 30), now)).toEqual([{ label: "NOW" }]);
     expect(indexBadgeSegments(program(-60, -1), now)).toBeNull();
-    expect(indexBadgeSegments(program(30, 90), now)?.[0].label).not.toBe("LIVE");
+    expect(indexBadgeSegments(program(30, 90), now)?.[0].label).not.toBe("NOW");
   });
 
   it("a recording programme wears REC while it airs and the camera before its start", () => {
