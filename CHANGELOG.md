@@ -13,6 +13,7 @@ All notable changes to Tomo TV are documented here.
 
 - Channel cards show the whole live picture: a picture that would lose more than 3.5% a side to cropping shows whole over a blurred copy of itself, and its clip plays in the same box
 - Guide channel cards are 16:9, with no title bar or wash over the picture. The name is a pill at the top right, led by the favorite heart, solid accent while focused
+- On Apple TV, Live TV opens on Channels, and Down from the tab bar and each press of the Home Live TV card land there too
 
 ### Fixed
 
