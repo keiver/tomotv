@@ -34,16 +34,18 @@ interface HudActionProps {
   titled?: boolean;
   /** Rounds the bottom-left corner to the card's it sits in; the focus ring follows. */
   bottomLeftRadius?: number;
+  /** Rounds the top-left corner, for a cell opening a pill; the focus ring follows. */
+  topLeftRadius?: number;
   /** TV: the node Up lands on when nothing sits straight above the cell. */
   nextFocusUp?: number;
   hasTVPreferredFocus?: boolean;
 }
 
 /** One frosted-black cell of the band's corner, square-cornered and band-tall; focus draws the cells' accent ring. */
-export function HudAction({ icon, label, onPress, disabled, forwardedRef, titled, bottomLeftRadius, nextFocusUp, hasTVPreferredFocus }: HudActionProps) {
+export function HudAction({ icon, label, onPress, disabled, forwardedRef, titled, bottomLeftRadius, topLeftRadius, nextFocusUp, hasTVPreferredFocus }: HudActionProps) {
   const [focused, setFocused] = useState(false);
   const { accent } = useCardPalette();
-  const rounded = bottomLeftRadius !== undefined && { borderBottomLeftRadius: bottomLeftRadius };
+  const rounded = (bottomLeftRadius !== undefined || topLeftRadius !== undefined) && { borderBottomLeftRadius: bottomLeftRadius, borderTopLeftRadius: topLeftRadius };
   return (
     <View style={[styles.tile, rounded, rounded && styles.tileClip]}>
       <Pressable

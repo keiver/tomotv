@@ -17,6 +17,8 @@ interface HeaderSearchRevealProps {
   value: string;
   onChangeText: (v: string) => void;
   placeholder: string;
+  /** The magnifier capsule's view, for a focus guide that sends Up to it. */
+  buttonRef?: (node: View | null) => void;
 }
 
 /**
@@ -25,7 +27,7 @@ interface HeaderSearchRevealProps {
  * empty term closes it the same way. AddServerRow's reveal, laid on its side: whichever state is
  * out of the slot leaves layout (width 0 + hidden), a merely clipped view is still focusable on tvOS.
  */
-export function HeaderSearchReveal({ value, onChangeText, placeholder }: HeaderSearchRevealProps) {
+export function HeaderSearchReveal({ value, onChangeText, placeholder, buttonRef }: HeaderSearchRevealProps) {
   const [open, setOpen] = useState(false);
   const [rolling, setRolling] = useState(false);
   const { accent } = useCardPalette();
@@ -106,7 +108,7 @@ export function HeaderSearchReveal({ value, onChangeText, placeholder }: HeaderS
           style={styles.fieldInput}
         />
       </Animated.View>
-      <GlassButton icon={<Ionicons name="search" size={24} color={accent} />} accessibilityLabel={placeholder} onPress={reveal} />
+      <GlassButton ref={buttonRef} icon={<Ionicons name="search" size={24} color={accent} />} accessibilityLabel={placeholder} onPress={reveal} />
     </View>
   );
 }
