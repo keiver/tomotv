@@ -99,40 +99,36 @@ Tomo TV ships no media, channels, playlists or guides. It plays what your Jellyf
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
 ```
 
-### What's New (2.2.13), macOS (544 / 4000)
+### What's New (2.2.13), macOS (486 / 4000)
 
 ```text
 - Live TV: set how many streams your provider allows at once, or let Tomo learn it
 - Channels from a provider that allows one stream open reliably when you change channels
 - New items on your server show up on Home and in folders the next time you open them
 - Channel previews fill in faster, and channel cards show the whole picture
-- Channel cards name each channel under its picture and glow red while the picture is new
-- The Live TV guide names the channel on every row
+- On the Channels screen, a red strip under each card shows how new its picture is
 - A channel's info shows its latest picture, with the preview playing
 ```
 
-### What's New (2.2.13), iOS (544 / 4000)
+### What's New (2.2.13), iOS (486 / 4000)
 
 ```text
 - Live TV: set how many streams your provider allows at once, or let Tomo learn it
 - Channels from a provider that allows one stream open reliably when you change channels
 - New items on your server show up on Home and in folders the next time you open them
 - Channel previews fill in faster, and channel cards show the whole picture
-- Channel cards name each channel under its picture and glow red while the picture is new
-- The Live TV guide names the channel on every row
+- On the Channels screen, a red strip under each card shows how new its picture is
 - A channel's info shows its latest picture, with the preview playing
 ```
 
-### What's New (2.2.13), tvOS (502 / 4000)
+### What's New (2.2.13), tvOS (416 / 4000)
 
 ```text
 - Live TV: set how many streams your provider allows at once, or let Tomo learn it
 - Channels from a provider that allows one stream open reliably when you change channels
 - New items on your server show up on Home and in folders the next time you open them
 - Channel previews fill in faster, and channel cards show the whole picture
-- Channel cards name each channel under its picture and glow red while the picture is new
-- The Live TV guide names the channel on every row
-- Live TV opens on Channels
+- On the Channels screen, a red strip under each card shows how new its picture is
 ```
 
 ### What's New (2.2.12), macOS (546 / 4000)
@@ -516,40 +512,36 @@ Tomo TV enthält keine Medien, Kanäle, Wiedergabelisten oder Fernsehprogramme. 
 Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin und steht in keiner Verbindung zum Jellyfin-Projekt und wird von ihm nicht unterstützt. Jellyfin ist eine Marke des jeweiligen Inhabers.
 ```
 
-#### What's New (2.2.13), macOS (578 / 4000)
+#### What's New (2.2.13), macOS (529 / 4000)
 
 ```text
 - Live-TV: lege fest, wie viele Streams dein Anbieter gleichzeitig erlaubt, oder lass Tomo es lernen
 - Kanäle eines Anbieters, der nur einen Stream erlaubt, öffnen beim Umschalten zuverlässig
 - Neues auf deinem Server erscheint auf Start und in Ordnern, sobald du sie wieder öffnest
 - Kanalvorschauen füllen sich schneller, und Kanalkarten zeigen das ganze Bild
-- Kanalkarten nennen jeden Kanal unter dem Bild und leuchten rot, solange das Bild neu ist
-- Der Live-TV-Guide nennt in jeder Zeile den Kanal
+- Auf dem Bildschirm Kanäle zeigt ein roter Streifen unter jeder Karte, wie neu ihr Bild ist
 - Die Infos eines Kanals zeigen sein neuestes Bild, mit laufender Vorschau
 ```
 
-#### What's New (2.2.13), iOS (578 / 4000 chars)
+#### What's New (2.2.13), iOS (529 / 4000 chars)
 
 ```text
 - Live-TV: lege fest, wie viele Streams dein Anbieter gleichzeitig erlaubt, oder lass Tomo es lernen
 - Kanäle eines Anbieters, der nur einen Stream erlaubt, öffnen beim Umschalten zuverlässig
 - Neues auf deinem Server erscheint auf Start und in Ordnern, sobald du sie wieder öffnest
 - Kanalvorschauen füllen sich schneller, und Kanalkarten zeigen das ganze Bild
-- Kanalkarten nennen jeden Kanal unter dem Bild und leuchten rot, solange das Bild neu ist
-- Der Live-TV-Guide nennt in jeder Zeile den Kanal
+- Auf dem Bildschirm Kanäle zeigt ein roter Streifen unter jeder Karte, wie neu ihr Bild ist
 - Die Infos eines Kanals zeigen sein neuestes Bild, mit laufender Vorschau
 ```
 
-#### What's New (2.2.13), tvOS (536 / 4000 chars)
+#### What's New (2.2.13), tvOS (454 / 4000 chars)
 
 ```text
 - Live-TV: lege fest, wie viele Streams dein Anbieter gleichzeitig erlaubt, oder lass Tomo es lernen
 - Kanäle eines Anbieters, der nur einen Stream erlaubt, öffnen beim Umschalten zuverlässig
 - Neues auf deinem Server erscheint auf Start und in Ordnern, sobald du sie wieder öffnest
 - Kanalvorschauen füllen sich schneller, und Kanalkarten zeigen das ganze Bild
-- Kanalkarten nennen jeden Kanal unter dem Bild und leuchten rot, solange das Bild neu ist
-- Der Live-TV-Guide nennt in jeder Zeile den Kanal
-- Live-TV öffnet bei den Kanälen
+- Auf dem Bildschirm Kanäle zeigt ein roter Streifen unter jeder Karte, wie neu ihr Bild ist
 ```
 
 #### What's New (2.2.12), macOS (668 / 4000)
@@ -911,40 +903,36 @@ Tomo TV ne fournit aucun média, chaîne, liste de lecture ni guide. L'app lit c
 Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'est ni affilié au projet Jellyfin ni approuvé par lui. Jellyfin est une marque de son détenteur respectif.
 ```
 
-#### What's New (2.2.13), macOS (663 / 4000)
+#### What's New (2.2.13), macOS (589 / 4000)
 
 ```text
 - TV en direct : indiquez combien de flux votre fournisseur autorise à la fois, ou laissez Tomo l'apprendre
 - Les chaînes d'un fournisseur qui n'autorise qu'un flux s'ouvrent sans échec quand vous changez de chaîne
 - Les nouveautés de votre serveur apparaissent dans Accueil et dans les dossiers dès que vous les rouvrez
 - Les aperçus des chaînes se remplissent plus vite, et les cartes de chaîne montrent l'image entière
-- Les cartes de chaîne affichent le nom sous l'image et s'allument en rouge tant que l'image est récente
-- Le guide TV en direct indique la chaîne sur chaque ligne
+- Sur l'écran Chaînes, une bande rouge sous chaque carte indique si son image est récente
 - Les infos d'une chaîne montrent sa dernière image, avec l'aperçu en lecture
 ```
 
-#### What's New (2.2.13), iOS (663 / 4000 chars)
+#### What's New (2.2.13), iOS (589 / 4000 chars)
 
 ```text
 - TV en direct : indiquez combien de flux votre fournisseur autorise à la fois, ou laissez Tomo l'apprendre
 - Les chaînes d'un fournisseur qui n'autorise qu'un flux s'ouvrent sans échec quand vous changez de chaîne
 - Les nouveautés de votre serveur apparaissent dans Accueil et dans les dossiers dès que vous les rouvrez
 - Les aperçus des chaînes se remplissent plus vite, et les cartes de chaîne montrent l'image entière
-- Les cartes de chaîne affichent le nom sous l'image et s'allument en rouge tant que l'image est récente
-- Le guide TV en direct indique la chaîne sur chaque ligne
+- Sur l'écran Chaînes, une bande rouge sous chaque carte indique si son image est récente
 - Les infos d'une chaîne montrent sa dernière image, avec l'aperçu en lecture
 ```
 
-#### What's New (2.2.13), tvOS (627 / 4000 chars)
+#### What's New (2.2.13), tvOS (511 / 4000 chars)
 
 ```text
 - TV en direct : indiquez combien de flux votre fournisseur autorise à la fois, ou laissez Tomo l'apprendre
 - Les chaînes d'un fournisseur qui n'autorise qu'un flux s'ouvrent sans échec quand vous changez de chaîne
 - Les nouveautés de votre serveur apparaissent dans Accueil et dans les dossiers dès que vous les rouvrez
 - Les aperçus des chaînes se remplissent plus vite, et les cartes de chaîne montrent l'image entière
-- Les cartes de chaîne affichent le nom sous l'image et s'allument en rouge tant que l'image est récente
-- Le guide TV en direct indique la chaîne sur chaque ligne
-- La TV en direct s'ouvre sur les chaînes
+- Sur l'écran Chaînes, une bande rouge sous chaque carte indique si son image est récente
 ```
 
 #### What's New (2.2.12), macOS (698 / 4000)
@@ -1306,40 +1294,36 @@ Tomo TV no incluye contenido, canales, listas de reproducción ni guías. Reprod
 Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin, y no está afiliado al proyecto Jellyfin ni respaldado por él. Jellyfin es una marca de su titular correspondiente.
 ```
 
-#### What's New (2.2.13), macOS (653 / 4000)
+#### What's New (2.2.13), macOS (583 / 4000)
 
 ```text
 - TV en vivo: indica cuántas emisiones permite tu proveedor a la vez, o deja que Tomo lo aprenda
 - Los canales de un proveedor que permite una sola emisión se abren sin fallos al cambiar de canal
 - Lo nuevo en tu servidor aparece en Inicio y en las carpetas en cuanto vuelves a abrirlas
 - Las vistas previas de los canales se llenan más rápido, y las tarjetas de canal muestran la imagen completa
-- Las tarjetas de canal muestran el nombre bajo la imagen y se encienden en rojo mientras la imagen es reciente
-- La guía de TV en vivo muestra el canal en cada fila
+- En la pantalla Canales, una franja roja bajo cada tarjeta indica lo reciente que es su imagen
 - La información de un canal muestra su imagen más reciente, con la vista previa en marcha
 ```
 
-#### What's New (2.2.13), iOS (653 / 4000 chars)
+#### What's New (2.2.13), iOS (583 / 4000 chars)
 
 ```text
 - TV en vivo: indica cuántas emisiones permite tu proveedor a la vez, o deja que Tomo lo aprenda
 - Los canales de un proveedor que permite una sola emisión se abren sin fallos al cambiar de canal
 - Lo nuevo en tu servidor aparece en Inicio y en las carpetas en cuanto vuelves a abrirlas
 - Las vistas previas de los canales se llenan más rápido, y las tarjetas de canal muestran la imagen completa
-- Las tarjetas de canal muestran el nombre bajo la imagen y se encienden en rojo mientras la imagen es reciente
-- La guía de TV en vivo muestra el canal en cada fila
+- En la pantalla Canales, una franja roja bajo cada tarjeta indica lo reciente que es su imagen
 - La información de un canal muestra su imagen más reciente, con la vista previa en marcha
 ```
 
-#### What's New (2.2.13), tvOS (597 / 4000 chars)
+#### What's New (2.2.13), tvOS (492 / 4000 chars)
 
 ```text
 - TV en vivo: indica cuántas emisiones permite tu proveedor a la vez, o deja que Tomo lo aprenda
 - Los canales de un proveedor que permite una sola emisión se abren sin fallos al cambiar de canal
 - Lo nuevo en tu servidor aparece en Inicio y en las carpetas en cuanto vuelves a abrirlas
 - Las vistas previas de los canales se llenan más rápido, y las tarjetas de canal muestran la imagen completa
-- Las tarjetas de canal muestran el nombre bajo la imagen y se encienden en rojo mientras la imagen es reciente
-- La guía de TV en vivo muestra el canal en cada fila
-- La TV en vivo se abre en Canales
+- En la pantalla Canales, una franja roja bajo cada tarjeta indica lo reciente que es su imagen
 ```
 
 #### What's New (2.2.12), macOS (611 / 4000)

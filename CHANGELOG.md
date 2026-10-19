@@ -13,10 +13,10 @@ All notable changes to Tomo TV are documented here.
 ### Changed
 
 - Channel cards show the whole live picture: a picture that would lose more than 3.5% a side to cropping shows whole over a blurred copy of itself, and its clip plays in the same box
-- Guide channel cards are 16:9, with no title bar, name or wash over the picture, and their LIVE badge sits 2 points nearer the corner
-- A guide cell's first line leads with the favorite heart and the channel name, then the programme title, shown once when the guide titles the block with the channel name. A cell without listings reads the channel name, with Seen at and No listings on its second line
-- On the channel wall a card rests on a strip under its picture that names the channel: black with a gold name at rest, gold on focus, led by the favorite heart and, for a channel judged down, a cloud glyph in place of the Offline pill. A fresh picture turns the strip LIVE red under a white name, and the red steps down to black by the two-minute refresh floor in nine one-second native opacity fades
-- On Apple TV, Live TV opens on Channels, and Down from the tab bar and each press of the Home Live TV card land there too
+- Guide channel cards are 16:9, with no title bar, name or wash over the picture. A channel card's LIVE badge sits 2 points nearer the corner
+- A guide cell's first line names the channel after its favorite heart, then the program title, shown once when the guide titles the block with the channel name. A cell without listings names the channel, and its second line reads No listings, after the Seen at time once a picture was seen
+- On the channel wall a card rests on a strip under its picture that names the channel: black with the name in the theme accent at rest, accent on focus, led by the favorite heart and, for a channel judged down, a cloud glyph in place of the Offline pill. A fresh picture turns the strip LIVE red under a white name, and the red steps down to black by the two-minute refresh floor in nine one-second native opacity fades
+- On Apple TV, focus starts on the guide's Channels button when Live TV opens, on Down from the tab bar and on each press of the Home Live TV card
 - On iPhone, iPad and Mac a channel's groups show as the band in the info panel's footer, as on Apple TV, and the new group name screen opens as a sheet
 
 ### Fixed
@@ -38,7 +38,7 @@ All notable changes to Tomo TV are documented here.
 - Channels went Offline on a provider at its connection cap: the wall judged a channel dead after two refusals with any 4xx or 5xx, and a 429 counted. A 401, 403, 429 or any 5xx no longer counts; the other 4xx still do
 - Pluto channels showed the same placeholder clip on every card: Pluto answers its stream URL call with an internal error when the request carries the app's own user agent, and the fallback session serves one placeholder for every channel. The call now carries a plain library agent, which Pluto answers
 - The live mark on a channel card animated every frame on every card with a picture (the draining wedge, then a pulsing dot), which kept the whole wall redrawing. LIVE now shows only while the picture is seconds old and nothing animates in the badge
-- The iPad and Mac info card centres in the safe area, under the title-bar tabs
+- The iPad and Mac info card centers in the safe area, under the title-bar tabs
 
 ## [2.2.12]
 
