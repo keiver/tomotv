@@ -129,6 +129,8 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   const totalRef = useRef<number | undefined>(seed?.total);
   // The list as the server sent it, before annotation: a read that matches it swaps nothing in.
   const rawItemsRef = useRef<JellyfinItem[]>(seed ? seed.items : []);
+  // An empty successful listing is usable too; the initial empty state is not.
+  const hasUsableListingRef = useRef(!!seed);
   const isFetchingRef = useRef(false);
   // Mirrors the first-page error state so runFirstPage can read it without depending on `error`
   // (that dependency would re-run the mount effect on every failure, looping the fetch).
@@ -219,6 +221,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
     (result: { items: JellyfinItem[]; total?: number; nextStartIndex: number; lastPageLength: number; pageSize: number }) => {
       setItems(orderTies(annotateFavorites(annotateWithPlayed(result.items))));
       rawItemsRef.current = result.items;
+      hasUsableListingRef.current = true;
       seenIdsRef.current = new Set(result.items.map((item) => item.Id));
       totalRef.current = result.total;
       nextStartIndex.current = result.nextStartIndex;
@@ -233,6 +236,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   const onLoadError = useCallback(
     (err: unknown) => {
       setItems([]);
+      hasUsableListingRef.current = false;
       hasLoadErrorRef.current = true;
       setError(getLoadErrorMessage(err));
       setIsLoading(false);
@@ -252,7 +256,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   // screen, which swaps in only a changed listing and keeps the list when it fails.
   const runFirstPage = useCallback(
     (limit: number, quiet: boolean) => {
-      const behindList = quiet && !hasLoadErrorRef.current;
+      const behindList = quiet && hasUsableListingRef.current && !hasLoadErrorRef.current;
       // A load starting from the error state returns to the loading state, so a stale error
       // (e.g. pre-login failure) never stays on screen while the new fetch is in flight.
       if (hasLoadErrorRef.current) {

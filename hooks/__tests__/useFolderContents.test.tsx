@@ -950,6 +950,73 @@ describe("useFolderContents", () => {
     });
   });
 
+  describe("foreground revalidation", () => {
+    async function foreground() {
+      const calls = (useAppStateRefresh as jest.Mock).mock.calls;
+      await act(async () => calls[calls.length - 1][0]());
+    }
+
+    it("finishes initial loading when a newer foreground read returns the same empty listing", async () => {
+      let resolveInitial!: (value: { items: JellyfinItem[]; total?: number }) => void;
+      mockFolder.mockImplementationOnce(() => new Promise((resolve) => (resolveInitial = resolve)));
+      const ref = await mount("folder-1");
+      expect(ref.current!.get().isLoading).toBe(true);
+
+      mockFolder.mockResolvedValueOnce({ items: [], total: undefined });
+      await foreground();
+      expect(ref.current!.get()).toMatchObject({ items: [], isLoading: false, error: null });
+
+      await act(async () => resolveInitial({ items: items("stale"), total: 1 }));
+      expect(ref.current!.get().items).toEqual([]);
+    });
+
+    it("reports an initial error when a newer foreground read fails", async () => {
+      let resolveInitial!: (value: { items: JellyfinItem[]; total?: number }) => void;
+      mockFolder.mockImplementationOnce(() => new Promise((resolve) => (resolveInitial = resolve)));
+      const ref = await mount("folder-1");
+
+      mockFolder.mockRejectedValueOnce(new Error("offline"));
+      await foreground();
+      expect(ref.current!.get().isLoading).toBe(false);
+      expect(ref.current!.get().error).not.toBeNull();
+
+      await act(async () => resolveInitial({ items: items("stale"), total: 1 }));
+      expect(ref.current!.get().items).toEqual([]);
+      expect(ref.current!.get().error).not.toBeNull();
+    });
+
+    it.each([{ loaded: [] }, { loaded: items("a") }])("preserves an already loaded listing on a failed foreground read: $loaded", async ({ loaded }) => {
+      mockFolder.mockResolvedValueOnce({ items: loaded, total: loaded.length });
+      const ref = await mount("folder-1");
+      const shown = ref.current!.get().items;
+
+      mockFolder.mockRejectedValueOnce(new Error("offline"));
+      await foreground();
+      expect(ref.current!.get().items).toBe(shown);
+      expect(ref.current!.get().isLoading).toBe(false);
+      expect(ref.current!.get().error).toBeNull();
+    });
+
+    it("does not treat a list cleared by an error as usable during overlapping retries", async () => {
+      mockFolder.mockResolvedValueOnce({ items: items("a"), total: 1 });
+      const ref = await mount("folder-1");
+      mockFolder.mockRejectedValueOnce(new Error("offline"));
+      await act(async () => ref.current!.get().refresh());
+      expect(ref.current!.get().items).toEqual([]);
+
+      let resolveRetry!: (value: { items: JellyfinItem[]; total?: number }) => void;
+      mockFolder.mockImplementationOnce(() => new Promise((resolve) => (resolveRetry = resolve)));
+      await act(async () => ref.current!.get().refresh());
+      expect(ref.current!.get().isLoading).toBe(true);
+      mockFolder.mockRejectedValueOnce(new Error("still offline"));
+      await foreground();
+      expect(ref.current!.get().isLoading).toBe(false);
+      expect(ref.current!.get().error).not.toBeNull();
+      await act(async () => resolveRetry({ items: items("stale"), total: 1 }));
+      expect(ref.current!.get().items).toEqual([]);
+    });
+  });
+
   describe("a screen out of sight", () => {
     const focused = useIsFocused as jest.Mock;
     const latestCall = (mock: jest.Mock) => mock.mock.calls[mock.mock.calls.length - 1][0] as () => void;
