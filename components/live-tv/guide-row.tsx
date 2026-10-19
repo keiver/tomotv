@@ -1,6 +1,8 @@
 import { GRID_LINE, GuideCell, type RecordingMark } from "@/components/live-tv/guide-cell";
 import { COLORS } from "@/constants/colors";
+import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { t } from "@/services/i18n";
+import { isFavoriteChannel } from "@/services/liveTvPreferences";
 import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
 import { cellGeometry, cellInSpan, NO_GUIDE_PREFIX, programTimes, type CanvasSpan, type GuideMetrics } from "@/utils/guide";
 import React, { useCallback, useMemo, useRef, useState } from "react";
@@ -97,6 +99,7 @@ function GuideRowComponent({
   onCellHandle,
 }: GuideRowProps) {
   const cellHeight = metrics.rowHeight - 1;
+  const favorite = isFavoriteChannel(useLiveTvPreferences(), channel);
   // Row-local, so a focus move re-renders this row and the one it left, never the canvas.
   const [focusTargets, setFocusTargets] = useState<FocusTargets | undefined>(undefined);
   const focusedIdRef = useRef<string | null>(null);
@@ -142,6 +145,8 @@ function GuideRowComponent({
           <GuideCell
             key={programId}
             program={program}
+            channelName={channel.Name ?? ""}
+            favorite={favorite}
             left={geometry.left}
             width={geometry.width}
             height={cellHeight}

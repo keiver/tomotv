@@ -92,6 +92,12 @@ describe("GuideRow", () => {
     expect(mockCellRenders).toBe(0);
   });
 
+  it("hands every cell the row's channel name", () => {
+    const tree = mount({ nowMs: T0 });
+    const names = tree.root.findAll((node) => node.props.channelName !== undefined && typeof node.type !== "string").map((node) => node.props.channelName);
+    expect(new Set(names)).toEqual(new Set(["One"]));
+  });
+
   it("wears reels only inside the span it is handed", () => {
     expect(reelCount(mount({ nowMs: T0 }))).toBe(0);
     // The span touches three cells, but only the airing one wears a reel.

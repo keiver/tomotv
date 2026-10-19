@@ -29,6 +29,9 @@ export type RecordingMark = "single" | "series" | null;
 
 interface GuideCellProps {
   program: JellyfinProgram;
+  /** The row's channel: the first line names it, since the channel card carries no name. */
+  channelName: string;
+  favorite?: boolean;
   left: number;
   width: number;
   height: number;
@@ -61,6 +64,8 @@ interface GuideCellProps {
  */
 function GuideCellComponent({
   program,
+  channelName: channelLabel,
+  favorite = false,
   left,
   width,
   height,
@@ -82,6 +87,11 @@ function GuideCellComponent({
 }: GuideCellProps) {
   const programName = cleanLabel(program.Name);
   const episodeTitle = cleanLabel(program.EpisodeTitle);
+  const channelName = cleanLabel(channelLabel);
+  // A guide that titles its blocks with the channel name shows the name once.
+  const sameAsChannel = (title: string) => title.toLowerCase() === channelName.toLowerCase();
+  const title = episodeTitle || programName;
+  const lead = title && !sameAsChannel(title) ? `${channelName}  ·  ${title}` : channelName;
   // The stand-in of a channel without listings: a quiet band, one dim line, no slot times.
   const standInChannel = standInChannelId(program.Id);
   const standIn = standInChannel !== null;
@@ -165,16 +175,17 @@ function GuideCellComponent({
         </View>
       ) : null}
       {standInChannel ? (
-        <GuideCellQuietLine channelId={standInChannel} programName={programName} episodeTitle={episodeTitle} focused={focused} seenAt={seenAt} />
+        <GuideCellQuietLine channelId={standInChannel} channelName={channelName} favorite={favorite} programName={programName} episodeTitle={episodeTitle} focused={focused} seenAt={seenAt} />
       ) : (
         <View style={styles.text}>
           <View style={styles.titleRow}>
             {recording ? <View style={styles.recordingDot} testID="guide-cell-recording" /> : null}
             {recording === "series" ? <Ionicons name="repeat" size={IS_TV ? 20 : 13} color={COLORS.DESTRUCTIVE_SOFT} testID="guide-cell-series" /> : null}
-            {/* One title row: the episode leads, the show name trails dim; the channel column already names the channel. */}
+            {favorite ? <Ionicons name="heart" size={IS_TV ? 20 : 13} color={accent} testID="guide-cell-favorite" /> : null}
+            {/* One title row: the channel, then the episode, the show name trailing dim. */}
             <Text style={[styles.title, past && styles.textPast]} numberOfLines={1}>
-              {episodeTitle || programName}
-              {episodeTitle ? <Text style={styles.titleTrail}>{`  ·  ${programName}`}</Text> : null}
+              {lead}
+              {episodeTitle && !sameAsChannel(programName) ? <Text style={styles.titleTrail}>{`  ·  ${programName}`}</Text> : null}
             </Text>
           </View>
           {/* Grabbed frames lead the slot line with their clock time; the slot follows unchanged. */}
