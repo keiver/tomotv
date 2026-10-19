@@ -172,6 +172,14 @@ final class LiveConnectionBrokerTests: XCTestCase {
         XCTAssertFalse(broker.recentlyClosed(key: "k", within: 0))
     }
 
+    func testAReleaseOfAReadTheOriginOnlyRefusedIsNoRecentClose() {
+        let broker = LiveConnectionBroker()
+        let refused = broker.tryAcquire(key: "k", priority: .sweep, onRevoke: {})
+        refused?.release(counted: false)
+        XCTAssertFalse(broker.recentlyClosed(key: "k", within: 15))
+        XCTAssertEqual(broker.activeCount(for: "k"), 0)
+    }
+
     func testARefusalThatTeachesNoNumberStillMakesRoom() {
         let broker = LiveConnectionBroker()
         var sweepRevoked = false
@@ -398,10 +406,10 @@ final class LiveConnectionBrokerTests: XCTestCase {
         XCTAssertEqual(try relay.stats()["active"], 1, "the occupier was made to yield")
     }
 
-    /// A grab refused with a 429 beside playback for its whole fight teaches the limit the same as a 403 does. The open
-    /// is tried again every second to the deadline and the answer is a refusal, never the server's copy, which reads
-    /// the origin on the same account.
-    func testAGrabRefusedWith429TeachesTheLimitAndNeverReadsTheServerCopy() throws {
+    /// A grab refused with a 429 beside playback teaches the limit the same as a 403 does. No read of ours closed on the
+    /// origin, so the open is asked once, and the answer is a refusal, never the server's copy, which reads the origin on
+    /// the same account.
+    func testAGrabRefusedWith429AsksOnceTeachesTheLimitAndNeverReadsTheServerCopy() throws {
         let relay = try cappedRelay(mode: "refuse", port: 19762, status: "429 Too Many Requests")
         defer { relay.stop() }
         let key = "grab-429"
@@ -421,8 +429,58 @@ final class LiveConnectionBrokerTests: XCTestCase {
         XCTAssertTrue(failure?.contains("429") == true, "\(failure ?? "no failure")")
         XCTAssertEqual(LiveConnectionBroker.shared.budget(for: key), 1)
         let stats = try relay.stats()
-        XCTAssertGreaterThanOrEqual(stats["refused"] ?? 0, 4, "the open was not tried again through the deadline: \(stats)")
+        XCTAssertEqual(stats["refused"], 1, "the open was asked again with no read of ours closed on the origin: \(stats)")
         XCTAssertEqual(stats["active"], 1, "playback was made to yield")
+    }
+
+    /// Two grabs in a row refused by an origin that answers 503 at its cap, with nothing of ours closed on it: each
+    /// asks once, since a read the origin only refused leaves it nothing to count.
+    func testARefusedGrabAfterARefusedGrabAsksOnce() throws {
+        let relay = try cappedRelay(mode: "refuse", port: 19842, status: "503 Service Unavailable")
+        defer { relay.stop() }
+        let key = "grab-503-twice"
+        defer { LiveConnectionBroker.shared.setBudget(0, for: key) }
+        let playing = try occupy(relay, key: key)
+        defer { playing.stop() }
+        let queue = try frameQueue()
+        for channel in ["first", "second"] {
+            let done = XCTestExpectation(description: channel)
+            var outcome: LiveFrameQueue.Outcome?
+            queue.request(channelId: channel, inputUrl: relay.url, headers: [:], deadline: 6, span: 3, interval: 3, count: 2, originKey: key) {
+                outcome = $0
+                done.fulfill()
+            }
+            wait(for: [done], timeout: 15)
+            guard case .refused? = outcome else { return XCTFail("\(channel) was not refused: \(String(describing: outcome))") }
+        }
+        let stats = try relay.stats()
+        XCTAssertEqual(stats["refused"], 2, "a refused read was taken for one the origin still counts: \(stats)")
+        XCTAssertEqual(stats["active"], 1, "playback was made to yield")
+    }
+
+    /// An origin feeding at half the live rate: the first keyframe lands with under a clip's worth of the deadline left,
+    /// and the clip still gets its span and grace from the keyframe, so it is written.
+    func testAGrabWhoseFirstKeyframeLandsLateStillWritesItsClip() throws {
+        let relay = try cappedRelay(mode: "refuse", port: 19832, pace: "0.5:40", paceSlice: 7)
+        defer { relay.stop() }
+        let queue = try frameQueue()
+        let done = XCTestExpectation(description: "grab")
+        var outcome: LiveFrameQueue.Outcome?
+        var keyframeAt: Date?
+        let started = Date()
+        queue.request(channelId: "late-key", inputUrl: relay.url, headers: [:], deadline: 6, span: 3, interval: 3, count: 2, clipSpan: 5, originKey: "late-key",
+                      frame: { _, index in if index == 0 { keyframeAt = Date() } }) {
+            outcome = $0
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 40)
+        let elapsed = Date().timeIntervalSince(started)
+        guard case .frames(_, let clip?, _)? = outcome else { return XCTFail("no clip: \(String(describing: outcome))") }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: clip.path))
+        let keyframe = try XCTUnwrap(keyframeAt)
+        XCTAssertGreaterThan(keyframe.timeIntervalSince(started), 1, "the keyframe landed too soon to prove anything")
+        XCTAssertGreaterThan(elapsed, 6, "the clip was not given its own time past the deadline")
+        XCTAssertLessThan(elapsed, keyframe.timeIntervalSince(started) + 5 + FrameGrabber.clipGrace + 2, "the grab held its slot past the clip's time")
     }
 
     /// The origin keeps counting a closed reader for a while, here 10 s: the grab after one it just closed keeps

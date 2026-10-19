@@ -6,9 +6,10 @@
 //  stream seconds apart across `span`, kept in the chapter frame pool under time-named files.
 //  Jobs run one at a time on a low-priority queue of their own, so a dead origin never stalls
 //  the library's posters. A grab fights for its read: it waits for a connection on its provider,
-//  tries a refused open again every second for `deadline`, and once the origin serves it has
-//  `deadline` for its pictures and clip, a watchdog stopping the read at it. An open the origin
-//  admitted and has not served yet waits on the origin: it serves, or ends the open itself.
+//  tries a refused open again every second while the provider may still count a read it admitted
+//  to us, and once the origin serves it has `deadline` for its pictures and clip, a watchdog
+//  stopping the read at it; the clip keeps its span and a grace from its first keyframe. An open
+//  the origin admitted and has not served yet waits on the origin: it serves, or ends the open itself.
 //
 
 import Foundation
@@ -28,9 +29,9 @@ final class LiveFrameQueue {
 
     /// Grabs in flight at once, across distinct hosts; same-host jobs serialize on their host's queue.
     static let maxConcurrent = 2
-    /// A refused open is tried again this far apart for the whole deadline: a provider keeps counting a closed
-    /// read until it next writes to it (measured on Dispatcharr: 1 to 1.5 s on a flowing feed, up to 10 s while
-    /// the feed stalls), and a preview holding its only connection yields once the fight is lost.
+    /// A refused open is tried again this far apart while a read the provider admitted to us closed within the
+    /// deadline: a provider keeps counting a closed read until it next writes to it (measured on Dispatcharr: 1 to
+    /// 1.5 s on a flowing feed, up to 10 s while the feed stalls). A refusal with no such read is the answer.
     static let refusalRetryWait: TimeInterval = 1
 
     private let root: URL
@@ -78,8 +79,8 @@ final class LiveFrameQueue {
         case none(opened: Bool, failure: String?, ended: Bool)
         /// The source opened and listed no streams: an origin serving nothing, judged by channel health.
         case empty
-        /// The provider turned the open away (a 4xx or 5xx, never a 404), the retries included: its connections
-        /// are taken, which says nothing of the channel.
+        /// The provider turned the open away (a 4xx or 5xx, never a 404), retried while it may still have counted a
+        /// read it admitted to us: its connections are taken, which says nothing of the channel.
         case refused(failure: String?)
         /// No connection spare on the provider for a sweep read: nothing was asked of it, the channel stays due.
         case busy
@@ -102,7 +103,7 @@ final class LiveFrameQueue {
     /// `shownFile` names a frame of the burst on screen, the one an unchanged answer re-verifies.
     /// `frame` announces each burst file as it is written; it and the completion run on the queue's thread.
     /// `originKey` names the provider whose connection budget the read spends (the URL's host when nil); no free
-    /// slot answers cancelled, so the channel stays due. `fallbackUrl` (the channel through the server) is read once
+    /// slot answers busy, so the channel stays due. `fallbackUrl` (the channel through the server) is read once
     /// when the input itself does not open, in the time the deadline has left.
     func request(channelId: String, inputUrl: String, headers: [String: String], deadline: TimeInterval = defaultDeadline,
                  span: TimeInterval = defaultSpan, interval: TimeInterval = defaultInterval, count: Int = defaultCount,
@@ -146,12 +147,26 @@ final class LiveFrameQueue {
                 outcome = .busy
                 return
             }
-            defer { lease.release() }
+            // A read the origin only ever refused was never counted by it, so its close is no recent close.
+            var served = false
+            defer { lease.release(counted: served) }
             let shared = LiveConnectionBroker.shared.sharesUnknownOrigin(lease)
             let started = Date()
             let base = "\(Self.filePrefix)\(Int64(started.timeIntervalSince1970 * 1000))"
             var grabber: FrameGrabber!
             var watchdog: DispatchWorkItem?
+            var watchdogDue = Date.distantPast
+            /// Stops the read `seconds` from now, never sooner than it already would. Called on the grabber's thread while
+            /// the host queue waits in `liveBurst`, so nothing else touches the watchdog meanwhile.
+            func stopRead(_ made: FrameGrabber, in seconds: TimeInterval) {
+                let due = Date().addingTimeInterval(seconds)
+                guard due > watchdogDue else { return }
+                watchdog?.cancel()
+                let guard_ = DispatchWorkItem { [weak made] in made?.stop() }
+                watchdog = guard_
+                watchdogDue = due
+                DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + seconds, execute: guard_)
+            }
             /// One try at the read: its own grabber, admitted by the origin or not, with the whole deadline once the origin
             /// serves it. Until then the open waits on the origin alone (its silence guard aside): cutting an open the
             /// origin admitted loses a channel that serves late, and a provider that counts the closed read still counts it.
@@ -161,9 +176,8 @@ final class LiveFrameQueue {
                 // Weak: the closure lives on the grabber, a strong capture would keep every grabber alive for good.
                 made.onOpened = { LiveConnectionBroker.shared.noteOpened(lease) }
                 made.onServed = { [weak made] in
-                    let guard_ = DispatchWorkItem { made?.stop() }
-                    watchdog = guard_
-                    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + deadline, execute: guard_)
+                    served = true
+                    if let made { stopRead(made, in: deadline) }
                 }
                 lock.lock()
                 let stopped = cancelled.contains(channelId)
@@ -172,8 +186,12 @@ final class LiveFrameQueue {
                 if stopped { return nil }
                 grabber = made
                 watchdog?.cancel()
-                return made.liveBurst(named: base, span: span, interval: interval, count: max(1, count), wall: deadline,
-                                      clipSpan: clipSpan, unlessPts: shownPts, onFrame: frame)
+                watchdogDue = .distantPast
+                return made.liveBurst(named: base, span: span, interval: interval, count: max(1, count), wall: deadline, clipSpan: clipSpan, unlessPts: shownPts) { [weak made] url, index in
+                    // The first keyframe is in: the clip has its span and a grace from here, whatever the deadline has left.
+                    if index == 0, clipSpan > 0, let made { stopRead(made, in: clipSpan + FrameGrabber.clipGrace) }
+                    frame?(url, index)
+                }
             }
             guard var result = attempt() else {
                 outcome = .cancelled
@@ -181,9 +199,10 @@ final class LiveFrameQueue {
             }
             var refused = Self.refusedOpen(grabber)
             var retries = 0
-            // The fight: a refused open is asked again every second for the deadline, through the provider's
-            // count of a closed read, until the origin admits it or the fight is lost.
-            while refused, Date().timeIntervalSince(started) + Self.refusalRetryWait < deadline, !isCancelled(channelId) {
+            // The fight: a refused open is asked again every second while the provider may still count a read it admitted
+            // to us, until the origin admits it or the fight is lost. A refusal with no such read is the answer.
+            while refused, Date().timeIntervalSince(started) + Self.refusalRetryWait < deadline, !isCancelled(channelId),
+                  LiveConnectionBroker.shared.recentlyClosed(key: key, within: deadline) {
                 retries += 1
                 wait(Self.refusalRetryWait, unlessCancelled: channelId)
                 if isCancelled(channelId) { break }
@@ -213,7 +232,8 @@ final class LiveFrameQueue {
                                             clipSpan: clipSpan, unlessPts: shownPts, onFrame: frame)
             }
             watchdog?.cancel()
-            grabber.stop()
+            // Closed before the lease frees, so a read waiting on the slot never opens beside this one.
+            grabber.stopAndClose()
             let elapsed = Date().timeIntervalSince(started)
             // Only a broken input is evidence of a provider kick. Unchanged pictures and a span
             // containing fewer keyframes are successful reads, regardless of the requested count.

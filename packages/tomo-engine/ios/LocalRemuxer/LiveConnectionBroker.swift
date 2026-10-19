@@ -50,8 +50,9 @@ final class LiveConnectionBroker {
             self.onRevoke = onRevoke
         }
 
-        /// Called once the connection is closed; a revoked lease frees its slot only here.
-        func release() { broker?.release(self) }
+        /// Called once the connection is closed; a revoked lease frees its slot only here. `counted` false: the origin
+        /// never admitted the read, so it has nothing of it left to count.
+        func release(counted: Bool = true) { broker?.release(self, counted: counted) }
     }
 
     private let cond = NSCondition()
@@ -279,9 +280,9 @@ final class LiveConnectionBroker {
         return lease
     }
 
-    private func release(_ lease: Lease) {
+    private func release(_ lease: Lease, counted: Bool) {
         cond.lock()
-        closedAt[lease.key] = Date()
+        if counted { closedAt[lease.key] = Date() }
         active[lease.key]?.removeAll { $0 === lease }
         if active[lease.key]?.isEmpty == true { active[lease.key] = nil }
         cond.broadcast()

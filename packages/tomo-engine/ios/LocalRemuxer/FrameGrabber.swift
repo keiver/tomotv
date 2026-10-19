@@ -109,6 +109,9 @@ final class FrameGrabber {
     /// A clip holding less than this share of its span is not written: a read cut short by the watchdog,
     /// a cancel or a timestamp wrap would loop a fraction of a second on the card.
     private static let clipMinShare = 0.6
+    /// The clip has its span and this much more from its first keyframe, whatever the deadline has left: an open,
+    /// probe and keyframe wait measured 10 to 18 s left the clip under 5 s, and a whole clip takes under 7 s at p90.
+    static let clipGrace: TimeInterval = 3
     /// The simulator has no hardware decoder; asking for one there fails every clip with -12906 before falling back.
     #if targetEnvironment(simulator)
     private static let clipHardwareDecode = false
@@ -252,7 +255,9 @@ final class FrameGrabber {
             var resume: Int64?
             if clipSpan > 0 {
                 let clipStarted = Date()
-                resume = recordClip(first, to: clipFile, span: clipSpan, interval: interval, keys: count - 1, wall: wall, started: started, emitKey: emitKey)
+                // The clip keeps its span and a grace from here: a keyframe that landed late never costs it.
+                let clipWall = max(wall, clipStarted.timeIntervalSince(started) + clipSpan + Self.clipGrace)
+                resume = recordClip(first, to: clipFile, span: clipSpan, interval: interval, keys: count - 1, wall: clipWall, started: started, emitKey: emitKey)
                 if resume != nil { clip = clipFile }
                 clipMs = Date().timeIntervalSince(clipStarted) * 1000
             }
