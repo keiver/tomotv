@@ -42,7 +42,7 @@ import { useItemPoster } from "@/hooks/useItemPoster";
 import { PosterCollage } from "@/components/poster-collage";
 import { ChannelGroupBand } from "@/components/live-tv/channel-group-band";
 import { LiveClip } from "@/components/live-tv/live-clip";
-import { useLiveClip, useLiveFrame } from "@/hooks/useLiveFrame";
+import { useLiveClip, useLiveFrame, useLiveFrameSeenAt } from "@/hooks/useLiveFrame";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { usePlaybackHeld } from "@/hooks/usePlaybackHeld";
 import { LIVE_FRAME_TRANSITION_MS } from "@/services/liveFrames";
@@ -55,7 +55,7 @@ import { useShowInFolder } from "@/hooks/useShowInFolder";
 import { CATEGORY_LABELS } from "@/hooks/useChannelFilterChoices";
 import { useLiveTvManagement } from "@/hooks/useLiveTvManagement";
 import { useRecordActions } from "@/hooks/useRecordActions";
-import { EXTERNAL_GUIDE_PREFIX, formatClockRange, formatDayLabel, isAiring, programCategory, programTimes } from "@/utils/guide";
+import { EXTERNAL_GUIDE_PREFIX, formatClock, formatClockRange, formatDayLabel, isAiring, programCategory, programTimes } from "@/utils/guide";
 import { readGuideProgram } from "@/utils/programInfo";
 import { PlaybackLane, predictPlaybackLane } from "@/services/localRemux";
 import { JellyfinItem, JellyfinMediaStream, JellyfinProgram } from "@/types/jellyfin";
@@ -493,6 +493,8 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   const liveArtChannel = watchable ? liveChannelId : "";
   const liveFrame = useLiveFrame(liveArtChannel);
   const liveClip = useLiveClip(liveArtChannel);
+  const liveSeenAt = useLiveFrameSeenAt(liveArtChannel);
+  const seenLine = liveFrame && liveSeenAt > 0 ? t("liveTv.lastSeen").replace("{time}", formatClock(liveSeenAt)) : "";
   const { autoUpdate } = useLiveTvPreferences();
   const playbackHeld = usePlaybackHeld();
   const clipShown = !!liveFrame && !!liveClip && active && autoUpdate && !playbackHeld;
@@ -547,6 +549,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
     : liveProgram && liveTimes
       ? joinMeta([
           liveChannelName,
+          seenLine,
           liveSlot
             ? `${formatDayLabel(liveTimes.startMs, detailsAtMs, { today: t("liveTv.today"), tomorrow: t("liveTv.tomorrow") })} ${t("liveTv.timeRange").replace("{start}", liveSlot.start).replace("{end}", liveSlot.end)}`
             : "",
@@ -558,6 +561,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
         ? formatPixelSize(details.Width, details.Height)
         : joinMeta([
             formatChannelNumber(details),
+            seenLine,
             genresLine,
             year,
             // A book's RunTimeTicks is its page count in the server's ticks encoding, not a duration.

@@ -5,9 +5,12 @@
 import { VideoInfoPanel } from "@/components/video-info-panel";
 import { fetchItemDetails } from "@/services/jellyfinApi";
 import type { JellyfinItem } from "@/types/jellyfin";
+import { formatClock } from "@/utils/guide";
 import React from "react";
+import { Text } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 
+const MOCK_SEEN_AT = Date.UTC(2026, 9, 19, 20, 42);
 const channel = { Id: "ch-1", Name: "Channel One", Type: "TvChannel", ImageTags: {} } as unknown as JellyfinItem;
 const frame = { uri: "file:///frames/ch-1.jpg", cacheKey: "ch-1-1" };
 const clip = { uri: "file:///frames/ch-1.mp4", cacheKey: "ch-1-clip-1" };
@@ -34,7 +37,11 @@ jest.mock("@/hooks/useFolderPlay", () => ({ useFolderPlay: () => jest.fn() }));
 jest.mock("@/hooks/useShowInFolder", () => ({ useShowInFolder: () => jest.fn() }));
 jest.mock("@/hooks/useOpenShelfItem", () => ({ useOpenShelfItem: () => jest.fn() }));
 jest.mock("@/hooks/useLiveTvManagement", () => ({ useLiveTvManagement: () => false }));
-jest.mock("@/hooks/useLiveFrame", () => ({ useLiveFrame: (id: string) => (id ? mockFrame : undefined), useLiveClip: (id: string) => (id ? mockClip : undefined) }));
+jest.mock("@/hooks/useLiveFrame", () => ({
+  useLiveFrame: (id: string) => (id ? mockFrame : undefined),
+  useLiveClip: (id: string) => (id ? mockClip : undefined),
+  useLiveFrameSeenAt: (id: string) => (id && mockFrame ? MOCK_SEEN_AT : 0),
+}));
 jest.mock("@/hooks/useLiveTvPreferences", () => ({ useLiveTvPreferences: () => ({ autoUpdate: mockAutoUpdate }) }));
 jest.mock("@/hooks/usePlaybackHeld", () => ({ usePlaybackHeld: () => mockHeld }));
 jest.mock("@/services/nextUp", () => ({ containerKey: () => null, dismissNextUpContainer: jest.fn() }));
@@ -83,6 +90,7 @@ async function mount(active = true) {
 }
 
 const shownSources = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAllByType(Image).map((node) => node.props.source);
+const texts = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAllByType(Text).map((node) => node.props.children);
 
 describe("Video info panel: a channel's live picture", () => {
   beforeEach(() => {
@@ -133,5 +141,22 @@ describe("Video info panel: a channel's live picture", () => {
     const tree = await mount();
     expect(shownSources(tree)).not.toContainEqual(frame);
     expect(tree.root.findAllByType(Image)).toHaveLength(1);
+  });
+
+  it("names when the picture was seen after the channel number", async () => {
+    (fetchItemDetails as jest.Mock).mockResolvedValue({ ...channel, ChannelNumber: "4" });
+    expect(texts(await mount())).toContain(`CH 4 · Seen at ${formatClock(MOCK_SEEN_AT)}`);
+  });
+
+  it("names when the picture was seen alone when the channel has no number", async () => {
+    expect(texts(await mount())).toContain(`Seen at ${formatClock(MOCK_SEEN_AT)}`);
+  });
+
+  it("says no seen time when no picture was grabbed", async () => {
+    mockFrame = undefined;
+    (fetchItemDetails as jest.Mock).mockResolvedValue({ ...channel, ChannelNumber: "4" });
+    const shown = texts(await mount());
+    expect(shown).toContain("CH 4");
+    expect(shown.some((text) => typeof text === "string" && text.includes("Seen at"))).toBe(false);
   });
 });

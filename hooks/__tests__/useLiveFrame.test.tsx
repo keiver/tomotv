@@ -1,15 +1,17 @@
 /** useLiveFrame follows the sampler: the current frame on mount, the next on notify, another channel on rebind. */
-import { useLiveFrame } from "@/hooks/useLiveFrame";
-import { liveFrameFor, subscribeLiveFrame } from "@/services/liveFrames";
+import { useLiveFrame, useLiveFrameSeenAt } from "@/hooks/useLiveFrame";
+import { liveFrameFor, liveFrameReel, subscribeLiveFrame } from "@/services/liveFrames";
 import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
 
 jest.mock("@/services/liveFrames", () => ({
   liveFrameFor: jest.fn(),
+  liveFrameReel: jest.fn(),
   subscribeLiveFrame: jest.fn(),
 }));
 
 const mockFrameFor = liveFrameFor as jest.Mock;
+const mockReel = liveFrameReel as jest.Mock;
 const mockSubscribe = subscribeLiveFrame as jest.Mock;
 
 type Handle = { get: () => { uri: string; cacheKey: string } | undefined };
@@ -54,5 +56,40 @@ describe("useLiveFrame", () => {
     expect(listeners.has("c2")).toBe(true);
     act(() => renderer.unmount());
     expect(listeners.size).toBe(0);
+  });
+});
+
+describe("useLiveFrameSeenAt", () => {
+  let reel: { frames: { uri: string; cacheKey: string }[]; at: number } | undefined;
+  let notify: (() => void) | undefined;
+  let seenAt = -1;
+  function SeenProbe({ channelId }: { channelId: string }) {
+    seenAt = useLiveFrameSeenAt(channelId);
+    return null;
+  }
+
+  beforeEach(() => {
+    reel = undefined;
+    mockReel.mockImplementation(() => reel);
+    mockSubscribe.mockImplementation((_id: string, listener: () => void) => {
+      notify = listener;
+      return () => undefined;
+    });
+  });
+
+  it("is 0 with no picture, the burst's time once one shows, and follows a re-dated burst", () => {
+    act(() => {
+      TestRenderer.create(<SeenProbe channelId="c1" />);
+    });
+    expect(seenAt).toBe(0);
+    reel = { frames: [], at: 1000 };
+    act(() => notify?.());
+    expect(seenAt).toBe(0);
+    reel = { frames: [{ uri: "file:///c1/live-1.jpg", cacheKey: "live-c1-1" }], at: 1000 };
+    act(() => notify?.());
+    expect(seenAt).toBe(1000);
+    reel = { ...reel, at: 5000 };
+    act(() => notify?.());
+    expect(seenAt).toBe(5000);
   });
 });

@@ -1,9 +1,10 @@
 /** On Apple TV a channel's info panel shows the channel's last grabbed picture in the art area, with its preview clip over it. */
 import type { JellyfinItem } from "@/types/jellyfin";
 import React from "react";
-import { Platform } from "react-native";
+import { Platform, Text } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 
+const MOCK_SEEN_AT = Date.UTC(2026, 9, 19, 20, 42);
 const channel = { Id: "ch-1", Name: "Channel One", Type: "TvChannel", ImageTags: {} } as unknown as JellyfinItem;
 const frame = { uri: "file:///frames/ch-1.jpg", cacheKey: "ch-1-1" };
 const clip = { uri: "file:///frames/ch-1.mp4", cacheKey: "ch-1-clip-1" };
@@ -28,7 +29,11 @@ jest.mock("@/hooks/useFolderPlay", () => ({ useFolderPlay: () => jest.fn() }));
 jest.mock("@/hooks/useShowInFolder", () => ({ useShowInFolder: () => jest.fn() }));
 jest.mock("@/hooks/useOpenShelfItem", () => ({ useOpenShelfItem: () => jest.fn() }));
 jest.mock("@/hooks/useLiveTvManagement", () => ({ useLiveTvManagement: () => false }));
-jest.mock("@/hooks/useLiveFrame", () => ({ useLiveFrame: (id: string) => (id ? mockFrame : undefined), useLiveClip: (id: string) => (id ? mockClip : undefined) }));
+jest.mock("@/hooks/useLiveFrame", () => ({
+  useLiveFrame: (id: string) => (id ? mockFrame : undefined),
+  useLiveClip: (id: string) => (id ? mockClip : undefined),
+  useLiveFrameSeenAt: (id: string) => (id && mockFrame ? MOCK_SEEN_AT : 0),
+}));
 jest.mock("@/hooks/useLiveTvPreferences", () => ({ useLiveTvPreferences: () => ({ autoUpdate: true }) }));
 jest.mock("@/hooks/usePlaybackHeld", () => ({ usePlaybackHeld: () => false }));
 jest.mock("@/services/nextUp", () => ({ containerKey: () => null, dismissNextUpContainer: jest.fn() }));
@@ -72,6 +77,7 @@ const { VideoInfoPanel } = require("@/components/video-info-panel") as typeof im
 const { fetchItemDetails } = require("@/services/jellyfinApi");
 const { Image } = require("expo-image");
 const { LiveClip } = require("@/components/live-tv/live-clip");
+const { formatClock } = require("@/utils/guide") as typeof import("@/utils/guide");
 
 async function mount() {
   let tree: TestRenderer.ReactTestRenderer;
@@ -108,5 +114,11 @@ describe("Video info panel on Apple TV: a channel's live picture", () => {
     mockClip = undefined;
     const tree = await mount();
     expect(shownSources(tree)).not.toContainEqual(frame);
+  });
+
+  it("names when the picture was seen after the channel number", async () => {
+    (fetchItemDetails as jest.Mock).mockResolvedValue({ ...channel, ChannelNumber: "4" });
+    const tree = await mount();
+    expect(tree.root.findAllByType(Text).map((node) => node.props.children)).toContain(`CH 4 · Seen at ${formatClock(MOCK_SEEN_AT)}`);
   });
 });
