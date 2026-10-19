@@ -10,6 +10,8 @@ import { Platform, type ViewabilityConfig, type ViewToken } from "react-native";
 export const LIVE_FRAME_VIEWABILITY = Platform.isTV ? { itemVisiblePercentThreshold: 100, minimumViewTime: 300 } : { viewAreaCoveragePercentThreshold: 0, minimumViewTime: 300 };
 /** TV only: a row at least this much on screen is read once the whole rows have their clips; its clip stays paused. */
 export const LIVE_FRAME_PART_VIEWABILITY = { itemVisiblePercentThreshold: 15, minimumViewTime: 300 };
+/** Phone and Mac: the rows wholly on screen, read before a sliver row and the row read ahead. */
+export const LIVE_FRAME_FULL_VIEWABILITY = { itemVisiblePercentThreshold: 100, minimumViewTime: 300 };
 
 /** The channels in the rows in view, in order, plus the row below the last one on a phone; on TV the rows in view alone. */
 export function viewportChannelIds<T>(viewableItems: ViewToken<T>[], items: readonly T[], idsOf: (item: T) => string[], lookahead = !Platform.isTV): string[] {
@@ -55,8 +57,19 @@ export function useLiveFrameViewport<T>(surface: LiveFrameSurface, enabled: bool
   }, [enabled, surface, isScreenFocused]);
   useEffect(() => () => setLiveFrameViewable(surface, []), [surface]);
   const report = useCallback(() => {
-    const whole = viewportChannelIds(wholeRef.current, itemsRef.current, idsOfRef.current);
-    setLiveFrameViewable(surface, whole, partlyShownChannelIds(wholeRef.current, partRef.current, itemsRef.current, idsOfRef.current));
+    if (Platform.isTV) {
+      const whole = viewportChannelIds(wholeRef.current, itemsRef.current, idsOfRef.current);
+      setLiveFrameViewable(surface, whole, partlyShownChannelIds(wholeRef.current, partRef.current, itemsRef.current, idsOfRef.current));
+      return;
+    }
+    // Phone and Mac: the part pair holds the rows wholly on screen; any visible pixel and the row after them read behind.
+    const full = viewportChannelIds(partRef.current, itemsRef.current, idsOfRef.current, false);
+    const fullIds = new Set(full);
+    setLiveFrameViewable(
+      surface,
+      full,
+      viewportChannelIds(wholeRef.current, itemsRef.current, idsOfRef.current).filter((channelId) => !fullIds.has(channelId)),
+    );
   }, [surface]);
   // Stable for the list's life: a list refuses new viewability pairs once mounted.
   const viewabilityPairs = useMemo<LiveFrameViewabilityPair<T>[]>(() => {
@@ -69,9 +82,8 @@ export function useLiveFrameViewport<T>(surface: LiveFrameSurface, enabled: bool
         report();
       },
     };
-    if (!Platform.isTV) return [whole];
     const part: LiveFrameViewabilityPair<T> = {
-      viewabilityConfig: LIVE_FRAME_PART_VIEWABILITY,
+      viewabilityConfig: Platform.isTV ? LIVE_FRAME_PART_VIEWABILITY : LIVE_FRAME_FULL_VIEWABILITY,
       onViewableItemsChanged: ({ viewableItems }) => {
         partRef.current = viewableItems;
         report();

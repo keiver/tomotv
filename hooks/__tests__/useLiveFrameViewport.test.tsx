@@ -1,5 +1,5 @@
 /** useLiveFrameViewport: the rows in view (plus one lookahead on a phone) reach the sampler on its surface, active with the screen, cleared on unmount; on TV the rows partly on screen are reported behind them. */
-import { partlyShownChannelIds, useLiveFrameViewport, viewportChannelIds, type LiveFrameViewabilityPair } from "@/hooks/useLiveFrameViewport";
+import { LIVE_FRAME_FULL_VIEWABILITY, LIVE_FRAME_VIEWABILITY, partlyShownChannelIds, useLiveFrameViewport, viewportChannelIds, type LiveFrameViewabilityPair } from "@/hooks/useLiveFrameViewport";
 import { setLiveFramesActive, setLiveFrameViewable } from "@/services/liveFrames";
 import React, { forwardRef, useImperativeHandle } from "react";
 import type { ViewToken } from "react-native";
@@ -73,17 +73,16 @@ describe("useLiveFrameViewport", () => {
       renderer = TestRenderer.create(<Probe ref={ref} rows={rows} enabled />);
     });
     expect(mockActive).toHaveBeenLastCalledWith("wall", true);
-    // A phone counts any visible pixel, so it has no second pair for the rows partly on screen.
-    expect(ref.current!.pairs).toHaveLength(1);
+    expect(ref.current!.pairs.map((pair) => pair.viewabilityConfig)).toEqual([LIVE_FRAME_VIEWABILITY, LIVE_FRAME_FULL_VIEWABILITY]);
 
     act(() => ref.current?.report([token(rows[0], 0)]));
-    expect(mockViewable).toHaveBeenLastCalledWith("wall", ["a", "b"], []);
+    expect(mockViewable).toHaveBeenLastCalledWith("wall", [], ["a", "b"]);
     expect([...ref.current!.visible]).toEqual(["a"]);
 
     const grown = rows.concat({ ids: ["c"] });
     act(() => renderer.update(<Probe ref={ref} rows={grown} enabled />));
     act(() => ref.current?.report([token(grown[1], 1)]));
-    expect(mockViewable).toHaveBeenLastCalledWith("wall", ["b", "c"], []);
+    expect(mockViewable).toHaveBeenLastCalledWith("wall", [], ["b", "c"]);
     expect([...ref.current!.visible]).toEqual(["b"]);
 
     mockFocused = false;
@@ -104,7 +103,7 @@ describe("useLiveFrameViewport", () => {
     });
     act(() => ref.current?.report([token(rows[0], 0)]));
     expect(mockActive).not.toHaveBeenCalled();
-    expect(mockViewable).toHaveBeenLastCalledWith("wall", ["a"], []);
+    expect(mockViewable).toHaveBeenLastCalledWith("wall", [], ["a"]);
 
     act(() => renderer.update(<Probe ref={ref} rows={rows} enabled />));
     expect(mockActive).toHaveBeenLastCalledWith("wall", true);
@@ -113,6 +112,21 @@ describe("useLiveFrameViewport", () => {
     expect(mockActive).toHaveBeenLastCalledWith("wall", false);
     act(() => renderer.unmount());
     expect(mockViewable).toHaveBeenLastCalledWith("wall", []);
+  });
+
+  it("on a phone or Mac reports the rows wholly on screen as whole, and a sliver row and the row read ahead behind them", () => {
+    const rows: Row[] = [{ ids: ["a"] }, { ids: ["b", "c"] }, { ids: ["d"] }, { ids: ["e"] }];
+    const ref = React.createRef<Handle>();
+    let renderer!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      renderer = TestRenderer.create(<Probe ref={ref} rows={rows} enabled />);
+    });
+    act(() => ref.current!.pairs[1].onViewableItemsChanged({ viewableItems: [token(rows[0], 0), token(rows[1], 1)] }));
+    act(() => ref.current?.report([token(rows[0], 0), token(rows[1], 1), token(rows[2], 2)]));
+    expect(mockViewable).toHaveBeenLastCalledWith("wall", ["a", "b", "c"], ["d", "e"]);
+    // The sliver row still plays its clip: players follow any visible pixel.
+    expect([...ref.current!.visible]).toEqual(["a", "b", "c", "d"]);
+    act(() => renderer.unmount());
   });
 
   it("on TV reports the rows past the part threshold behind the whole rows, and only the whole rows play clips", () => {
