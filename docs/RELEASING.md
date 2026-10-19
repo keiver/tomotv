@@ -10,6 +10,11 @@ npm run archive -- <next-build>            # archive, export signed IPA/PKG file
 npm run archive -- <next-build> --upload   # also upload all three platforms and their listings
 ```
 
+A platform whose last version is still in review gets its build for TestFlight but keeps its
+listing. Once that review ends, open the new version with
+`npm run shots:upload -- --platform MAC_OS --create-version`, `npm run meta:upload -- --platform MAC_OS`
+and `node scripts/appstore-attach-build.mjs <build> --platform MAC_OS`.
+
 The argument is the build number (`CFBundleVersion`), stamped into `app.json`
 before building so all three platforms share it. Keep increasing this shared
 number; skipping ahead is fine, going backward is not. Prebuild regenerates `ios/` from

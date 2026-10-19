@@ -71,15 +71,58 @@ export function isFirstVersion(versions, version) {
   return !versions.some((v) => v.attributes.versionString !== version && (v.attributes.downloadable || RELEASED.has(v.attributes.appStoreState)));
 }
 
+const SHIPPED = new Set(["READY_FOR_DISTRIBUTION", "REPLACED_WITH_NEW_VERSION"]);
+
+/**
+ * Where app.json's version stands on a platform: "open" (a draft at it), "free" (nothing in flight,
+ * a draft can be created) or "locked" (a version in review or another state Apple doesn't let us edit).
+ */
+export function listingSlot(versions, platform, version) {
+  if (versions.some((v) => v.attributes.versionString === version && SHIPPED.has(v.attributes.appVersionState))) {
+    throw new Error(`${platform} ${version} is already released. Bump the version in app.json.`);
+  }
+  const pending = versions.find((v) => !SHIPPED.has(v.attributes.appVersionState));
+  if (!pending) return { slot: "free" };
+  const { versionString, appVersionState } = pending.attributes;
+  if (appVersionState === "PREPARE_FOR_SUBMISSION") {
+    if (versionString !== version) throw new Error(`${platform} draft is ${versionString}, app.json says ${version}`);
+    return { slot: "open", version: pending };
+  }
+  return { slot: "locked", version: pending, reason: `${versionString} ${appVersionState}` };
+}
+
 export function editableVersion(versions, platform, version) {
-  const draft = versions.find((v) => v.attributes.appStoreState === "PREPARE_FOR_SUBMISSION");
-  if (draft && draft.attributes.versionString !== version) throw new Error(`${platform} draft is ${draft.attributes.versionString}, app.json says ${version}`);
-  return draft;
+  const { slot, version: draft } = listingSlot(versions, platform, version);
+  return slot === "open" ? draft : undefined;
+}
+
+/** The app info a name or subtitle change can go to, or null while the shared one is in a submission. */
+export function editableAppInfo(infos) {
+  return infos.find((i) => i.attributes.state === "PREPARE_FOR_SUBMISSION") ?? null;
+}
+
+/**
+ * The platforms whose listing this run can write, each with its slot. Without an explicit request a
+ * locked platform is skipped with a printed reason; named explicitly, it stops the run.
+ */
+export async function listingPlatforms(api, appId, version, requested) {
+  const platforms = selectedPlatforms(requested);
+  const open = [];
+  for (const platform of platforms) {
+    const found = listingSlot(await platformVersions(api, appId, platform), platform, version);
+    if (found.slot !== "locked") {
+      open.push({ platform, ...found });
+      continue;
+    }
+    if (requested) throw new Error(`${platform} ${found.reason}: its listing cannot change until that version leaves review.`);
+    console.log(`  ${PLATFORM_LABELS[platform]}: ${found.reason}, listing skipped`);
+  }
+  return open;
 }
 
 export async function attachBuild(api, appId, platform, version, buildNumber, { attempts = 30, delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
   const draft = editableVersion(await platformVersions(api, appId, platform), platform, version);
-  if (!draft) throw new Error(`No editable ${platform} version. Run shots:upload -- --create-version first.`);
+  if (!draft) throw new Error(`No editable ${platform} version. Run shots:upload -- --platform ${platform} --create-version first.`);
   for (let attempt = 0; attempt < attempts; attempt++) {
     const builds = await api.get(`/v1/builds?filter[app]=${appId}&filter[version]=${buildNumber}&filter[preReleaseVersion.version]=${version}&filter[preReleaseVersion.platform]=${platform}&limit=1`);
     const build = builds.data[0];

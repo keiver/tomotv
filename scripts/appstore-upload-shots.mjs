@@ -26,7 +26,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ascEnv, client } from "./appstore/asc.mjs";
-import { SCREENSHOT_DEVICES, acceptsSize, editableVersion, placementGroup, platformVersions, selectedPlatforms, uploadedDevices } from "./appstore/platforms.mjs";
+import { SCREENSHOT_DEVICES, acceptsSize, listingPlatforms, placementGroup, selectedPlatforms, uploadedDevices } from "./appstore/platforms.mjs";
 import { generatedShots, validateCaptures } from "./appstore/captures.mjs";
 import { replaceScreenshots } from "./appstore/placements.mjs";
 
@@ -107,10 +107,9 @@ async function main() {
   // screenshot change; absent one, --create-version opens the draft.
   const appVersion = JSON.parse(fs.readFileSync(path.join(ROOT, "app.json"), "utf8")).expo.version;
   const versions = {};
-  for (const platform of platforms) {
-    const res = { data: await platformVersions(api, app.id, platform) };
-    let version = editableVersion(res.data, platform, appVersion);
-    if (!version) {
+  for (const { platform, slot, version: found } of await listingPlatforms(api, app.id, appVersion, opt("--platform"))) {
+    let version = found;
+    if (slot === "free") {
       // Deliberately not automatic: creating a version is a change to the
       // listing, and an upload that quietly opens one is how a half-filled
       // version reaches App Store Connect without anybody deciding to.
@@ -133,6 +132,7 @@ async function main() {
 
   for (const { locale, platform, group, entries } of groups.values()) {
     const version = versions[platform];
+    if (!version) continue;
     const localizations = await api.get(`/v1/appStoreVersions/${version.id}/appStoreVersionLocalizations`);
     const existing = localizations.data.find((l) => l.attributes.locale === STORE_LOCALES[locale]);
     const localizationId = existing

@@ -1,8 +1,67 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { acceptsSize, attachBuild, editableVersion, isFirstVersion, placementGroup, platformVersions, selectedPlatforms, uploadedDevices } from "../appstore/platforms.mjs";
+import {
+  acceptsSize,
+  attachBuild,
+  editableAppInfo,
+  editableVersion,
+  isFirstVersion,
+  listingPlatforms,
+  listingSlot,
+  placementGroup,
+  platformVersions,
+  selectedPlatforms,
+  uploadedDevices,
+} from "../appstore/platforms.mjs";
 
-const version = (versionString, appStoreState, id = versionString) => ({ id, attributes: { versionString, appStoreState } });
+const version = (versionString, state, id = versionString) => ({ id, attributes: { versionString, appStoreState: state, appVersionState: state } });
+test("a draft at app.json's version is open", () => {
+  const draft = version("2.2.13", "PREPARE_FOR_SUBMISSION");
+  assert.deepEqual(listingSlot([draft, version("2.2.12", "READY_FOR_DISTRIBUTION")], "IOS", "2.2.13"), { slot: "open", version: draft });
+});
+test("a platform with every version released is free", () => {
+  assert.deepEqual(listingSlot([version("2.2.12", "READY_FOR_DISTRIBUTION"), version("2.2.11", "REPLACED_WITH_NEW_VERSION")], "IOS", "2.2.13"), { slot: "free" });
+  assert.deepEqual(listingSlot([], "MAC_OS", "2.2.13"), { slot: "free" });
+});
+test("an older version waiting for review locks the platform", () => {
+  const waiting = version("2.2.12", "WAITING_FOR_REVIEW");
+  const found = listingSlot([waiting, version("2.2.11", "READY_FOR_DISTRIBUTION")], "MAC_OS", "2.2.13");
+  assert.deepEqual(found, { slot: "locked", version: waiting, reason: "2.2.12 WAITING_FOR_REVIEW" });
+  assert.equal(editableVersion([waiting], "MAC_OS", "2.2.13"), undefined);
+});
+test("app.json's own version in review or rejected locks the platform", () => {
+  for (const state of ["IN_REVIEW", "DEVELOPER_REJECTED", "REJECTED", "PENDING_DEVELOPER_RELEASE"]) {
+    assert.equal(listingSlot([version("2.2.13", state)], "TV_OS", "2.2.13").slot, "locked");
+  }
+});
+test("app.json's version already released stops before the build", () => {
+  assert.throws(() => listingSlot([version("2.2.13", "READY_FOR_DISTRIBUTION")], "IOS", "2.2.13"), /IOS 2.2.13 is already released/);
+});
+test("the app info takes a name change only while it is a draft", () => {
+  const info = (state) => ({ id: state, attributes: { state } });
+  assert.equal(editableAppInfo([info("READY_FOR_DISTRIBUTION"), info("WAITING_FOR_REVIEW")]), null);
+  assert.equal(editableAppInfo([info("READY_FOR_DISTRIBUTION"), info("PREPARE_FOR_SUBMISSION")]).id, "PREPARE_FOR_SUBMISSION");
+});
+const histories = {
+  IOS: [version("2.2.12", "READY_FOR_DISTRIBUTION")],
+  MAC_OS: [version("2.2.12", "WAITING_FOR_REVIEW"), version("2.2.11", "READY_FOR_DISTRIBUTION")],
+  TV_OS: [version("2.2.13", "PREPARE_FOR_SUBMISSION", "tv-draft")],
+};
+const historyApi = { get: async (url) => ({ data: histories[url.match(/filter\[platform\]=(\w+)/)[1]] }) };
+test("listing steps skip a platform in review and keep the others", async () => {
+  const open = await listingPlatforms(historyApi, "app", "2.2.13", null);
+  assert.deepEqual(
+    open.map((p) => [p.platform, p.slot]),
+    [
+      ["IOS", "free"],
+      ["TV_OS", "open"],
+    ],
+  );
+});
+test("naming a platform in review stops the listing step", async () => {
+  await assert.rejects(listingPlatforms(historyApi, "app", "2.2.13", "MAC_OS"), /MAC_OS 2.2.12 WAITING_FOR_REVIEW/);
+  assert.equal((await listingPlatforms(historyApi, "app", "2.2.13", "IOS"))[0].slot, "free");
+});
 test("platform selection includes Mac and rejects misspellings", () => {
   assert.deepEqual(selectedPlatforms(), ["IOS", "MAC_OS", "TV_OS"]);
   assert.deepEqual(selectedPlatforms("MAC_OS,IOS,MAC_OS"), ["MAC_OS", "IOS"]);
