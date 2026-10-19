@@ -1,4 +1,5 @@
 import { AmbientBackground } from "@/components/ambient-background";
+import { promptChannelGroup } from "@/components/live-tv/channel-group-prompt";
 import { DurationChips } from "@/components/settings/DurationChips";
 import { DurationSlider } from "@/components/settings/DurationSlider";
 import { ListRow } from "@/components/settings/ListRow";
@@ -33,18 +34,18 @@ export default function ChannelSettingsScreen() {
   const toggleSkipCommercials = useCallback(() => updateLiveTvPreferences({ skipCommercials: !preferences.skipCommercials }), [preferences.skipCommercials]);
   const pickSort = useCallback((sort: ChannelSort) => updateLiveTvPreferences({ sort }), []);
   const pickRecordingMinutes = useCallback((recordingMinutes: RecordingMinutes) => updateLiveTvPreferences({ recordingMinutes }), []);
-  const newGroup = useCallback(() => router.push("/channel-group"), [router]);
+  const newGroup = useCallback(() => promptChannelGroup(), []);
   const openGuideSources = useCallback(() => router.push("/guide-sources"), [router]);
   const openConnectionLimits = useCallback(() => router.push("/connection-limits"), [router]);
   const activeGuides = activeGuideUrls(preferences, lastKnownTunerData()?.tvgUrls ?? []).length;
   const manageGroup = useCallback(
     (group: ChannelGroup) =>
       Alert.alert(group.name, undefined, [
-        { text: t("liveTv.renameGroup"), onPress: () => router.push({ pathname: "/channel-group", params: { groupId: group.id } }) },
+        { text: t("liveTv.renameGroup"), onPress: () => promptChannelGroup({ group }) },
         { text: t("liveTv.deleteGroup"), style: "destructive", onPress: () => deleteGroup(group.id) },
         { text: t("common.cancel"), style: "cancel" },
       ]),
-    [router],
+    [],
   );
 
   return (

@@ -1,3 +1,4 @@
+import { promptChannelGroup } from "@/components/live-tv/channel-group-prompt";
 import { HUD_ACTION_ICON, HudAction } from "@/components/live-tv/guide-corner-actions";
 import { GuideGroupCell } from "@/components/live-tv/guide-group-cell";
 import { HudBand } from "@/components/live-tv/guide-hud";
@@ -6,7 +7,6 @@ import { useCardPalette } from "@/hooks/useCardPalette";
 import { useChannelGroupChoices } from "@/hooks/useChannelGroupChoices";
 import { t } from "@/services/i18n";
 import { type ChannelIdentity } from "@/services/liveTvPreferences";
-import { useRouter } from "expo-router";
 import React from "react";
 
 // The section card's radius (settingsStyles.section): the end cells sit in its bottom corners.
@@ -22,7 +22,6 @@ interface ChannelGroupBandProps {
 
 /** The guide's groups for one channel, own and playlist alike: + names a new group holding it, a cell press adds or removes it. */
 export function ChannelGroupBand({ channel, nextFocusUp, cornerRadius = CARD_RADIUS }: ChannelGroupBandProps) {
-  const router = useRouter();
   const { accent } = useCardPalette();
   const choices = useChannelGroupChoices(channel);
   return (
@@ -34,7 +33,7 @@ export function ChannelGroupBand({ channel, nextFocusUp, cornerRadius = CARD_RAD
           bottomLeftRadius={cornerRadius}
           nextFocusUp={nextFocusUp}
           label={t("liveTv.newGroup")}
-          onPress={() => router.push({ pathname: "/channel-group", params: { channelName: channel.Name, channelNumber: channel.ChannelNumber ?? "" } })}
+          onPress={() => promptChannelGroup({ channel })}
           icon={<SfSymbolIcon name="plus" size={HUD_ACTION_ICON} color={accent} weight="bold" />}
         />
       }>

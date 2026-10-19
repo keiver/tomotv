@@ -408,23 +408,6 @@ export default function RootLayout() {
                                 }
                         }
                       />
-                      {/* Touch: a sheet, since the info panel opening it is itself presented and a push after a
-                      modal gets a zero-frame presentation. Swipe down or Escape cancels. */}
-                      <Stack.Screen
-                        name="channel-group"
-                        options={
-                          Platform.isTV
-                            ? { headerShown: false, animation: "fade" }
-                            : {
-                                presentation: "modal",
-                                headerShown: true,
-                                headerTransparent: true,
-                                headerShadowVisible: false,
-                                headerTitle: t("liveTv.groupName"),
-                                headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
-                              }
-                        }
-                      />
                       <Stack.Screen
                         name="schedule"
                         options={

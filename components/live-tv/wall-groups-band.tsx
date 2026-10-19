@@ -1,3 +1,4 @@
+import { promptChannelGroup } from "@/components/live-tv/channel-group-prompt";
 import { HUD_ACTION_ICON, HudAction } from "@/components/live-tv/guide-corner-actions";
 import { GROUP_CELL_HEIGHT, GuideGroupCell } from "@/components/live-tv/guide-group-cell";
 import { HudBand } from "@/components/live-tv/guide-hud";
@@ -7,7 +8,6 @@ import { useChannelFilterChoices } from "@/hooks/useChannelFilterChoices";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { t } from "@/services/i18n";
 import { updateLiveTvPreferences } from "@/services/liveTvPreferences";
-import { useRouter } from "expo-router";
 import React from "react";
 import { StyleSheet, View } from "react-native";
 
@@ -15,7 +15,6 @@ const PILL_RADIUS = GROUP_CELL_HEIGHT / 2;
 
 /** The channel wall's head, a pill: + for a new group, then the groups to pick one from. */
 export function WallGroupsBand() {
-  const router = useRouter();
   const { accent } = useCardPalette();
   const choices = useChannelFilterChoices();
   const { filter } = useLiveTvPreferences();
@@ -29,7 +28,7 @@ export function WallGroupsBand() {
             topLeftRadius={PILL_RADIUS}
             bottomLeftRadius={PILL_RADIUS}
             label={t("liveTv.newGroup")}
-            onPress={() => router.push("/channel-group")}
+            onPress={() => promptChannelGroup()}
             icon={<SfSymbolIcon name="plus" size={HUD_ACTION_ICON} color={accent} weight="bold" />}
           />
         }>

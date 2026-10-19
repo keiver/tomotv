@@ -3,10 +3,10 @@ import React from "react";
 import { StyleSheet, Text } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 
-const mockPush = jest.fn();
+const mockPrompt = jest.fn();
 const mockUpdate = jest.fn();
 
-jest.mock("expo-router", () => ({ useRouter: () => ({ push: mockPush }) }));
+jest.mock("@/components/live-tv/channel-group-prompt", () => ({ promptChannelGroup: (...args: unknown[]) => mockPrompt(...args) }));
 jest.mock("@/hooks/useCardPalette", () => ({ useCardPalette: () => ({ accent: "#FFC312", ink: "#000" }), themedStyles: () => () => ({}) }));
 jest.mock("@/hooks/useLiveTvPreferences", () => ({ useLiveTvPreferences: () => ({ filter: "group:g1" }) }));
 jest.mock("@/hooks/useChannelFilterChoices", () => ({
@@ -35,7 +35,7 @@ function render() {
 }
 
 beforeEach(() => {
-  mockPush.mockClear();
+  mockPrompt.mockClear();
   mockUpdate.mockClear();
 });
 
@@ -46,10 +46,10 @@ test("leads with the new group button, then the groups", () => {
   act(() => tree.unmount());
 });
 
-test("+ opens the new group screen with no channel", () => {
+test("+ opens the new group name prompt with no channel", () => {
   const tree = render();
   act(() => tree.root.findByType(HudAction).props.onPress());
-  expect(mockPush).toHaveBeenCalledWith("/channel-group");
+  expect(mockPrompt).toHaveBeenCalledWith();
   act(() => tree.unmount());
 });
 
