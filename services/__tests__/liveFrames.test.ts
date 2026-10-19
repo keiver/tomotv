@@ -246,6 +246,16 @@ describe("live frames", () => {
     await flush();
   });
 
+  it("refreshes a whole row's card due its refresh before a row partly on screen still missing its picture", async () => {
+    mockOnDisk.mockResolvedValue({ m1: { ...onDisk("m1", 1_000_000 - LIVE_FRAME_REFRESH_MS - 1, 2), clip: "file:///pool/m1/c.mp4" } });
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1"], ["m2"]);
+    await advance(0);
+    expect(grabs()).toEqual(["m1"]);
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m1", "m2"]);
+  });
+
   it("a whole row waiting out its failures holds no row partly on screen back", async () => {
     mockLiveFrame.mockImplementation(async ({ channelId }: { channelId: string }) => {
       if (channelId === "m1") throw new Error("refused");
@@ -277,6 +287,64 @@ describe("live frames", () => {
     await advance(LIVE_FRAME_SPACING_MS);
     expect(grabs()).toEqual(["m2", "m1", "m1"]);
     expect(mockLiveFrame.mock.calls[2][0]).toMatchObject({ shownPts: undefined, shownUri: undefined });
+  });
+
+  it("a picture whose grab brings no clip tries again behind the refresh due before it, and twice clipless waits the ladder", async () => {
+    mockOnDisk.mockResolvedValue({
+      m1: { ...onDisk("m1", 1_000_000 - 2_000, 2), clip: undefined },
+      m2: { ...onDisk("m2", 1_000_000 - LIVE_FRAME_REFRESH_MS - 1, 2), clip: "file:///pool/m2/c.mp4" },
+    });
+    mockLiveFrame.mockImplementation(async ({ channelId }: { channelId: string }) => (channelId === "m1" ? { ...frames({ channelId }), clip: null } : frames({ channelId })));
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1", "m2"]);
+    await advance(0);
+    expect(grabs()).toEqual(["m1"]);
+    // m1's clipless grab is its first failure: m2's refresh came due before it, so m2 reads, then m1 tries again.
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m1", "m2"]);
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m1", "m2", "m1"]);
+    // Clipless twice: m1 waits the ladder, and m2's next refresh comes first again.
+    await advance(LIVE_FRAME_REFRESH_MS - LIVE_FRAME_SPACING_MS - 1);
+    expect(grabs()).toEqual(["m1", "m2", "m1"]);
+    await advance(1);
+    expect(grabs()).toEqual(["m1", "m2", "m1", "m2"]);
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m1", "m2", "m1", "m2", "m1"]);
+  });
+
+  it("a card that failed once waits behind a card whose refresh came due before its retry", async () => {
+    mockOnDisk.mockResolvedValue({ m2: { ...onDisk("m2", 1_000_000 - LIVE_FRAME_REFRESH_MS + 60_000, 2), clip: "file:///pool/m2/c.mp4" } });
+    mockLiveFrame.mockImplementation(async ({ channelId }: { channelId: string }) => (channelId === "m1" ? { uris: [], cancelled: false, reason: "frame" } : frames({ channelId })));
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1", "m2"]);
+    await advance(0);
+    expect(grabs()).toEqual(["m1"]);
+    // m1 failed once and is due at its try; m2 is due 60 s later: m1 first, then its second failure puts it on the ladder.
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m1", "m1"]);
+    setPlaybackHold("video", true);
+    await advance(LIVE_FRAME_RETRY_MS + 5_000);
+    // Both are due while playback held the link; m2's refresh came due before m1's rung, so it reads first.
+    setPlaybackHold("video", false);
+    await advance(0);
+    expect(grabs()).toEqual(["m1", "m1", "m2"]);
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m1", "m1", "m2", "m1"]);
+  });
+
+  it("a grab that brings the clip clears the failures its clipless grabs counted", async () => {
+    mockOnDisk.mockResolvedValue({ m1: { ...onDisk("m1", 1_000_000 - 2_000, 2), clip: undefined } });
+    let withClip = false;
+    mockLiveFrame.mockImplementation(async ({ channelId }: { channelId: string }) => (withClip ? frames({ channelId }) : { ...frames({ channelId }), clip: null }));
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["m1"]);
+    await advance(0);
+    withClip = true;
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m1", "m1"]);
+    expect(liveClipFor("m1")).toBeDefined();
+    expect(liveFrameDueAt("m1")).toBe(1_000_000 + LIVE_FRAME_SPACING_MS + LIVE_FRAME_REFRESH_MS);
   });
 
   it("stops a refresh for a focused card still missing its picture, never another card's first grab", async () => {
@@ -418,13 +486,12 @@ describe("live frames", () => {
     setLiveFrameViewable("guide", ["m1"]);
     await advance(0);
     expect(liveClipFor("m1")).toBeUndefined();
-    await advance(LIVE_FRAME_SPACING_MS);
-    expect(mockLiveFrame.mock.calls[1][0]).toMatchObject({ shownPts: undefined, shownUri: undefined });
     mockLiveFrame.mockImplementation(async ({ channelId }: { channelId: string }) => ({ ...frames({ channelId }), pts: 7 }));
     await advance(LIVE_FRAME_SPACING_MS);
+    expect(mockLiveFrame.mock.calls[1][0]).toMatchObject({ shownPts: undefined, shownUri: undefined });
     expect(liveClipFor("m1")).toBeDefined();
     await advance(LIVE_FRAME_REFRESH_MS);
-    expect(mockLiveFrame.mock.calls.at(-1)?.[0]).toMatchObject({ shownPts: 7, shownUri: `file:///pool/m1/live-${1_000_000 + LIVE_FRAME_SPACING_MS * 2}-0.jpg` });
+    expect(mockLiveFrame.mock.calls.at(-1)?.[0]).toMatchObject({ shownPts: 7, shownUri: `file:///pool/m1/live-${1_000_000 + LIVE_FRAME_SPACING_MS}-0.jpg` });
   });
 
   describe("preempting a refresh for the focused card", () => {
@@ -1267,12 +1334,13 @@ describe("live frames", () => {
     await advance(LIVE_FRAME_FOCUS_DWELL_MS);
     expect(mockShowLivePreview).not.toHaveBeenCalledWith("m1");
     setLiveFrameFocus(null);
-    // A new card in view reads before the down one, which is on its ladder and then comes last.
+    // A new card in view reads before the down one, which is on its ladder and then comes last: m2's refresh came due before its rung.
     setLiveFrameViewable("guide", ["m1", "m2", "m3"]);
     await advance(0);
     expect(grabs()).toEqual(["m1", "m2", "m1", "m3"]);
     await advance(LIVE_FRAME_RETRY_MS);
-    expect(grabs().slice(0, 5)).toEqual(["m1", "m2", "m1", "m3", "m1"]);
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs().slice(0, 6)).toEqual(["m1", "m2", "m1", "m3", "m2", "m1"]);
   });
 
   it("a down whole row holds no row partly on screen back", async () => {

@@ -25,8 +25,9 @@ export const LIVE_FRAME_BURST_S = 36;
 export const LIVE_FRAME_BURST_INTERVAL_S = 3;
 export const LIVE_FRAME_BURST_COUNT = 8;
 /**
- * The engine's budget per grab, three times over: the wait for a connection on the provider, the fight for a
- * refused open, and the read once admitted (an open measured up to 11.6 s plus the clip's 3 s minimum).
+ * The engine's budget per grab, three times over: the wait for a connection on the provider, the retries of a
+ * refused open while the provider may still count a read it admitted to us, and the read once served; the clip
+ * keeps its span and a grace from its first keyframe past it.
  */
 export const LIVE_FRAME_DEADLINE_S = 15;
 /**
@@ -36,9 +37,10 @@ export const LIVE_FRAME_DEADLINE_S = 15;
 export const LIVE_FRAME_COLD_COUNT = 4;
 export const LIVE_FRAME_COLD_SPAN_S = 9;
 /**
- * A card's first failure costs it no wait, only its place behind the cards that never failed; from the second
- * in a row it waits this long, doubling per failure up to the cap. A grab turned away by the provider counts
- * as a failure too, and any grab the provider admits makes the cards it turned away due again at once.
+ * A card's first failure costs it no wait, only its place in line: due at its last try, behind the cards that
+ * never failed and the refreshes due before it; from the second in a row it waits this long, doubling per failure
+ * up to the cap. A grab turned away by the provider counts as a failure too, and any grab the provider admits
+ * makes the cards it turned away due again, each at its last try.
  */
 export const LIVE_FRAME_RETRY_MS = 120_000;
 export const LIVE_FRAME_RETRY_CAP_MS = 600_000;
@@ -350,11 +352,11 @@ function byFocus(): string[] {
     .map((e) => e.channelId);
 }
 
-/** The channel due next: the focused card past its dwell while its burst is stale, then a card missing its
- *  picture or clip (no picture first, then a never-failed one, then the one that tried longest ago, nearest the
- *  focused row), then the promoted one on its short floor, else the one longest without a burst once its refresh
- *  has passed. A row only partly on screen comes after every whole row has its clip, and a channel judged down
- *  after every other card in view. Backoff binds them all: staring at a dead channel never hammers it. */
+/** The channel due next: the focused card past its dwell while its burst is stale, then a card that never failed
+ *  missing its picture or clip (no picture first, then the one that tried longest ago, nearest the focused row),
+ *  then the promoted one on its short floor, else the card whose refresh or retry came due first: a card that
+ *  failed is due at its last try, then on its ladder, never ahead of a refresh due before it. A row only partly on
+ *  screen comes after every whole row has its clip, and a channel judged down after every other card in view. */
 function nextDue(now: number): { channelId: string; waitMs: number } | null {
   // The focused card first: while it reads, only a card known to read another provider reads beside it; nothing
   // else does while it is stale, except while it waits out a failure.
@@ -365,28 +367,29 @@ function nextDue(now: number): { channelId: string; waitMs: number } | null {
     else if (grabbing.has(stale)) held = entry(stale).originKey ?? "";
     else return { channelId: stale, waitMs: 0 };
   }
+  const besideHeld = (channelId: string) => held === undefined || (entry(channelId).originKey !== undefined && entry(channelId).originKey !== held);
   // A card reading or due for its picture or clip; one waiting out a failure, or judged down, holds nobody.
   const busy = (channelId: string) => !down(channelId) && needsGrab(channelId, now) && (grabbing.has(channelId) || waitingUntil(entry(channelId)) <= now);
-  // A row only partly on screen waits on the whole rows; a down channel waits on every other card in view.
-  const wholeBusy = viewable.some((channelId) => !partlyShown.has(channelId) && busy(channelId));
-  const anyBusy = wholeBusy || viewable.some(busy);
+  // A card with its picture and clip whose refresh has come.
+  const refreshDue = (channelId: string) => {
+    const item = entry(channelId);
+    return !down(channelId) && !grabbing.has(channelId) && !needsGrab(channelId, now) && Math.max(item.lastAt + (item.intervalMs ?? LIVE_FRAME_REFRESH_MS), waitingUntil(item)) <= now;
+  };
+  // A row only partly on screen waits on the whole rows, their refreshes included; a down channel waits on every other card in view.
+  const wholeBusy = viewable.some((channelId) => !partlyShown.has(channelId) && (busy(channelId) || refreshDue(channelId)));
+  const anyBusy = viewable.some(busy);
   const order = byFocus();
   const needy = order
-    .filter((channelId) => !grabbing.has(channelId) && needsGrab(channelId, now) && waitingUntil(entry(channelId)) <= now)
-    .filter((channelId) => (!wholeBusy || !partlyShown.has(channelId)) && (!anyBusy || !down(channelId)))
-    .filter((channelId) => held === undefined || (entry(channelId).originKey !== undefined && entry(channelId).originKey !== held))
+    .filter((channelId) => !grabbing.has(channelId) && needsGrab(channelId, now) && !entry(channelId).failure)
+    .filter((channelId) => (!wholeBusy || !partlyShown.has(channelId)) && (!anyBusy || !down(channelId)) && besideHeld(channelId))
     .map((channelId) => ({ channelId, item: entry(channelId), rank: order.indexOf(channelId) }))
     .sort((a, b) => {
       const pictureA = validBurst(a.channelId, now) ? 1 : 0;
       const pictureB = validBurst(b.channelId, now) ? 1 : 0;
       if (pictureA !== pictureB) return pictureA - pictureB;
-      const failedA = a.item.failure ? 1 : 0;
-      const failedB = b.item.failure ? 1 : 0;
-      if (failedA !== failedB) return failedA - failedB;
       return a.item.lastAt - b.item.lastAt || a.rank - b.rank;
     });
   if (needy[0]) return { channelId: needy[0].channelId, waitMs: 0 };
-  if (held !== undefined) return null;
   if (priority && viewable.includes(priority) && !grabbing.has(priority) && !down(priority)) {
     const item = entry(priority);
     const readyAt = Math.max(item.lastAt + LIVE_FRAME_FOCUS_REFRESH_MS, waitingUntil(item));
@@ -394,10 +397,10 @@ function nextDue(now: number): { channelId: string; waitMs: number } | null {
   }
   let pick: { channelId: string; readyAt: number } | null = null;
   for (const channelId of viewable) {
-    if (grabbing.has(channelId) || (wholeBusy && partlyShown.has(channelId)) || (anyBusy && down(channelId))) continue;
+    if (grabbing.has(channelId) || (wholeBusy && partlyShown.has(channelId)) || (anyBusy && down(channelId)) || !besideHeld(channelId)) continue;
     const item = entry(channelId);
-    // A card still missing its picture or clip is due the moment its waits end; one with both waits the refresh.
-    const floor = needsGrab(channelId, now) ? 0 : item.lastAt + (item.intervalMs ?? LIVE_FRAME_REFRESH_MS);
+    // A card still missing its picture or clip is due at its last try, its backoff passed; one with both waits the refresh.
+    const floor = needsGrab(channelId, now) ? item.lastAt : item.lastAt + (item.intervalMs ?? LIVE_FRAME_REFRESH_MS);
     const readyAt = Math.max(floor, waitingUntil(item));
     if (!pick || readyAt < pick.readyAt) pick = { channelId, readyAt };
   }
@@ -591,7 +594,9 @@ async function grab(channelId: string): Promise<void> {
       item.burst = burstOf(channelId, result.uris, now, result.clip);
       item.pts = result.pts ?? undefined;
       item.intervalMs = LIVE_FRAME_REFRESH_MS;
-      item.failure = undefined;
+      // A picture with no clip counts as a failure of the card, so a channel too slow for its clip waits the ladder.
+      if (result.clip) item.failure = undefined;
+      else recordFailure(item, now);
       noteChannelAlive(channelId);
       notify(channelId);
       startTicker();
