@@ -141,19 +141,21 @@ function GuideRowComponent({
         if (mountSpan && !cellInSpan(geometry, mountSpan)) return null;
         const showArt = artSpan !== undefined && cellInSpan(geometry, artSpan);
         const targets = focusTargets?.programId === programId ? focusTargets : undefined;
+        const airing = startMs <= nowMs && nowMs < endMs;
         return (
           <GuideCell
             key={programId}
             program={program}
             channelName={channel.Name ?? ""}
-            favorite={favorite}
+            // One heart per row: on the airing programme, or the no-listings cell that is the whole row.
+            favorite={favorite && (airing || programId.startsWith(NO_GUIDE_PREFIX))}
             left={geometry.left}
             width={geometry.width}
             height={cellHeight}
             startMs={startMs}
             endMs={endMs}
             past={endMs <= nowMs}
-            airing={startMs <= nowMs && nowMs < endMs}
+            airing={airing}
             recording={recordingMark(program, timersByProgramId)}
             scrollX={scrollX}
             viewportWidth={viewportWidth}
