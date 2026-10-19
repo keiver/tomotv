@@ -461,14 +461,24 @@ final class LiveConnectionBrokerTests: XCTestCase {
     /// An origin feeding at half the live rate: the first keyframe lands with under a clip's worth of the deadline left,
     /// and the clip still gets its span and grace from the keyframe, so it is written.
     func testAGrabWhoseFirstKeyframeLandsLateStillWritesItsClip() throws {
-        let relay = try cappedRelay(mode: "refuse", port: 19832, pace: "0.5:40", paceSlice: 7)
+        try assertALateKeyframeStillWritesItsClip(port: 19832, fallback: false)
+    }
+
+    func testAFallbackWhoseFirstKeyframeLandsLateStillWritesItsClip() throws {
+        try assertALateKeyframeStillWritesItsClip(port: 19912, fallback: true)
+    }
+
+    private func assertALateKeyframeStillWritesItsClip(port: Int, fallback: Bool) throws {
+        let relay = try cappedRelay(mode: "refuse", port: port, pace: "0.5:40", paceSlice: 7)
         defer { relay.stop() }
         let queue = try frameQueue()
         let done = XCTestExpectation(description: "grab")
         var outcome: LiveFrameQueue.Outcome?
         var keyframeAt: Date?
         let started = Date()
-        queue.request(channelId: "late-key", inputUrl: relay.url, headers: [:], deadline: 6, span: 3, interval: 3, count: 2, clipSpan: 5, originKey: "late-key",
+        let key = "late-key-\(port)"
+        queue.request(channelId: "late-key", inputUrl: fallback ? Self.unopenable : relay.url, headers: [:], deadline: 6, span: 3, interval: 3, count: 2,
+                      clipSpan: 5, originKey: key, fallbackUrl: fallback ? relay.url : nil,
                       frame: { _, index in if index == 0 { keyframeAt = Date() } }) {
             outcome = $0
             done.fulfill()
@@ -481,6 +491,8 @@ final class LiveConnectionBrokerTests: XCTestCase {
         XCTAssertGreaterThan(keyframe.timeIntervalSince(started), 1, "the keyframe landed too soon to prove anything")
         XCTAssertGreaterThan(elapsed, 6, "the clip was not given its own time past the deadline")
         XCTAssertLessThan(elapsed, keyframe.timeIntervalSince(started) + 5 + FrameGrabber.clipGrace + 2, "the grab held its slot past the clip's time")
+        XCTAssertNil(LiveConnectionBroker.shared.budget(for: key))
+        XCTAssertEqual(LiveConnectionBroker.shared.recentlyClosed(key: key, within: 15), !fallback)
     }
 
     /// The origin keeps counting a closed reader for a while, here 10 s: the grab after one it just closed keeps

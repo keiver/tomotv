@@ -549,6 +549,60 @@ final class LiveFrameQueueTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(started), 12, "the connect bound ends the grab, not the silence guard")
     }
 
+    /// Both paths must interrupt a probe fed continuously but too slowly to produce a frame.
+    func testATricklingFallbackKeepsTheServedReadDeadline() throws {
+        let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/tier-segment.mpegts")
+        let server = Process()
+        server.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        server.arguments = ["python3", "-u", "-c", """
+        import http.server, sys, time
+        from pathlib import Path
+        payload = Path(sys.argv[1]).read_bytes()
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *args): pass
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header('Content-Type', 'video/mp2t')
+                self.end_headers()
+                until = time.monotonic() + 7
+                offset = 0
+                try:
+                    while time.monotonic() < until:
+                        self.wfile.write(payload[offset:offset+188])
+                        self.wfile.flush()
+                        offset = (offset + 188) % len(payload)
+                        time.sleep(.05)
+                except (BrokenPipeError, ConnectionResetError): pass
+        server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        print(server.server_port, flush=True)
+        server.serve_forever()
+        """, fixture.path]
+        let pipe = Pipe()
+        server.standardOutput = pipe
+        try server.run()
+        defer { server.terminate() }
+        let output = String(decoding: pipe.fileHandleForReading.availableData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        let port = try XCTUnwrap(Int(output))
+        let url = "http://127.0.0.1:\(port)/live.ts"
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = LiveFrameQueue(root: root)
+        for fallback in [false, true] {
+            let key = "trickle-\(UUID().uuidString)"
+            let done = XCTestExpectation(description: "served read")
+            let started = Date()
+            queue.request(channelId: fallback ? "fallback" : "direct", inputUrl: fallback ? "file:///nonexistent/review.ts" : url,
+                          headers: [:], deadline: 2, count: 1, originKey: key, fallbackUrl: fallback ? url : nil) { _ in done.fulfill() }
+            wait(for: [done], timeout: 12)
+            XCTAssertLessThan(Date().timeIntervalSince(started), 4, "a served read retains its two-second deadline, including the fallback")
+            XCTAssertEqual(LiveConnectionBroker.shared.activeCount(for: key), 0)
+            XCTAssertNil(LiveConnectionBroker.shared.budget(for: key))
+            XCTAssertEqual(LiveConnectionBroker.shared.recentlyClosed(key: key, within: 15), !fallback,
+                           "the fallback's body must not count as a served origin read")
+        }
+    }
+
     /// A playlist with no segments, as an origin serves a channel it will not play here.
     private func emptyPlaylist(_ root: URL) throws -> URL {
         let file = root.appendingPathComponent("empty.m3u8")

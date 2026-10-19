@@ -223,13 +223,22 @@ final class LiveFrameQueue {
                 grabber.stop()
                 let fallback = FrameGrabber(inputUrl: fallbackUrl, directory: directory, pool: root, epoch: epoch, httpHeaders: [:], live: true)
                 fallback.reconnects = false
+                watchdog?.cancel()
+                watchdogDue = .distantPast
+                // The server copy has the same read bound, but teaches nothing about the origin's connections.
+                fallback.onServed = { [weak fallback] in
+                    if let fallback { stopRead(fallback, in: left) }
+                }
                 lock.lock()
                 running[channelId] = fallback
                 lock.unlock()
                 grabber = fallback
                 fellBack = true
                 result = fallback.liveBurst(named: base, span: span, interval: interval, count: max(1, count), wall: left,
-                                            clipSpan: clipSpan, unlessPts: shownPts, onFrame: frame)
+                                            clipSpan: clipSpan, unlessPts: shownPts) { [weak fallback] url, index in
+                    if index == 0, clipSpan > 0, let fallback { stopRead(fallback, in: clipSpan + FrameGrabber.clipGrace) }
+                    frame?(url, index)
+                }
             }
             watchdog?.cancel()
             // Closed before the lease frees, so a read waiting on the slot never opens beside this one.
