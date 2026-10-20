@@ -19,6 +19,8 @@ jest.mock("@/services/liveFrames", () => ({
 jest.mock("@/services/jellyfinApi", () => ({ isAudioItem: () => false, isBook: () => false }));
 
 import { CardBadge } from "@/components/card-badge";
+import { CardCornerTab } from "@/components/card-corner-tab";
+import { t } from "@/services/i18n";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardStand, STAND_NAME_TEXT, standFillPercent } from "@/components/card-stand";
 import { Image } from "expo-image";
@@ -123,12 +125,40 @@ describe("media card base", () => {
     }
   });
 
-  it("names the item and nothing else: no episode number, eye or heart", () => {
+  it("wears the episode number on the corner tab and the favorite heart before the name, never an eye", () => {
     const episode = { Id: "e1", Name: "Pilot", Type: "Episode", IndexNumber: 5, ParentIndexNumber: 1, UserData: { Played: true, IsFavorite: true } } as JellyfinVideoItem;
     const tree = mount(<VideoGridItem video={episode} onPress={jest.fn()} index={0} />);
     expect(tree.root.findAllByType(CardBadge)).toHaveLength(0);
+    const [tab] = tree.root.findAllByType(CardCornerTab);
+    expect(tab.props).toMatchObject({ segments: [{ label: "S01E05" }], tone: "plain" });
+    expect(slotOf(tree).findAllByType(CardCornerTab)).toHaveLength(1);
     expect(tree.root.findByType(CardStand).props.name).toBe("Pilot");
-    expect(tree.root.findAll((n) => n.props.name === "eye" || n.props.name === "heart")).toHaveLength(0);
+    expect(tree.root.findByType(CardStand).findAll((n) => n.props.name === "heart")).not.toHaveLength(0);
+    expect(tree.root.findAll((n) => n.props.name === "eye")).toHaveLength(0);
+    act(() => tree.unmount());
+  });
+
+  it("puts a programme's NOW on the corner tab in the live red", () => {
+    const now = Date.now();
+    const program = { Id: "p1", Name: "News", Type: "Program", StartDate: new Date(now - 60_000).toISOString(), EndDate: new Date(now + 60_000).toISOString() } as JellyfinVideoItem;
+    const tree = mount(<VideoGridItem video={program} onPress={jest.fn()} index={0} />);
+    expect(tree.root.findByType(CardCornerTab).props).toMatchObject({ segments: [{ label: t("liveTv.now") }], tone: "live" });
+    expect(tree.root.findAllByType(CardBadge)).toHaveLength(0);
+    act(() => tree.unmount());
+  });
+
+  it("shows a passed channel heart before the name on a shelf channel card", () => {
+    const tree = mount(<VideoGridItem video={channel} onPress={jest.fn()} index={0} titleIcon="heart" />);
+    expect(tree.root.findByType(CardStand).findAll((n) => n.props.name === "heart")).not.toHaveLength(0);
+    expect(tree.root.findAllByType(CardCornerTab)).toHaveLength(0);
+    act(() => tree.unmount());
+  });
+
+  it("leads with a passed icon over the heart", () => {
+    const tree = mount(<VideoGridItem video={movie} onPress={jest.fn()} index={0} titleIcon="videocam-outline" />);
+    const stand = tree.root.findByType(CardStand);
+    expect(stand.findAll((n) => n.props.name === "videocam-outline")).not.toHaveLength(0);
+    expect(stand.findAll((n) => n.props.name === "heart")).toHaveLength(0);
     act(() => tree.unmount());
   });
 

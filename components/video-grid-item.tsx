@@ -1,6 +1,6 @@
-import { type BadgeSegment, CARD_BADGE_INSET, CardBadge } from "@/components/card-badge";
+import { type BadgeSegment, CARD_BADGE_INSET, CardBadge, showsFavoriteHeart } from "@/components/card-badge";
+import { CardCornerTab } from "@/components/card-corner-tab";
 import { CardNavProgress } from "@/components/card-nav-progress";
-import { CardCornerScrim } from "@/components/card-scrim";
 import { CardStand } from "@/components/card-stand";
 import { LevelBars } from "@/components/level-bars";
 import { LiveClip } from "@/components/live-tv/live-clip";
@@ -286,12 +286,13 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   const watchedPercent = hasProgress ? Math.round(Math.min(Math.max(progressPercent, 0), 1) * 100) : 0;
   const nowPlayingProgress = useNowPlayingProgress(video, nowPlayingAudio ? "audio" : nowPlayingVideo.active ? "video" : null, progressPercent, nowPlayingVideo.playing);
   const standProgress = nowPlaying ? nowPlayingProgress.fraction : hasProgress ? watchedPercent / 100 : isWatched(video) ? 1 : null;
-  // Only a programme's NOW/time pill stays on the art; a card names itself and nothing else.
-  const artBadge = video.Type === "Program" ? badgeSegments : null;
+  const artBadge = isChannel ? null : badgeSegments;
+  // One mark before the name: the playing bars, else a passed icon, else the favorite heart (a channel's is passed in).
+  const nameIcon = leadingMark ?? (isChannel ? titleIcon : showsFavoriteHeart(video) ? "heart" : undefined);
   const metaMark = nowPlaying
     ? (color: string) => <LevelBars size={IS_TV ? 16 : 10} playing={nowPlayingProgress.playing} color={color} />
-    : leadingMark
-      ? (color: string) => <Ionicons name={leadingMark} size={IS_TV ? 15 : 9} color={color} />
+    : nameIcon
+      ? (color: string) => <Ionicons name={nameIcon} size={IS_TV ? 15 : 9} color={color} />
       : undefined;
   const posterImage = (
     <Image
@@ -366,7 +367,6 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               ) : null}
               {posterImage}
               {(focused || clipActive) && liveFrame && liveClip ? <LiveClip clip={liveClip} style={liveBox ?? undefined} /> : null}
-              {focused && artBadge && !isChannel ? <CardCornerScrim /> : null}
             </>
           ) : (
             // No artwork: a glyph for the item's kind on the dark card fill. The title
@@ -388,7 +388,8 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
           ) : null}
 
           {/* A wall card's stand says offline with its glyph, so its picture skips the pill. */}
-          {offlinePill || artBadge || (isChannel && (recording || (liveFrame ? liveMark : airingName))) ? (
+          {artBadge && !offlinePill ? <CardCornerTab segments={artBadge} tone={video.Type === "Program" ? "live" : "plain"} /> : null}
+          {offlinePill || (isChannel && (recording || (liveFrame ? liveMark : airingName))) ? (
             <View style={[styles.indexBadge, liveCard && styles.indexBadgeChannel]} pointerEvents="none">
               {offlinePill ? (
                 // A fact pill, not a broadcast mark: red stays for LIVE and REC.
@@ -400,8 +401,6 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               ) : isChannel ? (
                 // A logo card has no picture to age: NOW is the guide's claim about the programme in the title; LIVE stays the picture's.
                 <CardBadge segments={[{ label: t("liveTv.now") }]} focused={focused} tone="live" />
-              ) : artBadge ? (
-                <CardBadge segments={artBadge} focused={focused} tone="live" />
               ) : null}
             </View>
           ) : null}

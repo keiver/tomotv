@@ -18,6 +18,7 @@ export const STAND_NAME_TEXT = {
   letterSpacing: IS_TV ? 1.5 : 0.8,
   textTransform: "uppercase",
 } as const;
+const LEAD_GAP = IS_TV ? 8 : 4;
 const FADE_STEPS = 8;
 const FADE_STEP_MS = 1_000;
 /** LIVE's end, then the red's steps down to black by the refresh floor. */
@@ -81,30 +82,50 @@ function StandBody({ name, icon, focused, offline = false, mark, progress, scrol
   const { accent, ink } = useCardPalette();
   const filled = progress != null;
   const full = filled && standFillPercent(progress) === 100;
+  // A watched card's base swaps its colours on focus: dark, the name in the accent.
+  const fullAndFocused = full && focused;
   const resting = isLowContrast(accent) ? COLORS.TEXT_PRIMARY : accent;
   // White on the LIVE red reads; gold on it does not. Over a partial fill the accent runs through a difference blend; a full one takes the ink.
-  const text = full || (focused && !filled) ? ink : filled ? accent : fresh ? COLORS.TEXT_PRIMARY : resting;
+  const text = fullAndFocused ? resting : full || (focused && !filled) ? ink : filled ? accent : fresh ? COLORS.TEXT_PRIMARY : resting;
   const glyphSize = IS_TV ? 15 : 9;
   const nameStyle = StyleSheet.flatten([styles.name, { color: text }]);
-  return (
-    <View style={[styles.base, { backgroundColor: focused && !filled ? accent : clear ? "transparent" : COLORS.BACKGROUND_DEEP }]} pointerEvents="none" testID="card-stand">
-      {filled ? null : red}
-      {progress != null ? <View style={[styles.fill, { width: `${standFillPercent(progress)}%`, backgroundColor: accent }]} testID="card-stand-fill" /> : null}
-      <View style={[styles.row, filled && !full && styles.blend]}>
+  const lead =
+    offline || icon || mark ? (
+      <>
         {/* A glyph, not a colour, says offline. */}
         {offline ? <Ionicons name="cloud-offline" size={glyphSize} color={text} testID="card-stand-offline" /> : null}
         {icon ? <Ionicons name={icon} size={glyphSize} color={text} /> : null}
         {mark?.(text)}
+      </>
+    ) : null;
+  const background = fullAndFocused ? COLORS.BACKGROUND_DEEP : focused && !filled ? accent : clear ? "transparent" : COLORS.BACKGROUND_DEEP;
+  return (
+    <View style={[styles.base, { backgroundColor: background }]} pointerEvents="none" testID="card-stand">
+      {filled ? null : red}
+      {/* An unpadded layer: an absolute child's percentage width resolves against its parent's padded inner width. */}
+      {filled && !fullAndFocused ? (
+        <View style={StyleSheet.absoluteFill}>
+          <View style={[styles.fill, { width: `${standFillPercent(progress)}%`, backgroundColor: accent }]} testID="card-stand-fill" />
+        </View>
+      ) : null}
+      <View style={[styles.row, filled && !full && styles.blend]}>
         {scrolls ? (
-          <View style={styles.scrollSlot}>
-            <MarqueeText active={focused} style={StyleSheet.flatten([nameStyle, styles.scrollName])}>
-              {name}
-            </MarqueeText>
-          </View>
+          <>
+            {/* The mark sits at the left edge and the name keeps the card's centre, clear of it on both sides. */}
+            {lead ? <View style={styles.leadSlot}>{lead}</View> : null}
+            <View style={[styles.scrollSlot, lead ? { marginHorizontal: glyphSize + LEAD_GAP } : null]}>
+              <MarqueeText active={focused} style={StyleSheet.flatten([nameStyle, styles.scrollName])}>
+                {name}
+              </MarqueeText>
+            </View>
+          </>
         ) : (
-          <Text style={nameStyle} numberOfLines={1}>
-            {name}
-          </Text>
+          <>
+            {lead}
+            <Text style={nameStyle} numberOfLines={1}>
+              {name}
+            </Text>
+          </>
         )}
       </View>
     </View>
@@ -153,6 +174,15 @@ const styles = StyleSheet.create({
   name: {
     flexShrink: 1,
     ...STAND_NAME_TEXT,
+  },
+  leadSlot: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: LEAD_GAP,
   },
   scrollSlot: {
     flex: 1,

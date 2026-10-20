@@ -1,4 +1,5 @@
-import { CARD_BADGE_INSET, CardBadge } from "@/components/card-badge";
+import { CARD_BADGE_INSET, CardBadge, showsFavoriteHeart } from "@/components/card-badge";
+import { CardCornerTab } from "@/components/card-corner-tab";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardStand } from "@/components/card-stand";
 import { PosterCollage } from "@/components/poster-collage";
@@ -188,6 +189,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             </View>
           )}
 
+          {itemCount != null ? <CardCornerTab segments={[{ label: itemCount }]} surface={COLORS.SURFACE_SUNKEN} /> : null}
           {recording ? (
             <View style={styles.recBadge} pointerEvents="none">
               <CardBadge segments={[{ icon: "videocam-outline", label: t("liveTv.rec") }]} focused={focused} tone="live" />
@@ -197,7 +199,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
           <View style={[styles.borderOverlay, focused && styles.borderOverlayFocused, styles.squareBottom]} pointerEvents="none" />
         </View>
         <View>
-          <CardStand name={folderName || t("a11y.folder")} focused={focused} scrolls clear />
+          <CardStand name={folderName || t("a11y.folder")} icon={showsFavoriteHeart(folder) ? "heart" : undefined} focused={focused} scrolls clear />
           {navBarVisible ? <CardNavProgress active={navigating} title={folderName || t("a11y.folder")} stand baseColor={COLORS.SURFACE_SUNKEN} /> : null}
         </View>
         {focused ? <View style={[styles.focusRing, { borderColor: palette.accent }]} pointerEvents="none" /> : null}
