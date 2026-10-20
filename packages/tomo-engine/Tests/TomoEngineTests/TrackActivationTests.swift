@@ -446,6 +446,8 @@ final class TrackActivationTests: XCTestCase {
         // Far enough ahead of the producer for a seek restart while earlier files may still be landing.
         XCTAssertNotNil(session.segmentURL(4))
         settle(20) { session.reachedEnd }
+        // The end is reached once the last cut is queued; its files land on the writer after.
+        session.segmentWriter.sync {}
         let names = try FileManager.default.contentsOfDirectory(atPath: session.dir.path)
         XCTAssertTrue(names.filter { $0.hasPrefix(".") }.isEmpty, "temporary files left in \(names)")
         XCTAssertTrue(names.contains("seg4.m4s"))
