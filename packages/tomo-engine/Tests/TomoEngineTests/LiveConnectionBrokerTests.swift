@@ -833,24 +833,49 @@ final class LiveConnectionBrokerTests: XCTestCase {
         var config = makeConfig(durationSeconds: 0, inputUrl: relay.url, width: 128, height: 96, isLive: true, liveSegmentSeconds: 2, liveWindowSeconds: 30)
         config.liveOriginKey = key
         let playback = try RemuxSession(config: config)
-        var failure: String?
-        playback.onFailed = { failure = $0["message"] as? String }
+        let playbackReading = XCTestExpectation(description: "playback reached its first keyframe")
+        let resumePlayback = DispatchSemaphore(value: 0)
+        playback.onStage = { report in
+            guard report["stage"] as? String == "first_keyframe" else { return }
+            playbackReading.fulfill()
+            // Its reconnect must wait until the neighbour is reading, so the kick cannot race that open.
+            XCTAssertEqual(resumePlayback.wait(timeout: .now() + 30), .success, "playback was never released")
+        }
         playback.start()
-        defer { playback.stop() }
-        Thread.sleep(forTimeInterval: 3)
+        defer {
+            resumePlayback.signal()
+            playback.stop()
+        }
+        guard XCTWaiter.wait(for: [playbackReading], timeout: 10) == .completed else {
+            return XCTFail("playback never reached its first keyframe")
+        }
         var ringConfig = config
         ringConfig.livePriority = .ring
         let ring = try RemuxSession(config: ringConfig)
+        let ringReading = XCTestExpectation(description: "neighbour reached its first keyframe")
+        ring.onStage = { report in
+            if report["stage"] as? String == "first_keyframe" { ringReading.fulfill() }
+        }
         let yielded = XCTestExpectation(description: "neighbour ended")
         ring.onFailed = { _ in yielded.fulfill() }
         ring.start()
         defer { ring.stop() }
-        wait(for: [yielded], timeout: 30)
-        Thread.sleep(forTimeInterval: 6)
+        guard XCTWaiter.wait(for: [ringReading], timeout: 10) == .completed else {
+            return XCTFail("the neighbour never reached its first keyframe")
+        }
+        resumePlayback.signal()
+        guard XCTWaiter.wait(for: [yielded], timeout: 30) == .completed else {
+            return XCTFail("the kicked neighbour never ended")
+        }
         XCTAssertEqual(LiveConnectionBroker.shared.budget(for: key), 1)
-        XCTAssertNil(failure, "playback failed: \(failure ?? "")")
+        playback.stateLock.lock()
+        let nextSegment = playback.producingSegment + 1
+        playback.stateLock.unlock()
+        XCTAssertNotNil(playback.segmentURL(nextSegment), "playback must produce another segment after the neighbour ends")
+        XCTAssertFalse(playback.hasFailed, "playback failed")
         let stats = try relay.stats()
         XCTAssertEqual(stats["active"], 1, "\(stats)")
+        XCTAssertGreaterThanOrEqual(stats["kicked"] ?? 0, 1, "the relay never kicked a reader: \(stats)")
         XCTAssertLessThanOrEqual(stats["kicked"] ?? 0, 2, "the origin kept kicking: \(stats)")
         print("[LiveConnectionBroker] learned kick: \(stats)")
     }
