@@ -8,20 +8,22 @@ All notable changes to Tomo TV are documented here.
 
 - Channel Settings gains Connection limits: one row per tuner playlist, with the streams its provider allows this device at once, Auto or 1 to 5. Auto learns the limit from the provider's own refusals. A number set here reaches the engine at launch and whenever the tuner list reloads, for every host the playlist reads, so the guide preview, the channel ring and the wall clips never take the connection the playing channel needs
 - Two playlists at one provider count together, and the number is per device. A provider is its host and port, so two servers on one address never share a limit
-- A channel's info panel shows the channel's latest grabbed picture while it is on air, and plays its preview clip there unless auto update is off or playback holds the link
+- A channel's info panel shows the channel's latest grabbed picture while it is on air, and plays its preview clip there unless auto update is off or playback holds the link. Its details line says when that picture was seen (Seen at and the time), after the channel number, or after the channel's name on a program's panel
 - On Apple TV, a Top Shelf card for an item the server has no poster for shows the keyframe Tomo made for it, in the shape of that picture, instead of the Tomo face. The app copies the keyframes of its Continue Watching items into the shared container, removes them when the items leave the row, and clears them on any server or account change
 
 ### Changed
 
 - Channel cards show the whole live picture: a picture that would lose more than 3.5% a side to cropping shows whole over a blurred copy of itself, and its clip plays in the same box
 - Guide channel cards are 16:9, with no title bar, name or wash over the picture. A channel card's LIVE badge sits 2 points nearer the corner
-- A guide cell's first line names the channel after its favorite heart, then the program title, shown once when the guide titles the block with the channel name. A cell without listings names the channel, and its second line reads No listings, after the Seen at time once a picture was seen
+- A guide cell's first line names the channel, then the program title, shown once when the guide titles the block with the channel name. On a favorite channel the heart leads that line only on the program airing now, or on the one cell of a channel without listings. A cell without listings names the channel, and its second line reads No listings, after the Seen at time once a picture was seen
 - On the channel wall a card rests on a strip under its picture that names the channel: black with the name in the theme accent at rest, accent on focus, led by the favorite heart and, for a channel judged down, a cloud glyph in place of the Offline pill. A fresh picture turns the strip LIVE red under a white name, and the red steps down to black by the two-minute refresh floor in nine one-second native opacity fades
 - On Apple TV, focus starts on the guide's Channels button when Live TV opens, on Down from the tab bar and on each press of the Home Live TV card
 - On iPhone, iPad and Mac a channel's groups show as the band in the info panel's footer, as on Apple TV, and naming or renaming a group opens the system text prompt
-- On iPhone the info panel is a card only as tall as what it shows, on the bottom edge over a blur of the screen behind, as on iPad and Mac; a tap outside it or its close button closes it
+- On iPhone the info panel is a card only as tall as what it shows, on the bottom edge over a blur of the screen behind, as on iPad and Mac. A tap outside it, its close button or a drag down closes it: the card follows the finger, closes when dragged past 120 points or flicked past 64, and settles back otherwise. On a panel long enough to scroll, a drag down from its top moves the card, and the scroll holds still while the card is out
 - The channel wall opens with the guide's groups as a band above the cards, inside the cards' margins with round ends: New group, then All, Favorites, your groups, the playlist groups and the server's categories, one picked at a time. The filter button in the bar shows only while a group is picked, and pressing it shows every channel again. Picking a group keeps the band in place, and on Apple TV focus stays on the picked group; Up from a group under the bar's empty middle goes to Back or search, whichever is nearer. While a group loads, the hourglass sits centered under the band and the loading bar names the group
 - A programme card in search reads NOW while it airs (JETZT, AHORA, MAINTENANT), REC while it records and its start time before then. LIVE stays the mark of a channel picture seconds old
+- The download size sheet always opens. A size that would leave less than 500 MB free shows grayed, where the sheet left it out and showed a Not enough space alert when no size was left. When the smaller sizes are grayed because server transcoding is off on this device, the sheet adds a Transcoding Settings button, which closes the info panel and opens that screen, and its note reads "Smaller sizes need server transcoding, which is off."
+- Settings > Lyrics names its listening setting Transcribe with Apple Speech, where it read Listen for lyrics
 
 ### Fixed
 
@@ -43,6 +45,7 @@ All notable changes to Tomo TV are documented here.
 - Pluto channels showed the same placeholder clip on every card: Pluto answers its stream URL call with an internal error when the request carries the app's own user agent, and the fallback session serves one placeholder for every channel. The call now carries a plain library agent, which Pluto answers
 - The live mark on a channel card animated every frame on every card with a picture (the draining wedge, then a pulsing dot), which kept the whole wall redrawing. LIVE now shows only while the picture is seconds old and nothing animates in the badge
 - The iPad and Mac info card centers in the safe area, under the title-bar tabs
+- On iPad and Mac the info panel opened as a 320-point loading card and then resized to its content. The card now appears once its content is ready, at the size it keeps; until then, and when the load fails, only the loading line or the error and Retry show over the blur, with no card or close button, as on iPhone
 
 ## [2.2.12]
 
