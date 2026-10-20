@@ -410,8 +410,8 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               ) : isChannel && liveFrame ? (
                 <LiveFreshnessBadge channelId={video.Id} />
               ) : isChannel ? (
-                // A logo card has no picture to age: LIVE is the guide's claim about the programme in the title.
-                <CardBadge segments={[{ label: t("liveTv.live") }]} focused={focused} tone="live" />
+                // A logo card has no picture to age: NOW is the guide's claim about the programme in the title; LIVE stays the picture's.
+                <CardBadge segments={[{ label: t("liveTv.now") }]} focused={focused} tone="live" />
               ) : artBadge ? (
                 <CardBadge segments={artBadge} focused={focused} tone="live" />
               ) : null}

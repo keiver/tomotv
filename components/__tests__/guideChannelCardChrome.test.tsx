@@ -75,6 +75,16 @@ describe("guide channel card without a title bar", () => {
   it("keeps the name in the line under the card on cards that are not guide channel cards", () => {
     expect(render({ liveFrame: frame }).names).toBe(1);
   });
+
+  it("marks a channel card with no picture NOW for its airing programme, leaving LIVE to live pictures", () => {
+    const airing = { ...channel, CurrentProgram: { Name: "Evening News" } } as JellyfinVideoItem;
+    let tree!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      tree = TestRenderer.create(<VideoGridItem video={airing} onPress={jest.fn()} index={0} slotOrientation="landscape" />);
+    });
+    expect(tree.root.findAllByType(CardBadge).map((b) => b.props.segments)).toEqual([[{ label: "NOW" }]]);
+    act(() => tree.unmount());
+  });
 });
 
 describe("channel wall stand", () => {
