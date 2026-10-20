@@ -76,6 +76,21 @@ describe("media card base", () => {
     act(() => tree.unmount());
   });
 
+  it("draws the focus border around the art and the base together, round at the bottom too", () => {
+    const tree = mount(<VideoGridItem video={movie} onPress={jest.fn()} index={0} highlighted />);
+    const burst = tree.root.findByType(CardPressBurst);
+    const rings = tree.root.findAll((n) => typeof n.type === "string" && StyleSheet.flatten(n.props.style)?.borderWidth > 1 && burst.findAll((b) => b === n).length === 0);
+    expect(rings).toHaveLength(1);
+    expect(slotOf(tree).findAll((n) => n === rings[0])).toHaveLength(0);
+    const ring = StyleSheet.flatten(rings[0].props.style);
+    expect(ring).toMatchObject({ position: "absolute", top: 0, bottom: 0 });
+    expect(ring.borderBottomLeftRadius).toBeUndefined();
+    let card = rings[0].parent!;
+    while (typeof card.type !== "string") card = card.parent!;
+    expect(card.findAllByType(CardStand)).toHaveLength(1);
+    act(() => tree.unmount());
+  });
+
   it("fills with a resume card's progress instead of drawing on the art", () => {
     const tree = mount(<VideoGridItem video={movie} onPress={jest.fn()} index={0} progressPercent={0.4} />);
     expect(tree.root.findByType(CardStand).props.progress).toBe(0.4);

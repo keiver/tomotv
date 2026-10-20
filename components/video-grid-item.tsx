@@ -407,11 +407,8 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               ) : null}
             </View>
           ) : null}
-          {/* The lit edge and the focus border, on top so the art sits under them */}
-          <View
-            style={[styles.borderOverlay, focused && [styles.borderOverlayFocused, { borderColor: palette.accent }], square && styles.square, (standed || !liveCard) && styles.squareBottom]}
-            pointerEvents="none"
-          />
+          {/* The lit edge, on top so the art sits under it */}
+          <View style={[styles.borderOverlay, focused && styles.borderOverlayFocused, square && styles.square, (standed || !liveCard) && styles.squareBottom]} pointerEvents="none" />
         </View>
         {/* Inside the card, under the picture's slot: the glow wraps both and the picture keeps its size. */}
         {standed ? (
@@ -422,6 +419,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
         ) : null}
         {/* Rendered regardless of poster: a posterless placeholder card still owes the user its progress. */}
         {liveCard ? null : <CardStand name={cardTitle} focused={focused} mark={metaMark} progress={standProgress} scrolls />}
+        {focused ? <View style={[styles.focusRing, { borderColor: palette.accent }, square && styles.square]} pointerEvents="none" /> : null}
         {/* Mounted only around a press (visible lingers past the arrival burst); idle cards carry none. */}
         {navBarVisible && !standed ? <CardPressBurst active={navigating} square={square} /> : null}
       </View>
@@ -539,8 +537,16 @@ const styles = StyleSheet.create({
   },
   // An inset shadow paints inside the border, so under the gold ring it reads as a second one.
   borderOverlayFocused: {
-    borderWidth: CARD_FOCUS.BORDER_WIDTH_FOCUSED,
     boxShadow: "none",
+  },
+  focusRing: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: DESIGN.BORDER_RADIUS_CARD,
+    borderWidth: CARD_FOCUS.BORDER_WIDTH_FOCUSED,
   },
   poster: {
     width: "100%",

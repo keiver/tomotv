@@ -196,9 +196,10 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             </View>
           ) : null}
 
-          <View style={[styles.borderOverlay, focused && [styles.borderOverlayFocused, { borderColor: palette.accent }], styles.squareBottom]} pointerEvents="none" />
+          <View style={[styles.borderOverlay, focused && styles.borderOverlayFocused, styles.squareBottom]} pointerEvents="none" />
         </View>
         <CardStand name={folderName || t("a11y.folder")} focused={focused} scrolls />
+        {focused ? <View style={[styles.focusRing, { borderColor: palette.accent }]} pointerEvents="none" /> : null}
         {/* Mounted only around a press (visible lingers past the arrival burst); idle cards carry none. */}
         {navBarVisible ? <CardPressBurst active={navigating} /> : null}
       </View>
@@ -285,8 +286,16 @@ const styles = StyleSheet.create({
   },
   // An inset shadow paints inside the border, so under the gold ring it reads as a second one.
   borderOverlayFocused: {
-    borderWidth: CARD_FOCUS.BORDER_WIDTH_FOCUSED,
     boxShadow: "none",
+  },
+  focusRing: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: DESIGN.BORDER_RADIUS_CARD,
+    borderWidth: CARD_FOCUS.BORDER_WIDTH_FOCUSED,
   },
   poster: {
     width: "100%",
