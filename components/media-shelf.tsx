@@ -1,8 +1,8 @@
 import { ArtworkSlotShape, gridEdgePadding, shelfSpacing, slotCardPadding, slotRowHeights, slotShapeRatio, STAND_HEIGHT, STAND_ROW_ROOM } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useScrollToTop } from "expo-router";
-import React, { ReactElement, useCallback, useMemo, useRef } from "react";
-import { FlatList, Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import React, { ReactElement, useCallback, useMemo, useRef, useState } from "react";
+import { findNodeHandle, FlatList, Platform, StyleSheet, Text, TVFocusGuideView, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
@@ -54,7 +54,22 @@ export function MediaShelf<T>({ title, dot, data, slotShapeFor, renderItem, keyE
   // The tallest shape actually present rules the row; every card matches it.
   const rowHeight = useMemo(() => data.reduce((max, item) => Math.max(max, heights[slotShapeFor(item)]), 0), [data, heights, slotShapeFor]);
 
-  const renderListItem = useCallback(({ item, index }: { item: T; index: number }) => renderItem(item, index, rowHeight), [renderItem, rowHeight]);
+  // TV: every card sits in a native wrapper so the last one can be named as the end guide's destination without remounting.
+  const [lastCard, setLastCard] = useState<View | null>(null);
+  const renderListItem = useCallback(
+    ({ item, index }: { item: T; index: number }) =>
+      IS_TV ? (
+        <View ref={index === data.length - 1 ? setLastCard : undefined} collapsable={false}>
+          {renderItem(item, index, rowHeight)}
+        </View>
+      ) : (
+        renderItem(item, index, rowHeight)
+      ),
+    [renderItem, rowHeight, data.length],
+  );
+  // The empty tail of a shelf narrower than the screen leads to its last card; keyed by target, as Fabric ignores a changed destination.
+  const lastTarget = IS_TV && lastCard ? findNodeHandle(lastCard) : null;
+  const endGuide = lastTarget ? <TVFocusGuideView key={lastTarget} style={styles.endGuide} destinations={[lastTarget]} /> : null;
 
   // The first commit carries the cards that fit the viewport and one more; the rest mount in
   // batches of the same size, so a shelf arriving never holds the JS thread for the whole row.
@@ -90,7 +105,7 @@ export function MediaShelf<T>({ title, dot, data, slotShapeFor, renderItem, keyE
   // against this same block, so the shelf still lands where the fill maths put it.
   const spacing = shelfSpacing(IS_TV, windowWidth, windowHeight);
   const containerStyle = useMemo(() => ({ marginBottom: spacing.rowGap }), [spacing]);
-  const rowContentStyle = useMemo(() => ({ paddingVertical: GLOW_PAD, paddingLeft: edgeLeft, paddingRight: edgeRight }), [edgeLeft, edgeRight]);
+  const rowContentStyle = useMemo(() => ({ paddingVertical: GLOW_PAD, paddingLeft: edgeLeft, paddingRight: edgeRight, flexGrow: IS_TV ? 1 : undefined }), [edgeLeft, edgeRight]);
 
   if (data.length === 0) {
     return null;
@@ -114,6 +129,8 @@ export function MediaShelf<T>({ title, dot, data, slotShapeFor, renderItem, keyE
           initialNumToRender={viewportCards}
           maxToRenderPerBatch={viewportCards}
           contentContainerStyle={rowContentStyle}
+          ListFooterComponent={endGuide}
+          ListFooterComponentStyle={endGuide ? styles.endGuideSlot : undefined}
         />
       </View>
     </View>
@@ -125,6 +142,12 @@ const styles = StyleSheet.create({
   container: {},
   list: {
     overflow: "visible",
+  },
+  endGuideSlot: {
+    flexGrow: 1,
+  },
+  endGuide: {
+    flex: 1,
   },
   headingRow: {
     flexDirection: "row",
