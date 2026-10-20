@@ -248,11 +248,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     maxWidth: "100%",
   },
+  // Touch: five 56pt glass circles and four 8pt gaps make 312, inside a 375pt iPhone's 319 of card.
   row: {
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "center",
-    gap: IS_TV ? 30 : 24,
+    gap: IS_TV ? 30 : 8,
   },
   // Sizing only: a custom style is flattened AFTER the focused variant style, so a colour
   // here would eat the focus ring. Square, which the base radius rounds to a circle;
