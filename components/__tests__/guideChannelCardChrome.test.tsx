@@ -72,7 +72,7 @@ describe("guide channel card without a title bar", () => {
     expect(render({ liveCard: true }).images).toBe(1);
   });
 
-  it("keeps the name in the title bar on cards that are not guide channel cards", () => {
+  it("keeps the name in the line under the card on cards that are not guide channel cards", () => {
     expect(render({ liveFrame: frame }).names).toBe(1);
   });
 });

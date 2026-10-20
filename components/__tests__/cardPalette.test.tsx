@@ -1,6 +1,6 @@
 /**
- * Every card surface draws in the chosen theme's colour: the focus ring, glow and title bar, the
- * resume fill and title, the badges, the press sweep, the now-playing bar and the folder loading bar.
+ * Every card surface draws in the chosen theme's colour: the focus ring and glow, the line under the
+ * card, the progress strip, the badges, the press burst and the folder loading bar.
  */
 import React from "react";
 import { StyleSheet } from "react-native";
@@ -26,15 +26,16 @@ jest.mock("@/contexts/PlayerSessionContext", () => ({ usePlayerSession: () => ({
 jest.mock("@/services/audioPlayerManager", () => ({ audioPlayerManager: { getUIState: () => ({ playing: true, position: 0 }), subscribe: () => () => {} } }));
 
 import { BADGE_GLASS_TINT, CardBadge } from "@/components/card-badge";
+import { CardMetaLine } from "@/components/card-meta-line";
+import { CardProgressStrip } from "@/components/card-progress-strip";
 import { FolderGridItem } from "@/components/folder-grid-item";
 import { FolderLoadingBar } from "@/components/folder-loading-bar";
 import { glassTint } from "@/components/glass-button";
 import { GlassSurface } from "@/components/glass-surface";
-import { NowPlayingTitleBar } from "@/components/now-playing-title-bar";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { COLORS } from "@/constants/colors";
 import { CardPaletteOverride } from "@/hooks/useCardPalette";
-import { cardPalette } from "@/services/cardTheme";
+import { cardPalette, isLowContrast } from "@/services/cardTheme";
 import type { JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 
 const ACCENT = "#1A237E";
@@ -72,27 +73,25 @@ function glassTintOf(element: React.ReactElement): string {
 }
 
 describe("card palette", () => {
-  it("a focused video card rings, glows, fills its title bar and inks its title in the theme", () => {
+  it("a focused video card rings, glows and bursts in the theme", () => {
     const drawn = colours(<VideoGridItem video={video} onPress={jest.fn()} index={0} highlighted />);
     expect(drawn.filter((c) => c === ACCENT).length).toBeGreaterThanOrEqual(4);
-    expect(drawn).toContain(palette.ink);
     expect(drawn).not.toContain(COLORS.ACCENT);
   });
 
-  it("a resting resume card fills its progress and inks its title and badge in the theme", () => {
+  it("a resting resume card fills its progress strip in the theme", () => {
     const drawn = colours(<VideoGridItem video={video} onPress={jest.fn()} index={0} progressPercent={0.4} />);
     expect(drawn).toContain(ACCENT);
     expect(drawn).not.toContain(COLORS.ACCENT);
   });
 
-  it("a focused folder card and its count badge take the theme", () => {
+  it("a focused folder card rings, glows and bursts in the theme", () => {
     const drawn = colours(<FolderGridItem folder={folder} onPress={jest.fn()} index={0} highlighted />);
     expect(drawn.filter((c) => c === ACCENT).length).toBeGreaterThanOrEqual(4);
-    expect(drawn).toContain(palette.ink);
     expect(drawn).not.toContain(COLORS.ACCENT);
   });
 
-  it("a folder's count badge is the bare number", () => {
+  it("a folder's line leads with a monitor glyph and its item count, and the art carries no count badge", () => {
     let tree!: TestRenderer.ReactTestRenderer;
     act(() => {
       tree = TestRenderer.create(
@@ -101,8 +100,39 @@ describe("card palette", () => {
         </CardPaletteOverride.Provider>,
       );
     });
-    expect(tree.root.findByType(CardBadge).props.segments).toEqual([{ label: 3 }]);
+    expect(tree.root.findAllByType(CardBadge)).toHaveLength(0);
+    const line = tree.root.findByType(CardMetaLine);
+    expect(line.props.text).toBe("3 · Shows");
+    let lead!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      lead = TestRenderer.create(<>{line.props.lead("#FFFFFF", 13)}</>);
+    });
+    expect(lead.root.findAll((n) => n.props?.name === "desktop-outline").length).toBeGreaterThan(0);
+    act(() => lead.unmount());
     act(() => tree.unmount());
+  });
+
+  it("the line is the theme's accent, brighter on focus, and white when the accent is too dark to read", () => {
+    const lineColour = (accent: string, focused: boolean) => {
+      let tree!: TestRenderer.ReactTestRenderer;
+      act(() => {
+        tree = TestRenderer.create(
+          <CardPaletteOverride.Provider value={cardPalette(accent)}>
+            <CardMetaLine text="Film" focused={focused} centered />
+          </CardPaletteOverride.Provider>,
+        );
+      });
+      const text = tree.root.findAll((n) => typeof n.type === "string" && n.props.children === "Film")[0];
+      const colour = StyleSheet.flatten(text.props.style).color;
+      act(() => tree.unmount());
+      return colour;
+    };
+    const bright = "#4F99FF";
+    expect(isLowContrast(bright)).toBe(false);
+    expect(lineColour(bright, false)).toBe(bright);
+    expect(lineColour(bright, true)).toBe(cardPalette(bright).accentFocused);
+    expect(isLowContrast(ACCENT)).toBe(true);
+    expect(lineColour(ACCENT, false)).toBe(COLORS.TEXT_PRIMARY);
   });
 
   it("a badge is near-black glass at rest, the theme's deepened tint on focus; live is solid red", () => {
@@ -115,10 +145,10 @@ describe("card palette", () => {
     expect(colours(<CardBadge segments={[{ label: 3 }]} focused />)).toContain(COLORS.TEXT_PRIMARY);
   });
 
-  it("the now-playing bar and the folder loading bar sweep in the theme", () => {
-    const playing = colours(<NowPlayingTitleBar video={video} focused={false} kind="video" progressPercent={0.5} playing />);
-    expect(playing).toContain(ACCENT);
-    expect(playing).not.toContain(COLORS.ACCENT);
+  it("the progress strip and the folder loading bar fill in the theme", () => {
+    const strip = colours(<CardProgressStrip fraction={0.5} />);
+    expect(strip).toContain(ACCENT);
+    expect(strip).not.toContain(COLORS.ACCENT);
     const loading = colours(<FolderLoadingBar active title="Shows" />);
     expect(loading).toContain(ACCENT);
     expect(loading).not.toContain(COLORS.ACCENT);

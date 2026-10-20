@@ -18,9 +18,11 @@ jest.mock("@/services/liveFrames", () => ({
 }));
 jest.mock("@/services/jellyfinApi", () => ({ isAudioItem: () => false, isBook: () => false }));
 
-import { CardArtClip } from "@/components/card-art-clip";
+import { CardBadge } from "@/components/card-badge";
+import { CardMetaLine } from "@/components/card-meta-line";
 import { CardNavProgress } from "@/components/card-nav-progress";
-import { DESIGN } from "@/constants/app";
+import { CardPressBurst, CardPressFlash } from "@/components/card-press-burst";
+import { CardProgressStrip, progressStripPercent } from "@/components/card-progress-strip";
 import { Image } from "expo-image";
 import { STAND_HEIGHT, STAND_NAME_TEXT } from "@/components/live-tv/channel-stand";
 import { VideoGridItem } from "@/components/video-grid-item";
@@ -54,35 +56,66 @@ describe("press sweep on a channel wall card", () => {
     act(() => tree.unmount());
   });
 
-  it("stays in the title bar on a card without a stand", () => {
+  it("bursts the border and flashes the art on a card without a stand, and draws no sweep", () => {
     const tree = mount(<VideoGridItem video={movie} onPress={jest.fn()} index={0} />);
-    const sweeps = slotOf(tree).findAllByType(CardNavProgress);
-    expect(sweeps).toHaveLength(1);
-    expect(sweeps[0].props.stand).toBeFalsy();
+    expect(tree.root.findAllByType(CardNavProgress)).toHaveLength(0);
+    expect(tree.root.findAllByType(CardPressBurst)).toHaveLength(1);
+    expect(slotOf(tree).findAllByType(CardPressFlash)).toHaveLength(1);
     act(() => tree.unmount());
   });
 });
 
-describe("poster under the title bar", () => {
-  it("ends above the card's rounded foot at its full slot size, and a live picture keeps the whole slot", () => {
+describe("media card art", () => {
+  it("fills the whole slot, with no title bar over it and the name in the line under the card", () => {
     const tree = mount(<VideoGridItem video={movie} onPress={jest.fn()} index={0} />);
-    const [clip] = tree.root.findAllByType(CardArtClip);
-    expect(clip.props.ratio).toBe(StyleSheet.flatten(slotOf(tree).props.style).aspectRatio);
-    expect(clip.findAllByType(Image)).toHaveLength(1);
-    const clipBox = clip.findAll((n) => typeof n.type === "string" && StyleSheet.flatten(n.props.style)?.overflow === "hidden")[0];
-    expect(StyleSheet.flatten(clipBox.props.style)).toMatchObject({ position: "absolute", top: 0, bottom: DESIGN.BORDER_RADIUS_CARD });
+    const [poster] = slotOf(tree).findAllByType(Image);
+    expect(StyleSheet.flatten(poster.props.style)).toMatchObject({ width: "100%", height: "100%" });
+    expect(slotOf(tree).findAllByType(CardMetaLine)).toHaveLength(0);
+    expect(tree.root.findByType(CardMetaLine).props.text).toBe("A Movie");
     act(() => tree.unmount());
+  });
+
+  it("puts a live card's name nowhere but its stand", () => {
     const live = mount(<VideoGridItem video={channel} onPress={jest.fn()} index={0} liveCard liveFrame={frame} hideAiring stand />);
-    expect(live.root.findAllByType(CardArtClip)).toHaveLength(0);
+    expect(live.root.findAllByType(CardMetaLine)).toHaveLength(0);
     act(() => live.unmount());
+  });
+
+  it("shows a resume card's progress as a strip inside the art", () => {
+    const tree = mount(<VideoGridItem video={movie} onPress={jest.fn()} index={0} progressPercent={0.4} />);
+    const strip = slotOf(tree).findAllByType(CardProgressStrip);
+    expect(strip).toHaveLength(1);
+    expect(strip[0].props.fraction).toBe(0.4);
+    act(() => tree.unmount());
+  });
+});
+
+describe("index numbers", () => {
+  const episode = { Id: "e1", Name: "Pilot", Type: "Episode", IndexNumber: 5, ParentIndexNumber: 1 } as JellyfinVideoItem;
+
+  it("leave the art for the line under the card, in front of the name on phone", () => {
+    const tree = mount(<VideoGridItem video={episode} onPress={jest.fn()} index={0} />);
+    expect(tree.root.findAllByType(CardBadge)).toHaveLength(0);
+    const line = tree.root.findAll((n) => n.props.testID === "card-meta-line" && typeof n.type === "string")[0];
+    const text = (node: TestRenderer.ReactTestInstance | string): string => (typeof node === "string" ? node : node.children.map(text).join(""));
+    expect(text(line)).toContain("S01E05 · Pilot");
+    act(() => tree.unmount());
+  });
+});
+
+describe("progress strip", () => {
+  it("floors a just-started item at 5% and caps at the whole bar", () => {
+    expect(progressStripPercent(0)).toBe(5);
+    expect(progressStripPercent(0.42)).toBe(42);
+    expect(progressStripPercent(2)).toBe(100);
   });
 });
 
 describe("favorite heart on a media card", () => {
   it("sits inline before the name, in the name's colour and size", () => {
     const tree = mount(<VideoGridItem video={movie} onPress={jest.fn()} index={0} />);
-    const slot = slotOf(tree);
-    const title = slot.findAllByType(Text).find((n) => React.Children.toArray(n.props.children).includes("A Movie") && n.props.numberOfLines === 1);
+    const line = tree.root.findByType(CardMetaLine);
+    const title = line.findAllByType(Text).find((n) => React.Children.toArray(n.props.children).includes("A Movie") && n.props.numberOfLines === 1);
     const style = StyleSheet.flatten(title?.props.style);
     const heart = title?.findAll((n) => n.props.name === "heart")[0];
     expect(heart?.props.color).toBe(style.color);

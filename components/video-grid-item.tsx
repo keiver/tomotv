@@ -1,11 +1,13 @@
 import { type BadgeSegment, CARD_BADGE_INSET, CardBadge, showsFavoriteHeart } from "@/components/card-badge";
-import { CardArtClip } from "@/components/card-art-clip";
+import { CardMetaLine } from "@/components/card-meta-line";
 import { CardNavProgress } from "@/components/card-nav-progress";
+import { CardPressBurst, CardPressFlash } from "@/components/card-press-burst";
+import { CardProgressStrip } from "@/components/card-progress-strip";
 import { CardCornerScrim } from "@/components/card-scrim";
+import { LevelBars } from "@/components/level-bars";
 import { ChannelStand } from "@/components/live-tv/channel-stand";
 import { LiveClip } from "@/components/live-tv/live-clip";
 import { LiveFreshnessBadge } from "@/components/live-tv/live-freshness-badge";
-import { NowPlayingTitleBar } from "@/components/now-playing-title-bar";
 import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, GRID, RAISED_EDGE, slotColumns, type SlotOrientation } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
@@ -13,6 +15,7 @@ import { useCardPalette } from "@/hooks/useCardPalette";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { useMinuteClock } from "@/hooks/useMinuteClock";
 import { useIsNowPlaying, useNowPlayingVideo, useOpenNowPlaying } from "@/hooks/useNowPlaying";
+import { useNowPlayingProgress } from "@/hooks/useNowPlayingProgress";
 import { t } from "@/services/i18n";
 import { showsChannelLogo } from "@/services/itemArtwork";
 import { isAudioItem, isBook } from "@/services/jellyfinApi";
@@ -26,7 +29,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image, type ImageLoadEventData } from "expo-image";
 import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Dimensions, Platform, StyleSheet, TouchableOpacity, View } from "react-native";
-import { MarqueeText } from "./MarqueeText";
 
 // Cache platform values at module level for better performance
 const IS_TV = Platform.isTV;
@@ -34,18 +36,9 @@ const IS_TV = Platform.isTV;
 // no layout math, so it needs no window subscription and cannot desync the row packer.
 const SCREEN = Dimensions.get("screen");
 const IS_TABLET = !IS_TV && Math.min(SCREEN.width, SCREEN.height) >= GRID.PHONE_WIDE_MIN_WIDTH;
-const TITLE_SIZE = IS_TV ? 22 : IS_TABLET ? 15 : 13;
-/** The title's capitals, and the mark inline before them, at the channel stand's weight and tracking. */
-const NAME_SIZE = TITLE_SIZE - 2;
 /** A channel's title centres wherever the card is wide: TV, iPad, Mac. */
 const CHANNEL_TITLE_CENTERED = IS_TV || IS_TABLET;
 const CARD_PADDING = IS_TV ? 16 : 8;
-// The title bar's own padding, and how far past the card's bottom edge the bar hangs. The
-// overhang is clipped by the image container, and it is what puts the bar's fill UNDER the
-// card's border instead of level with it — flush, the border painted a lighter band across the
-// bar's last 2pt that read as a gap beneath the title.
-const BAR_PADDING_V = IS_TV ? 10 : 8;
-const BAR_DROP = 2;
 const POSTER_SIZE = IS_TV ? 300 : 200; // Optimized for memory
 const BACKDROP_BLUR = IS_TV ? 24 : 16;
 
@@ -301,35 +294,46 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     onLongPress?.(video);
   }, [onLongPress, video]);
 
-  // Any card GIVEN a progress value is a resume card and shows the bar — even
-  // at 0 (a just-started video whose position hasn't synced yet). The fill is
-  // floored at 5% below so "just starting" is always visible; grids that pass
-  // no progressPercent are unaffected.
-  const renderTitleMark = (color: string) =>
-    leadingMark ? (
-      <View style={styles.titleMark} pointerEvents="none">
-        <Ionicons name={leadingMark} size={TITLE_SIZE} color={color} />
-      </View>
-    ) : null;
-  const titleInset = leadingMark ? styles.titleLineInset : null;
-  const titleText = (color: string) => (
-    <MarqueeText
-      active={focused}
-      style={StyleSheet.flatten([styles.infoValueTitle, { color }, isChannel && styles.infoValueTitleChannel])}
-      lead={
-        nameMark ? (
-          <>
-            <Ionicons name={nameMark} size={NAME_SIZE} color={color} />{" "}
-          </>
-        ) : undefined
-      }>
-      {cardTitle}
-    </MarqueeText>
-  );
+  // Any card GIVEN a progress value is a resume card and shows the strip, even at 0 (a just-started
+  // video whose position hasn't synced yet).
   const hasProgress = progressPercent != null;
   const watchedPercent = hasProgress ? Math.round(Math.min(Math.max(progressPercent, 0), 1) * 100) : 0;
-  // Full-bleed art under a title bar ends above the card's rounded foot; a logo or a live picture keeps the slot.
-  const artClipped = !liveCard && !logoPoster;
+  const nowPlayingProgress = useNowPlayingProgress(video, nowPlayingAudio ? "audio" : nowPlayingVideo.active ? "video" : null, progressPercent, nowPlayingVideo.playing);
+  const stripFraction = nowPlaying ? nowPlayingProgress.fraction : hasProgress ? watchedPercent / 100 : null;
+  // A programme's NOW/time pill and a channel's marks stay on the art; an episode or track number moves to the line.
+  const indexSegments = video.Type === "Program" || isChannel ? null : badgeSegments;
+  const artBadge = indexSegments ? null : badgeSegments;
+  const indexText = (segments: BadgeSegment[], color: string, size: number) =>
+    segments.map((segment, i) => (
+      <React.Fragment key={i}>
+        {i > 0 ? "  " : null}
+        {segment.icon ? (
+          <>
+            <Ionicons name={segment.icon} size={size} color={color} />{" "}
+          </>
+        ) : null}
+        {segment.label != null ? String(segment.label) : null}
+      </React.Fragment>
+    ));
+  const metaMark = nowPlaying
+    ? (color: string) => <LevelBars size={IS_TV ? 16 : 10} playing={nowPlayingProgress.playing} color={color} />
+    : leadingMark
+      ? (color: string) => <Ionicons name={leadingMark} size={IS_TV ? 17 : 11} color={color} />
+      : undefined;
+  const metaLead =
+    nameMark || (!IS_TV && indexSegments)
+      ? (color: string, size: number) => (
+          <>
+            {nameMark ? (
+              <>
+                <Ionicons name={nameMark} size={size} color={color} />{" "}
+              </>
+            ) : null}
+            {!IS_TV && indexSegments ? <>{indexText(indexSegments, color, size)} · </> : null}
+          </>
+        )
+      : undefined;
+  const metaSecondary = indexSegments ? (color: string, size: number) => indexText(indexSegments, color, size) : undefined;
   const posterImage = (
     <Image
       source={liveFrame ?? poster ?? posterSource}
@@ -355,7 +359,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
       onFocus={handleFocus}
       onBlur={handleBlur}
       // Touch: a held press shows the same focus treatment the TV focus engine drives
-      // (gold border, glow, gold title bar). TV keeps onFocus/onBlur only.
+      // (gold border, glow, brighter line). TV keeps onFocus/onBlur only.
       onPressIn={IS_TV ? undefined : handleFocus}
       onPressOut={IS_TV ? undefined : handleBlur}
       activeOpacity={0.95}
@@ -401,13 +405,13 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
                   <View style={styles.backdropDim} pointerEvents="none" />
                 </>
               ) : null}
-              {artClipped ? <CardArtClip ratio={cardRatio}>{posterImage}</CardArtClip> : posterImage}
+              {posterImage}
               {(focused || clipActive) && liveFrame && liveClip ? <LiveClip clip={liveClip} style={liveBox ?? undefined} /> : null}
-              {focused && badgeSegments && !isChannel ? <CardCornerScrim /> : null}
+              {focused && artBadge && !isChannel ? <CardCornerScrim /> : null}
             </>
           ) : (
             // No artwork: a glyph for the item's kind on the dark card fill. The title
-            // lives in the bottom bar (always rendered), same as postered cards.
+            // lives in the line under the card, same as postered cards.
             <View style={styles.placeholderPoster}>
               <Ionicons
                 name={isChannel ? "tv-outline" : (titleIcon ?? (isAudioItem(video) ? "musical-note-outline" : isBook(video) ? "book-outline" : "tv-outline"))}
@@ -417,50 +421,18 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             </View>
           )}
 
-          {/* Opaque dark title bar at the very bottom — one treatment for every card */}
-          {/* Progress cards (Continue Watching): the title bar IS the progress
-              indicator — a gold fill behind the title marks the watched
-              fraction (floored at 5% so a barely-started video still shows).
-              Rendered regardless of poster: a posterless placeholder card
-              still owes the user its progress. The bar is identical in both
-              focus states; border/glow/marquee do the identifying. The gold
-              title composites with difference blending, so it self-inverts to
-              black exactly where the fill passes under it and stays gold over
-              the dark remainder — the old manual white→black focus switch,
-              now per-pixel and automatic. */}
-          {nowPlaying ? (
-            <NowPlayingTitleBar video={video} focused={focused} kind={nowPlayingAudio ? "audio" : "video"} progressPercent={progressPercent} playing={nowPlayingVideo.playing} />
-          ) : liveCard ? null : hasProgress ? (
-            // The difference-blended title is gold over the dark remainder, black over the fill.
-            // Decorative to a11y: the card announces name + value.
-            <View style={[styles.infoOverlay, styles.infoOverlayResting]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-              <View style={[styles.infoProgressFill, { width: `${Math.max(watchedPercent, 5)}%`, backgroundColor: palette.accent }]} pointerEvents="none" />
-              <View style={[styles.infoTitleBlend, titleInset]}>
-                {renderTitleMark(palette.accent)}
-                {titleText(palette.accent)}
-              </View>
+          {/* Rendered regardless of poster: a posterless placeholder card still owes the user its progress. */}
+          {stripFraction != null && !liveCard ? <CardProgressStrip fraction={stripFraction} /> : null}
+          {/* A live card names nothing over its picture; the bars alone mark it playing. */}
+          {nowPlaying && liveCard ? (
+            <View style={styles.liveNowPlaying} pointerEvents="none">
+              <LevelBars size={IS_TV ? 20 : 12} playing={nowPlayingProgress.playing} />
             </View>
-          ) : // Focused or watched: opaque gold bar (the watched bar is the fill at its end state, under the ink eye)
-          focused || watched ? (
-            <View style={[styles.infoOverlay, { backgroundColor: palette.accent }]}>
-              <View style={[styles.infoTitleLine, titleInset]}>
-                {renderTitleMark(palette.ink)}
-                {titleText(palette.ink)}
-              </View>
-            </View>
-          ) : (
-            <View style={[styles.infoOverlay, styles.infoOverlayResting]}>
-              <View style={[styles.infoTitleLine, titleInset]}>
-                {renderTitleMark(palette.accent)}
-                {titleText(palette.accent)}
-              </View>
-            </View>
-          )}
+          ) : null}
+          {navBarVisible && !standed ? <CardPressFlash active={navigating} /> : null}
 
-          {/* The music note is what separates "track 5" from the item count the folder
-              cards put in this same corner; "S01E05" needs no help. */}
           {/* A wall card's stand says offline with its glyph, so its picture skips the pill. */}
-          {offlinePill || badgeSegments || (isChannel && (recording || (liveFrame ? liveMark : airingName))) ? (
+          {offlinePill || artBadge || (isChannel && (recording || (liveFrame ? liveMark : airingName))) ? (
             <View style={[styles.indexBadge, liveCard && styles.indexBadgeChannel]} pointerEvents="none">
               {offlinePill ? (
                 // A fact pill, not a broadcast mark: red stays for LIVE and REC.
@@ -472,23 +444,16 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               ) : isChannel ? (
                 // A logo card has no picture to age: LIVE is the guide's claim about the programme in the title.
                 <CardBadge segments={[{ label: t("liveTv.live") }]} focused={focused} tone="live" />
-              ) : badgeSegments ? (
-                <CardBadge segments={badgeSegments} focused={focused} tone={video.Type === "Program" ? "live" : "gold"} />
+              ) : artBadge ? (
+                <CardBadge segments={artBadge} focused={focused} tone="live" />
               ) : null}
             </View>
           ) : null}
-          {/* The lit edge and the focus border, on top so the art and the title bar sit under them */}
+          {/* The lit edge and the focus border, on top so the art sits under them */}
           <View
             style={[styles.borderOverlay, focused && [styles.borderOverlayFocused, { borderColor: palette.accent }], square && styles.square, standed && styles.squareBottom]}
             pointerEvents="none"
           />
-
-          {/* Per-card feedback while the pressed card's destination loads:
-              the title bar becomes a sweeping gold progress fill. Resume
-              cards start the sweep from their watched fraction. Mounted only
-              around a press (visible lingers past the handoff fade); idle
-              cards carry no overlay. */}
-          {navBarVisible && !standed ? <CardNavProgress active={navigating} title={cardTitle} startFraction={hasProgress ? watchedPercent / 100 : undefined} /> : null}
         </View>
         {/* Inside the card, under the picture's slot: the glow wraps both and the picture keeps its size. */}
         {standed ? (
@@ -497,6 +462,9 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             {navBarVisible ? <CardNavProgress active={navigating} title={cardTitle} stand /> : null}
           </View>
         ) : null}
+        {/* Mounted only around a press (visible lingers past the arrival burst); idle cards carry none. */}
+        {navBarVisible && !standed ? <CardPressBurst active={navigating} square={square} /> : null}
+        {liveCard ? null : <CardMetaLine text={cardTitle} focused={focused} centered={IS_TV || (isChannel && CHANNEL_TITLE_CENTERED)} mark={metaMark} lead={metaLead} secondary={metaSecondary} />}
       </View>
     </TouchableOpacity>
   );
@@ -659,23 +627,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     backgroundColor: "rgba(0, 0, 0, 0.35)",
   },
-  // About two words of programme name; the badge ellipsizes the rest and yields to LIVE first.
-  // The watched fraction, drawn as the title bar's own background: a solid
-  // gold fill spanning `width` percent of the bar, clipped by the bar's
-  // rounded bottom corners (infoOverlay has overflow: hidden). Full gold in
-  // both focus states — the difference-blended title keeps itself legible
-  // over it, so no dimming is needed.
-  //
-  // minWidth clears the rounded bottom-left corner: the 32px TV radius clips
-  // anything narrower into an invisible curved wedge, which made a
-  // just-started video (5% ≈ 20px) look like it had no progress at all.
-  infoProgressFill: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    left: 0,
-    minWidth: DESIGN.BORDER_RADIUS_CARD + (IS_TV ? 20 : 12),
-  },
   placeholderPoster: {
     width: "100%",
     height: "100%",
@@ -683,61 +634,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: COLORS.SURFACE, // Elevated card color - matches design system
   },
-  // Opaque sliver at the very bottom showing just the title.
-  infoOverlay: {
+  liveNowPlaying: {
     position: "absolute",
-    bottom: -BAR_DROP,
-    left: 0,
-    right: 0,
-    // The drop is added back as bottom padding: the clipped overhang would otherwise take it out
-    // of the visible band and leave the title sitting low in the bar. Grown at the bottom, not
-    // split evenly, since that is the end the clip eats.
-    paddingTop: BAR_PADDING_V,
-    paddingBottom: BAR_PADDING_V + BAR_DROP,
-    paddingHorizontal: IS_TV ? 16 : 14,
-    overflow: "hidden",
-    justifyContent: "center",
-    alignItems: "center",
-    borderBottomLeftRadius: DESIGN.BORDER_RADIUS_CARD,
-    borderBottomRightRadius: DESIGN.BORDER_RADIUS_CARD,
-  },
-  infoOverlayResting: {
-    backgroundColor: COLORS.SURFACE_SUNKEN,
-  },
-  // Flush left on phone: touch has no marquee (MarqueeText only scrolls on TV focus), so long
-  // names always ellipsize, and a ragged tail reads better from a fixed left edge than centred.
-  infoValueTitle: {
-    color: COLORS.TEXT_PRIMARY,
-    fontSize: NAME_SIZE,
-    fontWeight: "800",
-    letterSpacing: IS_TV ? 1.5 : 0.8,
-    textAlign: IS_TV ? "center" : "left",
-    textTransform: "uppercase",
-    width: "100%",
-  },
-  // Pulled halfway into the bar's side inset, closer to the card edge than the title sits.
-  // Out of flow at the line's start, so the title keeps the whole line to centre in.
-  titleMark: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    left: IS_TV ? 4 : -4,
-    justifyContent: "center",
-  },
-  infoTitleLine: {
-    width: "100%",
-  },
-  // Both sides, so the TV title stays centred while it clears the mark.
-  titleLineInset: {
-    paddingHorizontal: IS_TV ? TITLE_SIZE + 16 : TITLE_SIZE + 2,
-  },
-  infoValueTitleChannel: {
-    textAlign: CHANNEL_TITLE_CENTERED ? "center" : "left",
-  },
-  // The accent title on progress cards runs through a difference blend: over the accent fill it
-  // cancels to black, over the dark bar it stays the accent, per pixel at the fill edge.
-  infoTitleBlend: {
-    width: "100%",
-    mixBlendMode: "difference",
+    left: CARD_BADGE_INSET,
+    bottom: CARD_BADGE_INSET,
   },
 });

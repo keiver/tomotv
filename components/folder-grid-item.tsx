@@ -1,9 +1,8 @@
 import { CARD_BADGE_INSET, CardBadge, showsFavoriteHeart } from "@/components/card-badge";
-import { CardArtClip } from "@/components/card-art-clip";
-import { CardNavProgress } from "@/components/card-nav-progress";
-import { CardCornerScrim } from "@/components/card-scrim";
+import { CardMetaLine } from "@/components/card-meta-line";
+import { CardPressBurst, CardPressFlash } from "@/components/card-press-burst";
 import { PosterCollage } from "@/components/poster-collage";
-import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, GRID, RAISED_EDGE, slotColumns, type SlotOrientation } from "@/constants/app";
+import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, RAISED_EDGE, slotColumns, type SlotOrientation } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { useCardPalette } from "@/hooks/useCardPalette";
@@ -16,16 +15,9 @@ import { JellyfinItem } from "@/types/jellyfin";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Dimensions, Platform, StyleSheet, TouchableOpacity, View } from "react-native";
-import { MarqueeText } from "./MarqueeText";
+import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 
 const IS_TV = Platform.isTV;
-// Tablet type off the physical short side, read once. The title is pure chrome and feeds
-// no layout math, so it needs no window subscription and cannot desync the row packer.
-const SCREEN = Dimensions.get("screen");
-const IS_TABLET = !IS_TV && Math.min(SCREEN.width, SCREEN.height) >= GRID.PHONE_WIDE_MIN_WIDTH;
-const TITLE_SIZE = IS_TV ? 22 : IS_TABLET ? 15 : 13;
-const NAME_SIZE = TITLE_SIZE - 2;
 const CARD_PADDING = IS_TV ? 16 : 8;
 const POSTER_SIZE = IS_TV ? 300 : 200;
 
@@ -121,13 +113,6 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
 
   const folderName = cleanLabel(folder.Name);
   const favorite = showsFavoriteHeart(folder);
-  // The heart leads the name, as on the channel stand.
-  const favoriteLead = (color: string) =>
-    favorite ? (
-      <>
-        <Ionicons name="heart" size={NAME_SIZE} color={color} />{" "}
-      </>
-    ) : undefined;
 
   // The Live TV view counts channels, and its empty face is a set, not a folder.
   const isLiveTv = folder.CollectionType === "livetv";
@@ -157,10 +142,29 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
   // Recursive count when the server provides it; ChildCount (direct children) is the
   // fallback for types excluded from recursive counts (e.g. channel-sourced folders),
   // where the server reports a recursive 0 despite real children. A resolved 0 still
-  // renders as a "0" badge. Library views carry no inline count — theirs streams in
-  // lazily (badge shows the box spinner meanwhile).
-  const { count: lazyCount, loading: countLoading } = useViewItemCount(folder);
+  // shows as 0. Library views carry no inline count: theirs streams in lazily, and the
+  // line names the folder alone until it lands.
+  const { count: lazyCount } = useViewItemCount(folder);
   const itemCount = (folder.RecursiveItemCount || (folder.ChildCount ?? folder.RecursiveItemCount)) ?? lazyCount;
+  const metaText = itemCount != null ? `${itemCount} · ${folderName}` : folderName;
+  // The heart, then the monitor glyph that names the count, lead the line.
+  const metaLead =
+    favorite || itemCount != null
+      ? (color: string, size: number) => (
+          <>
+            {favorite ? (
+              <>
+                <Ionicons name="heart" size={size} color={color} />{" "}
+              </>
+            ) : null}
+            {itemCount != null ? (
+              <>
+                <Ionicons name="desktop-outline" size={size} color={color} />{" "}
+              </>
+            ) : null}
+          </>
+        )
+      : undefined;
 
   return (
     <TouchableOpacity
@@ -170,7 +174,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
       onFocus={handleFocus}
       onBlur={handleBlur}
       // Touch: a held press shows the same focus treatment the TV focus engine drives
-      // (gold border, glow, gold title bar). TV keeps onFocus/onBlur only.
+      // (gold border, glow, brighter line). TV keeps onFocus/onBlur only.
       onPressIn={IS_TV ? undefined : handleFocus}
       onPressOut={IS_TV ? undefined : handleBlur}
       activeOpacity={0.95}
@@ -196,31 +200,16 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
       <View style={[styles.card, focused && [styles.cardFocused, { shadowColor: palette.accent }]]}>
         <View style={[styles.imageContainer, { aspectRatio: cardRatio }]}>
           {thumbnailSource ? (
-            <>
-              <CardArtClip ratio={cardRatio}>
-                <Image source={thumbnailSource} style={styles.poster} contentFit="cover" transition={0} priority={index < 10 ? "high" : "normal"} cachePolicy="memory-disk" recyclingKey={folder.Id} />
-              </CardArtClip>
-              {focused && (itemCount != null || countLoading) ? <CardCornerScrim /> : null}
-            </>
+            <Image source={thumbnailSource} style={styles.poster} contentFit="cover" transition={0} priority={index < 10 ? "high" : "normal"} cachePolicy="memory-disk" recyclingKey={folder.Id} />
           ) : preview.length > 0 ? (
-            <>
-              <CardArtClip ratio={cardRatio}>
-                <PosterCollage items={preview} height={POSTER_SIZE} deferWhileVideo />
-              </CardArtClip>
-              {focused && (itemCount != null || countLoading) ? <CardCornerScrim /> : null}
-            </>
+            <PosterCollage items={preview} height={POSTER_SIZE} deferWhileVideo />
           ) : (
             <View style={styles.placeholderPoster}>
               <Ionicons name={isLiveTv ? "tv-outline" : "folder-outline"} size={IS_TV ? 90 : 56} color="rgba(255, 255, 255, 0.45)" />
             </View>
           )}
 
-          {/* Item-count badge (top-left): the number alone, on glass */}
-          {itemCount != null || countLoading ? (
-            <View style={styles.countBadge} pointerEvents="none">
-              {itemCount != null ? <CardBadge segments={[{ label: itemCount }]} focused={focused} /> : <CardBadge loading focused={focused} />}
-            </View>
-          ) : null}
+          {navBarVisible ? <CardPressFlash active={navigating} /> : null}
 
           {recording ? (
             <View style={styles.recBadge} pointerEvents="none">
@@ -228,34 +217,11 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             </View>
           ) : null}
 
-          {/* Title bar at the very bottom: same treatment as the video cards.
-              Focused: opaque gold bar; resting: the canvas tone. */}
-          {focused ? (
-            <View style={[styles.infoOverlay, { backgroundColor: palette.accent }]}>
-              <View style={styles.titleLine}>
-                <MarqueeText active={focused} style={StyleSheet.flatten([styles.folderName, { color: palette.ink }])} lead={favoriteLead(palette.ink)}>
-                  {folderName}
-                </MarqueeText>
-              </View>
-            </View>
-          ) : (
-            <View style={[styles.infoOverlay, styles.infoOverlayResting]}>
-              <View style={styles.titleLine}>
-                <MarqueeText active={focused} style={StyleSheet.flatten([styles.folderName, { color: palette.accent }])} lead={favoriteLead(palette.accent)}>
-                  {folderName}
-                </MarqueeText>
-              </View>
-            </View>
-          )}
-
           <View style={[styles.borderOverlay, focused && [styles.borderOverlayFocused, { borderColor: palette.accent }]]} pointerEvents="none" />
-
-          {/* Per-card feedback while the pressed card's destination loads:
-              the title bar becomes a sweeping gold progress fill. Mounted only
-              around a press (visible lingers past the handoff fade) — idle
-              cards carry no overlay. */}
-          {navBarVisible ? <CardNavProgress active={navigating} title={folderName || t("a11y.folder")} /> : null}
         </View>
+        {/* Mounted only around a press (visible lingers past the arrival burst); idle cards carry none. */}
+        {navBarVisible ? <CardPressBurst active={navigating} /> : null}
+        <CardMetaLine text={metaText || t("a11y.folder")} focused={focused} centered={IS_TV} lead={metaLead} />
       </View>
     </TouchableOpacity>
   );
@@ -357,45 +323,10 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.SURFACE_RAISED,
     padding: IS_TV ? 20 : 12,
   },
-  countBadge: {
-    position: "absolute",
-    top: CARD_BADGE_INSET,
-    left: CARD_BADGE_INSET,
-  },
   recBadge: {
     position: "absolute",
     top: CARD_BADGE_INSET,
     right: CARD_BADGE_INSET,
   },
   // Opaque sliver at the very bottom showing just the title.
-  infoOverlay: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingVertical: IS_TV ? 10 : 8,
-    paddingHorizontal: IS_TV ? 16 : 14,
-    overflow: "hidden",
-    justifyContent: "center",
-    alignItems: "center",
-    borderBottomLeftRadius: DESIGN.BORDER_RADIUS_CARD,
-    borderBottomRightRadius: DESIGN.BORDER_RADIUS_CARD,
-  },
-  infoOverlayResting: {
-    backgroundColor: COLORS.SURFACE_SUNKEN,
-  },
-  titleLine: {
-    width: "100%",
-  },
-  // Flush left on phone: touch has no marquee (MarqueeText only scrolls on TV focus), so long
-  // library names always ellipsize, and a ragged tail reads better from a fixed left edge.
-  folderName: {
-    color: COLORS.TEXT_PRIMARY,
-    fontSize: NAME_SIZE,
-    fontWeight: "800",
-    letterSpacing: IS_TV ? 1.5 : 0.8,
-    textAlign: IS_TV ? "center" : "left",
-    textTransform: "uppercase",
-    width: "100%",
-  },
 });
