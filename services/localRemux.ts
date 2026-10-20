@@ -90,6 +90,7 @@ export {
   posterFrameWorkInFlight,
   prepareRemainingTracks,
   setPosterFramesPaused,
+  subscribePosterFrames,
   readBound,
   reportPlayerBuffer,
   resolveSubtitlePick,

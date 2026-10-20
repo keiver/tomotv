@@ -56,6 +56,7 @@ import {
   posterFrameWorkInFlight,
   requestPosterFrame,
   setPosterFramesPaused,
+  subscribePosterFrames,
 } from "../localRemux";
 
 const TICKS = 10_000_000;
@@ -157,6 +158,54 @@ describe("requestPosterFrame", () => {
     await requestPosterFrame({ Id: "a", RunTimeTicks: 0 });
 
     expect(mockPosterFrame).toHaveBeenCalledWith(expect.objectContaining({ inputUrl: "file:///downloads/a/media.mkv" }));
+  });
+});
+
+describe("subscribePosterFrames", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    clearPosterFrameCache();
+    mockLocalMediaUri.mockReturnValue(null);
+    mockPosterFrame.mockResolvedValue({ uri: "file:///caches/chapter-frames/a/poster.jpg", cancelled: false });
+  });
+
+  it("tells the listener when a poster settles to a file, until it unsubscribes", async () => {
+    const listener = jest.fn();
+    const unsubscribe = subscribePosterFrames(listener);
+    await requestPosterFrame({ Id: "a", RunTimeTicks: 0 });
+    expect(listener).toHaveBeenCalledWith("a");
+    unsubscribe();
+    clearPosterFrameCache();
+    await requestPosterFrame({ Id: "a", RunTimeTicks: 0 });
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it("says nothing for a failure, a dropped job or a job that outlived a clear", async () => {
+    const listener = jest.fn();
+    const unsubscribe = subscribePosterFrames(listener);
+    mockPosterFrame.mockResolvedValueOnce({ uri: null, cancelled: false, reason: "frame" });
+    await requestPosterFrame({ Id: "a", RunTimeTicks: 0 });
+    mockPosterFrame.mockResolvedValueOnce({ uri: null, cancelled: true });
+    const dropped = requestPosterFrame({ Id: "b", RunTimeTicks: 0 });
+    cancelPosterFrame("b");
+    await dropped;
+    let settle: (value: { uri: string | null; cancelled: boolean }) => void = () => {};
+    mockPosterFrame.mockImplementationOnce(() => new Promise((resolve) => (settle = resolve)));
+    const stale = requestPosterFrame({ Id: "c", RunTimeTicks: 0 });
+    clearPosterFrameCache();
+    settle({ uri: "file:///caches/chapter-frames/c/poster.jpg", cancelled: false });
+    await stale;
+    expect(listener).not.toHaveBeenCalled();
+    unsubscribe();
+  });
+
+  it("keeps the poster settled when a listener throws", async () => {
+    const unsubscribe = subscribePosterFrames(() => {
+      throw new Error("listener");
+    });
+    expect(await requestPosterFrame({ Id: "a", RunTimeTicks: 0 })).toBe("file:///caches/chapter-frames/a/poster.jpg");
+    expect(posterFrameIfCached("a")).toBe("file:///caches/chapter-frames/a/poster.jpg");
+    unsubscribe();
   });
 });
 

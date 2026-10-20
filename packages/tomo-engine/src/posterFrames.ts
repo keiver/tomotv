@@ -69,6 +69,27 @@ export function posterFrameRevision(itemId: string): number {
   return posterFrameRevisions.get(itemId) ?? 0;
 }
 
+const posterFrameListeners = new Set<(itemId: string) => void>();
+
+/** Called with the item's id each time a poster settles to a file for the current generation. */
+export function subscribePosterFrames(listener: (itemId: string) => void): () => void {
+  posterFrameListeners.add(listener);
+  return () => {
+    posterFrameListeners.delete(listener);
+  };
+}
+
+/** A listener that throws must not turn the settled poster into a failure. */
+function notifyPosterFrame(itemId: string): void {
+  for (const listener of posterFrameListeners) {
+    try {
+      listener(itemId);
+    } catch (error) {
+      engineLog().warn("Poster frame listener failed", error, { service: "LocalRemux", itemId });
+    }
+  }
+}
+
 export function clearPosterFrameCache(): void {
   posterFrameGen += 1;
   if (pausedBacklog) pausedBacklog = new Set();
@@ -141,6 +162,7 @@ export async function requestPosterFrame(request: PosterFrameRequest): Promise<s
         if (uri === null) recordPosterFrameFailure(request.id, result?.reason === "open" ? "open" : "frame");
         else posterFrameFailures.delete(request.id);
         if (settled !== undefined && result?.fresh) posterFrameRevisions.set(request.id, posterFrameRevision(request.id) + 1);
+        if (uri !== null) notifyPosterFrame(request.id);
       }
       return uri;
     } catch (error) {
