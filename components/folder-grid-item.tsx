@@ -1,5 +1,5 @@
 import { CARD_BADGE_INSET, CardBadge } from "@/components/card-badge";
-import { CardPressBurst, CardPressFlash } from "@/components/card-press-burst";
+import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardStand } from "@/components/card-stand";
 import { PosterCollage } from "@/components/poster-collage";
 import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, RAISED_EDGE, slotColumns, STAND_HEIGHT, STAND_ROW_ROOM, type SlotOrientation } from "@/constants/app";
@@ -188,8 +188,6 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             </View>
           )}
 
-          {navBarVisible ? <CardPressFlash active={navigating} /> : null}
-
           {recording ? (
             <View style={styles.recBadge} pointerEvents="none">
               <CardBadge segments={[{ icon: "videocam-outline", label: t("liveTv.rec") }]} focused={focused} tone="live" />
@@ -198,10 +196,11 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
 
           <View style={[styles.borderOverlay, focused && styles.borderOverlayFocused, styles.squareBottom]} pointerEvents="none" />
         </View>
-        <CardStand name={folderName || t("a11y.folder")} focused={focused} scrolls clear />
+        <View>
+          <CardStand name={folderName || t("a11y.folder")} focused={focused} scrolls clear />
+          {navBarVisible ? <CardNavProgress active={navigating} title={folderName || t("a11y.folder")} stand /> : null}
+        </View>
         {focused ? <View style={[styles.focusRing, { borderColor: palette.accent }]} pointerEvents="none" /> : null}
-        {/* Mounted only around a press (visible lingers past the arrival burst); idle cards carry none. */}
-        {navBarVisible ? <CardPressBurst active={navigating} /> : null}
       </View>
     </TouchableOpacity>
   );

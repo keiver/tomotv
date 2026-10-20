@@ -1,6 +1,6 @@
 /**
  * Every card surface draws in the chosen theme's colour: the focus ring and glow, the line under the
- * card, the progress strip, the badges, the press burst and the folder loading bar.
+ * card, the progress fill, the badges, the press sweep and the folder loading bar.
  */
 import React from "react";
 import { StyleSheet } from "react-native";
@@ -26,6 +26,7 @@ jest.mock("@/contexts/PlayerSessionContext", () => ({ usePlayerSession: () => ({
 jest.mock("@/services/audioPlayerManager", () => ({ audioPlayerManager: { getUIState: () => ({ playing: true, position: 0 }), subscribe: () => () => {} } }));
 
 import { BADGE_GLASS_TINT, CardBadge } from "@/components/card-badge";
+import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardStand } from "@/components/card-stand";
 import { FolderGridItem } from "@/components/folder-grid-item";
 import { FolderLoadingBar } from "@/components/folder-loading-bar";
@@ -72,7 +73,7 @@ function glassTintOf(element: React.ReactElement): string {
 }
 
 describe("card palette", () => {
-  it("a focused video card rings, glows and bursts in the theme", () => {
+  it("a focused video card rings, glows and sweeps in the theme", () => {
     const drawn = colours(<VideoGridItem video={video} onPress={jest.fn()} index={0} highlighted />);
     expect(drawn.filter((c) => c === ACCENT).length).toBeGreaterThanOrEqual(4);
     expect(drawn).not.toContain(COLORS.ACCENT);
@@ -84,10 +85,22 @@ describe("card palette", () => {
     expect(drawn).not.toContain(COLORS.ACCENT);
   });
 
-  it("a focused folder card rings, glows and bursts in the theme", () => {
+  it("a focused folder card rings, glows and sweeps in the theme", () => {
     const drawn = colours(<FolderGridItem folder={folder} onPress={jest.fn()} index={0} highlighted />);
     expect(drawn.filter((c) => c === ACCENT).length).toBeGreaterThanOrEqual(4);
     expect(drawn).not.toContain(COLORS.ACCENT);
+  });
+
+  it("a pressed folder card fills its base with the sweep and draws no ring or tint over it", () => {
+    let tree!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      tree = TestRenderer.create(<FolderGridItem folder={folder} onPress={jest.fn()} index={0} />);
+    });
+    const [sweep] = tree.root.findAllByType(CardNavProgress);
+    expect(sweep.props).toMatchObject({ stand: true, title: "Shows" });
+    expect(sweep.parent!.findAllByType(CardStand)).toHaveLength(1);
+    expect(tree.root.findAll((n) => typeof n.props.testID === "string" && n.props.testID.startsWith("card-press"))).toHaveLength(0);
+    act(() => tree.unmount());
   });
 
   it("a folder's base names it alone, with no count on the base or the art", () => {

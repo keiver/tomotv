@@ -1,6 +1,5 @@
 import { type BadgeSegment, CARD_BADGE_INSET, CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
-import { CardPressBurst, CardPressFlash } from "@/components/card-press-burst";
 import { CardCornerScrim } from "@/components/card-scrim";
 import { CardStand } from "@/components/card-stand";
 import { LevelBars } from "@/components/level-bars";
@@ -387,7 +386,6 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               <LevelBars size={IS_TV ? 20 : 12} playing={nowPlayingProgress.playing} />
             </View>
           ) : null}
-          {navBarVisible && !standed ? <CardPressFlash active={navigating} /> : null}
 
           {/* A wall card's stand says offline with its glyph, so its picture skips the pill. */}
           {offlinePill || artBadge || (isChannel && (recording || (liveFrame ? liveMark : airingName))) ? (
@@ -418,10 +416,13 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
           </View>
         ) : null}
         {/* Rendered regardless of poster: a posterless placeholder card still owes the user its progress. */}
-        {liveCard ? null : <CardStand name={cardTitle} focused={focused} mark={metaMark} progress={standProgress} scrolls clear />}
+        {liveCard ? null : (
+          <View>
+            <CardStand name={cardTitle} focused={focused} mark={metaMark} progress={standProgress} scrolls clear />
+            {navBarVisible ? <CardNavProgress active={navigating} title={cardTitle} startFraction={hasProgress ? watchedPercent / 100 : undefined} stand /> : null}
+          </View>
+        )}
         {focused ? <View style={[styles.focusRing, { borderColor: palette.accent }, square && styles.square]} pointerEvents="none" /> : null}
-        {/* Mounted only around a press (visible lingers past the arrival burst); idle cards carry none. */}
-        {navBarVisible && !standed ? <CardPressBurst active={navigating} square={square} /> : null}
       </View>
     </TouchableOpacity>
   );

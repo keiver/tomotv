@@ -20,7 +20,6 @@ jest.mock("@/services/jellyfinApi", () => ({ isAudioItem: () => false, isBook: (
 
 import { CardBadge } from "@/components/card-badge";
 import { CardNavProgress } from "@/components/card-nav-progress";
-import { CardPressBurst, CardPressFlash } from "@/components/card-press-burst";
 import { CardStand, STAND_NAME_TEXT, standFillPercent } from "@/components/card-stand";
 import { Image } from "expo-image";
 import { STAND_HEIGHT } from "@/constants/app";
@@ -55,11 +54,19 @@ describe("press sweep on a channel wall card", () => {
     act(() => tree.unmount());
   });
 
-  it("bursts the border and flashes the art on a card without a stand, and draws no sweep", () => {
+  it("fills a media card's base under the picture, starting a resume card at its watched share", () => {
+    const tree = mount(<VideoGridItem video={movie} onPress={jest.fn()} index={0} progressPercent={0.4} />);
+    expect(slotOf(tree).findAllByType(CardNavProgress)).toHaveLength(0);
+    const [sweep] = tree.root.findAllByType(CardNavProgress);
+    expect(sweep.props).toMatchObject({ stand: true, title: "A Movie", startFraction: 0.4 });
+    expect(sweep.parent!.findAllByType(CardStand)).toHaveLength(1);
+    act(() => tree.unmount());
+  });
+
+  it("draws no ring or tint over a pressed media card", () => {
     const tree = mount(<VideoGridItem video={movie} onPress={jest.fn()} index={0} />);
-    expect(tree.root.findAllByType(CardNavProgress)).toHaveLength(0);
-    expect(tree.root.findAllByType(CardPressBurst)).toHaveLength(1);
-    expect(slotOf(tree).findAllByType(CardPressFlash)).toHaveLength(1);
+    expect(tree.root.findAll((n) => typeof n.props.testID === "string" && n.props.testID.startsWith("card-press"))).toHaveLength(0);
+    expect(tree.root.findByType(CardNavProgress).props.startFraction).toBeUndefined();
     act(() => tree.unmount());
   });
 });
@@ -78,8 +85,7 @@ describe("media card base", () => {
 
   it("draws the focus border around the art and the base together, round at the bottom too", () => {
     const tree = mount(<VideoGridItem video={movie} onPress={jest.fn()} index={0} highlighted />);
-    const burst = tree.root.findByType(CardPressBurst);
-    const rings = tree.root.findAll((n) => typeof n.type === "string" && StyleSheet.flatten(n.props.style)?.borderWidth > 1 && burst.findAll((b) => b === n).length === 0);
+    const rings = tree.root.findAll((n) => typeof n.type === "string" && StyleSheet.flatten(n.props.style)?.borderWidth > 1);
     expect(rings).toHaveLength(1);
     expect(slotOf(tree).findAll((n) => n === rings[0])).toHaveLength(0);
     const ring = StyleSheet.flatten(rings[0].props.style);
