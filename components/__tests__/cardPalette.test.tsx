@@ -152,6 +152,26 @@ describe("card palette", () => {
     expect(colours(<CardBadge segments={[{ label: 3 }]} focused />)).toContain(COLORS.TEXT_PRIMARY);
   });
 
+  it("a full base names the card in the ink, with no blend; a partial one blends the accent", () => {
+    const nameOn = (progress: number) => {
+      let tree!: TestRenderer.ReactTestRenderer;
+      act(() => {
+        tree = TestRenderer.create(
+          <CardPaletteOverride.Provider value={palette}>
+            <CardStand name="Film" focused={false} progress={progress} />
+          </CardPaletteOverride.Provider>,
+        );
+      });
+      const text = tree.root.findAll((n) => typeof n.type === "string" && n.props.children === "Film")[0];
+      const row = tree.root.findAll((n) => typeof n.type === "string" && StyleSheet.flatten(n.props.style)?.flexDirection === "row")[0];
+      const result = { color: StyleSheet.flatten(text.props.style).color, blend: StyleSheet.flatten(row.props.style).mixBlendMode };
+      act(() => tree.unmount());
+      return result;
+    };
+    expect(nameOn(1)).toEqual({ color: palette.ink, blend: undefined });
+    expect(nameOn(0.4)).toEqual({ color: ACCENT, blend: "difference" });
+  });
+
   it("the base's progress fill and the folder loading bar fill in the theme", () => {
     const strip = colours(<CardStand name="Film" focused={false} progress={0.5} />);
     expect(strip).toContain(ACCENT);

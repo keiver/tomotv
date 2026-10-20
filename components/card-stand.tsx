@@ -80,16 +80,17 @@ function LiveCardStand({ channelId, ...props }: CardStandProps & { channelId: st
 function StandBody({ name, icon, focused, offline = false, mark, progress, scrolls = false, clear = false, fresh, red }: CardStandProps & { fresh: boolean; red?: React.ReactNode }) {
   const { accent, ink } = useCardPalette();
   const filled = progress != null;
+  const full = filled && standFillPercent(progress) === 100;
   const resting = isLowContrast(accent) ? COLORS.TEXT_PRIMARY : accent;
-  // White on the LIVE red reads; gold on it does not. Over a fill the accent runs through a difference blend.
-  const text = filled ? accent : focused ? ink : fresh ? COLORS.TEXT_PRIMARY : resting;
+  // White on the LIVE red reads; gold on it does not. Over a partial fill the accent runs through a difference blend; a full one takes the ink.
+  const text = full || (focused && !filled) ? ink : filled ? accent : fresh ? COLORS.TEXT_PRIMARY : resting;
   const glyphSize = IS_TV ? 15 : 9;
   const nameStyle = StyleSheet.flatten([styles.name, { color: text }]);
   return (
     <View style={[styles.base, { backgroundColor: focused && !filled ? accent : clear ? "transparent" : COLORS.BACKGROUND_DEEP }]} pointerEvents="none" testID="card-stand">
       {filled ? null : red}
       {progress != null ? <View style={[styles.fill, { width: `${standFillPercent(progress)}%`, backgroundColor: accent }]} testID="card-stand-fill" /> : null}
-      <View style={[styles.row, filled && styles.blend]}>
+      <View style={[styles.row, filled && !full && styles.blend]}>
         {/* A glyph, not a colour, says offline. */}
         {offline ? <Ionicons name="cloud-offline" size={glyphSize} color={text} testID="card-stand-offline" /> : null}
         {icon ? <Ionicons name={icon} size={glyphSize} color={text} /> : null}

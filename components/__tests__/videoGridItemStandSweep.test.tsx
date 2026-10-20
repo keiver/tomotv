@@ -105,6 +105,24 @@ describe("media card base", () => {
     act(() => tree.unmount());
   });
 
+  it("fills the whole base of a watched card with no resume position", () => {
+    const watched = { Id: "e2", Name: "Finale", Type: "Episode", UserData: { Played: true } } as JellyfinVideoItem;
+    const tree = mount(<VideoGridItem video={watched} onPress={jest.fn()} index={0} />);
+    expect(tree.root.findByType(CardStand).props.progress).toBe(1);
+    const fill = tree.root.findAll((n) => n.props.testID === "card-stand-fill" && typeof n.type === "string")[0];
+    expect(StyleSheet.flatten(fill.props.style).width).toBe("100%");
+    act(() => tree.unmount());
+  });
+
+  it("leaves the base empty on a watched track or an unwatched card", () => {
+    const track = { Id: "t1", Name: "Song", Type: "Audio", UserData: { Played: true } } as JellyfinVideoItem;
+    for (const video of [track, movie]) {
+      const tree = mount(<VideoGridItem video={video} onPress={jest.fn()} index={0} />);
+      expect(tree.root.findByType(CardStand).props.progress).toBeNull();
+      act(() => tree.unmount());
+    }
+  });
+
   it("names the item and nothing else: no episode number, eye or heart", () => {
     const episode = { Id: "e1", Name: "Pilot", Type: "Episode", IndexNumber: 5, ParentIndexNumber: 1, UserData: { Played: true, IsFavorite: true } } as JellyfinVideoItem;
     const tree = mount(<VideoGridItem video={episode} onPress={jest.fn()} index={0} />);
