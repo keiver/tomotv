@@ -1319,7 +1319,7 @@ Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin
 - La información de un canal muestra su imagen más reciente, con la vista previa en marcha
 ```
 
-#### What's New (2.2.13), tvOS (588 / 4000 chars)
+#### What's New (2.2.13), tvOS (580 / 4000 chars)
 
 ```text
 - TV en vivo: indica cuántas emisiones permite tu proveedor a la vez, o deja que Tomo lo aprenda
@@ -1327,7 +1327,7 @@ Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin
 - Lo nuevo en tu servidor aparece en Inicio y en las carpetas en cuanto vuelves a abrirlas
 - Las vistas previas de los canales se llenan más rápido, y las tarjetas de canal muestran la imagen completa
 - En la pantalla Canales, una franja roja bajo cada tarjeta indica lo reciente que es su imagen
-- Top Shelf muestra pósteres creados a partir del video cuando tu servidor no tiene ilustración
+- Top Shelf muestra pósteres creados a partir del video cuando tu servidor no los tiene
 ```
 
 #### What's New (2.2.12), macOS (611 / 4000)
