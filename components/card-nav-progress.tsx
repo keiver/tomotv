@@ -32,6 +32,8 @@ interface CardNavProgressProps {
   startFraction?: number;
   /** Fills a channel stand, in the stand's lettering, instead of the title bar. */
   stand?: boolean;
+  /** The stand's resting colour under the sweep, where it differs from the wall's. */
+  baseColor?: string;
 }
 
 /**
@@ -50,7 +52,7 @@ interface CardNavProgressProps {
  * blur), and already announces its own state to assistive tech; this overlay
  * is hidden from it.
  */
-export function CardNavProgress({ active, title, startFraction, stand = false }: CardNavProgressProps) {
+export function CardNavProgress({ active, title, startFraction, stand = false, baseColor }: CardNavProgressProps) {
   const progress = useSharedValue(0);
   const opacity = useSharedValue(0);
   const reducedMotion = useReducedMotion();
@@ -80,7 +82,11 @@ export function CardNavProgress({ active, title, startFraction, stand = false }:
   const barStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
 
   return (
-    <Animated.View pointerEvents="none" style={[styles.bar, stand && styles.barStand, barStyle]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+    <Animated.View
+      pointerEvents="none"
+      style={[styles.bar, stand && styles.barStand, baseColor ? { backgroundColor: baseColor } : null, barStyle]}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants">
       <Animated.View style={[styles.fill, { backgroundColor: accent }, fillStyle]} />
       <View style={styles.titleBlend}>
         <Text style={[styles.title, stand && STAND_NAME_TEXT, { color: accent }]} numberOfLines={1}>

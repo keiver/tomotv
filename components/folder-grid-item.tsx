@@ -153,7 +153,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
       onFocus={handleFocus}
       onBlur={handleBlur}
       // Touch: a held press shows the same focus treatment the TV focus engine drives
-      // (gold border, glow, brighter line). TV keeps onFocus/onBlur only.
+      // (accent border, glow, accent base). TV keeps onFocus/onBlur only.
       onPressIn={IS_TV ? undefined : handleFocus}
       onPressOut={IS_TV ? undefined : handleBlur}
       activeOpacity={0.95}
@@ -198,7 +198,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
         </View>
         <View>
           <CardStand name={folderName || t("a11y.folder")} focused={focused} scrolls clear />
-          {navBarVisible ? <CardNavProgress active={navigating} title={folderName || t("a11y.folder")} stand /> : null}
+          {navBarVisible ? <CardNavProgress active={navigating} title={folderName || t("a11y.folder")} stand baseColor={COLORS.SURFACE_SUNKEN} /> : null}
         </View>
         {focused ? <View style={[styles.focusRing, { borderColor: palette.accent }]} pointerEvents="none" /> : null}
       </View>
@@ -323,5 +323,4 @@ const styles = StyleSheet.create({
     top: CARD_BADGE_INSET,
     right: CARD_BADGE_INSET,
   },
-  // Opaque sliver at the very bottom showing just the title.
 });

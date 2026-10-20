@@ -51,7 +51,7 @@ interface CardStandProps {
 }
 
 /**
- * A card's base: flush under the art, its full width, naming it. Dark at rest, the accent on focus, or a progress fill.
+ * A card's base: flush under the art, its full width, naming it. Dark or clear at rest, the accent on focus, or a progress fill.
  * A channel's fresh picture paints it LIVE red, which steps down to dark: native opacity fades, idle between steps.
  */
 export function CardStand(props: CardStandProps) {

@@ -280,7 +280,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     onLongPress?.(video);
   }, [onLongPress, video]);
 
-  // Any card GIVEN a progress value is a resume card and shows the strip, even at 0 (a just-started
+  // Any card GIVEN a progress value is a resume card and fills its base, even at 0 (a just-started
   // video whose position hasn't synced yet).
   const hasProgress = progressPercent != null;
   const watchedPercent = hasProgress ? Math.round(Math.min(Math.max(progressPercent, 0), 1) * 100) : 0;
@@ -318,7 +318,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
       onFocus={handleFocus}
       onBlur={handleBlur}
       // Touch: a held press shows the same focus treatment the TV focus engine drives
-      // (gold border, glow, brighter line). TV keeps onFocus/onBlur only.
+      // (accent border, glow, accent base). TV keeps onFocus/onBlur only.
       onPressIn={IS_TV ? undefined : handleFocus}
       onPressOut={IS_TV ? undefined : handleBlur}
       activeOpacity={0.95}
@@ -419,7 +419,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
         {liveCard ? null : (
           <View>
             <CardStand name={cardTitle} focused={focused} mark={metaMark} progress={standProgress} scrolls clear />
-            {navBarVisible ? <CardNavProgress active={navigating} title={cardTitle} startFraction={hasProgress ? watchedPercent / 100 : undefined} stand /> : null}
+            {navBarVisible ? <CardNavProgress active={navigating} title={cardTitle} startFraction={hasProgress ? watchedPercent / 100 : undefined} stand baseColor={COLORS.SURFACE} /> : null}
           </View>
         )}
         {focused ? <View style={[styles.focusRing, { borderColor: palette.accent }, square && styles.square]} pointerEvents="none" /> : null}
