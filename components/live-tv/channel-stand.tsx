@@ -11,6 +11,13 @@ import { Animated, Platform, StyleSheet, Text, useAnimatedValue, View } from "re
 const IS_TV = Platform.isTV;
 /** The height the stand adds under the picture, for the grid's row math. */
 export const STAND_HEIGHT = IS_TV ? 34 : 24;
+/** The stand's lettering, shared with the press sweep drawn over it. */
+export const STAND_NAME_TEXT = {
+  fontSize: IS_TV ? 15 : 9,
+  fontWeight: "800",
+  letterSpacing: IS_TV ? 1.5 : 0.8,
+  textTransform: "uppercase",
+} as const;
 const FADE_STEPS = 8;
 const FADE_STEP_MS = 1_000;
 /** LIVE's end, then the red's steps down to black by the refresh floor. */
@@ -90,9 +97,6 @@ const styles = StyleSheet.create({
   },
   name: {
     flexShrink: 1,
-    fontSize: IS_TV ? 15 : 9,
-    fontWeight: "800",
-    letterSpacing: IS_TV ? 1.5 : 0.8,
-    textTransform: "uppercase",
+    ...STAND_NAME_TEXT,
   },
 });

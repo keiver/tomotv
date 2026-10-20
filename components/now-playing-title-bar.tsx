@@ -104,9 +104,11 @@ const styles = StyleSheet.create({
   },
   infoTitle: {
     width: "100%",
-    fontSize: TITLE_SIZE,
-    fontWeight: "700",
+    fontSize: TITLE_SIZE - 2,
+    fontWeight: "800",
+    letterSpacing: IS_TV ? 1.5 : 0.8,
     textAlign: IS_TV ? "center" : "left",
+    textTransform: "uppercase",
   },
 });
 

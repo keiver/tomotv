@@ -1,6 +1,7 @@
 import { CARD_BADGE_INSET, CardBadge, showsFavoriteHeart } from "@/components/card-badge";
+import { CardArtClip } from "@/components/card-art-clip";
 import { CardNavProgress } from "@/components/card-nav-progress";
-import { CardCornerScrim, CardScrim } from "@/components/card-scrim";
+import { CardCornerScrim } from "@/components/card-scrim";
 import { PosterCollage } from "@/components/poster-collage";
 import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, GRID, RAISED_EDGE, slotColumns, type SlotOrientation } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
@@ -11,7 +12,6 @@ import { useViewItemCount } from "@/hooks/useViewItemCount";
 import { folderPosterSource } from "@/services/itemArtwork";
 import { t } from "@/services/i18n";
 import { cleanLabel } from "@/utils/cleanLabel";
-import { withAlpha } from "@/utils/color";
 import { JellyfinItem } from "@/types/jellyfin";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
@@ -25,7 +25,7 @@ const IS_TV = Platform.isTV;
 const SCREEN = Dimensions.get("screen");
 const IS_TABLET = !IS_TV && Math.min(SCREEN.width, SCREEN.height) >= GRID.PHONE_WIDE_MIN_WIDTH;
 const TITLE_SIZE = IS_TV ? 22 : IS_TABLET ? 15 : 13;
-const QUIET_MARK_SIZE = Math.round(TITLE_SIZE * 0.8);
+const NAME_SIZE = TITLE_SIZE - 2;
 const CARD_PADDING = IS_TV ? 16 : 8;
 const POSTER_SIZE = IS_TV ? 300 : 200;
 
@@ -121,13 +121,13 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
 
   const folderName = cleanLabel(folder.Name);
   const favorite = showsFavoriteHeart(folder);
-  // The same heart a channel card wears after its title: smaller and dimmed.
-  const renderFavoriteMark = (color: string) =>
+  // The heart leads the name, as on the channel stand.
+  const favoriteLead = (color: string) =>
     favorite ? (
-      <View style={styles.titleMark} pointerEvents="none">
-        <Ionicons name="heart" size={QUIET_MARK_SIZE} color={withAlpha(color, 0.65)} />
-      </View>
-    ) : null;
+      <>
+        <Ionicons name="heart" size={NAME_SIZE} color={color} />{" "}
+      </>
+    ) : undefined;
 
   // The Live TV view counts channels, and its empty face is a set, not a folder.
   const isLiveTv = folder.CollectionType === "livetv";
@@ -197,14 +197,16 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
         <View style={[styles.imageContainer, { aspectRatio: cardRatio }]}>
           {thumbnailSource ? (
             <>
-              <Image source={thumbnailSource} style={styles.poster} contentFit="cover" transition={0} priority={index < 10 ? "high" : "normal"} cachePolicy="memory-disk" recyclingKey={folder.Id} />
-              <CardScrim />
+              <CardArtClip ratio={cardRatio}>
+                <Image source={thumbnailSource} style={styles.poster} contentFit="cover" transition={0} priority={index < 10 ? "high" : "normal"} cachePolicy="memory-disk" recyclingKey={folder.Id} />
+              </CardArtClip>
               {focused && (itemCount != null || countLoading) ? <CardCornerScrim /> : null}
             </>
           ) : preview.length > 0 ? (
             <>
-              <PosterCollage items={preview} height={POSTER_SIZE} deferWhileVideo />
-              <CardScrim />
+              <CardArtClip ratio={cardRatio}>
+                <PosterCollage items={preview} height={POSTER_SIZE} deferWhileVideo />
+              </CardArtClip>
               {focused && (itemCount != null || countLoading) ? <CardCornerScrim /> : null}
             </>
           ) : (
@@ -226,22 +228,20 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             </View>
           ) : null}
 
-          {/* Title bar at the very bottom — same treatment as the video cards.
-              Focused: opaque gold bar; resting: glass over the scrimmed art. */}
+          {/* Title bar at the very bottom: same treatment as the video cards.
+              Focused: opaque gold bar; resting: the canvas tone. */}
           {focused ? (
             <View style={[styles.infoOverlay, { backgroundColor: palette.accent }]}>
-              <View style={[styles.titleLine, favorite && styles.titleLineInset]}>
-                {renderFavoriteMark(palette.ink)}
-                <MarqueeText active={focused} style={StyleSheet.flatten([styles.folderName, { color: palette.ink }])}>
+              <View style={styles.titleLine}>
+                <MarqueeText active={focused} style={StyleSheet.flatten([styles.folderName, { color: palette.ink }])} lead={favoriteLead(palette.ink)}>
                   {folderName}
                 </MarqueeText>
               </View>
             </View>
           ) : (
-            <View style={[styles.infoOverlay, styles.infoOverlayGlass]}>
-              <View style={[styles.titleLine, favorite && styles.titleLineInset]}>
-                {renderFavoriteMark(palette.accent)}
-                <MarqueeText active={focused} style={StyleSheet.flatten([styles.folderName, { color: palette.accent }])}>
+            <View style={[styles.infoOverlay, styles.infoOverlayResting]}>
+              <View style={styles.titleLine}>
+                <MarqueeText active={focused} style={StyleSheet.flatten([styles.folderName, { color: palette.accent }])} lead={favoriteLead(palette.accent)}>
                   {folderName}
                 </MarqueeText>
               </View>
@@ -381,33 +381,21 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: DESIGN.BORDER_RADIUS_CARD,
     borderBottomRightRadius: DESIGN.BORDER_RADIUS_CARD,
   },
-  // Resting bar: the scrimmed artwork tints through so the title area reads as part
-  // of the poster, not a flat strip. Gold stays legible on the bottom scrim's wash.
-  infoOverlayGlass: {
-    backgroundColor: "rgba(28, 28, 30, 0.6)",
+  infoOverlayResting: {
+    backgroundColor: COLORS.SURFACE_SUNKEN,
   },
   titleLine: {
     width: "100%",
-  },
-  // Both sides on TV, so the centred title clears the heart; the right side alone elsewhere.
-  titleLineInset: {
-    paddingRight: IS_TV ? TITLE_SIZE + 16 : TITLE_SIZE + 2,
-    paddingLeft: IS_TV ? TITLE_SIZE + 16 : 0,
-  },
-  titleMark: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    right: IS_TV ? 4 : -4,
-    justifyContent: "center",
   },
   // Flush left on phone: touch has no marquee (MarqueeText only scrolls on TV focus), so long
   // library names always ellipsize, and a ragged tail reads better from a fixed left edge.
   folderName: {
     color: COLORS.TEXT_PRIMARY,
-    fontSize: TITLE_SIZE,
-    fontWeight: "700",
+    fontSize: NAME_SIZE,
+    fontWeight: "800",
+    letterSpacing: IS_TV ? 1.5 : 0.8,
     textAlign: IS_TV ? "center" : "left",
+    textTransform: "uppercase",
     width: "100%",
   },
 });
