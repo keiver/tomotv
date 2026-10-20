@@ -198,7 +198,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
 
           <View style={[styles.borderOverlay, focused && styles.borderOverlayFocused, styles.squareBottom]} pointerEvents="none" />
         </View>
-        <CardStand name={folderName || t("a11y.folder")} focused={focused} scrolls />
+        <CardStand name={folderName || t("a11y.folder")} focused={focused} scrolls clear />
         {focused ? <View style={[styles.focusRing, { borderColor: palette.accent }]} pointerEvents="none" /> : null}
         {/* Mounted only around a press (visible lingers past the arrival burst); idle cards carry none. */}
         {navBarVisible ? <CardPressBurst active={navigating} /> : null}

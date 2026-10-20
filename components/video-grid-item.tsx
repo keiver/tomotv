@@ -418,7 +418,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
           </View>
         ) : null}
         {/* Rendered regardless of poster: a posterless placeholder card still owes the user its progress. */}
-        {liveCard ? null : <CardStand name={cardTitle} focused={focused} mark={metaMark} progress={standProgress} scrolls />}
+        {liveCard ? null : <CardStand name={cardTitle} focused={focused} mark={metaMark} progress={standProgress} scrolls clear />}
         {focused ? <View style={[styles.focusRing, { borderColor: palette.accent }, square && styles.square]} pointerEvents="none" /> : null}
         {/* Mounted only around a press (visible lingers past the arrival burst); idle cards carry none. */}
         {navBarVisible && !standed ? <CardPressBurst active={navigating} square={square} /> : null}

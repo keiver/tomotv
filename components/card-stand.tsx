@@ -46,6 +46,8 @@ interface CardStandProps {
   progress?: number | null;
   /** The name scrolls in full while the card holds focus. */
   scrolls?: boolean;
+  /** No fill at rest: the name sits on whatever is behind the card. */
+  clear?: boolean;
 }
 
 /**
@@ -75,7 +77,7 @@ function LiveCardStand({ channelId, ...props }: CardStandProps & { channelId: st
   return <StandBody {...props} fresh={step === 0} red={props.focused ? null : <Animated.View style={[styles.red, { opacity: red }]} testID="card-stand-red" />} />;
 }
 
-function StandBody({ name, icon, focused, offline = false, mark, progress, scrolls = false, fresh, red }: CardStandProps & { fresh: boolean; red?: React.ReactNode }) {
+function StandBody({ name, icon, focused, offline = false, mark, progress, scrolls = false, clear = false, fresh, red }: CardStandProps & { fresh: boolean; red?: React.ReactNode }) {
   const { accent, ink } = useCardPalette();
   const filled = progress != null;
   const resting = isLowContrast(accent) ? COLORS.TEXT_PRIMARY : accent;
@@ -84,7 +86,7 @@ function StandBody({ name, icon, focused, offline = false, mark, progress, scrol
   const glyphSize = IS_TV ? 15 : 9;
   const nameStyle = StyleSheet.flatten([styles.name, { color: text }]);
   return (
-    <View style={[styles.base, { backgroundColor: focused && !filled ? accent : COLORS.BACKGROUND_DEEP }]} pointerEvents="none" testID="card-stand">
+    <View style={[styles.base, { backgroundColor: focused && !filled ? accent : clear ? "transparent" : COLORS.BACKGROUND_DEEP }]} pointerEvents="none" testID="card-stand">
       {filled ? null : red}
       {progress != null ? <View style={[styles.fill, { width: `${standFillPercent(progress)}%`, backgroundColor: accent }]} testID="card-stand-fill" /> : null}
       <View style={[styles.row, filled && styles.blend]}>
