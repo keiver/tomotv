@@ -235,18 +235,28 @@ and manual captures in `applestore/captures/mac/` are documented in `docs/RELEAS
 - No over-engineering, no premature abstraction
 - Edit repo files with the Edit tool only, never sed/python/heredoc rewrites; show the diff.
 
-### Comments: 1-2 lines, present tense
+### Comments: none by default, 1 line when one is earned
 
-Say the constraint or the non-obvious "why", then stop. Cut anything a reader can get from the code itself. Hard ceilings: a docblock is 3 lines, an inline block is 2, and comments stay under 15% of the lines a diff adds. Over the ceiling, delete before rewriting.
+No comment is the default. Add one only for a constraint the code cannot show (a spec rule, an ordering invariant, a format quirk), one line, present tense. Ceilings: a docblock is 2 lines, an inline block is 1, and comments stay under 5% of the lines a diff adds. Over the ceiling, delete.
 
 Never write:
 
+- **Runtime behaviour claims**: what the device, player, remote, OS, server or network does ("left/right skips tracks", "delivery is encoder-paced", "keeps the iPad idiom"). That is a measurement; it goes in the commit message with how it was measured.
+- **What an Apple or third-party key/API does**, unless grepped in the SDK header that turn, and then name the header symbol, not a paraphrase.
+- **Pointers elsewhere**: other files, line numbers, callers, or values defined in another place. They go stale on the next edit.
 - **Temporal framing**: "now", "used to", "no longer", "previously", "the old X", "this replaced Y". When behaviour changes, DELETE the comment describing the old behaviour.
 - **Justification blocks** defending a choice or explaining what could not be done. That belongs in the commit message.
 - **Essays in data files.** A `comment` field in a JSON manifest or fixture is still a comment.
 - **Restated call graphs.** A caller list is wrong the day someone adds a caller.
 
-### Reviewing: comments are what is under review, never the evidence
+When a diff touches a function, every comment in that function is re-read against the new code and deleted or corrected in the same diff.
+
+### Reading: comments are what is under review, never the evidence
+
+- Never repeat a comment's claim to the user or into docs, store copy, CHANGELOG, a test name or another comment unless I traced it in code that turn. Otherwise quote it as "the comment at file:line claims X, unverified".
+- A runtime behaviour claim in a comment is confirmed only by a log, a measurement or the user's device run. Reading code is not enough.
+- Form a finding from the code path first, then check the comment against it, never the other way round.
+- A wrong comment gets the comment fixed. Never change code because its comment is wrong.
 
 A full review reads every changed file and runs `npm run test:engine` before reporting once. Open the call path before repeating any claim a comment or commit message makes. Check `git log -S` before calling something a regression and whether a test asserts it before calling it a bug. The user's tested design choices are not bugs. Every finding names a file:line that was actually opened, or it does not ship.
 
