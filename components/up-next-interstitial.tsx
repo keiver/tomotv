@@ -137,7 +137,7 @@ export function UpNextInterstitial({ nextVideo, armed, autoAdvance, onPlayNext, 
   }));
 
   const countdownStyle = useAnimatedStyle(() => ({
-    width: (1 - countdown.value) * countdownWidth,
+    transform: [{ scaleX: 1 - countdown.value }],
   }));
 
   useEffect(() => {
@@ -312,7 +312,9 @@ const styles = StyleSheet.create({
     marginTop: Platform.isTV ? 12 : 8,
   },
   countdownFill: {
+    width: "100%",
     height: "100%",
+    transformOrigin: "left",
   },
   buttonRow: {
     flexDirection: "row",

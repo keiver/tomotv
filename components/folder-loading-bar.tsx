@@ -60,7 +60,7 @@ export function FolderLoadingBar({ active, title }: FolderLoadingBarProps) {
     }
   }, [active, reducedMotion, progress, opacity]);
 
-  const fillStyle = useAnimatedStyle(() => ({ width: `${progress.value * 100}%` }));
+  const fillStyle = useAnimatedStyle(() => ({ transform: [{ scaleX: progress.value }] }));
   const barStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
 
   return (
@@ -105,6 +105,8 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     left: 0,
+    width: "100%",
+    transformOrigin: "left",
   },
   titleBlend: {
     width: "100%",
