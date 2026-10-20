@@ -133,11 +133,16 @@ export function useFolderDownload() {
         .replace("{count}", String(pending.length))
         .replace("{free}", formatFileSize(free));
       const note = choices.some((choice) => choice.disabled) ? blockedSizesNote(block) : null;
-      showSizeSheet(
-        folder.Name,
-        note ? `${body}\n\n${note}` : body,
-        choices.map((choice) => ({ text: choice.text, disabled: choice.disabled || !fits(choice), onPress: () => queue(choice.convert) })),
-      );
+      const openSettings = () => {
+        router.back();
+        router.push("/transcoding");
+      };
+      // Only this device's own setting can be changed from here; an account block is the server's.
+      const settings = note && block === "device" ? [{ text: t("downloads.transcodingSettings"), onPress: openSettings }] : [];
+      showSizeSheet(folder.Name, note ? `${body}\n\n${note}` : body, [
+        ...choices.map((choice) => ({ text: choice.text, disabled: choice.disabled || !fits(choice), onPress: () => queue(choice.convert) })),
+        ...settings,
+      ]);
     },
     [router],
   );

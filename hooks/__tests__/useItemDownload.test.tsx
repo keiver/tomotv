@@ -286,10 +286,11 @@ describe("useItemDownload", () => {
     });
     const [title, body, buttons] = (Alert.alert as jest.Mock).mock.calls.at(-1) ?? [];
     expect(title).toBe("Bloom");
-    expect(body).toContain("off in Settings");
+    expect(body).toContain("which is off");
     expect(buttons.map((button: { text: string; disabled?: boolean }) => [button.text, !!button.disabled])).toEqual([
       ["Original · 214748364800 B", true],
       ["1080p · 1024 B", true],
+      ["Transcoding Settings", false],
       ["Cancel", false],
     ]);
     await confirm("Original · 214748364800 B");
@@ -326,7 +327,7 @@ describe("useItemDownload", () => {
   });
 
   // Server transcoding off in Settings: the smaller sizes stay listed, greyed, and the sheet says why.
-  it("greys the smaller sizes and names the setting when transcoding is off on this device", async () => {
+  it("greys the smaller sizes and offers the setting when transcoding is off on this device", async () => {
     (serverTranscodeBlock as jest.Mock).mockReturnValue("device");
     mockRungs.mockReturnValue([RUNG]);
     mockEstimate.mockReturnValue(4000);
@@ -335,14 +336,31 @@ describe("useItemDownload", () => {
       await result.current?.toggle?.();
     });
     const [, body, buttons] = (Alert.alert as jest.Mock).mock.calls.at(-1) ?? [];
-    expect(body).toContain("off in Settings");
+    expect(body).toContain("which is off");
     expect(buttons.map((button: { text: string; disabled?: boolean }) => [button.text, !!button.disabled])).toEqual([
       ["Original · 10 B", false],
       ["1080p · 4000 B", true],
+      ["Transcoding Settings", false],
       ["Cancel", false],
     ]);
     await confirm("1080p · 4000 B");
     expect(manager.enqueue).not.toHaveBeenCalled();
+    await confirm("Transcoding Settings");
+    expect(mockBack).toHaveBeenCalled();
+    expect(mockPush).toHaveBeenCalledWith("/transcoding");
+    expect(manager.enqueue).not.toHaveBeenCalled();
+  });
+
+  it("offers no settings button when the server account is what blocks transcoding", async () => {
+    (serverTranscodeBlock as jest.Mock).mockReturnValue("account");
+    mockRungs.mockReturnValue([RUNG]);
+    mockEstimate.mockReturnValue(4000);
+    const result = mount(ITEM);
+    await act(async () => {
+      await result.current?.toggle?.();
+    });
+    const buttons = (Alert.alert as jest.Mock).mock.calls.at(-1)?.[2] as { text: string }[];
+    expect(buttons.map((button) => button.text)).toEqual(["Original · 10 B", "1080p · 4000 B", "Cancel"]);
   });
 
   it("offers nothing for a file that needs a server this device will not ask", async () => {

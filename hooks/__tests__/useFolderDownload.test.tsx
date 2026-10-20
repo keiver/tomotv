@@ -155,10 +155,26 @@ describe("useFolderDownload", () => {
     const [, body, buttons] = (await run()) as [string, string, { text: string; disabled?: boolean }[]];
     expect(body).toContain("your server account doesn't allow");
     expect(buttons.filter((button) => button.disabled).map((button) => button.text.split(" ")[0])).toEqual(["1080p", "720p", "480p"]);
+    expect(buttons.map((button) => button.text)).not.toContain("Transcoding Settings");
     await confirm("720p");
     expect(manager.enqueue).not.toHaveBeenCalled();
     await confirm("Original");
     expect(manager.enqueue).toHaveBeenCalledWith(expect.objectContaining({ Id: "e" }), { group: { id: "folder-1", name: "Veckatimest" } });
+  });
+
+  it("offers the transcoding setting when this device turned transcoding off, and opens it", async () => {
+    (serverTranscodeBlock as jest.Mock).mockReturnValue("device");
+    (fetchRecursiveDownloadables as jest.Mock).mockResolvedValue([episode("e", 18 * GB)]);
+    const [, body, buttons] = (await run()) as [string, string, { text: string; disabled?: boolean }[]];
+    expect(body).toContain("which is off");
+    expect(buttons.slice(-2).map((button) => [button.text, !!button.disabled])).toEqual([
+      ["Transcoding Settings", false],
+      ["Cancel", false],
+    ]);
+    await confirm("Transcoding Settings");
+    expect(mockBack).toHaveBeenCalled();
+    expect(mockPush).toHaveBeenCalledWith("/transcoding");
+    expect(manager.enqueue).not.toHaveBeenCalled();
   });
 
   it("queues every item once the confirmation is accepted", async () => {
