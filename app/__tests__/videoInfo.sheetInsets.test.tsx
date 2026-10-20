@@ -28,12 +28,14 @@ jest.mock("@/components/close-overlay-button", () => ({ CloseOverlayButton: () =
 // A panel that paints as it mounts, unless a test holds it loading.
 let mockPaints = true;
 jest.mock("@/components/video-info-panel", () => ({
-  VideoInfoPanel: ({ videoId, onReady }: { videoId: string; onReady?: (item: { Id: string }) => void }) => {
+  VideoInfoPanel: ({ videoId, onReady, onSettled }: { videoId: string; onReady?: (item: { Id: string }) => void; onSettled?: () => void }) => {
     const React = require("react");
     const [item] = React.useState(() => ({ Id: videoId }));
     React.useEffect(() => {
-      if (mockPaints) onReady?.(item);
-    }, [item, onReady]);
+      if (!mockPaints) return;
+      onReady?.(item);
+      onSettled?.();
+    }, [item, onReady, onSettled]);
     return null;
   },
 }));
@@ -85,8 +87,28 @@ it("draws no card or close button around a panel still loading, so the card appe
   const frame = tree.root.findByType(PadSheetFrame);
   expect(frame.props.bare).toBe(true);
   expect(tree.root.findAllByType(require("@/components/close-overlay-button").CloseOverlayButton)).toHaveLength(0);
+  // The spinner centres on the whole page, not in the bare card on the bottom edge.
+  const { LoadingRow } = require("@/components/loading-row");
+  const spinner = tree.root.findByType(LoadingRow).parent!;
+  expect(StyleSheet.flatten(spinner.props.style)).toEqual(expect.objectContaining({ position: "absolute", top: 0, bottom: 0, alignItems: "center", justifyContent: "center" }));
+  expect(frame.findAllByType(LoadingRow)).toHaveLength(0);
   act(() => tree.unmount());
   mockPaints = true;
+});
+
+it("drops the spinner once the panel is settled", async () => {
+  (useLocalSearchParams as jest.Mock).mockReturnValue({ videoId: "m1" });
+  let tree!: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    tree = TestRenderer.create(
+      <SafeAreaProvider initialMetrics={window}>
+        <VideoInfoScreen />
+      </SafeAreaProvider>,
+    );
+  });
+  expect(tree.root.findAllByType(require("@/components/loading-row").LoadingRow)).toHaveLength(0);
+  expect(tree.root.findByType(PadSheetFrame).props.bare).toBe(false);
+  act(() => tree.unmount());
 });
 
 it("lets the card be dragged down to close it", async () => {

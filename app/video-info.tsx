@@ -1,4 +1,5 @@
 import { CardDragView } from "@/components/card-drag";
+import { LoadingRow } from "@/components/loading-row";
 import { PadSheetBackdrop, PadSheetFrame } from "@/components/pad-sheet";
 import { SiblingPager } from "@/components/sibling-pager";
 import { VideoInfoPanel } from "@/components/video-info-panel";
@@ -52,17 +53,22 @@ export default function VideoInfoScreen() {
             timerId={timerId}
             guideProgram={guideProgram}
             active={active}
-            onReady={(item) => {
-              setOpened(item);
-              markPainted(id);
-            }}
+            onReady={setOpened}
+            onSettled={() => markPainted(id)}
           />
         ) : (
-          <VideoInfoPanel videoId={id} name={siblings?.find((item) => item.Id === id)?.Name} inFolderId={inFolderId} active={active} onReady={() => markPainted(id)} />
+          <VideoInfoPanel videoId={id} name={siblings?.find((item) => item.Id === id)?.Name} inFolderId={inFolderId} active={active} onSettled={() => markPainted(id)} />
         );
+      const pageName = id === videoId ? name : siblings?.find((item) => item.Id === id)?.Name;
       // The card centres in the safe area, as its width assumes, so iPhone Duo's side column stays beside it.
+      // Until its panel has its final height the card is bare and the spinner sits dead centre on the screen.
       return (
         <View style={[styles.page, FIT === "bottom" && styles.pageBottom, { paddingLeft: insets.left, paddingRight: insets.right }]} pointerEvents="box-none">
+          {painted.has(id) ? null : (
+            <View style={[StyleSheet.absoluteFill, styles.loading]} pointerEvents="none">
+              <LoadingRow label={t("info.loadingDetails").replace("{title}", pageName || t("common.thisItem"))} />
+            </View>
+          )}
           <PadSheetFrame onClose={close} closeHint={t("info.closeHint")} fit={FIT} bare={!painted.has(id)}>
             {panel}
           </PadSheetFrame>
@@ -93,5 +99,9 @@ const styles = StyleSheet.create({
   },
   pageBottom: {
     justifyContent: "flex-end",
+  },
+  loading: {
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

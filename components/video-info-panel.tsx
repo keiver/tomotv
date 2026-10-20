@@ -113,10 +113,12 @@ export interface VideoInfoPanelProps {
   active?: boolean;
   /** The panel has painted its details. */
   onReady?: (item: JellyfinItem) => void;
+  /** Touch: the panel has its final height, or failed, so its card can show; the host draws the loading state until then. */
+  onSettled?: () => void;
 }
 
 export function VideoInfoPanel(params: VideoInfoPanelProps) {
-  const { active = true, onReady } = params;
+  const { active = true, onReady, onSettled } = params;
   const guideProgram = useMemo(() => readGuideProgram(params.guideProgram, params.videoId), [params.guideProgram, params.videoId]);
   const router = useRouter();
   const palette = useCardPalette();
@@ -670,10 +672,17 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   const liveSettled = !live || !liveChannelId || pendingChannel || (externalProgram && !timedProgram) || canManage === false || (canManage === true && recording.settled);
   const heroSettled = heroSource ? heroAspect != null || heroFailed : previewSettled;
   const ready = !!details && heroSettled && liveSettled;
+  // Touch lays the content out unseen first: the card shows once the hero and the scroll content have measured,
+  // at the height it keeps, never growing in front of the viewer.
+  const [contentSized, setContentSized] = useState(false);
+  const shown = ready && (IS_TV || (heroMeasured && contentSized));
   // Before paint, so the route's card appears in the same frame as the content.
   useLayoutEffect(() => {
-    if (ready && details) onReady?.(details);
-  }, [ready, details, onReady]);
+    if (shown && details) onReady?.(details);
+  }, [shown, details, onReady]);
+  useLayoutEffect(() => {
+    if (shown || failed) onSettled?.();
+  }, [shown, failed, onSettled]);
 
   // The artwork is transparent until its crop frame is final, so the first painted frame
   // already sits where it belongs and the fade stands in for the shift. Honors Reduce Motion.
@@ -987,16 +996,21 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
     </View>
   ) : !ready ? (
     // The spinner is a focus stop on purpose: presenting a screen with nothing focusable on it
-    // leaves focus outside the panel until the fetch resolves and a CTA claims it.
-    <View style={[styles.stateWrap, !IS_TV && styles.padState]}>
-      <InfoFocusRow hasTVPreferredFocus unhighlighted>
-        <LoadingRow label={t("info.loadingDetails").replace("{title}", title || t("common.thisItem"))} />
-      </InfoFocusRow>
-    </View>
+    // leaves focus outside the panel until the fetch resolves and a CTA claims it. Touch's first load
+    // shows the host's centred spinner instead; a retry inside the shown card keeps this one.
+    IS_TV || attempt > 0 ? (
+      <View style={[styles.stateWrap, !IS_TV && styles.padState]}>
+        <InfoFocusRow hasTVPreferredFocus unhighlighted>
+          <LoadingRow label={t("info.loadingDetails").replace("{title}", title || t("common.thisItem"))} />
+        </InfoFocusRow>
+      </View>
+    ) : null
   ) : (
     <CardDragScroll
       active={active}
-      style={IS_TV ? styles.scroll : styles.padScroll}
+      pointerEvents={shown ? "auto" : "none"}
+      onContentSizeChange={() => setContentSized(true)}
+      style={[IS_TV ? styles.scroll : styles.padScroll, !shown && styles.unseen]}
       contentContainerStyle={IS_TV ? [styles.footedContent, !groupChannel && styles.tvContentPad] : groupChannel ? styles.footedContent : styles.cardContentPad}
       showsVerticalScrollIndicator={false}>
       {/* Artwork heading on both platforms, whole; the scrim fades it into
@@ -1138,6 +1152,9 @@ const styles = StyleSheet.create({
   // The touch card fits its content: flexGrow 0 keeps the scroll content-sized until the card's max height.
   padScroll: {
     flexGrow: 0,
+  },
+  unseen: {
+    opacity: 0,
   },
   cardContentPad: {
     paddingBottom: 28,
