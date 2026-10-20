@@ -125,19 +125,14 @@ export function useItemDownload(item: JellyfinItem | null): ItemDownload {
       }
 
       // The one place a single press commits real storage, so every button carries its size.
-      // An undeclared size admits itself rather than claiming zero.
-      const offered = choices.filter((choice) => choice.bytes <= 0 || free - choice.bytes >= DISK_HEADROOM_BYTES);
-      if (!offered.some((choice) => !choice.disabled)) {
-        const smallest = Math.min(...choices.filter((choice) => !choice.disabled).map((choice) => choice.bytes));
-        Alert.alert(t("downloads.notEnoughSpace"), t("downloads.needsSpace").replace("{size}", formatFileSize(smallest)).replace("{free}", formatFileSize(free)));
-        return true;
-      }
+      // A size that does not fit stays listed, greyed; an undeclared size admits itself rather than claiming zero.
+      const fits = (choice: SizeChoice) => choice.bytes <= 0 || free - choice.bytes >= DISK_HEADROOM_BYTES;
       const body = lane === "server" ? t("downloads.convertOnly") : t("downloads.chooseSize").replace("{free}", formatFileSize(free));
-      const note = offered.some((choice) => choice.disabled) ? blockedSizesNote(block) : null;
+      const note = choices.some((choice) => choice.disabled) ? blockedSizesNote(block) : null;
       showSizeSheet(
         name,
         note ? `${body}\n\n${note}` : body,
-        offered.map((choice) => ({ text: choice.text, disabled: choice.disabled, onPress: () => queue(choice.convert) })),
+        choices.map((choice) => ({ text: choice.text, disabled: choice.disabled || !fits(choice), onPress: () => queue(choice.convert) })),
       );
       return true;
     } catch (error) {

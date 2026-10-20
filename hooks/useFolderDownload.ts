@@ -99,15 +99,8 @@ export function useFolderDownload() {
         ...rungs.sort((a, b) => b.bitrate - a.bitrate).map((rung) => ({ text: sizeChoice(rung.label, total(rung)), bytes: total(rung), convert: rung, disabled: block !== null })),
       ];
 
-      const offered = choices.filter((choice) => choice.bytes <= 0 || free - choice.bytes >= DISK_HEADROOM_BYTES);
-      if (!offered.some((choice) => !choice.disabled)) {
-        const smallest = Math.min(...choices.filter((choice) => !choice.disabled).map((choice) => choice.bytes));
-        Alert.alert(
-          t("downloads.notEnoughSpace"),
-          t("downloads.needsSpaceItems").replace("{count}", String(pending.length)).replace("{size}", formatFileSize(smallest)).replace("{free}", formatFileSize(free)),
-        );
-        return;
-      }
+      // A size that does not fit stays listed, greyed.
+      const fits = (choice: SizeChoice) => choice.bytes <= 0 || free - choice.bytes >= DISK_HEADROOM_BYTES;
 
       const queue = (rung: ConversionRung | undefined) => {
         // Leave first, queue after. Enqueuing a long folder takes a while per item, and
@@ -139,11 +132,11 @@ export function useFolderDownload() {
       const body = t(pending.length === 1 ? "downloads.chooseSizeItem" : "downloads.chooseSizeItems")
         .replace("{count}", String(pending.length))
         .replace("{free}", formatFileSize(free));
-      const note = offered.some((choice) => choice.disabled) ? blockedSizesNote(block) : null;
+      const note = choices.some((choice) => choice.disabled) ? blockedSizesNote(block) : null;
       showSizeSheet(
         folder.Name,
         note ? `${body}\n\n${note}` : body,
-        offered.map((choice) => ({ text: choice.text, disabled: choice.disabled, onPress: () => queue(choice.convert) })),
+        choices.map((choice) => ({ text: choice.text, disabled: choice.disabled || !fits(choice), onPress: () => queue(choice.convert) })),
       );
     },
     [router],

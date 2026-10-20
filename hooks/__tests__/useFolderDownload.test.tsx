@@ -189,20 +189,24 @@ describe("useFolderDownload", () => {
     expect(mockPush).not.toHaveBeenCalled();
   });
 
-  it("refuses a set that would not fit, rather than starting and failing partway", async () => {
+  it("greys a set that would not fit, rather than starting and failing partway", async () => {
     (Paths as { availableDiskSpace: number }).availableDiskSpace = 2 * GB;
-    const [title, body] = (await run()) as [string, string];
+    const [title, , buttons] = (await run()) as [string, string, { text: string; disabled?: boolean }[]];
 
-    expect(title).toBe("Not enough space");
-    expect(body).toContain("3.00 GB");
+    expect(title).toBe("Veckatimest");
+    expect(buttons.map((button) => [button.text, !!button.disabled])).toEqual([
+      ["Original · 3.00 GB", true],
+      ["Cancel", false],
+    ]);
+    await confirm();
     expect(manager.enqueue).not.toHaveBeenCalled();
   });
 
   it("counts the headroom the manager keeps, not just the raw free space", async () => {
     // Exactly the total free, so it fits on paper and not once the reserve is honoured.
     (Paths as { availableDiskSpace: number }).availableDiskSpace = 3 * GB;
-    const [title] = (await run()) as [string];
-    expect(title).toBe("Not enough space");
+    const [, , buttons] = (await run()) as [string, string, { text: string; disabled?: boolean }[]];
+    expect(buttons[0]).toMatchObject({ text: "Original · 3.00 GB", disabled: true });
   });
 
   it("offers only what is missing when part of the folder is already held", async () => {
