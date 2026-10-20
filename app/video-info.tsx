@@ -34,6 +34,9 @@ export default function VideoInfoScreen() {
   const siblings = useItemSiblings(opened, inFolderId);
   const ids = useMemo(() => siblings?.map((item) => item.Id) ?? [videoId], [siblings, videoId]);
   const close = useCallback(() => router.back(), [router]);
+  // Pages whose panel has painted. Until then a page's frame is bare, so its card appears once, at the size it keeps.
+  const [painted, setPainted] = useState<ReadonlySet<string>>(() => new Set());
+  const markPainted = useCallback((id: string) => setPainted((current) => (current.has(id) ? current : new Set(current).add(id))), []);
 
   // The opened panel keeps the route's params and is the one that reports its item; a sibling
   // shares only the folder the press came from.
@@ -41,20 +44,32 @@ export default function VideoInfoScreen() {
     (id: string, active: boolean) => {
       const panel =
         id === videoId ? (
-          <VideoInfoPanel videoId={videoId} name={name} inFolderId={inFolderId} fromResume={fromResume} timerId={timerId} guideProgram={guideProgram} active={active} onReady={setOpened} />
+          <VideoInfoPanel
+            videoId={videoId}
+            name={name}
+            inFolderId={inFolderId}
+            fromResume={fromResume}
+            timerId={timerId}
+            guideProgram={guideProgram}
+            active={active}
+            onReady={(item) => {
+              setOpened(item);
+              markPainted(id);
+            }}
+          />
         ) : (
-          <VideoInfoPanel videoId={id} name={siblings?.find((item) => item.Id === id)?.Name} inFolderId={inFolderId} active={active} />
+          <VideoInfoPanel videoId={id} name={siblings?.find((item) => item.Id === id)?.Name} inFolderId={inFolderId} active={active} onReady={() => markPainted(id)} />
         );
       // The card centres in the safe area, as its width assumes, so iPhone Duo's side column stays beside it.
       return (
         <View style={[styles.page, FIT === "bottom" && styles.pageBottom, { paddingLeft: insets.left, paddingRight: insets.right }]} pointerEvents="box-none">
-          <PadSheetFrame onClose={close} closeHint={t("info.closeHint")} fit={FIT}>
+          <PadSheetFrame onClose={close} closeHint={t("info.closeHint")} fit={FIT} bare={!painted.has(id)}>
             {panel}
           </PadSheetFrame>
         </View>
       );
     },
-    [close, fromResume, guideProgram, inFolderId, insets.left, insets.right, name, siblings, timerId, videoId],
+    [close, fromResume, guideProgram, inFolderId, insets.left, insets.right, markPainted, name, painted, siblings, timerId, videoId],
   );
 
   if (IS_TV) {

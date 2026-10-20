@@ -25,7 +25,18 @@ jest.mock("react-native-gesture-handler", () => {
 jest.mock("expo-blur", () => ({ BlurView: () => null }));
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
 jest.mock("@/components/close-overlay-button", () => ({ CloseOverlayButton: () => null }));
-jest.mock("@/components/video-info-panel", () => ({ VideoInfoPanel: () => null }));
+// A panel that paints as it mounts, unless a test holds it loading.
+let mockPaints = true;
+jest.mock("@/components/video-info-panel", () => ({
+  VideoInfoPanel: ({ videoId, onReady }: { videoId: string; onReady?: (item: { Id: string }) => void }) => {
+    const React = require("react");
+    const [item] = React.useState(() => ({ Id: videoId }));
+    React.useEffect(() => {
+      if (mockPaints) onReady?.(item);
+    }, [item, onReady]);
+    return null;
+  },
+}));
 jest.mock("@/services/jellyfinApi", () => ({
   fetchRecursiveVideos: jest.fn(async () => []),
   fetchFolderContents: jest.fn(async () => ({ items: [], total: 0 })),
@@ -58,6 +69,24 @@ it("sets the card on the bottom edge beside the window's side column, with the c
   const { CloseOverlayButton } = require("@/components/close-overlay-button");
   expect(StyleSheet.flatten(tree.root.findByType(CloseOverlayButton).props.style).right).toBe(12);
   act(() => tree.unmount());
+});
+
+it("draws no card or close button around a panel still loading, so the card appears once at the size it keeps", async () => {
+  mockPaints = false;
+  (useLocalSearchParams as jest.Mock).mockReturnValue({ videoId: "m1" });
+  let tree!: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    tree = TestRenderer.create(
+      <SafeAreaProvider initialMetrics={window}>
+        <VideoInfoScreen />
+      </SafeAreaProvider>,
+    );
+  });
+  const frame = tree.root.findByType(PadSheetFrame);
+  expect(frame.props.bare).toBe(true);
+  expect(tree.root.findAllByType(require("@/components/close-overlay-button").CloseOverlayButton)).toHaveLength(0);
+  act(() => tree.unmount());
+  mockPaints = true;
 });
 
 it("lets the card be dragged down to close it", async () => {

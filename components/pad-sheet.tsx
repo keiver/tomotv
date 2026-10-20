@@ -75,8 +75,8 @@ export function PadSheetBackdrop({ onClose, fit, children }: Omit<PadSheetProps,
   );
 }
 
-/** The card itself, with its close button. */
-export function PadSheetFrame({ onClose, closeHint, fit, children }: PadSheetProps) {
+/** The card itself, with its close button. Bare, it draws neither around its children: a panel still loading has no size of its own yet. */
+export function PadSheetFrame({ onClose, closeHint, fit, bare = false, children }: PadSheetProps & { bare?: boolean }) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const frame = fit
@@ -90,9 +90,9 @@ export function PadSheetFrame({ onClose, closeHint, fit, children }: PadSheetPro
       ]
     : [styles.sheet, { width: padSheetWidth(width), marginTop: insets.top + 8 }];
   return (
-    <View style={frame}>
+    <View style={[frame, bare && styles.bare]}>
       {children}
-      <CloseOverlayButton onPress={onClose} style={styles.close} accessibilityHint={closeHint} />
+      {bare ? null : <CloseOverlayButton onPress={onClose} style={styles.close} accessibilityHint={closeHint} />}
     </View>
   );
 }
@@ -124,6 +124,9 @@ const styles = StyleSheet.create({
     borderRadius: PAD_CARD_RADIUS,
     overflow: "hidden",
     backgroundColor: COLORS.BACKGROUND,
+  },
+  bare: {
+    backgroundColor: "transparent",
   },
   close: {
     position: "absolute",

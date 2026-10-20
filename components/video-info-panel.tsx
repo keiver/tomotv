@@ -72,7 +72,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image, type ImageRef } from "expo-image";
 
 import { useRouter } from "expo-router";
-import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Alert, findNodeHandle, Platform, ScrollView, StyleSheet, Text, TVFocusGuideView, useWindowDimensions, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 
@@ -670,7 +670,8 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   const liveSettled = !live || !liveChannelId || pendingChannel || (externalProgram && !timedProgram) || canManage === false || (canManage === true && recording.settled);
   const heroSettled = heroSource ? heroAspect != null || heroFailed : previewSettled;
   const ready = !!details && heroSettled && liveSettled;
-  useEffect(() => {
+  // Before paint, so the route's card appears in the same frame as the content.
+  useLayoutEffect(() => {
     if (ready && details) onReady?.(details);
   }, [ready, details, onReady]);
 
