@@ -1,4 +1,4 @@
-import { type BadgeSegment, CARD_BADGE_INSET, CardBadge, showsFavoriteHeart } from "@/components/card-badge";
+import { type BadgeSegment, CARD_BADGE_INSET, CardBadge } from "@/components/card-badge";
 import { CardMetaLine } from "@/components/card-meta-line";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardPressBurst, CardPressFlash } from "@/components/card-press-burst";
@@ -242,12 +242,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   const airingName = isChannel && !hideAiring ? video.CurrentProgram?.Name?.trim() : undefined;
   // A channel card names what is on: the logo and the badge already say which channel.
   const videoName = cleanLabel(video.Name);
-  const watched = isWatched(video);
-  // The watched eye outranks a passed icon (a watched recording drops the camera).
-  const titleMarkIcon = watched ? "eye" : titleIcon;
-  const leadingMark = isChannel ? undefined : titleMarkIcon;
-  // The heart leads the name, as on the channel stand: a channel's from the wall, any other card's from its own favorite flag.
-  const nameMark = isChannel ? titleMarkIcon : showsFavoriteHeart(video) ? "heart" : undefined;
+  const leadingMark = isChannel ? undefined : titleIcon;
   const cardTitle = cleanLabel(airingName) || (video.Type === "Program" ? programCardTitle(video) || t("common.unknown") : videoName || t("common.unknown"));
 
   // The card's slot ratio, shared with the row packer so rendered and allocated widths agree. The art
@@ -300,40 +295,13 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   const watchedPercent = hasProgress ? Math.round(Math.min(Math.max(progressPercent, 0), 1) * 100) : 0;
   const nowPlayingProgress = useNowPlayingProgress(video, nowPlayingAudio ? "audio" : nowPlayingVideo.active ? "video" : null, progressPercent, nowPlayingVideo.playing);
   const stripFraction = nowPlaying ? nowPlayingProgress.fraction : hasProgress ? watchedPercent / 100 : null;
-  // A programme's NOW/time pill and a channel's marks stay on the art; an episode or track number moves to the line.
-  const indexSegments = video.Type === "Program" || isChannel ? null : badgeSegments;
-  const artBadge = indexSegments ? null : badgeSegments;
-  const indexText = (segments: BadgeSegment[], color: string, size: number) =>
-    segments.map((segment, i) => (
-      <React.Fragment key={i}>
-        {i > 0 ? "  " : null}
-        {segment.icon ? (
-          <>
-            <Ionicons name={segment.icon} size={size} color={color} />{" "}
-          </>
-        ) : null}
-        {segment.label != null ? String(segment.label) : null}
-      </React.Fragment>
-    ));
+  // Only a programme's NOW/time pill stays on the art; a card names itself and nothing else.
+  const artBadge = video.Type === "Program" ? badgeSegments : null;
   const metaMark = nowPlaying
     ? (color: string) => <LevelBars size={IS_TV ? 16 : 10} playing={nowPlayingProgress.playing} color={color} />
     : leadingMark
       ? (color: string) => <Ionicons name={leadingMark} size={IS_TV ? 17 : 11} color={color} />
       : undefined;
-  const metaLead =
-    nameMark || (!IS_TV && indexSegments)
-      ? (color: string, size: number) => (
-          <>
-            {nameMark ? (
-              <>
-                <Ionicons name={nameMark} size={size} color={color} />{" "}
-              </>
-            ) : null}
-            {!IS_TV && indexSegments ? <>{indexText(indexSegments, color, size)} · </> : null}
-          </>
-        )
-      : undefined;
-  const metaSecondary = indexSegments ? (color: string, size: number) => indexText(indexSegments, color, size) : undefined;
   const posterImage = (
     <Image
       source={liveFrame ?? poster ?? posterSource}
@@ -464,7 +432,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
         ) : null}
         {/* Mounted only around a press (visible lingers past the arrival burst); idle cards carry none. */}
         {navBarVisible && !standed ? <CardPressBurst active={navigating} square={square} /> : null}
-        {liveCard ? null : <CardMetaLine text={cardTitle} focused={focused} centered={IS_TV || (isChannel && CHANNEL_TITLE_CENTERED)} mark={metaMark} lead={metaLead} secondary={metaSecondary} />}
+        {liveCard ? null : <CardMetaLine text={cardTitle} focused={focused} centered={IS_TV || (isChannel && CHANNEL_TITLE_CENTERED)} mark={metaMark} />}
       </View>
     </TouchableOpacity>
   );

@@ -90,15 +90,16 @@ describe("media card art", () => {
   });
 });
 
-describe("index numbers", () => {
-  const episode = { Id: "e1", Name: "Pilot", Type: "Episode", IndexNumber: 5, ParentIndexNumber: 1 } as JellyfinVideoItem;
+describe("the line under a card", () => {
+  const episode = { Id: "e1", Name: "Pilot", Type: "Episode", IndexNumber: 5, ParentIndexNumber: 1, UserData: { Played: true, IsFavorite: true } } as JellyfinVideoItem;
 
-  it("leave the art for the line under the card, in front of the name on phone", () => {
+  it("names the item and nothing else: no episode number, eye or heart, on the line or the art", () => {
     const tree = mount(<VideoGridItem video={episode} onPress={jest.fn()} index={0} />);
     expect(tree.root.findAllByType(CardBadge)).toHaveLength(0);
     const line = tree.root.findAll((n) => n.props.testID === "card-meta-line" && typeof n.type === "string")[0];
     const text = (node: TestRenderer.ReactTestInstance | string): string => (typeof node === "string" ? node : node.children.map(text).join(""));
-    expect(text(line)).toContain("S01E05 · Pilot");
+    expect(text(line)).toBe("Pilot");
+    expect(tree.root.findAll((n) => n.props.name === "eye" || n.props.name === "heart")).toHaveLength(0);
     act(() => tree.unmount());
   });
 });
@@ -108,18 +109,5 @@ describe("progress strip", () => {
     expect(progressStripPercent(0)).toBe(5);
     expect(progressStripPercent(0.42)).toBe(42);
     expect(progressStripPercent(2)).toBe(100);
-  });
-});
-
-describe("favorite heart on a media card", () => {
-  it("sits inline before the name, in the name's colour and size", () => {
-    const tree = mount(<VideoGridItem video={movie} onPress={jest.fn()} index={0} />);
-    const line = tree.root.findByType(CardMetaLine);
-    const title = line.findAllByType(Text).find((n) => React.Children.toArray(n.props.children).includes("A Movie") && n.props.numberOfLines === 1);
-    const style = StyleSheet.flatten(title?.props.style);
-    const heart = title?.findAll((n) => n.props.name === "heart")[0];
-    expect(heart?.props.color).toBe(style.color);
-    expect(heart?.props.size).toBe(style.fontSize);
-    act(() => tree.unmount());
   });
 });

@@ -149,9 +149,14 @@ export function shelfSpacing(isTV: boolean, windowWidth: number, windowHeight: n
   return shortSide >= GRID.PHONE_WIDE_MIN_WIDTH ? SHELF_SPACING.tablet : SHELF_SPACING.phone;
 }
 
+/** The name under a card: its gap from the art and its line box per device class. */
+export const CARD_META = { offset: Platform.isTV ? 8 : 6, line: { tv: 19, tablet: 15, phone: 13 } } as const;
+/** The extra room a card row keeps under its art for the name. TV's 40pt of card padding and row gap already hold its 27. */
+export const CARD_META_BLOCK = Platform.isTV ? 0 : CARD_META.offset + CARD_META.line.tablet;
+
 /** Vertical space a shelf spends on anything that is not its cards. */
 export function shelfHeadingBlock(spacing: ShelfSpacing): number {
-  return spacing.headingLine + spacing.headingGap + spacing.rowGap;
+  return spacing.headingLine + spacing.headingGap + spacing.rowGap + CARD_META_BLOCK;
 }
 
 export type SlotOrientation = "portrait" | "landscape";

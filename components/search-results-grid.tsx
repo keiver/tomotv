@@ -1,5 +1,5 @@
 import { VideoGridItem } from "@/components/video-grid-item";
-import { gridEdgePadding, itemSlotRatio, itemSlotShape, slotCardPadding, slotRowHeights } from "@/constants/app";
+import { CARD_META_BLOCK, gridEdgePadding, itemSlotRatio, itemSlotShape, slotCardPadding, slotRowHeights } from "@/constants/app";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { isStrandedAboveLastRow, packArtworkRows, PackedRow } from "@/utils/artworkRows";
 import { cardResumeProgress } from "@/utils/resumeProgress";
@@ -197,6 +197,7 @@ const styles = StyleSheet.create({
   rowWrapper: {
     flexDirection: "row",
     justifyContent: "flex-start",
-    paddingVertical: Platform.isTV ? 24 : 6,
+    paddingTop: Platform.isTV ? 24 : 6,
+    paddingBottom: (Platform.isTV ? 24 : 6) + CARD_META_BLOCK,
   },
 });

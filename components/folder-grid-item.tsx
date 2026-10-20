@@ -1,4 +1,4 @@
-import { CARD_BADGE_INSET, CardBadge, showsFavoriteHeart } from "@/components/card-badge";
+import { CARD_BADGE_INSET, CardBadge } from "@/components/card-badge";
 import { CardMetaLine } from "@/components/card-meta-line";
 import { CardPressBurst, CardPressFlash } from "@/components/card-press-burst";
 import { PosterCollage } from "@/components/poster-collage";
@@ -112,7 +112,6 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
   const cardRatio = cardSlotRatio(fitArtwork, folder.PrimaryImageAspectRatio, slotOrientation);
 
   const folderName = cleanLabel(folder.Name);
-  const favorite = showsFavoriteHeart(folder);
 
   // The Live TV view counts channels, and its empty face is a set, not a folder.
   const isLiveTv = folder.CollectionType === "livetv";
@@ -142,29 +141,9 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
   // Recursive count when the server provides it; ChildCount (direct children) is the
   // fallback for types excluded from recursive counts (e.g. channel-sourced folders),
   // where the server reports a recursive 0 despite real children. A resolved 0 still
-  // shows as 0. Library views carry no inline count: theirs streams in lazily, and the
-  // line names the folder alone until it lands.
+  // reads as 0. Library views carry no inline count: theirs streams in lazily.
   const { count: lazyCount } = useViewItemCount(folder);
   const itemCount = (folder.RecursiveItemCount || (folder.ChildCount ?? folder.RecursiveItemCount)) ?? lazyCount;
-  const metaText = itemCount != null ? `${itemCount} · ${folderName}` : folderName;
-  // The heart, then the monitor glyph that names the count, lead the line.
-  const metaLead =
-    favorite || itemCount != null
-      ? (color: string, size: number) => (
-          <>
-            {favorite ? (
-              <>
-                <Ionicons name="heart" size={size} color={color} />{" "}
-              </>
-            ) : null}
-            {itemCount != null ? (
-              <>
-                <Ionicons name="desktop-outline" size={size} color={color} />{" "}
-              </>
-            ) : null}
-          </>
-        )
-      : undefined;
 
   return (
     <TouchableOpacity
@@ -221,7 +200,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
         </View>
         {/* Mounted only around a press (visible lingers past the arrival burst); idle cards carry none. */}
         {navBarVisible ? <CardPressBurst active={navigating} /> : null}
-        <CardMetaLine text={metaText || t("a11y.folder")} focused={focused} centered={IS_TV} lead={metaLead} />
+        <CardMetaLine text={folderName || t("a11y.folder")} focused={focused} centered={IS_TV} />
       </View>
     </TouchableOpacity>
   );

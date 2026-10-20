@@ -11,8 +11,6 @@ interface MarqueeTextProps {
   active: boolean;
   style?: TextStyle;
   speed?: number; // px per second, default 60
-  /** Inline before the text, inside it, so it centres and scrolls with it. */
-  lead?: React.ReactNode;
 }
 
 /**
@@ -20,24 +18,23 @@ interface MarqueeTextProps {
  * At rest it is one Text: the measuring pair and the animated value mount only for the
  * focused card, so a shelf of resting cards carries none of them.
  */
-export function MarqueeText({ children, active, style, speed = 60, lead }: MarqueeTextProps) {
+export function MarqueeText({ children, active, style, speed = 60 }: MarqueeTextProps) {
   if (!IS_TV || !active) {
     return (
       <Text style={style} numberOfLines={1}>
-        {lead}
         {children}
       </Text>
     );
   }
   return (
-    <ScrollingText style={style} speed={speed} lead={lead}>
+    <ScrollingText style={style} speed={speed}>
       {children}
     </ScrollingText>
   );
 }
 
 /** The focused card's title: measures its overflow, then scrolls left, pauses, and scrolls back, MARQUEE_PLAYS times. */
-function ScrollingText({ children, style, speed, lead }: { children: string; style?: TextStyle; speed: number; lead?: React.ReactNode }) {
+function ScrollingText({ children, style, speed }: { children: string; style?: TextStyle; speed: number }) {
   const [containerWidth, setContainerWidth] = useState(0);
   const [textWidth, setTextWidth] = useState(0);
   const [playedTitle, setPlayedTitle] = useState<string | null>(null);
@@ -89,7 +86,6 @@ function ScrollingText({ children, style, speed, lead }: { children: string; sty
           text and would otherwise be read twice. */}
       <View style={styles.measure} pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
         <Text style={innerTextStyle} onLayout={onTextLayout}>
-          {lead}
           {children}
         </Text>
       </View>
@@ -97,7 +93,6 @@ function ScrollingText({ children, style, speed, lead }: { children: string; sty
       {/* With Reduce Motion on, or once the plays are spent, never scroll: single-line ellipsized text */}
       <Animated.View style={[styles.slider, { transform: [{ translateX }] }, scrolls ? { width: textWidth } : undefined]}>
         <Text style={innerTextStyle} numberOfLines={scrolls ? undefined : 1}>
-          {lead}
           {children}
         </Text>
       </Animated.View>

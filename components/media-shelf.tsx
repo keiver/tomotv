@@ -1,4 +1,4 @@
-import { ArtworkSlotShape, gridEdgePadding, shelfSpacing, slotCardPadding, slotRowHeights, slotShapeRatio } from "@/constants/app";
+import { ArtworkSlotShape, CARD_META_BLOCK, gridEdgePadding, shelfSpacing, slotCardPadding, slotRowHeights, slotShapeRatio } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useScrollToTop } from "expo-router";
 import React, { ReactElement, useCallback, useMemo, useRef } from "react";
@@ -80,7 +80,10 @@ export function MediaShelf<T>({ title, dot, data, slotShapeFor, renderItem, keyE
   // cards still align to the screen's grid margin.
   const edgeLeft = gridEdgePadding(insets.left, IS_TV);
   const edgeRight = gridEdgePadding(insets.right, IS_TV);
-  const rowAreaStyle = useMemo(() => ({ height: rowHeight + 2 * GLOW_PAD, marginVertical: -GLOW_PAD, marginLeft: -edgeLeft, marginRight: -edgeRight }), [rowHeight, edgeLeft, edgeRight]);
+  const rowAreaStyle = useMemo(
+    () => ({ height: rowHeight + 2 * GLOW_PAD + CARD_META_BLOCK, marginVertical: -GLOW_PAD, marginLeft: -edgeLeft, marginRight: -edgeRight }),
+    [rowHeight, edgeLeft, edgeRight],
+  );
   // A tablet gets a bigger heading and more air around the row; slotRowHeights sizes the cards
   // against this same block, so the shelf still lands where the fill maths put it.
   const spacing = shelfSpacing(IS_TV, windowWidth, windowHeight);

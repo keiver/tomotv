@@ -11,7 +11,7 @@ import { sideInsets } from "@/components/settings/styles";
 import { STAND_HEIGHT } from "@/components/live-tv/channel-stand";
 import { GuideChannelCard } from "@/components/live-tv/guide-channel-card";
 import { VideoGridItem } from "@/components/video-grid-item";
-import { GRID, gridEdgePadding, itemSlotRatio, itemSlotShape, liveRowHeight, slotCardPadding, slotRatio, slotRowHeights } from "@/constants/app";
+import { CARD_META_BLOCK, GRID, gridEdgePadding, itemSlotRatio, itemSlotShape, liveRowHeight, slotCardPadding, slotRatio, slotRowHeights } from "@/constants/app";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { useLiveFrameViewport } from "@/hooks/useLiveFrameViewport";
 import { clearLiveFrameFocus, setLiveFrameFocus } from "@/services/liveFrames";
@@ -402,20 +402,21 @@ export function LibraryGrid({
   // every row.
   // TV channel wall: shorter 16:9 rows, so three rows sit with room under them and the fourth stays off screen.
   const rowPadding = IS_TV && liveChannels ? 16 : ROW_VERTICAL_PADDING;
-  // A channel card's stand hangs under it, inside the card's own frame.
+  // A channel card's stand hangs under it, inside the card's own frame; any other card's line hangs under the row.
   const standHeight = liveChannels ? STAND_HEIGHT : 0;
+  const metaBlock = liveChannels ? 0 : CARD_META_BLOCK;
   const rowLayout = useMemo(() => {
     const lengths: number[] = [];
     const offsets: number[] = [];
     let offset = topClearance + headerLength;
     for (const row of packedRows) {
-      const length = (row.cards[0]?.cardHeight ?? 0) + standHeight + 2 * rowPadding;
+      const length = (row.cards[0]?.cardHeight ?? 0) + standHeight + metaBlock + 2 * rowPadding;
       lengths.push(length);
       offsets.push(offset);
       offset += length;
     }
     return { lengths, offsets };
-  }, [packedRows, topClearance, headerLength, rowPadding, standHeight]);
+  }, [packedRows, topClearance, headerLength, rowPadding, standHeight, metaBlock]);
   const contentLength = (rowLayout.offsets[rowLayout.offsets.length - 1] ?? 0) + (rowLayout.lengths[rowLayout.lengths.length - 1] ?? 0) + bottomClearance;
 
   const getItemLayout = useCallback(
@@ -553,7 +554,7 @@ export function LibraryGrid({
       const isLastRow = rowIndex === packedRows.length - 1;
       const rowStart = rowStartIndices[rowIndex] ?? 0;
       return (
-        <View style={[styles.rowWrapper, { paddingVertical: rowPadding }]}>
+        <View style={[styles.rowWrapper, { paddingTop: rowPadding, paddingBottom: rowPadding + metaBlock }]}>
           {row.cards.map((card, cardIndex) => {
             const item = card.item;
             // Down out of a ragged last row: a card in the row above starting past the last
@@ -671,6 +672,7 @@ export function LibraryGrid({
       titleIconFor,
       recordingFor,
       rowPadding,
+      metaBlock,
     ],
   );
 

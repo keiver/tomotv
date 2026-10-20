@@ -91,7 +91,7 @@ describe("card palette", () => {
     expect(drawn).not.toContain(COLORS.ACCENT);
   });
 
-  it("a folder's line leads with a monitor glyph and its item count, and the art carries no count badge", () => {
+  it("a folder's line names it alone, with no count on the line or the art", () => {
     let tree!: TestRenderer.ReactTestRenderer;
     act(() => {
       tree = TestRenderer.create(
@@ -102,13 +102,8 @@ describe("card palette", () => {
     });
     expect(tree.root.findAllByType(CardBadge)).toHaveLength(0);
     const line = tree.root.findByType(CardMetaLine);
-    expect(line.props.text).toBe("3 · Shows");
-    let lead!: TestRenderer.ReactTestRenderer;
-    act(() => {
-      lead = TestRenderer.create(<>{line.props.lead("#FFFFFF", 13)}</>);
-    });
-    expect(lead.root.findAll((n) => n.props?.name === "desktop-outline").length).toBeGreaterThan(0);
-    act(() => lead.unmount());
+    expect(line.props.text).toBe("Shows");
+    expect(tree.root.findAll((n) => n.props?.name === "desktop-outline")).toHaveLength(0);
     act(() => tree.unmount());
   });
 
