@@ -324,6 +324,34 @@ extension RemuxSession {
         partialOpens <= partialOpenLookback
     }
 
+    /// Streams that end closer together than this end together: a frame or an AAC packet apart.
+    static let trackEndSlack = 0.25
+    /// The grid moves to the picture's end only this far short of the runtime. Further than that, the
+    /// container's track length is the suspect, not the runtime.
+    static let pictureEndReach = 60.0
+    /// A track that stopped is padded at a cut only this far past its end, so packets still in
+    /// flight behind the picture land first.
+    static let silenceLead = 1.0
+
+    /// Where a track ends on the source timeline, from a container that records it per track: MP4
+    /// and MOV track durations, Matroska's DURATION tag. Other containers only estimate it: nil.
+    static func trackEndSeconds(_ stream: UnsafeMutablePointer<AVStream>, format: String) -> Double? {
+        let timeBase = av_q2d(stream.pointee.time_base)
+        let start = stream.pointee.start_time == SWIFT_AV_NOPTS_VALUE ? 0 : Double(stream.pointee.start_time) * timeBase
+        if format.hasPrefix("mov,mp4") {
+            guard stream.pointee.duration > 0, stream.pointee.duration != SWIFT_AV_NOPTS_VALUE else { return nil }
+            return start + Double(stream.pointee.duration) * timeBase
+        }
+        if format.hasPrefix("matroska") {
+            // "HH:MM:SS.nnnnnnnnn", the track's length.
+            guard let tag = av_dict_get(stream.pointee.metadata, "DURATION", nil, 0) else { return nil }
+            let fields = String(cString: tag.pointee.value).split(separator: ":")
+            guard fields.count == 3, let h = Double(fields[0]), let m = Double(fields[1]), let s = Double(fields[2]) else { return nil }
+            return start + h * 3600 + m * 60 + s
+        }
+        return nil
+    }
+
     /// A source that will not open or cannot be planned, before any master has named the copy: a
     /// session whose rungs can carry it alone lets the source go instead of dying.
     func failStartup(_ message: String, retryable: Bool = false) {
@@ -385,6 +413,23 @@ extension RemuxSession {
         /// the writer drops such a file instead of completing it. Under the session lock.
         var writing = Set<Int>()
         var prunedWhileWriting = Set<Int>()
+        /// Segments cut while this rendition was fed but held none of its samples: its stream had
+        /// ended (or paused) there. Nothing will ever fill them, so a request is answered with a stand-in
+        /// (segmentURL). Under the session lock.
+        var empty = Set<Int>()
+        /// The last segment a packet of this rendition was dropped from because the rendition already
+        /// held it: a cut there that finds no data (the held copy pruned meanwhile) is not an empty
+        /// span. Pipeline thread only.
+        var heldIn = -1
+        /// Segments that answer for empty ones (standInURL). The prune keeps them: audio that ends
+        /// minutes before the picture is asked for long after its last segment left the window.
+        /// Under the session lock.
+        var standIns = Set<Int>()
+        /// Where this generation's written audio ends, output seconds; and whether silence carries the
+        /// track on past its end (padSilence), after which no late packet of it is written, since the
+        /// muxer takes no sample behind one already written. Pipeline thread only.
+        var audioEndSeconds: Double?
+        var silenced = false
         /// First DTS written per output stream since the last muxer rebuild,
         /// in that stream's time base. The mov muxer normalizes every track's
         /// timeline to its first packet, so a generation restarted at 60s
@@ -1603,6 +1648,30 @@ extension RemuxSession {
         // audio-only session carries one track. Multi-track audio-only files
         // are a theoretical shape, not one a music library produces.
         if !hasVideo && audioIndices.count > 1 { audioIndices = [audioIndices[0]] }
+        // The video track decides where the item ends, whichever stream runs longer. Off the
+        // container's per-track lengths: the grid ends at the last frame, audio past it is not
+        // written, and a track that stops before it is carried on with silence (padSilence).
+        // Source seconds; nil where the container records no per-track length.
+        var pictureSourceEnd: Double? = nil
+        var audioSourceEnds: [Int32: Double] = [:]
+        if !config.isLive, hasVideo, let video = input.pointee.streams[Int(videoIn)],
+           let picture = Self.trackEndSeconds(video, format: inputFormat) {
+            pictureSourceEnd = picture
+            for index in audioIndices {
+                guard let stream = input.pointee.streams[Int(index)], let end = Self.trackEndSeconds(stream, format: inputFormat),
+                      end < picture - Self.trackEndSlack else { continue }
+                audioSourceEnds[index] = end
+            }
+            let start = video.pointee.start_time == SWIFT_AV_NOPTS_VALUE ? 0 : Double(video.pointee.start_time) * av_q2d(video.pointee.time_base)
+            stateLock.lock()
+            let declared = durationSeconds
+            let length = picture - start
+            if config.tiers.isEmpty, !gridPublished, length < declared - Self.trackEndSlack, declared - length <= Self.pictureEndReach {
+                pictureEndSeconds = length
+                NSLog("[LocalRemuxer] picture ends at %.3fs, %.3fs short of the runtime: the grid ends there", length, declared - length)
+            }
+            stateLock.unlock()
+        }
         // Live carries no text subtitles, so every stream but the video, the audio and the image
         // subtitle tracks is dead weight; discarding it is what stops the HLS demuxer downloading
         // the variants nobody reads.
@@ -1915,6 +1984,8 @@ extension RemuxSession {
                 rendition.completed = previous.completed
                 rendition.writing = previous.writing
                 rendition.prunedWhileWriting = previous.prunedWhileWriting
+                rendition.empty = previous.empty
+                rendition.standIns = previous.standIns
                 rendition.active = previous.active
             }
             if pendingAudioActivations.contains(rendition.prefix) { rendition.active = true }
@@ -2027,6 +2098,10 @@ extension RemuxSession {
         var liveResumeUs: Int64 = 0
         var lastOutputEndUs: Int64 = 0
         var segmentOpenSeconds = 0.0
+        // VOD: where this generation's opening keyframe sits, and the furthest the picture has been
+        // read, output seconds. Silence for a track that has ended starts and stops between them.
+        var generationOpenSeconds = 0.0
+        var pictureReadEnd = 0.0
 
         /// Close segment `n` on every rendition. All renditions are cut on the
         /// same boundary so their timelines stay interchangeable, which is what
@@ -2083,7 +2158,16 @@ extension RemuxSession {
                 // index restarts at its own boundary, which necessarily seeks
                 // to an earlier keyframe and covers the segment in full.
                 if n == partialOpenSegment { continue }
-                guard !data.isEmpty else { continue }
+                guard !data.isEmpty else {
+                    // A fed track with nothing in this span: its stream ended before the timing
+                    // stream did (audio short of the picture), and the playlist still lists the index.
+                    if !config.isLive, rendition.active, rendition.heldIn != n {
+                        stateLock.lock()
+                        rendition.empty.insert(n)
+                        stateLock.unlock()
+                    }
+                    continue
+                }
 
                 // The header already shipped ftyp+moov as the init segment, so
                 // a media segment should start at its moof. Guard anyway: a
@@ -2200,6 +2284,65 @@ extension RemuxSession {
             return first != nil
         }
 
+        /// Carries each audio track that ended before the picture on with silence up to `seconds` on
+        /// the output timeline: AVPlayer ends an item with its audio (measured), so a track that stops
+        /// first would end the picture with it. At a cut, only a track `silenceLead` past its recorded
+        /// end; at the end of the file, any track that stopped short of the last frame.
+        func padSilence(upTo seconds: Double, atEnd: Bool) {
+            let anchor = Double(timelineAnchorUs) / Double(SWIFT_AV_TIME_BASE)
+            for rendition in builtRenditions where rendition.active {
+                guard let ctx = rendition.ctx,
+                      let audioIn = rendition.inputStreams.first(where: {
+                          input.pointee.streams[Int($0)]?.pointee.codecpar.pointee.codec_type == AVMEDIA_TYPE_AUDIO
+                      }),
+                      let inStream = input.pointee.streams[Int(audioIn)], let par = inStream.pointee.codecpar,
+                      let outIndex = rendition.streamMap[audioIn],
+                      let outStream = ctx.pointee.streams[Int(outIndex)] else { continue }
+                let trackEnd = audioSourceEnds[audioIn].map { $0 - anchor }
+                if atEnd {
+                    guard trackEnd != nil || rendition.audioEndSeconds != nil else { continue }
+                } else {
+                    guard let trackEnd, seconds >= trackEnd + Self.silenceLead else { continue }
+                }
+                let from = max(rendition.audioEndSeconds ?? generationOpenSeconds, trackEnd ?? 0)
+                guard seconds - from > (rendition.silenced ? 0.02 : Self.trackEndSlack) else { continue }
+                stateLock.lock()
+                let held = rendition.completed.contains(currentSegment) || rendition.writing.contains(currentSegment)
+                stateLock.unlock()
+                if held {
+                    // The file already carries this span; the next one picks up where it ends.
+                    rendition.heldIn = currentSegment
+                    rendition.audioEndSeconds = seconds
+                    rendition.silenced = true
+                    continue
+                }
+                var wrote = false
+                func write(_ packet: UnsafeMutablePointer<AVPacket>, _ timeBase: AVRational) {
+                    av_packet_rescale_ts(packet, timeBase, outStream.pointee.time_base)
+                    packet.pointee.stream_index = outIndex
+                    packet.pointee.pos = -1
+                    rendition.repairTimestamps(packet, streamIndex: outIndex)
+                    rendition.noteMuxZero(packet, timeBase: outStream.pointee.time_base)
+                    rendition.noteBaseDts(streamIndex: outIndex, dts: packet.pointee.dts)
+                    let end = Double(packet.pointee.pts + max(0, packet.pointee.duration)) * av_q2d(outStream.pointee.time_base)
+                    if av_write_frame(ctx, packet) >= 0 {
+                        rendition.audioEndSeconds = end
+                        wrote = true
+                    }
+                }
+                if let transcoder = rendition.transcoder {
+                    transcoder.padSilence(from: from, to: seconds) { write($0, transcoder.encoderTimeBase) }
+                } else {
+                    SilenceEncoder.encode(like: par, from: from, to: seconds, emit: write)
+                }
+                if wrote, !rendition.silenced {
+                    rendition.silenced = true
+                    NSLog("[LocalRemuxer] audio %@ ended at %.3fs, before the picture: silence carries it on",
+                          rendition.prefix.isEmpty ? "primary" : rendition.prefix, from)
+                }
+            }
+        }
+
         /// Live: the cut boundary is relative to the open segment, so a keyframe-aligned
         /// cut overshoots by at most one keyframe interval and the grid never drifts.
         func nextBoundarySeconds() -> Double {
@@ -2220,6 +2363,8 @@ extension RemuxSession {
             for rendition in builtRenditions {
                 rendition.freeMuxer()
                 _ = rendition.takePending() // drop bytes of the abandoned fragment
+                rendition.audioEndSeconds = nil
+                rendition.silenced = false
 
                 // Rebuild the audio transcoder rather than reusing it: AAC
                 // encoders cannot be flushed, so a reused one would emit queued
@@ -2532,6 +2677,9 @@ extension RemuxSession {
                 break
             }
             if ret == SWIFT_AVERROR_EOF {
+                // Audio that stopped short of the last frame runs on in silence to it. Before the
+                // flush: a transcoder queues the silence behind its own samples, then flushes both.
+                if hasVideo { padSilence(upTo: pictureReadEnd, atEnd: true) }
                 // Flush the transcoders first so their queued tail frames land
                 // in the final segment instead of being dropped with it.
                 for rendition in builtRenditions {
@@ -2728,6 +2876,19 @@ extension RemuxSession {
             // instead of waiting forever for a video keyframe that never comes.
             let isTimingStream = hasVideo ? isVideo : pkt.pointee.stream_index == audioIndices.first
 
+            // The picture ends the item: audio past its last frame is not written. A frame read past
+            // the container's track length means the length was wrong, and then nothing is cut.
+            if let end = pictureSourceEnd, pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE {
+                let seconds = Double(pkt.pointee.pts) * av_q2d(inStream.pointee.time_base)
+                if isVideo, seconds > end + Self.trackEndSlack {
+                    NSLog("[LocalRemuxer] a frame at %.3fs is past the picture's recorded end (%.3fs): its audio is kept", seconds, end)
+                    pictureSourceEnd = nil
+                    audioSourceEnds = [:]
+                } else if !isVideo, seconds >= end {
+                    continue
+                }
+            }
+
             // Drop everything until the packet that opens this generation, then
             // place it on the session timeline. The anchor is whatever
             // generation 0 established and never moves, so the opening packet
@@ -2846,6 +3007,7 @@ extension RemuxSession {
                     break
                 }
                 currentSegment = openSegment
+                generationOpenSeconds = openSeconds
                 let partial = openSeconds > segmentStartSeconds(openSegment)
                 if partial { partialOpens[openSegment, default: 0] += 1 }
                 let opens = partialOpens[openSegment] ?? 0
@@ -2863,6 +3025,12 @@ extension RemuxSession {
             let offsetInTb = av_rescale_q(timelineAnchorUs, microTb, inStream.pointee.time_base)
             if pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE { pkt.pointee.pts -= offsetInTb }
             if pkt.pointee.dts != SWIFT_AV_NOPTS_VALUE { pkt.pointee.dts -= offsetInTb }
+            if isVideo, !config.isLive, pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE {
+                let end = pkt.pointee.pts + max(0, pkt.pointee.duration)
+                pictureReadEnd = max(pictureReadEnd, Double(end) * av_q2d(inStream.pointee.time_base))
+            }
+            // A track carried on with silence takes no late packet of its own.
+            if !isVideo, rendition.silenced { continue }
 
             // Live: where the timing stream's output time ends, so a splice resumes there.
             if config.isLive && isTimingStream, pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE {
@@ -2899,7 +3067,7 @@ extension RemuxSession {
                         let seconds = Double(encoded.pointee.pts) * av_q2d(videoTranscoder.encoderTimeBase)
                         let boundary = nextBoundarySeconds()
                         if seconds >= boundary && seconds > 0 && currentSegment + 1 < segmentCount {
-                            if config.isLive { noteLiveCut(atOutputSeconds: seconds) }
+                            if config.isLive { noteLiveCut(atOutputSeconds: seconds) } else { padSilence(upTo: boundary, atEnd: false) }
                             finishSegment(currentSegment)
                             currentSegment += 1
                             stateLock.lock()
@@ -2918,7 +3086,10 @@ extension RemuxSession {
                     stateLock.lock()
                     let held = rendition.completed.contains(currentSegment) || rendition.writing.contains(currentSegment)
                     stateLock.unlock()
-                    if held { return }
+                    if held {
+                        rendition.heldIn = currentSegment
+                        return
+                    }
                     av_packet_rescale_ts(encoded, videoTranscoder.encoderTimeBase, outStream.pointee.time_base)
                     encoded.pointee.stream_index = outIndex
                     encoded.pointee.pos = -1
@@ -2975,7 +3146,7 @@ extension RemuxSession {
                 let boundary = nextBoundarySeconds()
                 let cutAllowed = config.isLive ? isKey : currentSegment + 1 < segmentCount
                 if seconds >= boundary && seconds > 0 && cutAllowed {
-                    if config.isLive { noteLiveCut(atOutputSeconds: seconds) }
+                    if config.isLive { noteLiveCut(atOutputSeconds: seconds) } else { padSilence(upTo: boundary, atEnd: false) }
                     finishSegment(currentSegment)
                     currentSegment += 1
                     stateLock.lock()
@@ -2994,7 +3165,10 @@ extension RemuxSession {
             stateLock.lock()
             let onDisk = rendition.completed.contains(currentSegment) || rendition.writing.contains(currentSegment)
             stateLock.unlock()
-            if onDisk, !isVideo { continue }
+            if onDisk, !isVideo {
+                rendition.heldIn = currentSegment
+                continue
+            }
 
             // Transcoded audio: the encoder emits its own packets on its own
             // clock, so the input packet is consumed rather than written.
@@ -3010,8 +3184,9 @@ extension RemuxSession {
                     rendition.repairTimestamps(encoded, streamIndex: outIndex)
                     rendition.noteMuxZero(encoded, timeBase: outStream.pointee.time_base)
                     rendition.noteBaseDts(streamIndex: outIndex, dts: encoded.pointee.dts)
+                    let end = Double(encoded.pointee.pts + max(0, encoded.pointee.duration)) * av_q2d(outStream.pointee.time_base)
                     let w = av_write_frame(ctx, encoded)
-                    if w < 0 { writeError = w }
+                    if w < 0 { writeError = w } else { rendition.audioEndSeconds = end }
                 }
                 if writeError < 0 {
                     fail("write_frame (audio): \(averr(writeError))")
@@ -3031,7 +3206,10 @@ extension RemuxSession {
                     break
                 }
             }
-            if onDisk { continue }
+            if onDisk {
+                rendition.heldIn = currentSegment
+                continue
+            }
 
             // The ADTS header (9 bytes with its CRC) is not part of an MP4 sample.
             if rendition.adtsStreams.contains(outIndex), pkt.pointee.size > 9, let data = pkt.pointee.data,
@@ -3049,6 +3227,7 @@ extension RemuxSession {
             rendition.noteMuxZero(pkt, timeBase: outStream.pointee.time_base)
             rendition.noteBaseDts(streamIndex: outIndex, dts: pkt.pointee.dts)
 
+            let audioEnd = isVideo ? nil : Double(pkt.pointee.pts + max(0, pkt.pointee.duration)) * av_q2d(outStream.pointee.time_base)
             let muxStarted = Date()
             ret = av_write_frame(ctx, pkt)
             muxSecondsInSegment += Date().timeIntervalSince(muxStarted)
@@ -3056,6 +3235,7 @@ extension RemuxSession {
                 fail("write_frame: \(averr(ret))")
                 break
             }
+            if let audioEnd { rendition.audioEndSeconds = audioEnd }
         }
     }
 
@@ -3102,7 +3282,7 @@ extension RemuxSession {
         stateLock.lock()
         var doomed: [(Rendition, [Int])] = []
         for rendition in renditions {
-            let prunable = rendition.completed.filter { !keep.contains($0) }
+            let prunable = rendition.completed.filter { !keep.contains($0) && !rendition.standIns.contains($0) }
             // A segment still being written lands outside the window: the writer drops it on landing.
             rendition.prunedWhileWriting.formUnion(rendition.writing.filter { !keep.contains($0) })
             guard !prunable.isEmpty else { continue }

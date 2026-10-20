@@ -222,6 +222,8 @@ extension RemuxSession {
         }
         stateLock.lock()
         let copyOnly = offered && !sourceUnusable && copyLeadsLocked(linkBps: testLinkBps ?? wireLinkBps ?? playlistLinkBps ?? 0)
+        // From here the session's length is on the record: every playlist must share this grid.
+        gridPublished = true
         stateLock.unlock()
         let ladder = offered && !copyOnly
         var out = "#EXTM3U\n#EXT-X-VERSION:\(ladder ? 10 : 7)\n"
@@ -598,6 +600,9 @@ extension RemuxSession {
     func mediaPlaylist(prefix: String = "") -> String {
         if config.isLive { return livePlaylist(prefix: prefix) }
         awaitGrid()
+        stateLock.lock()
+        gridPublished = true
+        stateLock.unlock()
         let initName = prefix.isEmpty ? "init.mp4" : "\(prefix)-init.mp4"
         var out = "#EXTM3U\n#EXT-X-VERSION:7\n" + startTag
         // Covers the final segment, which absorbs the duration remainder and

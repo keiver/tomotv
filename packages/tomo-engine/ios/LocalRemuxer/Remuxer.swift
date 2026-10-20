@@ -348,7 +348,17 @@ final class RemuxSession {
     /// A `describesInput` session's length off the container: written once on the pipeline thread
     /// before the source is ready, like the adopted grid.
     var containerDurationSeconds: Double = 0
-    var durationSeconds: Double { config.durationSeconds > 0 ? config.durationSeconds : containerDurationSeconds }
+    /// Where the picture ends, when the container says so and it is short of the runtime. The video
+    /// track decides where an item ends, so the grid ends there and audio past it is not written.
+    /// Written once on the pipeline thread before the source is ready, and only while no playlist
+    /// has named the grid (gridPublished). 0 = not known.
+    var pictureEndSeconds: Double = 0
+    /// A playlist has named the grid, which can no longer move. Under stateLock.
+    var gridPublished = false
+    var durationSeconds: Double {
+        let declared = config.durationSeconds > 0 ? config.durationSeconds : containerDurationSeconds
+        return pictureEndSeconds > 0 && pictureEndSeconds < declared ? pictureEndSeconds : declared
+    }
     /// The primary rendition's init is on disk, so its video CODECS is resolved (under stateLock).
     var primaryInitWritten = false
     /// Copied video whose opening packets carry CEA-608/708 in their SEI; the master declares them.

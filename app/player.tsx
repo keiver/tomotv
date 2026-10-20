@@ -71,7 +71,7 @@ LogBox.ignoreLogs([
   "Failed to load the player item", // Player errors during automatic retry
 ]);
 
-/** A known credits start, or null to let AVKit present at the actual playback end. */
+/** A known credits start, or null to let the native side time the card a beat before the item's end. */
 function proposalTime(outroStartSeconds: number | undefined): number | null {
   return outroStartSeconds !== undefined && Number.isFinite(outroStartSeconds) && outroStartSeconds > 0 ? outroStartSeconds : null;
 }
@@ -354,8 +354,9 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
   // auto-accepting 5s after playback ends unless autoplay is off, where it waits
   // for a choice. Undefined on phone and with nothing next.
   //
-  // Without a marker, omit the time: CMTime.indefinite uses AVKit's playback-end
-  // path. Guessing runtime minus 30 seconds can cover dialogue before the credits.
+  // Without a marker, omit the time: the patch times the card a second before the
+  // item's own duration, which playback reaches. Guessing runtime minus 30 seconds
+  // can cover dialogue before the credits.
   const proposalAt = proposalTime(segments?.outro?.startSeconds);
 
   /** A card is what covers the credits — when one is coming, the pill stays off. */
