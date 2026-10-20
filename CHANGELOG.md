@@ -9,6 +9,7 @@ All notable changes to Tomo TV are documented here.
 - Channel Settings gains Connection limits: one row per tuner playlist, with the streams its provider allows this device at once, Auto or 1 to 5. Auto learns the limit from the provider's own refusals. A number set here reaches the engine at launch and whenever the tuner list reloads, for every host the playlist reads, so the guide preview, the channel ring and the wall clips never take the connection the playing channel needs
 - Two playlists at one provider count together, and the number is per device. A provider is its host and port, so two servers on one address never share a limit
 - A channel's info panel shows the channel's latest grabbed picture while it is on air, and plays its preview clip there unless auto update is off or playback holds the link
+- On Apple TV, a Top Shelf card for an item the server has no poster for shows the keyframe Tomo made for it, in the shape of that picture, instead of the Tomo face. The app copies the keyframes of its Continue Watching items into the shared container, removes them when the items leave the row, and clears them on any server or account change
 
 ### Changed
 
