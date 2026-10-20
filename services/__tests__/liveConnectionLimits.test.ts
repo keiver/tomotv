@@ -1,6 +1,6 @@
 /** liveConnectionLimits: a playlist's limit reaches the engine for each host it reads, at startup, on every change, and after a tuner sync. */
 import { applyConnectionLimits, limitChanges, originBudgets, watchConnectionLimits } from "@/services/liveConnectionLimits";
-import { setConnectionLimit } from "@/services/liveTvPreferences";
+import { createGroup, getLiveTvPreferences, setConnectionLimit, toggleLocalFavoriteChannel, updateLiveTvPreferences } from "@/services/liveTvPreferences";
 import { setOriginConnectionBudget } from "@keiver/tomo-engine";
 import { subscribePlaylistChannels } from "@keiver/tomo-live";
 
@@ -77,5 +77,48 @@ describe("applying the limits", () => {
     stop();
     expect(subscribePlaylistChannels).toHaveBeenCalled();
     setConnectionLimit(TWO, 0);
+  });
+
+  it.each([
+    ["favorites", () => toggleLocalFavoriteChannel({ Id: "channel-1", Name: "News", ChannelNumber: "1" })],
+    ["filter", () => updateLiveTvPreferences({ filter: "favorites" })],
+    ["groups", () => createGroup("News")],
+  ] as const)("does not reapply manual budgets when %s change", async (_name, change) => {
+    const previous = getLiveTvPreferences();
+    setConnectionLimit(ONE, 5);
+    const stop = watchConnectionLimits();
+    try {
+      await flush();
+      expect(budget).toHaveBeenCalledWith("a.example", 5);
+      budget.mockClear();
+      change();
+      await flush();
+      expect(budget).not.toHaveBeenCalled();
+    } finally {
+      stop();
+      updateLiveTvPreferences(previous);
+    }
+  });
+
+  it("reapplies an explicitly selected limit and clears it when Auto is selected", async () => {
+    const previous = getLiveTvPreferences();
+    setConnectionLimit(ONE, 5);
+    const stop = watchConnectionLimits();
+    try {
+      await flush();
+      budget.mockClear();
+      setConnectionLimit(ONE, 5);
+      await flush();
+      expect(budget).toHaveBeenCalledWith("a.example", 5);
+      expect(budget).toHaveBeenCalledWith("b.example", 5);
+      budget.mockClear();
+      setConnectionLimit(ONE, 0);
+      await flush();
+      expect(budget).toHaveBeenCalledWith("a.example", 0);
+      expect(budget).toHaveBeenCalledWith("b.example", 0);
+    } finally {
+      stop();
+      updateLiveTvPreferences(previous);
+    }
   });
 });

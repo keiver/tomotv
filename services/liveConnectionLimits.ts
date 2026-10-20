@@ -39,8 +39,14 @@ export async function applyConnectionLimits(): Promise<void> {
 
 /** Keeps the engine's budgets in step with the preferences and the channel table. */
 export function watchConnectionLimits(): () => void {
+  let limits = getLiveTvPreferences().connectionLimits;
   void applyConnectionLimits();
-  const stopPreferences = subscribeLiveTvPreferences(() => void applyConnectionLimits());
+  const stopPreferences = subscribeLiveTvPreferences(() => {
+    const next = getLiveTvPreferences().connectionLimits;
+    if (next === limits) return;
+    limits = next;
+    void applyConnectionLimits();
+  });
   const stopPlaylists = subscribePlaylistChannels(() => void applyConnectionLimits());
   return () => {
     stopPreferences();
