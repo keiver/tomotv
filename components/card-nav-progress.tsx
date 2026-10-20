@@ -1,4 +1,4 @@
-import { STAND_NAME_TEXT } from "@/components/live-tv/channel-stand";
+import { STAND_NAME_TEXT } from "@/components/card-stand";
 import { DESIGN, GRID } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardPalette } from "@/hooks/useCardPalette";
@@ -112,7 +112,7 @@ const styles = StyleSheet.create({
   barStand: {
     top: 0,
     paddingVertical: 0,
-    backgroundColor: COLORS.MEDIA_BACKGROUND,
+    backgroundColor: COLORS.BACKGROUND_DEEP,
   },
   // Same minWidth rule as the resume fill: clear the rounded bottom-left
   // corner so the sweep's opening frames aren't clipped invisible.

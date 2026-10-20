@@ -1,8 +1,8 @@
 import { CARD_BADGE_INSET, CardBadge } from "@/components/card-badge";
-import { CardMetaLine } from "@/components/card-meta-line";
 import { CardPressBurst, CardPressFlash } from "@/components/card-press-burst";
+import { CardStand } from "@/components/card-stand";
 import { PosterCollage } from "@/components/poster-collage";
-import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, RAISED_EDGE, slotColumns, type SlotOrientation } from "@/constants/app";
+import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, RAISED_EDGE, slotColumns, STAND_HEIGHT, STAND_ROW_ROOM, type SlotOrientation } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { useCardPalette } from "@/hooks/useCardPalette";
@@ -176,8 +176,8 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
           ? (itemCount === 1 ? t("a11y.folderItemOne") : t("a11y.folderItemMany")).replace("{name}", folderName).replace("{count}", String(itemCount))
           : t("a11y.folderNav").replace("{name}", folderName)
       }>
-      <View style={[styles.card, focused && [styles.cardFocused, { shadowColor: palette.accent }]]}>
-        <View style={[styles.imageContainer, { aspectRatio: cardRatio }]}>
+      <View style={[styles.card, focused && [styles.cardFocused, { shadowColor: palette.accent }], styles.cardOverhang]}>
+        <View style={[styles.imageContainer, { aspectRatio: cardRatio }, styles.squareBottom]}>
           {thumbnailSource ? (
             <Image source={thumbnailSource} style={styles.poster} contentFit="cover" transition={0} priority={index < 10 ? "high" : "normal"} cachePolicy="memory-disk" recyclingKey={folder.Id} />
           ) : preview.length > 0 ? (
@@ -196,11 +196,11 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             </View>
           ) : null}
 
-          <View style={[styles.borderOverlay, focused && [styles.borderOverlayFocused, { borderColor: palette.accent }]]} pointerEvents="none" />
+          <View style={[styles.borderOverlay, focused && [styles.borderOverlayFocused, { borderColor: palette.accent }], styles.squareBottom]} pointerEvents="none" />
         </View>
+        <CardStand name={folderName || t("a11y.folder")} focused={focused} scrolls />
         {/* Mounted only around a press (visible lingers past the arrival burst); idle cards carry none. */}
         {navBarVisible ? <CardPressBurst active={navigating} /> : null}
-        <CardMetaLine text={folderName || t("a11y.folder")} focused={focused} centered={IS_TV} />
       </View>
     </TouchableOpacity>
   );
@@ -301,6 +301,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: COLORS.SURFACE_RAISED,
     padding: IS_TV ? 20 : 12,
+  },
+  squareBottom: {
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+  },
+  // Where rows keep no room for it (TV), the base hangs into the card's own bottom padding and the row's.
+  cardOverhang: {
+    marginBottom: STAND_ROW_ROOM - STAND_HEIGHT,
   },
   recBadge: {
     position: "absolute",

@@ -1,4 +1,4 @@
-import { ArtworkSlotShape, CARD_META_BLOCK, gridEdgePadding, shelfSpacing, slotCardPadding, slotRowHeights, slotShapeRatio } from "@/constants/app";
+import { ArtworkSlotShape, gridEdgePadding, shelfSpacing, slotCardPadding, slotRowHeights, slotShapeRatio, STAND_HEIGHT, STAND_ROW_ROOM } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useScrollToTop } from "expo-router";
 import React, { ReactElement, useCallback, useMemo, useRef } from "react";
@@ -10,6 +10,8 @@ const CARD_PADDING = slotCardPadding(IS_TV);
 // Extra room around the list so the focused card's glow isn't clipped at the
 // FlatList bounds; negative margins cancel it out so the layout doesn't move.
 const GLOW_PAD = IS_TV ? 24 : 12;
+/** How far a card's base hangs below the card's own frame: on TV it overhangs the bottom padding. */
+const STAND_OVERHANG = STAND_ROW_ROOM === 0 ? STAND_HEIGHT - CARD_PADDING : 0;
 
 interface MediaShelfProps<T> {
   title: string;
@@ -81,7 +83,7 @@ export function MediaShelf<T>({ title, dot, data, slotShapeFor, renderItem, keyE
   const edgeLeft = gridEdgePadding(insets.left, IS_TV);
   const edgeRight = gridEdgePadding(insets.right, IS_TV);
   const rowAreaStyle = useMemo(
-    () => ({ height: rowHeight + 2 * GLOW_PAD + CARD_META_BLOCK, marginVertical: -GLOW_PAD, marginLeft: -edgeLeft, marginRight: -edgeRight }),
+    () => ({ height: rowHeight + 2 * GLOW_PAD + STAND_ROW_ROOM + STAND_OVERHANG, marginVertical: -GLOW_PAD, marginLeft: -edgeLeft, marginRight: -edgeRight }),
     [rowHeight, edgeLeft, edgeRight],
   );
   // A tablet gets a bigger heading and more air around the row; slotRowHeights sizes the cards
@@ -105,6 +107,8 @@ export function MediaShelf<T>({ title, dot, data, slotShapeFor, renderItem, keyE
           renderItem={renderListItem}
           keyExtractor={keyExtractor}
           horizontal
+          // Unclipped, so a card's shadow and focus glow carry past the row instead of stopping at its edge.
+          style={styles.list}
           showsHorizontalScrollIndicator={false}
           removeClippedSubviews={false}
           initialNumToRender={viewportCards}
@@ -119,6 +123,9 @@ export function MediaShelf<T>({ title, dot, data, slotShapeFor, renderItem, keyE
 const styles = StyleSheet.create({
   // marginBottom, the gap to the next shelf, is applied inline from SHELF_SPACING.
   container: {},
+  list: {
+    overflow: "visible",
+  },
   headingRow: {
     flexDirection: "row",
     alignItems: "baseline",

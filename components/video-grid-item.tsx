@@ -1,14 +1,12 @@
 import { type BadgeSegment, CARD_BADGE_INSET, CardBadge } from "@/components/card-badge";
-import { CardMetaLine } from "@/components/card-meta-line";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardPressBurst, CardPressFlash } from "@/components/card-press-burst";
-import { CardProgressStrip } from "@/components/card-progress-strip";
 import { CardCornerScrim } from "@/components/card-scrim";
+import { CardStand } from "@/components/card-stand";
 import { LevelBars } from "@/components/level-bars";
-import { ChannelStand } from "@/components/live-tv/channel-stand";
 import { LiveClip } from "@/components/live-tv/live-clip";
 import { LiveFreshnessBadge } from "@/components/live-tv/live-freshness-badge";
-import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, GRID, RAISED_EDGE, slotColumns, type SlotOrientation } from "@/constants/app";
+import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, GRID, RAISED_EDGE, slotColumns, STAND_HEIGHT, STAND_ROW_ROOM, type SlotOrientation } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { useCardPalette } from "@/hooks/useCardPalette";
@@ -28,16 +26,10 @@ import { formatIndexBadge } from "@/utils/seasonEpisode";
 import { Ionicons } from "@expo/vector-icons";
 import { Image, type ImageLoadEventData } from "expo-image";
 import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Dimensions, Platform, StyleSheet, TouchableOpacity, View } from "react-native";
+import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // Cache platform values at module level for better performance
 const IS_TV = Platform.isTV;
-// Tablet type off the physical short side, read once. The title is pure chrome and feeds
-// no layout math, so it needs no window subscription and cannot desync the row packer.
-const SCREEN = Dimensions.get("screen");
-const IS_TABLET = !IS_TV && Math.min(SCREEN.width, SCREEN.height) >= GRID.PHONE_WIDE_MIN_WIDTH;
-/** A channel's title centres wherever the card is wide: TV, iPad, Mac. */
-const CHANNEL_TITLE_CENTERED = IS_TV || IS_TABLET;
 const CARD_PADDING = IS_TV ? 16 : 8;
 const POSTER_SIZE = IS_TV ? 300 : 200; // Optimized for memory
 const BACKDROP_BLUR = IS_TV ? 24 : 16;
@@ -294,13 +286,13 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   const hasProgress = progressPercent != null;
   const watchedPercent = hasProgress ? Math.round(Math.min(Math.max(progressPercent, 0), 1) * 100) : 0;
   const nowPlayingProgress = useNowPlayingProgress(video, nowPlayingAudio ? "audio" : nowPlayingVideo.active ? "video" : null, progressPercent, nowPlayingVideo.playing);
-  const stripFraction = nowPlaying ? nowPlayingProgress.fraction : hasProgress ? watchedPercent / 100 : null;
+  const standProgress = nowPlaying ? nowPlayingProgress.fraction : hasProgress ? watchedPercent / 100 : null;
   // Only a programme's NOW/time pill stays on the art; a card names itself and nothing else.
   const artBadge = video.Type === "Program" ? badgeSegments : null;
   const metaMark = nowPlaying
     ? (color: string) => <LevelBars size={IS_TV ? 16 : 10} playing={nowPlayingProgress.playing} color={color} />
     : leadingMark
-      ? (color: string) => <Ionicons name={leadingMark} size={IS_TV ? 17 : 11} color={color} />
+      ? (color: string) => <Ionicons name={leadingMark} size={IS_TV ? 15 : 9} color={color} />
       : undefined;
   const posterImage = (
     <Image
@@ -354,8 +346,8 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             : { width: `${100 / (numColumns ?? slotColumns(slotOrientation, IS_TV))}%` },
         inset && { paddingVertical: inset.vertical, paddingHorizontal: inset.horizontal },
       ]}>
-      <View style={[styles.card, flat && styles.cardFlat, focused && [styles.cardFocused, { shadowColor: palette.accent }], square && styles.square]}>
-        <View style={[styles.imageContainer, { aspectRatio: cardRatio }, square && styles.square, standed && styles.squareBottom]}>
+      <View style={[styles.card, flat && styles.cardFlat, focused && [styles.cardFocused, { shadowColor: palette.accent }], square && styles.square, !liveCard && styles.cardOverhang]}>
+        <View style={[styles.imageContainer, { aspectRatio: cardRatio }, square && styles.square, (standed || !liveCard) && styles.squareBottom]}>
           {liveFrame || poster || posterSource ? (
             <>
               {liveBox ? (
@@ -389,8 +381,6 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             </View>
           )}
 
-          {/* Rendered regardless of poster: a posterless placeholder card still owes the user its progress. */}
-          {stripFraction != null && !liveCard ? <CardProgressStrip fraction={stripFraction} /> : null}
           {/* A live card names nothing over its picture; the bars alone mark it playing. */}
           {nowPlaying && liveCard ? (
             <View style={styles.liveNowPlaying} pointerEvents="none">
@@ -419,20 +409,21 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
           ) : null}
           {/* The lit edge and the focus border, on top so the art sits under them */}
           <View
-            style={[styles.borderOverlay, focused && [styles.borderOverlayFocused, { borderColor: palette.accent }], square && styles.square, standed && styles.squareBottom]}
+            style={[styles.borderOverlay, focused && [styles.borderOverlayFocused, { borderColor: palette.accent }], square && styles.square, (standed || !liveCard) && styles.squareBottom]}
             pointerEvents="none"
           />
         </View>
         {/* Inside the card, under the picture's slot: the glow wraps both and the picture keeps its size. */}
         {standed ? (
           <View>
-            <ChannelStand name={cardTitle} icon={titleIcon} focused={focused} offline={offline} liveChannelId={liveFrame && liveMark ? video.Id : undefined} />
+            <CardStand name={cardTitle} icon={titleIcon} focused={focused} offline={offline} liveChannelId={liveFrame && liveMark ? video.Id : undefined} />
             {navBarVisible ? <CardNavProgress active={navigating} title={cardTitle} stand /> : null}
           </View>
         ) : null}
+        {/* Rendered regardless of poster: a posterless placeholder card still owes the user its progress. */}
+        {liveCard ? null : <CardStand name={cardTitle} focused={focused} mark={metaMark} progress={standProgress} scrolls />}
         {/* Mounted only around a press (visible lingers past the arrival burst); idle cards carry none. */}
         {navBarVisible && !standed ? <CardPressBurst active={navigating} square={square} /> : null}
-        {liveCard ? null : <CardMetaLine text={cardTitle} focused={focused} centered={IS_TV || (isChannel && CHANNEL_TITLE_CENTERED)} mark={metaMark} />}
       </View>
     </TouchableOpacity>
   );
@@ -585,6 +576,10 @@ const styles = StyleSheet.create({
   squareBottom: {
     borderBottomLeftRadius: 0,
     borderBottomRightRadius: 0,
+  },
+  // Where rows keep no room for it (TV), the base hangs into the card's own bottom padding and the row's.
+  cardOverhang: {
+    marginBottom: STAND_ROW_ROOM - STAND_HEIGHT,
   },
   // Holds the blurred fill behind a whole picture under the sharp one.
   backdropDim: {

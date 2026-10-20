@@ -225,10 +225,10 @@ const styles = StyleSheet.create({
     flex: IS_TV ? 1 : undefined,
     marginBottom: 0,
   },
-  // The card's own padding holds its focus glow; this is the air above and below it, the line under the card included.
+  // The card's own padding holds its focus glow; this is the air above and below it, the base the card hangs on TV included.
   preview: {
     paddingTop: IS_TV ? 16 : 12,
-    paddingBottom: IS_TV ? 16 : 12,
+    paddingBottom: IS_TV ? 24 : 12,
   },
   // Inset to the rows' text edge (settingsStyles.listItem), like everything else in the card.
   grid: {

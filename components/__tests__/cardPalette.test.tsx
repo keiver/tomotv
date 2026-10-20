@@ -26,8 +26,7 @@ jest.mock("@/contexts/PlayerSessionContext", () => ({ usePlayerSession: () => ({
 jest.mock("@/services/audioPlayerManager", () => ({ audioPlayerManager: { getUIState: () => ({ playing: true, position: 0 }), subscribe: () => () => {} } }));
 
 import { BADGE_GLASS_TINT, CardBadge } from "@/components/card-badge";
-import { CardMetaLine } from "@/components/card-meta-line";
-import { CardProgressStrip } from "@/components/card-progress-strip";
+import { CardStand } from "@/components/card-stand";
 import { FolderGridItem } from "@/components/folder-grid-item";
 import { FolderLoadingBar } from "@/components/folder-loading-bar";
 import { glassTint } from "@/components/glass-button";
@@ -79,7 +78,7 @@ describe("card palette", () => {
     expect(drawn).not.toContain(COLORS.ACCENT);
   });
 
-  it("a resting resume card fills its progress strip in the theme", () => {
+  it("a resting resume card fills its base in the theme", () => {
     const drawn = colours(<VideoGridItem video={video} onPress={jest.fn()} index={0} progressPercent={0.4} />);
     expect(drawn).toContain(ACCENT);
     expect(drawn).not.toContain(COLORS.ACCENT);
@@ -91,7 +90,7 @@ describe("card palette", () => {
     expect(drawn).not.toContain(COLORS.ACCENT);
   });
 
-  it("a folder's line names it alone, with no count on the line or the art", () => {
+  it("a folder's base names it alone, with no count on the base or the art", () => {
     let tree!: TestRenderer.ReactTestRenderer;
     act(() => {
       tree = TestRenderer.create(
@@ -101,33 +100,33 @@ describe("card palette", () => {
       );
     });
     expect(tree.root.findAllByType(CardBadge)).toHaveLength(0);
-    const line = tree.root.findByType(CardMetaLine);
-    expect(line.props.text).toBe("Shows");
+    expect(tree.root.findByType(CardStand).props.name).toBe("Shows");
     expect(tree.root.findAll((n) => n.props?.name === "desktop-outline")).toHaveLength(0);
     act(() => tree.unmount());
   });
 
-  it("the line is the theme's accent, brighter on focus, and white when the accent is too dark to read", () => {
-    const lineColour = (accent: string, focused: boolean) => {
+  it("the base names a card in the accent at rest (white when the accent is too dark), in the ink on the accent when focused", () => {
+    const standColours = (accent: string, focused: boolean) => {
       let tree!: TestRenderer.ReactTestRenderer;
       act(() => {
         tree = TestRenderer.create(
           <CardPaletteOverride.Provider value={cardPalette(accent)}>
-            <CardMetaLine text="Film" focused={focused} centered />
+            <CardStand name="Film" focused={focused} />
           </CardPaletteOverride.Provider>,
         );
       });
       const text = tree.root.findAll((n) => typeof n.type === "string" && n.props.children === "Film")[0];
-      const colour = StyleSheet.flatten(text.props.style).color;
+      const base = tree.root.findAll((n) => n.props.testID === "card-stand" && typeof n.type === "string")[0];
+      const result = { text: StyleSheet.flatten(text.props.style).color, base: StyleSheet.flatten(base.props.style).backgroundColor };
       act(() => tree.unmount());
-      return colour;
+      return result;
     };
     const bright = "#4F99FF";
     expect(isLowContrast(bright)).toBe(false);
-    expect(lineColour(bright, false)).toBe(bright);
-    expect(lineColour(bright, true)).toBe(cardPalette(bright).accentFocused);
+    expect(standColours(bright, false)).toEqual({ text: bright, base: COLORS.BACKGROUND_DEEP });
+    expect(standColours(bright, true)).toEqual({ text: cardPalette(bright).ink, base: bright });
     expect(isLowContrast(ACCENT)).toBe(true);
-    expect(lineColour(ACCENT, false)).toBe(COLORS.TEXT_PRIMARY);
+    expect(standColours(ACCENT, false).text).toBe(COLORS.TEXT_PRIMARY);
   });
 
   it("a badge is near-black glass at rest, the theme's deepened tint on focus; live is solid red", () => {
@@ -140,8 +139,8 @@ describe("card palette", () => {
     expect(colours(<CardBadge segments={[{ label: 3 }]} focused />)).toContain(COLORS.TEXT_PRIMARY);
   });
 
-  it("the progress strip and the folder loading bar fill in the theme", () => {
-    const strip = colours(<CardProgressStrip fraction={0.5} />);
+  it("the base's progress fill and the folder loading bar fill in the theme", () => {
+    const strip = colours(<CardStand name="Film" focused={false} progress={0.5} />);
     expect(strip).toContain(ACCENT);
     expect(strip).not.toContain(COLORS.ACCENT);
     const loading = colours(<FolderLoadingBar active title="Shows" />);

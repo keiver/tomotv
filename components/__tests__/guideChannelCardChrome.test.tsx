@@ -27,7 +27,7 @@ jest.mock("@/services/liveFrames", () => ({
 jest.mock("@/services/jellyfinApi", () => ({ isAudioItem: () => false, isBook: () => false }));
 
 import { CardBadge } from "@/components/card-badge";
-import { standRedOpacity } from "@/components/live-tv/channel-stand";
+import { standRedOpacity } from "@/components/card-stand";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
@@ -95,7 +95,7 @@ describe("channel wall stand", () => {
     });
     return tree;
   };
-  const standOf = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAll((n) => n.props.testID === "channel-stand" && typeof n.type === "string")[0];
+  const standOf = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAll((n) => n.props.testID === "card-stand" && typeof n.type === "string")[0];
 
   it("names the channel under the card, after the heart, only on a card asked for a stand", () => {
     const tree = mountCard({ stand: true });
@@ -118,7 +118,7 @@ describe("channel wall stand", () => {
       return StyleSheet.flatten(name?.props.style).color;
     };
     const resting = style();
-    expect(resting.backgroundColor).toBe(COLORS.MEDIA_BACKGROUND);
+    expect(resting.backgroundColor).toBe(COLORS.BACKGROUND_DEEP);
     expect(nameColor()).toBe(COLORS.ACCENT);
     act(() => tree.update(<VideoGridItem video={channel} onPress={jest.fn()} index={0} liveCard liveFrame={frame} titleIcon="heart" hideAiring stand highlighted />));
     expect(style().backgroundColor).toBe(COLORS.ACCENT);
@@ -149,7 +149,7 @@ describe("channel wall stand", () => {
           .find((n) => n.props.children === "Channel One");
         return StyleSheet.flatten(name?.props.style).color;
       };
-      const red = () => tree.root.findAll((n) => n.props.testID === "channel-stand-red" && typeof n.type === "string");
+      const red = () => tree.root.findAll((n) => n.props.testID === "card-stand-red" && typeof n.type === "string");
       expect(red()).toHaveLength(1);
       expect(nameColor()).toBe(COLORS.TEXT_PRIMARY);
       act(() => {
@@ -174,12 +174,12 @@ describe("channel wall stand", () => {
 
   it("marks an offline channel with a glyph before its name, in the stand's own colours", () => {
     const tree = mountCard({ stand: true, offline: true, liveFrame: undefined });
-    const glyph = tree.root.findAll((n) => n.props.testID === "channel-stand-offline" && n.props.name === "cloud-offline");
+    const glyph = tree.root.findAll((n) => n.props.testID === "card-stand-offline" && n.props.name === "cloud-offline");
     expect(glyph.length).toBeGreaterThan(0);
-    expect(StyleSheet.flatten(standOf(tree).props.style).backgroundColor).toBe(COLORS.MEDIA_BACKGROUND);
+    expect(StyleSheet.flatten(standOf(tree).props.style).backgroundColor).toBe(COLORS.BACKGROUND_DEEP);
     act(() => tree.unmount());
     const online = mountCard({ stand: true });
-    expect(online.root.findAll((n) => n.props.testID === "channel-stand-offline")).toHaveLength(0);
+    expect(online.root.findAll((n) => n.props.testID === "card-stand-offline")).toHaveLength(0);
     act(() => online.unmount());
   });
 
@@ -188,10 +188,10 @@ describe("channel wall stand", () => {
     const slot = tree.root.findAll((n) => typeof n.type === "string" && StyleSheet.flatten(n.props.style)?.aspectRatio !== undefined)[0];
     const slotStyle = StyleSheet.flatten(slot.props.style);
     expect(slotStyle).toMatchObject({ aspectRatio: 16 / 9, borderBottomLeftRadius: 0, borderBottomRightRadius: 0 });
-    expect(slot.findAll((n) => n.props.testID === "channel-stand")).toHaveLength(0);
+    expect(slot.findAll((n) => n.props.testID === "card-stand")).toHaveLength(0);
     // The card is the host wearing the shadow: the glow wraps the picture and the stand together.
     const card = tree.root.findAll((n) => typeof n.type === "string" && StyleSheet.flatten(n.props.style)?.shadowRadius !== undefined)[0];
-    expect(card.findAll((n) => n.props.testID === "channel-stand" && typeof n.type === "string")).toHaveLength(1);
+    expect(card.findAll((n) => n.props.testID === "card-stand" && typeof n.type === "string")).toHaveLength(1);
     act(() => tree.unmount());
   });
 });
