@@ -3,6 +3,7 @@
  * right inset (the side bar column) stays beside the card, and the close button sits in the card's own corner.
  */
 import VideoInfoScreen from "@/app/video-info";
+import { CardDragView } from "@/components/card-drag";
 import { PadSheetFrame } from "@/components/pad-sheet";
 import { useLocalSearchParams } from "expo-router";
 import React from "react";
@@ -56,5 +57,19 @@ it("sets the card on the bottom edge beside the window's side column, with the c
   expect(StyleSheet.flatten(frame.parent!.props.style)).toEqual(expect.objectContaining({ justifyContent: "flex-end", paddingLeft: 0, paddingRight: 86 }));
   const { CloseOverlayButton } = require("@/components/close-overlay-button");
   expect(StyleSheet.flatten(tree.root.findByType(CloseOverlayButton).props.style).right).toBe(12);
+  act(() => tree.unmount());
+});
+
+it("lets the card be dragged down to close it", async () => {
+  (useLocalSearchParams as jest.Mock).mockReturnValue({ videoId: "m1" });
+  let tree!: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    tree = TestRenderer.create(
+      <SafeAreaProvider initialMetrics={window}>
+        <VideoInfoScreen />
+      </SafeAreaProvider>,
+    );
+  });
+  expect(tree.root.findByType(CardDragView).findAllByType(PadSheetFrame)).toHaveLength(1);
   act(() => tree.unmount());
 });

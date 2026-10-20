@@ -1,3 +1,4 @@
+import { CardDragView } from "@/components/card-drag";
 import { PadSheetBackdrop, PadSheetFrame } from "@/components/pad-sheet";
 import { SiblingPager } from "@/components/sibling-pager";
 import { VideoInfoPanel } from "@/components/video-info-panel";
@@ -60,9 +61,11 @@ export default function VideoInfoScreen() {
     return <VideoInfoPanel videoId={videoId} name={name} inFolderId={inFolderId} fromResume={fromResume} timerId={timerId} guideProgram={guideProgram} />;
   }
 
+  const pager = <SiblingPager ids={ids} initialId={videoId} renderPage={renderPage} passThrough />;
   return (
     <PadSheetBackdrop onClose={close} fit={FIT}>
-      <SiblingPager ids={ids} initialId={videoId} renderPage={renderPage} passThrough />
+      {/* iPhone: the card drags down to close, as the player does. */}
+      {FIT === "bottom" ? <CardDragView onDismiss={close}>{pager}</CardDragView> : pager}
     </PadSheetBackdrop>
   );
 }

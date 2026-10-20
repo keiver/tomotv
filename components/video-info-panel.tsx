@@ -1,4 +1,5 @@
 import { AmbientBackground } from "@/components/ambient-background";
+import { CardDragScroll } from "@/components/card-drag";
 import { PAD_CARD_RADIUS, padFitWidth } from "@/components/pad-sheet";
 import { SiblingPagerGesture } from "@/components/sibling-pager";
 
@@ -992,7 +993,8 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
       </InfoFocusRow>
     </View>
   ) : (
-    <ScrollView
+    <CardDragScroll
+      active={active}
       style={IS_TV ? styles.scroll : styles.padScroll}
       contentContainerStyle={IS_TV ? [styles.footedContent, !groupChannel && styles.tvContentPad] : groupChannel ? styles.footedContent : styles.cardContentPad}
       showsVerticalScrollIndicator={false}>
@@ -1083,7 +1085,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
           </SectionFooter>
         </>
       )}
-    </ScrollView>
+    </CardDragScroll>
   );
 
   // The route owns the touch chrome (backdrop, card frame, close button): it stays put while the pages slide.
