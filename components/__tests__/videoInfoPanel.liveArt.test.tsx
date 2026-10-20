@@ -128,11 +128,11 @@ describe("Video info panel: a channel's live picture", () => {
     expect((await mount()).root.findAllByType(LiveClip)).toHaveLength(0);
   });
 
-  it("shows the channel's groups as the footer band, square-cornered on iPhone", async () => {
+  it("shows the channel's groups as the footer band, rounded to the card's corners on iPhone", async () => {
     const tree = await mount();
     const band = tree.root.findByType(require("@/components/live-tv/channel-group-band").ChannelGroupBand);
     expect(band.props.channel).toEqual(expect.objectContaining({ Id: "ch-1", Name: "Channel One" }));
-    expect(band.props.cornerRadius).toBe(0);
+    expect(band.props.cornerRadius).toBe(require("@/components/pad-sheet").PAD_CARD_RADIUS);
   });
 
   it("keeps the brand face when no picture was grabbed", async () => {

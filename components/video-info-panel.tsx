@@ -80,8 +80,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { t } from "@/services/i18n";
 
 const IS_TV = Platform.isTV;
-// iPad presents the panel over the app rather than as a page sheet: UIKit hands out no control
-// over what shows either side of a sheet, so the screen has to own its own backdrop.
+// iPad and Mac centre the panel's card and stack its CTAs content-sized; iPhone's card sits on the bottom edge.
 const IS_PAD = !IS_TV && Platform.OS === "ios" && Platform.isPad;
 // Added to the artwork hero's height, pushing the title and everything under it down.
 const HERO_GROW = 35;
@@ -89,14 +88,14 @@ const HERO_GROW = 35;
 const TV_CONTENT_RISE = 120;
 // The brand face's box, shared by boxed art: clear of the hero's sides, the fade and on TV the risen title.
 const HERO_BOX = { side: IS_TV ? 80 : 44, top: IS_TV ? 40 : 12, bottom: IS_TV ? 48 + TV_CONTENT_RISE : 20 };
-// The fade's one colour, the surface under the hero (TV card SURFACE, phone sheet BACKGROUND), so it never dips darker than the card.
+// The fade's one colour, the surface under the hero (TV card SURFACE, touch card BACKGROUND), so it never dips darker than the card.
 const HERO_FADE_RGB = IS_TV ? "rgba(44, 44, 46, " : "rgba(20, 20, 20, ";
 
 /**
  * Video Info panel: everything the server knows about one item, plus its
  * actions: play CTAs (a container plays what it holds), show in folder, and
  * the favorite / watched / remove-progress links a leaf carries. Opened by long
- * press on any card; tap-to-play stays the primary gesture. Presented as a form sheet on iPhone and as a floating card
+ * press on any card; tap-to-play stays the primary gesture. Presented as a card sized to its content on iPhone, iPad and Mac, and as a floating card
  * over the item's backdrop on tvOS (root push; stack rule: no custom Menu
  * handlers, the CTAs hold focus so Menu pops natively).
  */
@@ -135,9 +134,9 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   // Measured hero width → explicit clamped height. aspectRatio + maxHeight must never
   // meet on the hero: when Yoga clamps the height it re-derives the WIDTH from the
   // ratio, and the artwork covers only part of the header.
-  // Seeded, not zero: the hero spans the sheet on phone and the fixed card on TV and iPad, so
-  // the first paint already has the final height and onLayout only refines it.
-  const [heroWidth, setHeroWidth] = useState(IS_TV ? Math.min(1100, windowWidth * 0.86) : IS_PAD ? padFitWidth(windowWidth, insets.left + insets.right, "center") : windowWidth);
+  // Seeded, not zero: the hero spans the card, so the first paint already has the final height
+  // and onLayout only refines it.
+  const [heroWidth, setHeroWidth] = useState(IS_TV ? Math.min(1100, windowWidth * 0.86) : padFitWidth(windowWidth, insets.left + insets.right, IS_PAD ? "center" : "bottom"));
   // The last hero load's answer: its image, or null when it failed and the brand face stands in.
   const [heroLoad, setHeroLoad] = useState<{ uri: string; ref: ImageRef | null }>({ uri: "", ref: null });
   // Seeded heroWidth paints frame one; this says the measured one has landed, and the fade
@@ -655,9 +654,8 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   const footScrim = {
     experimental_backgroundImage: `linear-gradient(to bottom, ${HERO_FADE_RGB}0) ${footPct * 0.2}%, ${HERO_FADE_RGB}0.45) ${footPct * 0.55}%, ${HERO_FADE_RGB}0.85) ${footPct * 0.8}%, ${HERO_FADE_RGB}1) ${footPct}%)`,
   };
-  // The phone wrap's gutters carry the safe area, which is 59pt a side in landscape. A width
-  // that assumes the portrait 20+20 overruns the panel and drags the mark off its axis.
-  const logoWidth = Math.max(0, heroWidth - (IS_TV ? 0 : 40 + insets.left + insets.right));
+  // Touch: the card's width less the wrap's 20pt gutters; the card already clears the safe area.
+  const logoWidth = Math.max(0, heroWidth - (IS_TV ? 0 : 40));
   const heroCropStyle = heroArt
     ? {
         position: "absolute" as const,
@@ -973,7 +971,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   ) : null;
 
   const body = failed ? (
-    <View style={[styles.stateWrap, IS_PAD && styles.padState]}>
+    <View style={[styles.stateWrap, !IS_TV && styles.padState]}>
       <Text style={styles.errorText}>{t("info.couldNotLoadDetails").replace("{title}", title || t("common.thisItem"))}</Text>
       <FocusableButton
         title={t("common.retry")}
@@ -988,15 +986,15 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   ) : !ready ? (
     // The spinner is a focus stop on purpose: presenting a screen with nothing focusable on it
     // leaves focus outside the panel until the fetch resolves and a CTA claims it.
-    <View style={[styles.stateWrap, IS_PAD && styles.padState]}>
+    <View style={[styles.stateWrap, !IS_TV && styles.padState]}>
       <InfoFocusRow hasTVPreferredFocus unhighlighted>
         <LoadingRow label={t("info.loadingDetails").replace("{title}", title || t("common.thisItem"))} />
       </InfoFocusRow>
     </View>
   ) : (
     <ScrollView
-      style={IS_PAD ? styles.padScroll : styles.scroll}
-      contentContainerStyle={IS_TV ? [styles.footedContent, !groupChannel && styles.tvContentPad] : groupChannel ? styles.footedContent : { paddingBottom: IS_PAD ? 28 : insets.bottom + 28 }}
+      style={IS_TV ? styles.scroll : styles.padScroll}
+      contentContainerStyle={IS_TV ? [styles.footedContent, !groupChannel && styles.tvContentPad] : groupChannel ? styles.footedContent : styles.cardContentPad}
       showsVerticalScrollIndicator={false}>
       {/* Artwork heading on both platforms, whole; the scrim fades it into
           the panel. Artless items keep the same hero with the brand face
@@ -1053,7 +1051,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
           sits under every focusable. */}
       {IS_TV && <View pointerEvents="none" style={styles.heroEdge} />}
       {/* Title sits below the hero; on TV it and the CTAs ride up onto its foot (heroRise). */}
-      <View style={[styles.heroTitleWrap, logoUri ? styles.heroLogoBelow : styles.heroTitleBelow, !IS_TV && { paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right }]}>
+      <View style={[styles.heroTitleWrap, logoUri ? styles.heroLogoBelow : styles.heroTitleBelow, !IS_TV && styles.cardPad]}>
         {logoUri ? (
           <Image source={{ uri: logoUri }} style={[styles.heroLogo, { width: logoWidth }]} contentFit="contain" transition={200} accessible accessibilityLabel={title} />
         ) : (
@@ -1063,7 +1061,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
         )}
         {!!contextLine && <Text style={styles.heroContext}>{contextLine}</Text>}
       </View>
-      <View style={IS_TV ? styles.tvPad : { paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right }}>
+      <View style={IS_TV ? styles.tvPad : styles.cardPad}>
         {!!metaLine && <Text style={[styles.metaLine, styles.metaBlock]}>{metaLine}</Text>}
         {(recordingNow || recordTimer?.Status === "InProgress" || !!recordTimer?.SeriesTimerId) && (
           <View style={[styles.laneRow, styles.laneBlock]}>
@@ -1079,9 +1077,8 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
           {/* Pushes the footer to the card's foot when the content is short. */}
           <View style={styles.footerGap} />
           <SectionFooter focusable>
-            {/* iPhone's sheet runs to the screen's foot: the band sits above the home indicator, square. */}
-            <View style={[styles.groupFooter, !IS_TV && !IS_PAD && { paddingBottom: insets.bottom }]}>
-              <ChannelGroupBand channel={groupChannel} nextFocusUp={leadCtaHandle} cornerRadius={IS_TV ? undefined : IS_PAD ? PAD_CARD_RADIUS : 0} />
+            <View style={styles.groupFooter}>
+              <ChannelGroupBand channel={groupChannel} nextFocusUp={leadCtaHandle} cornerRadius={IS_TV ? undefined : PAD_CARD_RADIUS} />
             </View>
           </SectionFooter>
         </>
@@ -1090,9 +1087,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   );
 
   // The route owns the touch chrome (backdrop, card frame, close button): it stays put while the pages slide.
-  if (IS_PAD) return body;
-
-  if (!IS_TV) return <View style={styles.sheetRoot}>{body}</View>;
+  if (!IS_TV) return body;
 
   return (
     <TVFocusGuideView style={styles.flex} trapFocusUp autoFocus>
@@ -1109,11 +1104,6 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
 const styles = StyleSheet.create({
   flex: {
     flex: 1,
-  },
-  // iPhone page sheet: the sheet itself is the card, content fills it edge to edge.
-  sheetRoot: {
-    flex: 1,
-    backgroundColor: COLORS.BACKGROUND,
   },
   tvRoot: {
     flex: 1,
@@ -1142,9 +1132,12 @@ const styles = StyleSheet.create({
   scroll: {
     flex: 1,
   },
-  // iPad's card fits its content: flexGrow 0 keeps the scroll content-sized until the card's max height.
+  // The touch card fits its content: flexGrow 0 keeps the scroll content-sized until the card's max height.
   padScroll: {
     flexGrow: 0,
+  },
+  cardContentPad: {
+    paddingBottom: 28,
   },
   // The fitted card has no height of its own; this keeps loading and error from collapsing it.
   padState: {
@@ -1233,9 +1226,12 @@ const styles = StyleSheet.create({
     height: IS_TV ? 190 : 84,
     marginHorizontal: IS_TV ? -48 : 0,
   },
-  // Interior padding for everything below the hero on TV; phone uses inset-aware inline padding.
+  // Interior padding for everything below the hero, on TV and inside the touch card.
   tvPad: {
     paddingHorizontal: 48,
+  },
+  cardPad: {
+    paddingHorizontal: 20,
   },
   metaBlock: {
     marginTop: IS_TV ? 18 : 12,

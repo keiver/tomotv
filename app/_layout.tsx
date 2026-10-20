@@ -248,24 +248,15 @@ export default function RootLayout() {
                           animation: "fade",
                         }}
                       />
-                      {/* Video Info panel. iPhone: native page sheet (presentation "modal"), slides
-                      up, swipe-to-dismiss, and UIKit owns the layout in every orientation. NOT a
-                      formSheet: react-native-screens blanks formSheet content on any detent relayout
-                      (expand or rotation, RNS #2522/#2770); the page sheet has no detent math to
-                      break. The presenting view stays in the window, so the fullScreenModal search
-                      lesson above doesn't apply. tvOS: regular push styled as a floating card
-                      (stack rules: no modals, Menu pops natively off the CTAs). iPad: transparent
-                      modal, because a sheet there is readable-width and UIKit exposes no control
-                      over what shows beside it, the screen draws its own blurred backdrop, which
-                      only works while the presenting view stays in the window. */}
+                      {/* Video Info panel. tvOS: regular push styled as a floating card (stack rules: no
+                      modals, Menu pops natively off the CTAs). iPhone, iPad and Mac: transparent modal, the
+                      screen drawing its own blurred backdrop and a card sized to its content over the presenting view. */}
                       <Stack.Screen
                         name="video-info"
                         options={
                           Platform.isTV
                             ? { headerShown: false, animation: "fade" }
-                            : Platform.OS === "ios" && Platform.isPad
-                              ? { headerShown: false, presentation: "transparentModal", animation: "fade", contentStyle: { backgroundColor: "transparent" } }
-                              : { headerShown: false, presentation: "modal" }
+                            : { headerShown: false, presentation: "transparentModal", animation: "fade", contentStyle: { backgroundColor: "transparent" } }
                         }
                       />
                       {/* The guide's Recordings, Channels and Schedule: TV crossfades like video-info, phone

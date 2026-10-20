@@ -1,18 +1,17 @@
-import { InfoCloseButton } from "@/components/info-close-button";
 import { PadSheetBackdrop, PadSheetFrame } from "@/components/pad-sheet";
 import { SiblingPager } from "@/components/sibling-pager";
 import { VideoInfoPanel } from "@/components/video-info-panel";
-import { COLORS } from "@/constants/colors";
 import { useItemSiblings } from "@/hooks/useItemSiblings";
 import { t } from "@/services/i18n";
 import { JellyfinItem } from "@/types/jellyfin";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
 import { Platform, StyleSheet, View } from "react-native";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
-const IS_PAD = !IS_TV && Platform.OS === "ios" && Platform.isPad;
+// iPad and Mac centre the card; iPhone sets it on the bottom edge.
+const FIT = !IS_TV && Platform.OS === "ios" && Platform.isPad ? "center" : "bottom";
 
 /**
  * The info panel route. On iPhone, iPad and Mac the panel drags left and right through its item's
@@ -29,6 +28,7 @@ export default function VideoInfoScreen() {
     guideProgram?: string;
   }>();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [opened, setOpened] = useState<JellyfinItem | null>(null);
   const siblings = useItemSiblings(opened, inFolderId);
   const ids = useMemo(() => siblings?.map((item) => item.Id) ?? [videoId], [siblings, videoId]);
@@ -44,48 +44,36 @@ export default function VideoInfoScreen() {
         ) : (
           <VideoInfoPanel videoId={id} name={siblings?.find((item) => item.Id === id)?.Name} inFolderId={inFolderId} active={active} />
         );
-      if (!IS_PAD) return panel;
+      // The card centres in the safe area, as its width assumes, so iPhone Duo's side column stays beside it.
       return (
-        <View style={styles.padPage} pointerEvents="box-none">
-          <PadSheetFrame onClose={close} closeHint={t("info.closeHint")} fit="center">
+        <View style={[styles.page, FIT === "bottom" && styles.pageBottom, { paddingLeft: insets.left, paddingRight: insets.right }]} pointerEvents="box-none">
+          <PadSheetFrame onClose={close} closeHint={t("info.closeHint")} fit={FIT}>
             {panel}
           </PadSheetFrame>
         </View>
       );
     },
-    [close, fromResume, guideProgram, inFolderId, name, siblings, timerId, videoId],
+    [close, fromResume, guideProgram, inFolderId, insets.left, insets.right, name, siblings, timerId, videoId],
   );
 
   if (IS_TV) {
     return <VideoInfoPanel videoId={videoId} name={name} inFolderId={inFolderId} fromResume={fromResume} timerId={timerId} guideProgram={guideProgram} />;
   }
 
-  if (IS_PAD) {
-    return (
-      <PadSheetBackdrop onClose={close} fit="center">
-        <SiblingPager ids={ids} initialId={videoId} renderPage={renderPage} passThrough />
-      </PadSheetBackdrop>
-    );
-  }
-
-  // The modal's own insets, not the window's: on iPhone Duo's open screen it is a centred card,
-  // clear of the side bar column the window reports as a right inset.
   return (
-    <SafeAreaProvider style={styles.sheetRoot}>
-      <SiblingPager ids={ids} initialId={videoId} renderPage={renderPage} />
-      <InfoCloseButton onPress={close} />
-    </SafeAreaProvider>
+    <PadSheetBackdrop onClose={close} fit={FIT}>
+      <SiblingPager ids={ids} initialId={videoId} renderPage={renderPage} passThrough />
+    </PadSheetBackdrop>
   );
 }
 
 const styles = StyleSheet.create({
-  sheetRoot: {
-    flex: 1,
-    backgroundColor: COLORS.BACKGROUND,
-  },
-  padPage: {
+  page: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
+  },
+  pageBottom: {
+    justifyContent: "flex-end",
   },
 });

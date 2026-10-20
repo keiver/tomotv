@@ -1,14 +1,16 @@
 /**
- * The info panel reads its own safe area, not the window's: on iPhone Duo's open screen the modal is a
- * centred card, and the window's right inset (the side bar column) is not on the card.
+ * On iPhone the info panel is a card on the bottom edge, centred in the safe area: on iPhone Duo the window's
+ * right inset (the side bar column) stays beside the card, and the close button sits in the card's own corner.
  */
 import VideoInfoScreen from "@/app/video-info";
+import { PadSheetFrame } from "@/components/pad-sheet";
 import { useLocalSearchParams } from "expo-router";
 import React from "react";
+import { StyleSheet } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import TestRenderer, { act } from "react-test-renderer";
 
-// The real provider, so the card can report insets of its own.
+// The real provider, so the window can report its side column.
 jest.mock("react-native-safe-area-context", () => jest.requireActual("react-native-safe-area-context"));
 jest.mock("expo-router", () => ({
   useLocalSearchParams: jest.fn(),
@@ -19,6 +21,7 @@ jest.mock("react-native-gesture-handler", () => {
   const chain: any = new Proxy(() => chain, { get: () => () => chain, apply: () => chain });
   return { Gesture: { Pan: () => chain, Native: () => chain }, GestureDetector: ({ children }: { children: React.ReactNode }) => children, GestureHandlerRootView: View };
 });
+jest.mock("expo-blur", () => ({ BlurView: () => null }));
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
 jest.mock("@/components/close-overlay-button", () => ({ CloseOverlayButton: () => null }));
 jest.mock("@/components/video-info-panel", () => ({ VideoInfoPanel: () => null }));
@@ -38,7 +41,7 @@ jest.mock("@/services/liveTvPreferences", () => ({ getLiveTvPreferences: () => (
 
 const window = { frame: { x: 0, y: 0, width: 951, height: 669 }, insets: { top: 0, left: 0, bottom: 20, right: 86 } };
 
-it("places the close button by the card's own right inset, not the window's side column", async () => {
+it("sets the card on the bottom edge beside the window's side column, with the close button in the card's corner", async () => {
   (useLocalSearchParams as jest.Mock).mockReturnValue({ videoId: "m1" });
   let tree!: TestRenderer.ReactTestRenderer;
   await act(async () => {
@@ -48,16 +51,10 @@ it("places the close button by the card's own right inset, not the window's side
       </SafeAreaProvider>,
     );
   });
+  const frame = tree.root.findByType(PadSheetFrame);
+  expect(frame.props.fit).toBe("bottom");
+  expect(StyleSheet.flatten(frame.parent!.props.style)).toEqual(expect.objectContaining({ justifyContent: "flex-end", paddingLeft: 0, paddingRight: 86 }));
   const { CloseOverlayButton } = require("@/components/close-overlay-button");
-  const right = () => tree.root.findByType(CloseOverlayButton).props.style.right;
-  // Until the card measures itself it starts from the window's insets.
-  expect(right()).toBe(12 + 86);
-
-  const providers = tree.root.findAll((node) => typeof node.props.onInsetsChange === "function" && typeof node.type === "string");
-  const card = providers[providers.length - 1];
-  await act(async () => {
-    card.props.onInsetsChange({ nativeEvent: { frame: { x: 0, y: 0, width: 620, height: 640 }, insets: { top: 0, left: 0, bottom: 20, right: 0 } } });
-  });
-  expect(right()).toBe(12);
+  expect(StyleSheet.flatten(tree.root.findByType(CloseOverlayButton).props.style).right).toBe(12);
   act(() => tree.unmount());
 });
