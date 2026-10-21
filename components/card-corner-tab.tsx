@@ -11,7 +11,7 @@ import { Platform, StyleSheet, Text, View } from "react-native";
 
 const IS_TV = Platform.isTV;
 /** How far the tab stands above the card's top edge. */
-const TAB_RISE = IS_TV ? 24 : 16;
+const TAB_RISE = IS_TV ? 22 : 14;
 /** The tab's radius, and how far its foot tucks under the card, so only its rounded top shows. */
 const TAB_RADIUS = IS_TV ? 12 : 8;
 const TAB_INSET = IS_TV ? 44 : 22;
