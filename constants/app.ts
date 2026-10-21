@@ -322,9 +322,11 @@ function shelfFillScale(rows: SlotRowHeights, usable: number, padding: number, w
   // left a whole card's worth of screen unclaimed.
   const units = GRID.SHELVES_PER_SCREEN - 1 + rows.landscape / tallest;
   const target = (content - GRID.SHELVES_PER_SCREEN * shelfHeadingBlock(spacing)) / units;
-  // A row renders every card at its tallest shape, so the wide card is what the ceiling binds.
+  // A row renders every card at its tallest shape, so the wide card is what the ceiling binds. On a tablet it
+  // binds below the density size too; a phone keeps its declared counts.
   const ceiling = (GRID.MAX_CARD_WIDTH_SHARE * usable - 2 * padding) / GRID.LANDSCAPE_RATIO + 2 * padding;
-  return Math.min(Math.max(1, target / tallest), Math.max(1, ceiling / tallest));
+  const tablet = Math.min(windowWidth, windowHeight) >= GRID.PHONE_WIDE_MIN_WIDTH;
+  return Math.min(Math.max(1, target / tallest), tablet ? ceiling / tallest : Math.max(1, ceiling / tallest));
 }
 
 /**
