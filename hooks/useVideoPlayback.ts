@@ -1642,7 +1642,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               startSession: (item) => startEngine(item),
               prepare: async ({ url, token, ready }) => {
                 if (ready) {
-                  // Already cutting segments: no pre-flight, the player binds it now.
+                  // Already cutting segments: no pre-flight.
                   localRemuxTokenRef.current = token;
                   logger.info("Live channel bound to its hot ring session", { service: "useVideoPlayback", videoId });
                 } else if (!(await runEnginePreflight(url))) {

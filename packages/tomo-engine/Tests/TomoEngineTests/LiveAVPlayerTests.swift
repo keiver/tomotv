@@ -17,6 +17,11 @@ final class LiveAVPlayerTests: XCTestCase {
         spinMainRunLoop(seconds: seconds, until: condition)
     }
 
+    /// Waits until the session holds `seconds` of output.
+    private func awaitStartBuffer(_ session: RemuxSession, seconds: Double) {
+        XCTAssertTrue(spin(seconds: 40) { (session.progress()["bufferedSeconds"] as? Double ?? 0) >= seconds }, "the engine never held \(seconds)s")
+    }
+
     private func startedSession(source: String, subtitles: [RemuxSubtitle] = [], liveWindowSeconds: Double = 300, bufferSeconds: Double = 0) throws -> RemuxSession {
         var config = makeConfig(
             durationSeconds: 0, inputUrl: source, subtitles: subtitles, width: 1280, height: 720, isLive: true, liveSegmentSeconds: 2, liveWindowSeconds: liveWindowSeconds)
@@ -40,6 +45,7 @@ final class LiveAVPlayerTests: XCTestCase {
         defer { session.stop() }
         let (server, url) = try serve(session)
         defer { server.stop() }
+        awaitStartBuffer(session, seconds: 8)
 
         let player = AVPlayer(url: url)
         player.play()
@@ -77,6 +83,7 @@ final class LiveAVPlayerTests: XCTestCase {
         defer { session.stop() }
         let (server, url) = try serve(session)
         defer { server.stop() }
+        awaitStartBuffer(session, seconds: 15)
 
         let player = AVPlayer(url: url)
         player.play()
@@ -87,9 +94,8 @@ final class LiveAVPlayerTests: XCTestCase {
         XCTAssertNil(player.currentItem?.error)
     }
 
-    /// The start buffer held in the engine: AVPlayer is bound at once, its first playlist request
-    /// waits until 15s are built, and it then starts with them ahead. Records the wait.
-    func testAVPlayerBoundAtOnceWaitsOutTheStartBuffer() throws {
+    /// The start buffer: AVPlayer bound once the session holds 15s, as the app binds it, starts with them ahead.
+    func testAVPlayerBoundAfterTheStartBufferStartsWithItAhead() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("live-gate-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
         let feed = try startLiveFeed(in: root, segments: 1)
@@ -100,6 +106,7 @@ final class LiveAVPlayerTests: XCTestCase {
         defer { session.stop() }
         let (server, url) = try serve(session)
         defer { server.stop() }
+        awaitStartBuffer(session, seconds: 15)
 
         let bound = Date()
         let player = AVPlayer(url: url)
@@ -108,7 +115,7 @@ final class LiveAVPlayerTests: XCTestCase {
         let started = Date().timeIntervalSince(bound)
         spin(seconds: 3) { false }
         let ahead = player.currentItem?.loadedTimeRanges.last.map { $0.timeRangeValue.end.seconds - player.currentTime().seconds } ?? -1
-        NSLog("[LiveAVPlayerTests] bound at once: playing after %.1fs with %.1fs loaded ahead; error %@", started, ahead, String(describing: player.currentItem?.error))
+        NSLog("[LiveAVPlayerTests] bound after the start buffer: playing after %.1fs with %.1fs loaded ahead; error %@", started, ahead, String(describing: player.currentItem?.error))
         XCTAssertNil(player.currentItem?.error)
         XCTAssertGreaterThanOrEqual(ahead, 12, "the player did not start with the buffer ahead of it")
     }
@@ -236,9 +243,8 @@ final class LiveAVPlayerTests: XCTestCase {
               selected.tracks - settled.tracks, deselected.tracks - selected.tracks)
     }
 
-    /// The start buffer reaches the player: bound once the engine holds 15s, AVPlayer starts at the
-    /// oldest listed segment (EXT-X-START), and a 13s silence of the feed, which the watchdog turns
-    /// into an in-session reopen, plays through without a wait. Records how far ahead it loaded.
+    /// Bound once the engine holds 15s, AVPlayer plays through a 13s feed silence the engine reopens in the session,
+    /// waiting no longer than the part of the outage its loaded buffer did not cover.
     func testAVPlayerStartsBehindItsBufferAndRidesAFeedGap() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("live-avplayer-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -248,6 +254,14 @@ final class LiveAVPlayerTests: XCTestCase {
         defer { origin.stop() }
         let session = try startedSession(source: "\(origin.base)/live.m3u8")
         defer { session.stop() }
+        let lock = NSLock()
+        var reopenedAt: Date?
+        session.onLive = { payload in
+            guard payload["event"] as? String == "reopened" else { return }
+            lock.lock()
+            reopenedAt = reopenedAt ?? Date()
+            lock.unlock()
+        }
         XCTAssertTrue(spin(seconds: 40) { (session.progress()["bufferedSeconds"] as? Double ?? 0) >= 15 }, "the engine never held 15s")
         let (server, url) = try serve(session)
         defer { server.stop() }
@@ -276,9 +290,14 @@ final class LiveAVPlayerTests: XCTestCase {
             spin(seconds: 0.25) { false }
             if player.timeControlStatus == .waitingToPlayAtSpecifiedRate { waited += 0.25 }
         }
-        NSLog("[LiveAVPlayerTests] loaded %.1fs ahead 4s in; waited %.2fs across a 13s feed gap; clock %.1fs -> %.1fs; error %@",
-              startAhead, waited, before, player.currentTime().seconds, String(describing: player.currentItem?.error))
-        XCTAssertLessThanOrEqual(waited, 0.5, "the player stalled across a gap its buffer covers")
+        lock.lock()
+        let reopened = reopenedAt
+        lock.unlock()
+        let back = try XCTUnwrap(reopened, "the engine never reopened the silent feed")
+        let uncovered = max(0, back.timeIntervalSince(gap) + 2 - startAhead)
+        NSLog("[LiveAVPlayerTests] loaded %.1fs ahead 4s in; reopened %.1fs into the gap, %.1fs uncovered; waited %.2fs; clock %.1fs -> %.1fs; error %@",
+              startAhead, back.timeIntervalSince(gap), uncovered, waited, before, player.currentTime().seconds, String(describing: player.currentItem?.error))
+        XCTAssertLessThanOrEqual(waited, uncovered + 0.5, "the player waited longer than the outage its buffer did not cover")
         XCTAssertNil(player.currentItem?.error)
         XCTAssertGreaterThan(player.currentTime().seconds, before + 10, "the clock did not carry on past the gap")
     }

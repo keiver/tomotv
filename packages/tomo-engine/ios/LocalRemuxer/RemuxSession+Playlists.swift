@@ -715,8 +715,12 @@ extension RemuxSession {
         return liveStartSeconds != nil || liveBufferedSecondsLocked() >= config.liveBufferSeconds
     }
 
-    /// How long a live playlist waits for its answer: a segment, or the start buffer on top of it.
-    var liveFirstAnswerDeadline: Double { 20 + config.liveBufferSeconds }
+    /// How long a live playlist still waits for its answer: a segment, or the start buffer on top of it, counted from the session's start.
+    var liveFirstAnswerDeadline: Double { Self.liveFirstAnswerWait(bufferSeconds: config.liveBufferSeconds, elapsed: Date().timeIntervalSince(startedAt)) }
+
+    static func liveFirstAnswerWait(bufferSeconds: Double, elapsed: Double) -> Double {
+        max(0, 20 + bufferSeconds - elapsed)
+    }
 
     /// Seconds of live output a player bound now would hold ahead of it (under stateLock).
     func liveBufferedSecondsLocked() -> Double {

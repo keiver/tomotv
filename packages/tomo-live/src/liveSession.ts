@@ -2,7 +2,7 @@
  * A live channel's play, from the session it takes over to the one it hands back to the ring: the
  * engine's in-session reopens, the failure that ends a session, and what each drop asks for.
  */
-import { localRemuxToken, stopLocalRemux, subscribeEngineFailure, subscribeEngineLive, type EngineLiveEvent } from "@keiver/tomo-engine";
+import { engineProgress, LIVE_BUFFER_SECONDS, localRemuxToken, stopLocalRemux, subscribeEngineFailure, subscribeEngineLive, type EngineLiveEvent } from "@keiver/tomo-engine";
 
 import { isPermanentLiveFailure, liveReopenCount, planLiveRecovery, type LiveRecoveryDecision } from "./liveRecovery";
 import { takeLivePreview } from "./livePreview";
@@ -85,6 +85,8 @@ export interface LivePlaybackDeps<Item> {
   isChannel?: (item: Item) => boolean;
   /** A failure of the open, the start or `prepare` that no reopen fixes, besides the engine's own. */
   isPermanent?: (error: unknown) => boolean;
+  /** Seconds of output the session holds ahead; null when it cannot say. The engine's progress when absent. */
+  bufferedSeconds?: (token: string) => Promise<number | null>;
 }
 
 export type LivePlaybackState = "idle" | "opening" | "buffering" | "playing" | "reopening" | "failed";
@@ -242,6 +244,7 @@ export class LivePlayback<Item> {
           if (current()) this.dropPlay(message, false, decision);
         },
       });
+      if (!(await this.startBuffered(token, current))) return;
       this.setState("buffering");
       this.attempting = false;
       play.handlers.onUrl(url, token);
@@ -250,6 +253,20 @@ export class LivePlayback<Item> {
     } finally {
       if (current()) this.attempting = false;
     }
+  }
+
+  /** Waits until the session holds LIVE_BUFFER_SECONDS, at most 20 s past them; false when the attempt ended or its session dropped. */
+  private async startBuffered(token: string, current: () => boolean): Promise<boolean> {
+    const now = this.deps.now ?? Date.now;
+    const deadline = now() + (20 + LIVE_BUFFER_SECONDS) * 1000;
+    const read = this.deps.bufferedSeconds ?? ((t: string) => engineProgress(t).then((progress) => progress?.bufferedSeconds ?? null));
+    while (current() && this.session?.token === token) {
+      const buffered = await read(token);
+      if (!current() || this.session?.token !== token) return false;
+      if (buffered === null || buffered >= LIVE_BUFFER_SECONDS || now() >= deadline) return true;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    return false;
   }
 
   /** Runs `reopen` once the wait the last drop asked for has passed; a later call or `cancelWait` drops it. */

@@ -49,6 +49,12 @@ final class LivePlaylistTests: XCTestCase {
         XCTAssertTrue(out.contains("#EXT-X-MAP:URI=\"init.mp4\"\n"))
     }
 
+    func testTheFirstAnswerWaitsAtMostTwentySecondsPastTheStartBufferCountedFromTheSessionStart() {
+        XCTAssertEqual(RemuxSession.liveFirstAnswerWait(bufferSeconds: 15, elapsed: 0), 35)
+        XCTAssertEqual(RemuxSession.liveFirstAnswerWait(bufferSeconds: 15, elapsed: 30), 5)
+        XCTAssertEqual(RemuxSession.liveFirstAnswerWait(bufferSeconds: 15, elapsed: 40), 0)
+    }
+
     func testAStartOffsetPutsThePlayerThatFarBehindTheNewestSegment() {
         let out = RemuxSession.renderLivePlaylist(
             prefix: "", target: 7, firstRetained: 0, segments: [0, 1, 2], durations: [0: 5, 1: 5, 2: 5.5],

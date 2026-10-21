@@ -101,8 +101,8 @@ final class LiveSubtitleTests: XCTestCase {
         return cues
     }
 
-    /// Seconds from binding the host AVPlayer to the engine's live output until its clock moves, and
-    /// the legible options it lists, for a channel with or without a default WebVTT rendition.
+    /// Seconds from binding the host AVPlayer, once the session holds its start buffer, until its clock moves,
+    /// and the legible options it lists, for a channel with or without a default WebVTT rendition.
     private func playerStart(withSubtitles: Bool, bufferSeconds: Double = 0) throws -> (seconds: Double, legible: Int) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("live-subs-player-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -125,6 +125,9 @@ final class LiveSubtitleTests: XCTestCase {
         session.loopbackBase = "http://127.0.0.1:\(port)/\(session.token)"
         session.start()
         defer { session.stop() }
+        if bufferSeconds > 0 {
+            XCTAssertTrue(spinMainRunLoop(seconds: 40) { (session.progress()["bufferedSeconds"] as? Double ?? 0) >= bufferSeconds }, "the engine never held \(bufferSeconds)s")
+        }
         let bound = Date()
         let player = AVPlayer(url: try XCTUnwrap(URL(string: "\(session.loopbackBase!)/master.m3u8")))
         player.play()

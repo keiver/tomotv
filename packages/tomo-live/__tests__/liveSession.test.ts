@@ -6,6 +6,8 @@ const liveListeners = mockLiveListeners;
 const failureListeners = mockFailureListeners;
 const mockStopped: string[] = [];
 jest.mock("@keiver/tomo-engine", () => ({
+  LIVE_BUFFER_SECONDS: 15,
+  engineProgress: async () => null,
   localRemuxToken: (url: string) => /^http:\/\/127\.0\.0\.1\/([^/]+)\//.exec(url)?.[1] ?? null,
   stopLocalRemux: async (token: string) => {
     mockStopped.push(token);
@@ -146,7 +148,7 @@ describe("LivePlayback open and play", () => {
   }
 
   const flush = async () => {
-    for (let i = 0; i < 5; i++) await Promise.resolve();
+    for (let i = 0; i < 10; i++) await Promise.resolve();
   };
 
   it("opens nothing for an attempt the viewer already left", async () => {
@@ -169,6 +171,47 @@ describe("LivePlayback open and play", () => {
     });
     expect(await live.open("c1", () => current)).toBeNull();
     expect(closed).toEqual(["ls-1"]);
+  });
+
+  function buffering(read: () => number) {
+    const live = new LivePlayback<Channel>({
+      closeChannel: () => {},
+      takeHot: async () => null,
+      takeWarm: () => null,
+      openChannel: async (id) => ({ Id: id, LiveStreamId: "ls-1" }),
+      startSession: async () => "http://127.0.0.1/t-ls-1/master.m3u8",
+      bufferedSeconds: async () => read(),
+    });
+    const urls: string[] = [];
+    void live.play("c1", { onUrl: (url) => urls.push(url) });
+    return urls;
+  }
+
+  it("hands the URL over only once the session holds 15 s", async () => {
+    let buffered = 0;
+    const urls = buffering(() => buffered);
+    await flush();
+    buffered = 14.9;
+    jest.advanceTimersByTime(250);
+    await flush();
+    expect(urls).toEqual([]);
+    buffered = 15;
+    jest.advanceTimersByTime(250);
+    await flush();
+    expect(urls).toEqual(["http://127.0.0.1/t-ls-1/master.m3u8"]);
+  });
+
+  it("hands the URL over at the 35 s deadline when the session never holds 15 s", async () => {
+    const urls = buffering(() => 8);
+    await flush();
+    for (let step = 0; step < 139; step++) {
+      jest.advanceTimersByTime(250);
+      await flush();
+    }
+    expect(urls).toEqual([]);
+    jest.advanceTimersByTime(250);
+    await flush();
+    expect(urls).toEqual(["http://127.0.0.1/t-ls-1/master.m3u8"]);
   });
 
   it("keeps the next channel's ring session when the left channel's open lands late", async () => {
