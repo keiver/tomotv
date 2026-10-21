@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.0
+
+- `planLiveRecovery`, `liveReopenCount`, `isPermanentLiveFailure`, `LIVE_REOPEN_DELAYS_MS` and `LIVE_RECOVERY_RESET_MS`: a dropped channel opens again after 0.5, 1, 2, 4, then 5 s for as long as the viewer stays on it, counted from zero after 60 s of play without a drop, and stops only on a failure no open fixes.
+- `LiveDropCounter` and `watchLiveSession(token, drops, { onReopening, onReopened, onEnded })`: a live session followed for its whole life, its in-session reopens and the failure that ends it, with the recovery decision.
+- `channelOrigin` gains the origin rules from the app: `splitPipeHeaders`, `originKeyOf`, `mergeOriginHeaders`, `drmKeyFormat`, `dashProtection`, `manifestDrm`, `originReach`, `isOriginLaneAvailable` and `resetOriginReach`.
+- `@keiver/tomo-engine` 1.4.0 or later, for `subscribeEngineLive` and the live start buffer.
+
 ## 1.4.0
 
 - A ring neighbour the engine ended for its provider's budget (`isConnectionBudgetFailure`) is released without the ten-minute cold mark a dead channel gets, so it heats again the next time a connection is spare.
