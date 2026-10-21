@@ -698,10 +698,10 @@ index 339932f..89d81b6 100644
  
 diff --git a/node_modules/react-native-video/ios/Video/Features/RCTUpNextInfoViewController.swift b/node_modules/react-native-video/ios/Video/Features/RCTUpNextInfoViewController.swift
 new file mode 100644
-index 0000000..9257be6
+index 0000000..cfe5ca1
 --- /dev/null
 +++ b/node_modules/react-native-video/ios/Video/Features/RCTUpNextInfoViewController.swift
-@@ -0,0 +1,405 @@
+@@ -0,0 +1,506 @@
 +//
 +//  RCTUpNextInfoViewController.swift
 +//
@@ -858,21 +858,29 @@ index 0000000..9257be6
 +
 +        private func loadImage(uri: String, size: CGSize, logo: Bool, into cell: RCTUpNextInfoCell) {
 +            guard !uri.isEmpty, let url = URL(string: uri) else { return }
++            // On glass the logo is its own layer over the tile, so it is kept whole, not baked into a card.
++            let glassLogo = logo && UpNextArtwork.usesGlass
 +            // Keyed by geometry too: the same poster is a different bitmap at another card size.
-+            let cacheKey = "\(uri)@\(Int(size.width))x\(Int(size.height))\(logo ? "#logo" : "")" as NSString
++            let cacheKey = "\(uri)@\(Int(size.width))x\(Int(size.height))\(glassLogo ? "#glass-logo" : logo ? "#logo" : "")" as NSString
 +            if let cached = Self.imageCache.object(forKey: cacheKey) {
-+                cell.setArtwork(cached)
++                if glassLogo { cell.setLogo(cached) } else { cell.setArtwork(cached) }
 +                return
 +            }
 +            URLSession.shared.dataTask(with: url) { [weak cell] data, _, _ in
 +                // Still on URLSession's queue: decode and round here, hand the
 +                // finished card to main.
-+                guard let data, !data.isEmpty, let image = UIImage(data: data),
-+                      let card = logo ? UpNextArtwork.logoCard(from: image, size: size) : UpNextArtwork.card(from: image, size: size) else { return }
-+                Self.imageCache.setObject(card, forKey: cacheKey)
++                guard let data, !data.isEmpty, let image = UIImage(data: data) else { return }
++                let finished: UIImage?
++                if glassLogo {
++                    finished = image.preparingForDisplay() ?? image
++                } else {
++                    finished = logo ? UpNextArtwork.logoCard(from: image, size: size) : UpNextArtwork.card(from: image, size: size)
++                }
++                guard let finished else { return }
++                Self.imageCache.setObject(finished, forKey: cacheKey)
 +                DispatchQueue.main.async {
 +                    guard let cell, cell.representedUri == uri else { return }
-+                    cell.setArtwork(card)
++                    if glassLogo { cell.setLogo(finished) } else { cell.setArtwork(finished) }
 +                }
 +            }.resume()
 +        }
@@ -931,17 +939,52 @@ index 0000000..9257be6
 +
 +        /// The station tile: a dark surface with a hairline, the logo fitted inside it. Logos come
 +        /// as transparent PNGs, so drawn straight over the video they read as loose shapes.
-+        private static let tileFill = UIColor(red: 124 / 255, green: 124 / 255, blue: 128 / 255, alpha: 1)
++        private static let tileFill = UIColor(white: 0.06, alpha: 0.55)
 +        private static let tileLine = UIColor(white: 1, alpha: 0.18)
++        /// The soft light behind a logo, so a dark wordmark still reads on the dark tile.
++        static let logoGlow = UIColor(white: 1, alpha: 0.55)
++        /// The Info tab artwork's size and corner radius.
++        private static let artworkSize = CGSize(width: 640, height: 360)
++        private static let artworkCornerRadius: CGFloat = 20
 +
-+        static func logoTile(size: CGSize, draw: ((CGRect) -> Void)? = nil) -> UIImage {
-+            render(size: size) { _ in
++        /// tvOS 26 and later draw the Channels tab's tile as glass instead of the baked fill.
++        static var usesGlass: Bool {
++            #if compiler(>=6.2)
++                if #available(tvOS 26.0, *) { return true }
++            #endif
++            return false
++        }
++
++        /// The glass tint: the card colour the app's corner tab uses, at the same alpha.
++        static let glassTint = UIColor(red: 44 / 255, green: 44 / 255, blue: 46 / 255, alpha: 0.3)
++
++        /// Under the glass: the tile's shape, which the focus lift and shadow are built from.
++        private static var glassShapes: [CGFloat: UIImage] = [:]
++
++        static func glassShape(for size: CGSize) -> UIImage {
++            if let cached = glassShapes[size.width] { return cached }
++            let drawn = render(size: size) { _ in
++                UIColor(white: 0, alpha: 0.2).setFill()
++                UIBezierPath(rect: CGRect(origin: .zero, size: size)).fill()
++            }
++            glassShapes[size.width] = drawn
++            return drawn
++        }
++
++        static let logoGlyph: UIImage? = UIImage(systemName: "tv", withConfiguration: UIImage.SymbolConfiguration(pointSize: 48, weight: .regular))?
++            .withTintColor(UIColor(white: 1, alpha: 0.45), renderingMode: .alwaysOriginal)
++
++        static func logoTile(size: CGSize, outline: Bool = true, radius: CGFloat = cornerRadius, draw: ((CGRect) -> Void)? = nil) -> UIImage {
++            render(size: size, radius: radius) { _ in
 +                tileFill.setFill()
 +                UIBezierPath(rect: CGRect(origin: .zero, size: size)).fill()
-+                let line = UIBezierPath(roundedRect: CGRect(origin: .zero, size: size).insetBy(dx: 0.5, dy: 0.5), cornerRadius: cornerRadius)
-+                line.lineWidth = 1
-+                tileLine.setStroke()
-+                line.stroke()
++                if outline {
++                    // Half a pixel in, with the radius half a pixel smaller, so the line runs parallel to the clip at the corners.
++                    let line = UIBezierPath(roundedRect: CGRect(origin: .zero, size: size).insetBy(dx: 0.5, dy: 0.5), cornerRadius: radius - 0.5)
++                    line.lineWidth = 1
++                    tileLine.setStroke()
++                    line.stroke()
++                }
 +                draw?(CGRect(origin: .zero, size: size).insetBy(dx: size.width * 0.16, dy: size.height * 0.2))
 +            }
 +        }
@@ -965,15 +1008,16 @@ index 0000000..9257be6
 +        /// player item's metadata. Main thread: the renderer format reads the screen.
 +        static func logoArtwork(pngData: Data) -> Data? {
 +            guard let image = UIImage(data: pngData) else { return nil }
-+            return logoCard(from: image, size: CGSize(width: 640, height: 360))?.pngData()
++            return logoCard(from: image, size: artworkSize, outline: false, radius: artworkCornerRadius)?.pngData()
 +        }
 +
-+        /// The logo fitted inside the tile's inset, centred, never cropped.
-+        static func logoCard(from image: UIImage, size: CGSize) -> UIImage? {
++        /// The logo fitted inside the tile's inset, centred, never cropped, on a soft white glow.
++        static func logoCard(from image: UIImage, size: CGSize, outline: Bool = true, radius: CGFloat = cornerRadius) -> UIImage? {
 +            guard image.size.width > 0, image.size.height > 0 else { return nil }
-+            return logoTile(size: size) { inset in
++            return logoTile(size: size, outline: outline, radius: radius) { inset in
 +                let scale = min(inset.width / image.size.width, inset.height / image.size.height)
 +                let drawn = CGSize(width: image.size.width * scale, height: image.size.height * scale)
++                UIGraphicsGetCurrentContext()?.setShadow(offset: .zero, blur: size.height * 0.05, color: logoGlow.cgColor)
 +                image.draw(in: CGRect(x: inset.midX - drawn.width / 2, y: inset.midY - drawn.height / 2, width: drawn.width, height: drawn.height))
 +            }
 +        }
@@ -1002,9 +1046,9 @@ index 0000000..9257be6
 +            return format
 +        }()
 +
-+        private static func render(size: CGSize, _ body: @escaping (UIGraphicsImageRendererContext) -> Void) -> UIImage {
++        private static func render(size: CGSize, radius: CGFloat = cornerRadius, _ body: @escaping (UIGraphicsImageRendererContext) -> Void) -> UIImage {
 +            UIGraphicsImageRenderer(size: size, format: format).image { context in
-+                UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: cornerRadius).addClip()
++                UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: radius).addClip()
 +                body(context)
 +            }
 +        }
@@ -1074,6 +1118,47 @@ index 0000000..9257be6
 +        required init?(coder _: NSCoder) { fatalError("init(coder:) is not supported") }
 +
 +        private var isLogo = false
++        private var glassView: UIVisualEffectView?
++        private let logoView = UIImageView()
++
++        /// The glass tile and its logo, in the image's overlay, which floats with the image under focus (UIImageView.h).
++        private func installGlass() -> UIVisualEffectView? {
++            if let glassView { return glassView }
++            #if compiler(>=6.2)
++                if #available(tvOS 26.0, *) {
++                    let glass = UIGlassEffect(style: .regular)
++                    glass.tintColor = UpNextArtwork.glassTint
++                    let view = UIVisualEffectView(effect: glass)
++                    view.cornerConfiguration = .corners(radius: .fixed(UpNextArtwork.cornerRadius))
++                    view.translatesAutoresizingMaskIntoConstraints = false
++                    let overlay = imageView.overlayContentView
++                    overlay.addSubview(view)
++                    logoView.contentMode = .scaleAspectFit
++                    logoView.translatesAutoresizingMaskIntoConstraints = false
++                    logoView.layer.shadowColor = UpNextArtwork.logoGlow.cgColor
++                    logoView.layer.shadowOpacity = 1
++                    logoView.layer.shadowRadius = 6
++                    logoView.layer.shadowOffset = .zero
++                    view.contentView.addSubview(logoView)
++                    NSLayoutConstraint.activate([
++                        view.topAnchor.constraint(equalTo: overlay.topAnchor),
++                        view.bottomAnchor.constraint(equalTo: overlay.bottomAnchor),
++                        view.leadingAnchor.constraint(equalTo: overlay.leadingAnchor),
++                        view.trailingAnchor.constraint(equalTo: overlay.trailingAnchor),
++                        // The baked tile's inset: 16% each side, 20% top and bottom.
++                        logoView.centerXAnchor.constraint(equalTo: view.contentView.centerXAnchor),
++                        logoView.centerYAnchor.constraint(equalTo: view.contentView.centerYAnchor),
++                        logoView.widthAnchor.constraint(equalTo: view.contentView.widthAnchor, multiplier: 0.68),
++                        logoView.heightAnchor.constraint(equalTo: view.contentView.heightAnchor, multiplier: 0.6),
++                    ])
++                    glassView = view
++                    return view
++                }
++            #endif
++            return nil
++        }
++
++        private var showsGlass: Bool { isLogo && glassView?.isHidden == false }
 +
 +        func configure(title: String, subtitle: String, imageUri: String, artworkSize size: CGSize, logo: Bool) {
 +            titleLabel.text = title
@@ -1083,7 +1168,14 @@ index 0000000..9257be6
 +            isLogo = logo
 +            artworkWidth.constant = size.width
 +            artworkHeight.constant = size.height
-+            imageView.image = logo ? UpNextArtwork.logoPlaceholder(for: size) : UpNextArtwork.placeholder(for: size)
++            if logo, UpNextArtwork.usesGlass, let glass = installGlass() {
++                glass.isHidden = false
++                imageView.image = UpNextArtwork.glassShape(for: size)
++                logoView.image = UpNextArtwork.logoGlyph
++            } else {
++                glassView?.isHidden = true
++                imageView.image = logo ? UpNextArtwork.logoPlaceholder(for: size) : UpNextArtwork.placeholder(for: size)
++            }
 +            // A station tile sits raised over the video; a poster card keeps the flat look.
 +            let layer = imageView.layer
 +            layer.shadowColor = UIColor.black.cgColor
@@ -1097,12 +1189,21 @@ index 0000000..9257be6
 +            imageView.image = image
 +        }
 +
++        func setLogo(_ image: UIImage) {
++            logoView.image = image
++        }
++
 +        override func prepareForReuse() {
 +            super.prepareForReuse()
 +            representedUri = nil
 +            // Never nil: an imageless card has nothing for the focus effect to
 +            // lift, so it would sit frozen while its neighbours animate.
-+            imageView.image = isLogo ? UpNextArtwork.logoPlaceholder(for: artworkSize) : UpNextArtwork.placeholder(for: artworkSize)
++            if showsGlass {
++                imageView.image = UpNextArtwork.glassShape(for: artworkSize)
++                logoView.image = UpNextArtwork.logoGlyph
++            } else {
++                imageView.image = isLogo ? UpNextArtwork.logoPlaceholder(for: artworkSize) : UpNextArtwork.placeholder(for: artworkSize)
++            }
 +        }
 +    }
 +
