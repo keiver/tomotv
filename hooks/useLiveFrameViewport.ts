@@ -12,6 +12,8 @@ export const LIVE_FRAME_VIEWABILITY = Platform.isTV ? { itemVisiblePercentThresh
 export const LIVE_FRAME_PART_VIEWABILITY = { itemVisiblePercentThreshold: 15, minimumViewTime: 300 };
 /** Phone and Mac: the rows wholly on screen, read before a sliver row and the row read ahead. */
 export const LIVE_FRAME_FULL_VIEWABILITY = { itemVisiblePercentThreshold: 100, minimumViewTime: 300 };
+/** A card plays its clip while at least this much of its row is on screen, past the top edge or the bottom. */
+export const LIVE_CLIP_VIEWABILITY = { itemVisiblePercentThreshold: 10, minimumViewTime: 300 };
 
 /** The channels in the rows in view, in order, plus the row below the last one on a phone; on TV the rows in view alone. */
 export function viewportChannelIds<T>(viewableItems: ViewToken<T>[], items: readonly T[], idsOf: (item: T) => string[], lookahead = !Platform.isTV): string[] {
@@ -77,8 +79,6 @@ export function useLiveFrameViewport<T>(surface: LiveFrameSurface, enabled: bool
       viewabilityConfig: LIVE_FRAME_VIEWABILITY,
       onViewableItemsChanged: ({ viewableItems }) => {
         wholeRef.current = viewableItems;
-        // Lookahead warms frames only; mounted rows outside the viewport must not own players.
-        setVisibleChannelIds(new Set(viewableItems.filter((token) => token.isViewable).flatMap((token) => idsOfRef.current(token.item))));
         report();
       },
     };
@@ -89,7 +89,14 @@ export function useLiveFrameViewport<T>(surface: LiveFrameSurface, enabled: bool
         report();
       },
     };
-    return [whole, part];
+    // Lookahead warms frames only; mounted rows outside the viewport must not own players.
+    const clip: LiveFrameViewabilityPair<T> = {
+      viewabilityConfig: LIVE_CLIP_VIEWABILITY,
+      onViewableItemsChanged: ({ viewableItems }) => {
+        setVisibleChannelIds(new Set(viewableItems.filter((token) => token.isViewable).flatMap((token) => idsOfRef.current(token.item))));
+      },
+    };
+    return [whole, part, clip];
   }, [report]);
   return { viewabilityPairs, visibleChannelIds: isScreenFocused ? visibleChannelIds : EMPTY_CHANNEL_IDS };
 }

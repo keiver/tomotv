@@ -1,5 +1,13 @@
 /** useLiveFrameViewport: the rows in view (plus one lookahead on a phone) reach the sampler on its surface, active with the screen, cleared on unmount; on TV the rows partly on screen are reported behind them. */
-import { LIVE_FRAME_FULL_VIEWABILITY, LIVE_FRAME_VIEWABILITY, partlyShownChannelIds, useLiveFrameViewport, viewportChannelIds, type LiveFrameViewabilityPair } from "@/hooks/useLiveFrameViewport";
+import {
+  LIVE_CLIP_VIEWABILITY,
+  LIVE_FRAME_FULL_VIEWABILITY,
+  LIVE_FRAME_VIEWABILITY,
+  partlyShownChannelIds,
+  useLiveFrameViewport,
+  viewportChannelIds,
+  type LiveFrameViewabilityPair,
+} from "@/hooks/useLiveFrameViewport";
 import { setLiveFramesActive, setLiveFrameViewable } from "@/services/liveFrames";
 import React, { forwardRef, useImperativeHandle } from "react";
 import type { ViewToken } from "react-native";
@@ -16,13 +24,24 @@ type Row = { ids: string[] };
 const idsOf = (row: Row) => row.ids;
 const token = (item: Row, index: number, isViewable = true): ViewToken<Row> => ({ item, index, isViewable, key: String(index) });
 
-type Handle = { pairs: LiveFrameViewabilityPair<Row>[]; report: (viewableItems: ViewToken<Row>[]) => void; visible: ReadonlySet<string> };
+type Handle = {
+  pairs: LiveFrameViewabilityPair<Row>[];
+  report: (viewableItems: ViewToken<Row>[]) => void;
+  clip: (viewableItems: ViewToken<Row>[]) => void;
+  visible: ReadonlySet<string>;
+};
 const Probe = forwardRef<Handle, { rows: Row[]; enabled: boolean }>(({ rows, enabled }, ref) => {
   const { viewabilityPairs, visibleChannelIds } = useLiveFrameViewport("wall", enabled, rows, idsOf);
-  useImperativeHandle(ref, () => ({ pairs: viewabilityPairs, report: (viewableItems) => viewabilityPairs[0].onViewableItemsChanged({ viewableItems }), visible: visibleChannelIds }), [
-    viewabilityPairs,
-    visibleChannelIds,
-  ]);
+  useImperativeHandle(
+    ref,
+    () => ({
+      pairs: viewabilityPairs,
+      report: (viewableItems) => viewabilityPairs[0].onViewableItemsChanged({ viewableItems }),
+      clip: (viewableItems) => viewabilityPairs[2].onViewableItemsChanged({ viewableItems }),
+      visible: visibleChannelIds,
+    }),
+    [viewabilityPairs, visibleChannelIds],
+  );
   return null;
 });
 Probe.displayName = "Probe";
@@ -73,15 +92,17 @@ describe("useLiveFrameViewport", () => {
       renderer = TestRenderer.create(<Probe ref={ref} rows={rows} enabled />);
     });
     expect(mockActive).toHaveBeenLastCalledWith("wall", true);
-    expect(ref.current!.pairs.map((pair) => pair.viewabilityConfig)).toEqual([LIVE_FRAME_VIEWABILITY, LIVE_FRAME_FULL_VIEWABILITY]);
+    expect(ref.current!.pairs.map((pair) => pair.viewabilityConfig)).toEqual([LIVE_FRAME_VIEWABILITY, LIVE_FRAME_FULL_VIEWABILITY, LIVE_CLIP_VIEWABILITY]);
 
     act(() => ref.current?.report([token(rows[0], 0)]));
+    act(() => ref.current?.clip([token(rows[0], 0)]));
     expect(mockViewable).toHaveBeenLastCalledWith("wall", [], ["a", "b"]);
     expect([...ref.current!.visible]).toEqual(["a"]);
 
     const grown = rows.concat({ ids: ["c"] });
     act(() => renderer.update(<Probe ref={ref} rows={grown} enabled />));
     act(() => ref.current?.report([token(grown[1], 1)]));
+    act(() => ref.current?.clip([token(grown[1], 1)]));
     expect(mockViewable).toHaveBeenLastCalledWith("wall", [], ["b", "c"]);
     expect([...ref.current!.visible]).toEqual(["b"]);
 
@@ -124,12 +145,27 @@ describe("useLiveFrameViewport", () => {
     act(() => ref.current!.pairs[1].onViewableItemsChanged({ viewableItems: [token(rows[0], 0), token(rows[1], 1)] }));
     act(() => ref.current?.report([token(rows[0], 0), token(rows[1], 1), token(rows[2], 2)]));
     expect(mockViewable).toHaveBeenLastCalledWith("wall", ["a", "b", "c"], ["d", "e"]);
-    // The sliver row still plays its clip: players follow any visible pixel.
-    expect([...ref.current!.visible]).toEqual(["a", "b", "c", "d"]);
     act(() => renderer.unmount());
   });
 
-  it("on TV reports the rows past the part threshold behind the whole rows, and only the whole rows play clips", () => {
+  it("plays clips in the rows at least a tenth on screen at either edge, and in no row read ahead", () => {
+    expect(LIVE_CLIP_VIEWABILITY).toEqual({ itemVisiblePercentThreshold: 10, minimumViewTime: 300 });
+    const rows: Row[] = [{ ids: ["a"] }, { ids: ["b", "c"] }, { ids: ["d"] }, { ids: ["e"] }];
+    const ref = React.createRef<Handle>();
+    let renderer!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      renderer = TestRenderer.create(<Probe ref={ref} rows={rows} enabled />);
+    });
+    act(() => ref.current?.report([token(rows[0], 0), token(rows[1], 1), token(rows[2], 2)]));
+    act(() => ref.current?.clip([token(rows[0], 0), token(rows[1], 1), token(rows[2], 2)]));
+    expect([...ref.current!.visible]).toEqual(["a", "b", "c", "d"]);
+    // The top row slips under the threshold: its clip stops, while the sampler still counts it in view.
+    act(() => ref.current?.clip([token(rows[0], 0, false), token(rows[1], 1), token(rows[2], 2)]));
+    expect([...ref.current!.visible]).toEqual(["b", "c", "d"]);
+    act(() => renderer.unmount());
+  });
+
+  it("on TV reports the rows past the part threshold behind the whole rows, and the rows past the clip threshold play clips", () => {
     jest.isolateModules(() => {
       const { Platform } = require("react-native") as { Platform: { isTV: boolean } };
       Object.defineProperty(Platform, "isTV", { configurable: true, value: true });
@@ -150,14 +186,15 @@ describe("useLiveFrameViewport", () => {
       TvRenderer.act(() => {
         renderer = TvRenderer.create(TvReact.createElement(TvProbe));
       });
-      expect(pairs.map((pair) => pair.viewabilityConfig)).toEqual([tv.LIVE_FRAME_VIEWABILITY, tv.LIVE_FRAME_PART_VIEWABILITY]);
+      expect(pairs.map((pair) => pair.viewabilityConfig)).toEqual([tv.LIVE_FRAME_VIEWABILITY, tv.LIVE_FRAME_PART_VIEWABILITY, tv.LIVE_CLIP_VIEWABILITY]);
       expect(tv.LIVE_FRAME_PART_VIEWABILITY).toEqual({ itemVisiblePercentThreshold: 15, minimumViewTime: 300 });
 
       TvRenderer.act(() => pairs[1].onViewableItemsChanged({ viewableItems: [token(rows[0], 0), token(rows[1], 1), token(rows[2], 2)] }));
       expect(services.setLiveFrameViewable).toHaveBeenLastCalledWith("guide", [], ["a", "b", "c", "d"]);
       TvRenderer.act(() => pairs[0].onViewableItemsChanged({ viewableItems: [token(rows[1], 1)] }));
       expect(services.setLiveFrameViewable).toHaveBeenLastCalledWith("guide", ["b", "c"], ["a", "d"]);
-      expect([...visible]).toEqual(["b", "c"]);
+      TvRenderer.act(() => pairs[2].onViewableItemsChanged({ viewableItems: [token(rows[0], 0), token(rows[1], 1), token(rows[2], 2)] }));
+      expect([...visible]).toEqual(["a", "b", "c", "d"]);
       // The last row scrolls off past the part threshold: it leaves both lists.
       TvRenderer.act(() => pairs[1].onViewableItemsChanged({ viewableItems: [token(rows[0], 0), token(rows[1], 1), token(rows[2], 2, false)] }));
       expect(services.setLiveFrameViewable).toHaveBeenLastCalledWith("guide", ["b", "c"], ["a"]);
