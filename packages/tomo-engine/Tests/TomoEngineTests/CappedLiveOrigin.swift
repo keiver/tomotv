@@ -11,8 +11,8 @@ final class CappedLiveOrigin {
     private let lock = NSLock()
     private var readers: [ObjectIdentifier: NWConnection] = [:]
     private var refusingUntil = Date.distantPast
-    /// Dropped readers it still counts against `maxReaders` until then, answering 429.
-    private var lingering: (count: Int, until: Date) = (0, .distantPast)
+    /// Dropped readers it still counts against `maxReaders` until then, and the status it refuses with meanwhile.
+    private var lingering: (count: Int, until: Date, status: String) = (0, .distantPast, "429 Too Many Requests")
     private(set) var peak = 0
 
     init(fixture: URL, maxReaders: Int = 1) throws {
@@ -53,11 +53,11 @@ final class CappedLiveOrigin {
     }
 
     /// Closes every reader and counts them for `seconds` more, as an account that frees a slot late.
-    func dropReaders(countingFor seconds: TimeInterval) {
+    func dropReaders(countingFor seconds: TimeInterval, answering status: String = "429 Too Many Requests") {
         lock.lock()
         let open = Array(readers.values)
         readers = [:]
-        lingering = (open.count, Date().addingTimeInterval(seconds))
+        lingering = (open.count, Date().addingTimeInterval(seconds), status)
         lock.unlock()
         open.forEach { $0.cancel() }
     }
@@ -69,14 +69,16 @@ final class CappedLiveOrigin {
             let target = head.components(separatedBy: "\r\n").first?.split(separator: " ").dropFirst().first.map(String.init) ?? ""
             self.lock.lock()
             let refusing = Date() < self.refusingUntil && !target.contains("grab")
-            let full = self.readers.count + (Date() < self.lingering.until ? self.lingering.count : 0) >= self.maxReaders
+            let counted = Date() < self.lingering.until ? self.lingering.count : 0
+            let full = self.readers.count + counted >= self.maxReaders
+            let fullStatus = self.readers.count < self.maxReaders && counted > 0 ? self.lingering.status : "429 Too Many Requests"
             if !refusing, !full {
                 self.readers[ObjectIdentifier(connection)] = connection
                 self.peak = max(self.peak, self.readers.count)
             }
             self.lock.unlock()
             if refusing || full {
-                let status = refusing ? "503 Service Unavailable" : "429 Too Many Requests"
+                let status = refusing ? "503 Service Unavailable" : fullStatus
                 connection.send(content: Data("HTTP/1.1 \(status)\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8),
                                 completion: .contentProcessed { _ in connection.cancel() })
                 return

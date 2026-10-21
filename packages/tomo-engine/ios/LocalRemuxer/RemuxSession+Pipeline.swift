@@ -2562,12 +2562,14 @@ extension RemuxSession {
                 av_dict_free(&options)
                 guard opened >= 0, let reopened = opening else {
                     openingInput = nil
-                    permanentRefusals = Self.isPermanentInputError(opened) ? permanentRefusals + 1 : 0
+                    // The read this reopen closed counts as a close, as one released through the broker does.
+                    let closing = Date().timeIntervalSince(closedOwnReadAt) < 15 || LiveConnectionBroker.shared.recentlyClosed(key: originKey, within: 15)
+                    // An HTTP refusal while the origin may still count that close is no strike.
+                    let excused = closing && Self.httpOpenErrors.contains(opened)
+                    if !excused { permanentRefusals = Self.isPermanentInputError(opened) ? permanentRefusals + 1 : 0 }
                     NSLog("[LocalRemuxer] Live reopen %d failed (%@)", attempt, averr(opened))
                     // A refusal while this device holds other reads on the origin makes the lower ones yield.
                     if Self.httpOpenErrors.contains(opened), let held = leased {
-                        // The read this reopen closed counts as a close, as one released through the broker does.
-                        let closing = Date().timeIntervalSince(closedOwnReadAt) < 15 || LiveConnectionBroker.shared.recentlyClosed(key: originKey, within: 15)
                         _ = LiveConnectionBroker.shared.noteRefusal(of: held, learn: Self.limitErrors.contains(opened) && !closing)
                     }
                     if permanentRefusals >= 3 { fail("live input gone: \(averr(opened))"); return false }
