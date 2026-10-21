@@ -72,10 +72,8 @@ export const CONTROL_HEIGHT = Platform.isTV ? 82 : 56;
 export const GRID = {
   /** Portrait poster slot (width / height). */
   PORTRAIT_RATIO: 2 / 3,
-  /** Landscape card frame (width / height). Wider art (16:9 thumbnails) center-crops to this
-   * with cover, trimming the left/right edges, so a raised row height widens landscape cards
-   * less than a true 16:9 slot and posters get the reclaimed height. */
-  LANDSCAPE_RATIO: 3 / 2,
+  /** Landscape card frame (width / height): 16:9, so a thumbnail or episode still shows whole above the card's base. */
+  LANDSCAPE_RATIO: 16 / 9,
   /** Live channel card frame: the broadcast's own 16:9, so crop-to-fill cuts nothing off an HD picture. */
   LIVE_RATIO: 16 / 9,
   /** Columns for a portrait grid (TV / narrow phone / wide phone-family screens). */
@@ -108,6 +106,8 @@ export const GRID = {
   /** tvOS row-height factor over the landscape anchor. Sized so two shelves fill the screen
    * with the third peeking, signalling the screen scrolls. */
   CARD_ROW_SCALE_TV: 1.12,
+  /** tvOS grid cards per row by shape: a grid justifies each row to the width, so its card size is this count. */
+  TV_GRID_PER_ROW: { portrait: 7, square: 5, landscape: 4 },
   /** Minimum horizontal screen padding around library grids (TV / phone). See
    * gridEdgePadding — this is a floor, not an addition to the safe-area inset. */
   SIDE_PADDING: { tv: 80, phone: 20 },
@@ -137,7 +137,7 @@ export const SHELF_SPACING = {
   // it sits at the bottom. iPadOS puts the bar at the TOP, so a tablet clears far less.
   phone: { headingSize: 13, headingLine: 16, headingGap: 7, rowGap: 10, chrome: 180 },
   tablet: { headingSize: 16, headingLine: 20, headingGap: 14, rowGap: 22, chrome: 147 },
-  tv: { headingSize: 26, headingLine: 30, headingGap: 6, rowGap: 22, chrome: 250 },
+  tv: { headingSize: 26, headingLine: 30, headingGap: 0, rowGap: 44, chrome: 250 },
 } as const;
 
 export type ShelfSpacing = (typeof SHELF_SPACING)[keyof typeof SHELF_SPACING];
@@ -245,7 +245,7 @@ export interface SlotRowHeights {
   landscape: number;
 }
 
-/** A 16:9 live card's row height: shorter than the landscape row by the shapes' ratio, so it is as wide as a 3:2 card and a row holds as many. */
+/** A 16:9 live card's row height, as wide as a landscape card so a row holds as many. */
 export function liveRowHeight(landscapeHeight: number, padding: number): number {
   return ((landscapeHeight - 2 * padding) * GRID.LANDSCAPE_RATIO) / GRID.LIVE_RATIO + 2 * padding;
 }
@@ -254,7 +254,17 @@ export function slotRowHeights(windowWidth: number, windowHeight: number, insetL
   const usable = windowWidth - gridEdgePadding(insetLeft, isTV) - gridEdgePadding(insetRight, isTV);
   const padding = slotCardPadding(isTV);
   if (isTV) {
-    const landscapeAnchor = (usable / 4 - 2 * padding) / GRID.LANDSCAPE_RATIO + 2 * padding;
+    // The height at which `count` cards of a shape exactly fill the row.
+    const filling = (count: number, ratio: number) => (usable / count - 2 * padding) / ratio + 2 * padding;
+    if (surface === "grid") {
+      const per = GRID.TV_GRID_PER_ROW;
+      return {
+        portrait: Math.round(filling(per.portrait, GRID.PORTRAIT_RATIO)),
+        square: Math.round(filling(per.square, 1)),
+        landscape: Math.round(filling(per.landscape, GRID.LANDSCAPE_RATIO)),
+      };
+    }
+    const landscapeAnchor = filling(4, GRID.LANDSCAPE_RATIO);
     const height = Math.round(landscapeAnchor * GRID.CARD_ROW_SCALE_TV);
     return { portrait: height, square: height, landscape: height };
   }

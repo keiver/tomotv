@@ -30,9 +30,19 @@ describe("slotRowHeights on TV", () => {
   it("ignores window height — the TV branch is width-only and predates the density model", () => {
     const a = slotRowHeights(1920, 1080, 80, 80, true);
     expect(slotRowHeights(1920, 999, 80, 80, true)).toEqual(a);
-    expect(slotRowHeights(1920, 1080, 80, 80, true, "grid")).toEqual(a);
-    // One converged height for every shape, so a mixed TV row never stretches a card.
-    expect(a).toEqual({ portrait: 340, square: 340, landscape: 340 });
+    expect(slotRowHeights(1920, 999, 80, 80, true, "grid")).toEqual(slotRowHeights(1920, 1080, 80, 80, true, "grid"));
+    // Shelves: one converged height for every shape, so a mixed TV shelf never stretches a card.
+    expect(a).toEqual({ portrait: 293, square: 293, landscape: 293 });
+  });
+
+  it("sizes a grid's shapes so 7 posters, 5 squares or 4 landscape cards fill a row", () => {
+    const usable = 1920 - 2 * gridEdgePadding(80, true);
+    const padding = slotCardPadding(true);
+    const grid = slotRowHeights(1920, 1080, 80, 80, true, "grid");
+    const perRow = (height: number, ratio: number) => usable / ((height - 2 * padding) * ratio + 2 * padding);
+    expect(perRow(grid.portrait, GRID.PORTRAIT_RATIO)).toBeCloseTo(7, 1);
+    expect(perRow(grid.square, 1)).toBeCloseTo(5, 1);
+    expect(perRow(grid.landscape, GRID.LANDSCAPE_RATIO)).toBeCloseTo(4, 1);
   });
 });
 
