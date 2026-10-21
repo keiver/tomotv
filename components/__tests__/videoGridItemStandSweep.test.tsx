@@ -125,13 +125,14 @@ describe("media card base", () => {
     }
   });
 
-  it("wears the episode number on the corner tab and the favorite heart before the name, never an eye", () => {
+  it("wears the episode number on a tab outside the picture and the favorite heart before the name, never an eye", () => {
     const episode = { Id: "e1", Name: "Pilot", Type: "Episode", IndexNumber: 5, ParentIndexNumber: 1, UserData: { Played: true, IsFavorite: true } } as JellyfinVideoItem;
     const tree = mount(<VideoGridItem video={episode} onPress={jest.fn()} index={0} />);
     expect(tree.root.findAllByType(CardBadge)).toHaveLength(0);
     const [tab] = tree.root.findAllByType(CardCornerTab);
     expect(tab.props).toMatchObject({ segments: [{ label: "S01E05" }], tone: "plain" });
-    expect(slotOf(tree).findAllByType(CardCornerTab)).toHaveLength(1);
+    expect(slotOf(tree).findAllByType(CardCornerTab)).toHaveLength(0);
+    expect(tab.parent!.children[0]).toBe(tab);
     expect(tree.root.findByType(CardStand).props.name).toBe("Pilot");
     expect(tree.root.findByType(CardStand).findAll((n) => n.props.name === "heart")).not.toHaveLength(0);
     expect(tree.root.findAll((n) => n.props.name === "eye")).toHaveLength(0);

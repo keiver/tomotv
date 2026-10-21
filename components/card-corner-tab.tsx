@@ -1,7 +1,6 @@
 import { type BadgeSegment } from "@/components/card-badge";
-import { STAND_NAME_TEXT } from "@/components/card-stand";
+import { CARD_GLASS_TINT_ALPHA, STAND_NAME_TEXT } from "@/components/card-stand";
 import { GlassSurface } from "@/components/glass-surface";
-import { CARD_FOCUS, DESIGN, STAND_HEIGHT } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { isLowContrast } from "@/services/cardTheme";
@@ -11,7 +10,11 @@ import React from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
 
 const IS_TV = Platform.isTV;
-const GLASS_TINT_ALPHA = 0.3;
+/** How far the tab stands above the card's top edge. */
+const TAB_RISE = IS_TV ? 24 : 16;
+/** The tab's radius, and how far its foot tucks under the card, so only its rounded top shows. */
+const TAB_RADIUS = IS_TV ? 12 : 8;
+const TAB_INSET = IS_TV ? 44 : 22;
 
 interface CardCornerTabProps {
   segments: BadgeSegment[];
@@ -19,14 +22,17 @@ interface CardCornerTabProps {
   surface?: string;
   /** "live": the broadcast red, for a programme's NOW, REC or start time. */
   tone?: "plain" | "live";
+  /** The card holds focus: the tab fills with the accent, like the base. */
+  focused?: boolean;
 }
 
-/** A tab flush in the art's top-left corner: the art's own corner rounds its top-left, its bottom-right takes the card's radius. */
-export function CardCornerTab({ segments, surface = COLORS.SURFACE, tone = "plain" }: CardCornerTabProps) {
-  const { accent } = useCardPalette();
+/** A folder tab on the card's top edge near its right corner. Render it as the card's first child so the art covers its foot. */
+export function CardCornerTab({ segments, surface = COLORS.SURFACE, tone = "plain", focused = false }: CardCornerTabProps) {
+  const { accent, ink } = useCardPalette();
   const live = tone === "live";
-  // Lettered like the name under the card: the accent, white when the accent is too dark to read.
-  const color = live || isLowContrast(accent) ? COLORS.TEXT_PRIMARY : accent;
+  const lit = focused && !live;
+  // Lettered like the name under the card: the accent, white when the accent is too dark to read, the ink on the accent.
+  const color = lit ? ink : live || isLowContrast(accent) ? COLORS.TEXT_PRIMARY : accent;
   const content = segments.map(({ icon, label }, index) => (
     // Index keys: the array is rebuilt whole on every render and never reordered.
     <View key={index} style={styles.segment}>
@@ -38,18 +44,18 @@ export function CardCornerTab({ segments, surface = COLORS.SURFACE, tone = "plai
       ) : null}
     </View>
   ));
-  // TV: glass tinted with the card's colour, clipped to the solid tab's own rounding; the live red stays solid.
-  if (IS_TV && !live) {
+  // TV at rest: glass tinted with the card's colour; the live red and the focused accent are solid.
+  if (IS_TV && !live && !lit) {
     return (
-      <View style={[styles.anchor, styles.solid, styles.clip]} pointerEvents="none" testID="card-corner-tab">
-        <GlassSurface style={styles.body} tintColor={withAlpha(surface, GLASS_TINT_ALPHA)} pointerEvents="none">
+      <View style={styles.anchor} pointerEvents="none" testID="card-corner-tab">
+        <GlassSurface style={[styles.body, styles.fill]} radius={TAB_RADIUS} tintColor={withAlpha(surface, CARD_GLASS_TINT_ALPHA)} pointerEvents="none">
           {content}
         </GlassSurface>
       </View>
     );
   }
   return (
-    <View style={[styles.anchor, styles.body, styles.solid, { backgroundColor: live ? COLORS.DESTRUCTIVE_DEEP : surface }]} pointerEvents="none" testID="card-corner-tab">
+    <View style={[styles.anchor, styles.body, styles.solid, { backgroundColor: live ? COLORS.DESTRUCTIVE_DEEP : lit ? accent : surface }]} pointerEvents="none" testID="card-corner-tab">
       {content}
     </View>
   );
@@ -58,24 +64,23 @@ export function CardCornerTab({ segments, surface = COLORS.SURFACE, tone = "plai
 const styles = StyleSheet.create({
   anchor: {
     position: "absolute",
-    top: 0,
-    left: 0,
+    top: -TAB_RISE,
+    right: TAB_INSET,
+    height: TAB_RISE + TAB_RADIUS,
   },
   body: {
-    // The focus border's width above the label, so the focused ring never crowds it.
-    height: STAND_HEIGHT + CARD_FOCUS.BORDER_WIDTH_FOCUSED,
-    paddingTop: CARD_FOCUS.BORDER_WIDTH_FOCUSED,
-    paddingLeft: IS_TV ? 14 : 8,
-    paddingRight: IS_TV ? 20 : 11,
+    // The foot sits under the card, so the lettering centres in the part above it.
+    paddingBottom: TAB_RADIUS,
+    paddingHorizontal: IS_TV ? 14 : 8,
     flexDirection: "row",
     alignItems: "center",
     gap: IS_TV ? 9 : 5,
   },
-  solid: {
-    borderBottomRightRadius: DESIGN.BORDER_RADIUS_CARD,
+  fill: {
+    height: "100%",
   },
-  clip: {
-    overflow: "hidden",
+  solid: {
+    borderRadius: TAB_RADIUS,
   },
   segment: {
     flexDirection: "row",

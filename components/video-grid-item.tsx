@@ -294,6 +294,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     : nameIcon
       ? (color: string) => <Ionicons name={nameIcon} size={IS_TV ? 15 : 9} color={color} />
       : undefined;
+  const depth = [styles.depth, flat && styles.cardFlat, focused && [styles.cardFocused, { shadowColor: palette.accent }]];
   const posterImage = (
     <Image
       source={liveFrame ?? poster ?? posterSource}
@@ -346,7 +347,11 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             : { width: `${100 / (numColumns ?? slotColumns(slotOrientation, IS_TV))}%` },
         inset && { paddingVertical: inset.vertical, paddingHorizontal: inset.horizontal },
       ]}>
-      <View style={[styles.card, flat && styles.cardFlat, focused && [styles.cardFocused, { shadowColor: palette.accent }], square && styles.square, !liveCard && styles.cardOverhang]}>
+      <View style={[styles.card, IS_TV ? null : depth, square && styles.square, !liveCard && styles.cardOverhang]}>
+        {/* TV: a solid layer behind the picture carries the depth, so the card stays clear for its glass base. */}
+        {IS_TV ? <View style={[styles.depthLayer, depth, square && styles.square, !liveCard && !focused && styles.depthLayerArt]} pointerEvents="none" /> : null}
+        {/* A wall card's stand says offline with its glyph, so it skips the tab. */}
+        {artBadge && !offlinePill ? <CardCornerTab segments={artBadge} tone={video.Type === "Program" ? "live" : "plain"} focused={focused} /> : null}
         <View style={[styles.imageContainer, { aspectRatio: cardRatio }, square && styles.square, (standed || !liveCard) && styles.squareBottom]}>
           {liveFrame || poster || posterSource ? (
             <>
@@ -387,8 +392,6 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             </View>
           ) : null}
 
-          {/* A wall card's stand says offline with its glyph, so its picture skips the pill. */}
-          {artBadge && !offlinePill ? <CardCornerTab segments={artBadge} tone={video.Type === "Program" ? "live" : "plain"} /> : null}
           {offlinePill || (isChannel && (recording || (liveFrame ? liveMark : airingName))) ? (
             <View style={[styles.indexBadge, liveCard && styles.indexBadgeChannel]} pointerEvents="none">
               {offlinePill ? (
@@ -417,7 +420,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
         {/* Rendered regardless of poster: a posterless placeholder card still owes the user its progress. */}
         {liveCard ? null : (
           <View>
-            <CardStand name={cardTitle} focused={focused} mark={metaMark} progress={standProgress} scrolls clear />
+            <CardStand name={cardTitle} focused={focused} mark={metaMark} progress={standProgress} scrolls clear surface={COLORS.SURFACE} />
             {navBarVisible ? <CardNavProgress active={navigating} title={cardTitle} startFraction={hasProgress ? watchedPercent / 100 : undefined} stand baseColor={COLORS.SURFACE} /> : null}
           </View>
         )}
@@ -493,9 +496,12 @@ const styles = StyleSheet.create({
   },
   card: {
     borderRadius: DESIGN.BORDER_RADIUS_CARD,
+  },
+  depth: {
+    borderRadius: DESIGN.BORDER_RADIUS_CARD,
     // Solid background so iOS derives the focus glow from the rounded rect
     // (a transparent background forces expensive per-pixel shadow tracing).
-    // No overflow:hidden here — it would clip the glow; the image is already
+    // No overflow:hidden here: it would clip the glow; the image is already
     // clipped by imageContainer.
     backgroundColor: COLORS.SURFACE,
     shadowColor: CARD_DEPTH.SHADOW_COLOR,
@@ -508,7 +514,18 @@ const styles = StyleSheet.create({
     shadowOpacity: 0,
     elevation: 0,
   },
-  // Overrides every resting shadow prop — a leftover depth offset would smear the glow downward.
+  depthLayer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  // At rest the layer stops at the art, leaving the glass base over the canvas.
+  depthLayerArt: {
+    bottom: STAND_HEIGHT,
+  },
+  // Overrides every resting shadow prop: a leftover depth offset would smear the glow downward.
   // The glow's colour is the theme's, set inline.
   cardFocused: {
     shadowOffset: { width: 0, height: 0 },

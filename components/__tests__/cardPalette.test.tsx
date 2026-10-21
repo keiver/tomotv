@@ -105,7 +105,7 @@ describe("card palette", () => {
     act(() => tree.unmount());
   });
 
-  it("a folder wears its count on a corner tab cut from the card's own colour, and its heart before the name", () => {
+  it("a folder wears its count on a tab above the card's top edge, drawn under the art, cut from the card's own colour, and its heart before the name", () => {
     let tree!: TestRenderer.ReactTestRenderer;
     act(() => {
       tree = TestRenderer.create(
@@ -117,7 +117,11 @@ describe("card palette", () => {
     expect(tree.root.findAllByType(CardBadge)).toHaveLength(0);
     expect(tree.root.findByType(CardCornerTab).props.segments).toEqual([{ label: "3" }]);
     const tab = tree.root.findAll((n) => n.props.testID === "card-corner-tab" && typeof n.type === "string")[0];
-    expect(StyleSheet.flatten(tab.props.style)).toMatchObject({ backgroundColor: COLORS.SURFACE_SUNKEN, top: 0, left: 0, borderBottomRightRadius: expect.any(Number) });
+    const tabStyle = StyleSheet.flatten(tab.props.style);
+    expect(tabStyle).toMatchObject({ backgroundColor: COLORS.SURFACE_SUNKEN, position: "absolute", right: 22 });
+    expect(tabStyle.top).toBeLessThan(0);
+    const tabInstance = tree.root.findByType(CardCornerTab);
+    expect(tabInstance.parent!.children[0]).toBe(tabInstance);
     // The theme's accent is too dark to read on the card, so the count is white, like the name.
     expect(tab.findAll((n) => typeof n.type === "string" && n.props.children === "3").map((n) => StyleSheet.flatten(n.props.style).color)).toEqual([COLORS.TEXT_PRIMARY]);
     expect(tree.root.findByType(CardStand).props).toMatchObject({ name: "Shows", icon: "heart" });
@@ -259,6 +263,11 @@ describe("card palette", () => {
     expect(StyleSheet.flatten(tab.props.style).backgroundColor).toBe(COLORS.SURFACE);
     expect(StyleSheet.flatten(tab.findAll((n) => typeof n.type === "string" && n.props.children === "S01E05")[0].props.style).color).toBe(bright);
     act(() => tree.unmount());
+  });
+
+  it("a focused card's tab fills with the accent and letters in the ink; a programme's stays red", () => {
+    expect(colours(<CardCornerTab segments={[{ label: "S01E05" }]} focused />)).toEqual(expect.arrayContaining([ACCENT, palette.ink]));
+    expect(colours(<CardCornerTab segments={[{ label: "NOW" }]} tone="live" focused />)).not.toContain(ACCENT);
   });
 
   it("a programme's corner tab is the live red with white lettering", () => {

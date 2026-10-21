@@ -145,6 +145,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
   // reads as 0. Library views carry no inline count: theirs streams in lazily.
   const { count: lazyCount } = useViewItemCount(folder);
   const itemCount = (folder.RecursiveItemCount || (folder.ChildCount ?? folder.RecursiveItemCount)) ?? lazyCount;
+  const depth = [styles.depth, focused && [styles.cardFocused, { shadowColor: palette.accent }]];
 
   return (
     <TouchableOpacity
@@ -177,7 +178,10 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
           ? (itemCount === 1 ? t("a11y.folderItemOne") : t("a11y.folderItemMany")).replace("{name}", folderName).replace("{count}", String(itemCount))
           : t("a11y.folderNav").replace("{name}", folderName)
       }>
-      <View style={[styles.card, focused && [styles.cardFocused, { shadowColor: palette.accent }], styles.cardOverhang]}>
+      <View style={[styles.card, IS_TV ? null : depth, styles.cardOverhang]}>
+        {/* TV: a solid layer behind the picture carries the depth, so the card stays clear for its glass base. */}
+        {IS_TV ? <View style={[styles.depthLayer, depth, !focused && styles.depthLayerArt]} pointerEvents="none" /> : null}
+        {itemCount != null ? <CardCornerTab segments={[{ label: itemCount.toLocaleString(locale()) }]} surface={COLORS.SURFACE_SUNKEN} focused={focused} /> : null}
         <View style={[styles.imageContainer, { aspectRatio: cardRatio }, styles.squareBottom]}>
           {thumbnailSource ? (
             <Image source={thumbnailSource} style={styles.poster} contentFit="cover" transition={0} priority={index < 10 ? "high" : "normal"} cachePolicy="memory-disk" recyclingKey={folder.Id} />
@@ -189,7 +193,6 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             </View>
           )}
 
-          {itemCount != null ? <CardCornerTab segments={[{ label: itemCount.toLocaleString(locale()) }]} surface={COLORS.SURFACE_SUNKEN} /> : null}
           {recording ? (
             <View style={styles.recBadge} pointerEvents="none">
               <CardBadge segments={[{ icon: "videocam-outline", label: t("liveTv.rec") }]} focused={focused} tone="live" />
@@ -199,7 +202,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
           <View style={[styles.borderOverlay, focused && styles.borderOverlayFocused, styles.squareBottom]} pointerEvents="none" />
         </View>
         <View>
-          <CardStand name={folderName || t("a11y.folder")} icon={showsFavoriteHeart(folder) ? "heart" : undefined} focused={focused} scrolls clear />
+          <CardStand name={folderName || t("a11y.folder")} icon={showsFavoriteHeart(folder) ? "heart" : undefined} focused={focused} scrolls clear surface={COLORS.SURFACE_SUNKEN} />
           {navBarVisible ? <CardNavProgress active={navigating} title={folderName || t("a11y.folder")} stand baseColor={COLORS.SURFACE_SUNKEN} /> : null}
         </View>
         {focused ? <View style={[styles.focusRing, { borderColor: palette.accent }]} pointerEvents="none" /> : null}
@@ -247,9 +250,12 @@ const styles = StyleSheet.create({
   },
   card: {
     borderRadius: DESIGN.BORDER_RADIUS_CARD,
+  },
+  depth: {
+    borderRadius: DESIGN.BORDER_RADIUS_CARD,
     // Solid background so iOS derives the focus glow from the rounded rect
     // (a transparent background forces expensive per-pixel shadow tracing).
-    // No overflow:hidden here — it would clip the glow; the image is already
+    // No overflow:hidden here: it would clip the glow; the image is already
     // clipped by imageContainer.
     backgroundColor: COLORS.SURFACE_SUNKEN,
     shadowColor: CARD_DEPTH.SHADOW_COLOR,
@@ -258,7 +264,18 @@ const styles = StyleSheet.create({
     shadowRadius: IS_TV ? CARD_DEPTH.SHADOW_RADIUS.tv : CARD_DEPTH.SHADOW_RADIUS.phone,
     elevation: CARD_DEPTH.ELEVATION,
   },
-  // Overrides every resting shadow prop — a leftover depth offset would smear the glow downward.
+  depthLayer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  // At rest the layer stops at the art, leaving the glass base over the canvas.
+  depthLayerArt: {
+    bottom: STAND_HEIGHT,
+  },
+  // Overrides every resting shadow prop: a leftover depth offset would smear the glow downward.
   // The glow's colour is the theme's, set inline.
   cardFocused: {
     shadowOffset: { width: 0, height: 0 },
