@@ -213,7 +213,9 @@ allowlists, run it and say so in the PR. See
 AVKit features (Up Next, the info panel, chapters, channel flipping) and upstream
 fixes. An upgrade that breaks the patch fails the install instead of silently
 dropping them. To change it, edit `node_modules/react-native-video/` and run
-`npx patch-package react-native-video`.
+`npx patch-package react-native-video`. Once a patched feature has matured in
+Tomo and proven it helps every react-native-video user, we plan to open a pull
+request for it upstream. None has been opened yet.
 
 Releasing the app is a maintainer step: [`docs/RELEASING.md`](docs/RELEASING.md).
 `npm run archive -- <next-build>` archives iOS, Mac and tvOS in that order with
