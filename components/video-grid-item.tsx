@@ -80,9 +80,9 @@ interface VideoGridItemProps {
   onLongPress?: (video: JellyfinVideoItem) => void;
   index: number;
   onItemFocus?: (video: JellyfinVideoItem, index: number) => void;
-  /** TV: focus left this card (grid focus bookkeeping — see library-grid's recovery). */
+  /** TV: focus left this card (grid focus bookkeeping; see library-grid's recovery). */
   onItemBlur?: (video: JellyfinVideoItem) => void;
-  /** TV: this card unmounted while it held focus — its native view died under the viewer. */
+  /** TV: this card unmounted while it held focus: its native view died under the viewer. */
   onFocusedGone?: () => void;
   hasTVPreferredFocus?: boolean;
   /** Wear the focus treatment with no touch on it, how the phone marks the "Show In Folder" target. */
@@ -331,7 +331,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
       nextFocusDown={nextFocusDown}
       accessible={!inert}
       // The card is ONE element to assistive tech (accessible flattens the
-      // subtree): name as the label, watched progress as the VALUE — screen
+      // subtree): name as the label, watched progress as the VALUE; screen
       // readers announce "Name, 42% watched, button" and re-announce the value
       // if it changes, without the name/percent fused into one string.
       accessibilityLabel={airingName ? cardTitle : videoName || t("a11y.video")}

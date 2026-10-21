@@ -29,9 +29,9 @@ interface FolderGridItemProps {
   onLongPress?: (folder: JellyfinItem) => void;
   index: number;
   onItemFocus?: (folder: JellyfinItem, index: number) => void;
-  /** TV: focus left this card (grid focus bookkeeping — see library-grid's recovery). */
+  /** TV: focus left this card (grid focus bookkeeping; see library-grid's recovery). */
   onItemBlur?: (folder: JellyfinItem) => void;
-  /** TV: this card unmounted while it held focus — its native view died under the viewer. */
+  /** TV: this card unmounted while it held focus: its native view died under the viewer. */
   onFocusedGone?: () => void;
   hasTVPreferredFocus?: boolean;
   /** Wear the focus treatment with no touch on it, how the phone marks the "Show In Folder" target. */
@@ -108,8 +108,8 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
   const thumbnailSource = useMemo(() => folderPosterSource(folder, POSTER_SIZE), [folder]);
   const preview = useFolderPreview(folder, !thumbnailSource);
 
-  // The card's slot ratio (see cardSlotRatio — shared with the row packer so rendered and
-  // allocated widths agree). The art always cover-fills the slot — a crop beats a letterbox.
+  // The card's slot ratio (see cardSlotRatio, shared with the row packer so rendered and
+  // allocated widths agree). The art always cover-fills the slot: a crop beats a letterbox.
   const cardRatio = cardSlotRatio(fitArtwork, folder.PrimaryImageAspectRatio, slotOrientation);
 
   const folderName = cleanLabel(folder.Name);
