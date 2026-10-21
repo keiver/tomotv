@@ -171,6 +171,31 @@ describe("LivePlayback open and play", () => {
     expect(closed).toEqual(["ls-1"]);
   });
 
+  it("keeps the next channel's ring session when the left channel's open lands late", async () => {
+    const closed: string[] = [];
+    const hotB: RingSession<Channel> = { channelId: "B", details: { Id: "B", LiveStreamId: "ls-ring-B" }, url: "http://127.0.0.1/t-B/master.m3u8", token: "t-B", ready: true };
+    let landA: (item: Channel) => void = () => {};
+    const live = new LivePlayback<Channel>({
+      closeChannel: (item) => closed.push(item.LiveStreamId),
+      takeHot: async (id) => (id === "B" ? hotB : null),
+      takeWarm: () => null,
+      openChannel: () =>
+        new Promise<Channel>((resolve) => {
+          landA = resolve;
+        }),
+    });
+    let onA = true;
+    const openingA = live.open("A", () => onA);
+    await flush();
+    onA = false;
+    expect(await live.open("B", () => true)).toEqual(hotB.details);
+    landA({ Id: "A", LiveStreamId: "ls-A" });
+    expect(await openingA).toBeNull();
+    expect(mockStopped).not.toContain("t-B");
+    expect(live.takeAdopted("B")).toEqual({ url: hotB.url, token: "t-B", ready: true });
+    expect(closed).toEqual(["ls-A"]);
+  });
+
   it("plays a channel: opens it, starts its session and hands the URL over", async () => {
     const { live, started } = player();
     const urls: string[] = [];

@@ -144,14 +144,14 @@ export class LivePlayback<Item> {
    * `openChannel`. Null when the viewer left (`current` false), with nothing left open.
    */
   async open(channelId: string, current: () => boolean): Promise<Item | null> {
-    const taken = await this.acquire(channelId, current);
+    const { item: taken, token } = await this.take(channelId, current);
     if (!current()) {
-      this.abandonTaken(taken);
+      this.abandonTaken(taken, token);
       return null;
     }
     const item = taken ?? (await this.required("openChannel")(channelId));
     if (!current()) {
-      this.abandonTaken(item);
+      this.abandonTaken(item, token);
       return null;
     }
     if (item === null) return null;
@@ -293,9 +293,9 @@ export class LivePlayback<Item> {
     return this.deps.isChannel?.(item) ?? true;
   }
 
-  /** What a stale attempt took: its hot session stops and an open it holds closes. */
-  private abandonTaken(item: Item | null): void {
-    this.dropAdopted();
+  /** What a stale attempt took: its hot session stops unless a newer attempt replaced it, and an open it holds closes. */
+  private abandonTaken(item: Item | null, token: string | null): void {
+    if (token !== null && this.adopted?.token === token) this.dropAdopted();
     if (item !== null && this.isChannel(item)) this.abandon(item);
   }
 
@@ -304,19 +304,24 @@ export class LivePlayback<Item> {
    * for an attempt the viewer left (`current` false) is let go here.
    */
   async acquire(channelId: string, current: () => boolean): Promise<Item | null> {
+    return (await this.take(channelId, current)).item;
+  }
+
+  /** `acquire`, with the token of the hot session it adopted. */
+  private async take(channelId: string, current: () => boolean): Promise<{ item: Item | null; token: string | null }> {
     this.dropAdopted();
     this.channelId = channelId;
     const hot = await (this.deps.takeHot ?? ((id: string) => takeRingSession<Item>(id).then((ring) => ring ?? takeLivePreview<Item>(id))))(channelId);
     if (hot && !current()) {
       this.stopSession(hot.token);
       this.deps.closeChannel(hot.details);
-      return null;
+      return { item: null, token: null };
     }
     if (hot) {
       this.adopted = { channelId, url: hot.url, token: hot.token, ready: hot.ready };
-      return hot.details;
+      return { item: hot.details, token: hot.token };
     }
-    return (this.deps.takeWarm ?? ((id: string) => takeWarmDetails<Item>(id)))(channelId);
+    return { item: (this.deps.takeWarm ?? ((id: string) => takeWarmDetails<Item>(id)))(channelId), token: null };
   }
 
   /** What the app opened for this play; closed on every drop and teardown unless the ring takes it. */
