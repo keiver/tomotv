@@ -59,6 +59,10 @@ All notable changes to Tomo TV are documented here.
 - The live mark on a channel card animated every frame on every card with a picture (the draining wedge, then a pulsing dot), which kept the whole wall redrawing. LIVE now shows only while the picture is seconds old and nothing animates in the badge
 - A show's card on the New shelf counted only how many of the newest items the server grouped into it. It now counts all the show's episodes
 - On Apple TV a channel's logo could be cropped to fill the info panel's tile like a poster. It now sits whole on the tile however the channel was opened
+- A live channel the provider refused for a moment after a drop ended with an error: three refusals in 1.5 s, while the provider still counted the connection Tomo had just closed, were taken as final. For 15 s after that close a refusal no longer counts, and the channel opens again once the provider lets it
+- Picking a channel while the one before it was still opening could stop the new channel's warm session, so it started cold
+- A live subtitle segment whose download broke off was taken as whole, and its captions never showed. A cut-off download is read again
+- After a live channel's stream ended and Tomo opened it again, the audio went back to the language in Settings. It now reopens in the language that was playing
 - The iPad and Mac info card centers in the safe area, under the title-bar tabs
 - On iPad and Mac the info panel opened as a 320-point loading card and then resized to its content. The card now appears once its content is ready, at the size it keeps; until then, and when the load fails, only the loading line or the error and Retry show over the blur, with no card or close button, as on iPhone
 
