@@ -1,98 +1,87 @@
 # CLAUDE.md
 
-## THE ULTIMATE RULE: NO PREDICTIONS. EVER.
+**TomoTV** is a Jellyfin client built with React Native TVOS and Expo for Apple TV, iPhone, iPad and Mac Catalyst (macOS 13.4 or later). Playback runs through our own on-device engine (`packages/tomo-engine`); live TV runs through `packages/tomo-live` on top of it. The server transcodes only what the engine cannot take.
 
-Never act on, state, or commit anything derived from a prediction. Every claim
-gets CONFIRMED first: read the code path, run the probe, research the source.
-A claim about runtime state (a measurement, a cache, a server) gets checked,
-never assumed. "It should" is banned; "measured/read/probed: it does" is the
-only acceptable form.
+This file is an index. The global `~/.claude/CLAUDE.md` holds the general working rules; nothing here repeats them. Instructions that matter only while editing certain code live in `.claude/rules/` and load when that code is touched: `.claude/rules/tomo-engine.md`, `.claude/rules/tomo-live.md`, `.claude/rules/native-swift.md`, `.claude/rules/tvos-ui.md`. They stay out of `packages/`, where any changed file counts as a package release for `scripts/package-versions.mjs`. `__tests__/claudeMd.test.ts` pins every path, script, package and symbol these files name, so a stale line fails `npm test`.
 
-- A plan is a claim. Every mechanism in it is measured before it ships; never defer it, refuse it, or list it as "open".
-- A mechanism flagged as unconfirmed never ships, even when told "add the fix".
-- Behaviour of a shipped app needs a run on a device, not a source read. SDK availability is not adoption.
-- Code is the evidence. Comments, docs, commit messages and agent reports are claims under review.
+## THE ULTIMATE RULE: NO ASSUMPTIONS. EVER.
+
+Every claim is confirmed before I state, act on or commit it: read the code path, run the probe, research the source. Runtime state (a measurement, a cache, a server) gets checked, never assumed. "It should" is banned; "measured/read/probed: it does" is the only form.
+
+- A plan is a claim: measure every mechanism before it ships, never defer it or list it as "open". An unconfirmed mechanism never ships, even when told "add the fix".
+- Shipped-app behaviour needs a device run, not a source read. SDK availability is not adoption.
 - Provenance comes from `git log -S`, never one commit's diff.
-- A finding is traced to a consequence at a file:line I opened, or it is not reported. Never float a failure hypothesis or forward an agent verdict untraced.
-- Never assert Apple/native API names or availability from memory: grep the installed SDK headers or `xcrun swiftc -typecheck` a probe. Apple Developer Forums are never a source.
+- A finding is traced to a consequence at a file:line I opened, or it is not reported.
+- Apple/native API names and availability: grep the installed SDK headers or `xcrun swiftc -typecheck` a probe. Apple Developer Forums are never a source.
 - Never say "cannot"/"impossible" before grepping the repo for an existing mechanism (e.g. `scripts/transcode-bench.mjs` already drives the Apple TV).
 - Open every file my own search returned before theorizing about it.
 - Confirming a defect is real is not confirming a fix is safe: find the invariant the current shape protects first.
 
 ## MAIN RULE: THE CODE PROVES THE FIX, NEVER A TEST
 
-A fix is complete when I have read every file on its path in full, understand it,
-and can say from the code what I changed, why, and why that removes the bug.
-Tests are Keiver's tool for checking my work. They are never my proof, and a
-device run is his verdict, never a step I wait on.
+A fix is complete when I have read every file on its path in full (every caller, every writer and reader of the state I touch; a grep hit is not reading) and can say from the code what I changed and why that removes the bug. An unread file on the path means it is not done. Tests are Keiver's tool for checking my work, never my proof; a device run is his verdict, never a step I wait on.
 
-- "Is it fixed?" gets yes or no, then the code path with file:line. Never "run it and see", "not confirmed in the app" or "the tests pass".
-- Read the whole relevant code before the first edit: every caller, every writer and reader of the state I touch. A grep hit and the lines around it is not reading.
-- Name what I have not read. An unread file on the path means the fix is not done: keep reading, do not hand it over.
+- "Is it fixed?" gets yes or no, then the code path with file:line. Never "run it and see" or "the tests pass".
 - Write the tests and run the ones the change touches. A green run is reported as a green run, never as the reason the fix works.
 
-**TomoTV** is a Jellyfin video streaming app built with React Native TVOS and Expo, targeting Apple TV (tvOS), iPhone, iPad and Mac Catalyst on macOS 13.4 or later (Apple Silicon and Intel). Playback runs through an on-device engine (packages/tomo-engine, the `@keiver/tomo-engine` workspace package: ios/LocalRemuxer + an owned FFmpeg build): H.264/HEVC stream-copy from any container, on-device transcode for the rest, Dolby passthrough, multi-audio switching, and image subtitles drawn over the native player. The server transcodes only true edge cases.
+## Packages
 
-## Communication Format
+Two npm workspaces (`packages/*` in the root `package.json`, symlinked into node_modules/@keiver). Dependencies point one way: app -> `@keiver/tomo-live` -> `@keiver/tomo-engine`. No package imports `@/` app code, and the engine never imports the live package; the test pins both.
 
-Add 10 blank lines BEFORE and AFTER response text for visual breathing room in terminal.
+- `packages/tomo-engine`: the on-device playback engine (FFmpeg, the `LocalRemuxer` and `LiveSources` native modules). Layout, build, FFmpeg and engine facts: `.claude/rules/tomo-engine.md`.
+- `packages/tomo-live`: live TV over the engine (`LivePlayback`, the channel ring, previews, guide, the `LiveClipModule` Expo module). Layout: `.claude/rules/tomo-live.md`.
+- The code is in the package: `services/playbackHold.ts`, `services/livePreview.ts`, `services/liveRing.ts` and `utils/guideMatch.ts` only re-export or wrap package symbols. Fix the package file.
+- Versions: `npm run release:engine` / `npm run release:live` bump the version only; each package keeps its own `CHANGELOG.md`. Name a version with its package (`@keiver/tomo-engine@1.4.0`).
 
-- Short. Lead with the answer. Done work is one plain sentence: no lists, hashes, test counts or self-corrections unless asked.
-- A review reply is the verdict: "Nothing found" or the defects, one line each with file:line.
-- No em dashes anywhere: chat, commits, comments, docs, store copy. Grep every file I touched for U+2014.
-- Plain words, no jargon, in chat, test names, comments, commits and docs. Never coin terms or pretty-sounding phrasing ("owed", "landing", "a load the newer file outdated"). A test name says plainly what the test checks. Use a technical term only when no plain word fits.
-- A question gets an answer in prose and the turn ends. Edits wait for a go. A "why" gets the measured finding and a proposal, then a stop.
-- Never relitigate a settled claim: verify once, answer yes/no. If I was wrong, say "I was wrong", never "what I meant was".
-- Never restate a mechanism the user already understood; build what they asked to hold.
-- Hold ground only on verified facts; cave only on evidence.
-- Name our own regressions plainly: commit, mechanism, why nothing caught it. Never turn evidence the user already gave into a question.
-- Never present a tangential bug as a discovery, never invent problems from taste, never mention jest force-exit/test-hygiene noise.
-- Never close a report with "not tested on device" or any untested caveat. When the user says it is tested, it is verified. A device run on the named target is the verdict.
-- Never treat the user's build/test/device process as a gap or to-do.
+## Where the code lives
 
-## Scope
+- Screen `app/player.tsx`. The `<Video>` lives in `components/player-host.tsx` (calls `useVideoPlayback`, draws `ImageSubtitleOverlay`), mounted once in `app/_layout.tsx` as `PlayerHost`, outside the navigator `Stack`, driven through `contexts/PlayerSessionContext.tsx` `usePlayerSessionHost`.
+- Provider order in `app/_layout.tsx`: `AuthProvider` > `LoadingProvider` > `LibraryProvider` > `PlayQueueProvider` > `PlayerSessionProvider` > `LibraryFiltersProvider` > navigator.
+- Playback state and open: `hooks/useVideoPlayback.ts` `useVideoPlayback`, with its pure helpers in `hooks/videoPlayback/`. Its reducer is `hooks/videoPlayback/machine.ts` `videoPlayerReducer`.
+- Lane pick (direct, `localRemux` engine, server `transcode`): `hooks/videoPlayback/laneDecision.ts` `planLaneGates`, `selectLane`. A live channel picks the engine or nothing, never the server.
+- Engine gate: `services/localRemux.ts` `canRemuxLocally` (every decline goes to the probe as a `decline` line), `predictPlaybackLane` (the item page and download planner's prediction, same gates), `startLocalRemux` (opens the session).
+- Below-realtime memory: `services/engineVerdicts.ts` `rememberedVerdict`, `recordVerdict`. Server transcode permission: `services/transcodePolicy.ts` `serverTranscodeAllowed`.
+- Jellyfin API: `services/jellyfinApi.ts` is a barrel over `services/jellyfin/*.ts`. Import network calls from `@/services/jellyfinApi`: 89 test files mock that specifier, and a direct `services/jellyfin/` import escapes the mock.
+- Auth: `contexts/AuthContext.tsx` `AuthProvider`, `useAuth`; `services/jellyfin/auth.ts`, `services/jellyfin/accounts.ts`.
+- Downloads: `services/downloads/manager.ts` `downloadManager`, `removeAll`.
+- UI strings: `services/i18n/index.ts` `t`, catalogues in `services/i18n/locales/`.
+- Tomo-only native modules: `native/ios/AudioQueuePlayer`, `native/ios/BookRenderer`, `native/ios/LyricsListener`, `native/ios/MultiAudioResourceLoader`, `native/ios/TopShelf`, `native/ios/TopShelfReload`, `native/ios/TunerGroups`. Each is copied in by its `plugins/with*.js` (Top Shelf: `plugins/withTopShelfExtension.js`); Swift tests in `native/ios/Tests/`, SwiftPM `native/ios/Package.swift`.
+- Edit native sources in `packages/*/ios/` and `native/`, and project configuration in `plugins/` and `scripts/`, never the generated `ios/`, `macos/`, `tvos/` or `android/`.
 
-- Build exactly the ask, then stop. An unasked safeguard, guard script, lock or helper is slop; delete it on the first push-back.
-- When the user names the fix, apply it site-wide at once, no root-cause hunt.
-- Confirmed findings in a review/fix request get fixed and tested in the same turn, never offered as options. Same root cause at N sites = a failing test per site, then fix all N.
-- A readiness evaluation, "what's new", research, agent run or `/loop` is READ-ONLY: findings, then wait for a go.
-- Smallest change that removes the reported symptom. Anything else found on the way is one reported line, never applied.
-- Copy/comment staleness can be fixed in-pass; runtime behaviour changes near a task wait for a go.
-- Approved scope is literal ("restore the titles" = titles only).
-- Fixing a test touches only its assertions/inputs: no harness additions, never the code under test.
-- Never remove or shrink a user-visible feature (clips, reels, bursts) for perf without asking. List every surface that reads the output first.
-- Never remove a user capability (orientation, gestures) to dodge a library bug; use the native presentation instead.
-- Never change user-visible strings, titles or SEO text unless that string is named. Grep locale strings and `Settings` copy before calling behaviour a bug: what the copy describes is a design decision.
-- No new dependency, icon family or font for a cosmetic change. Ionicons only.
-- Stacked buttons share one width; hierarchy comes from fill/outline. Positional anchors (progress bars, badges) never move between states.
-- Read a screenshot precisely: name the broken element and state first, fix only that.
-- Before any tvOS focus/Menu/navigation design, read `memories/CLAUDE-lessons-learned.md` and `git log -S`. Never substitute the requested mechanism for an adjacent one.
-- Never patch libraries or add native surface before exhausting app-altitude fixes using the library's own events. No private Apple APIs, ever.
+## Before you touch X, read Y
 
-## Shared Checkout, Builds and Devices
+- A playback lane, the engine, a codec, a transcode: `memories/CLAUDE-playback-engine.md` and `.claude/rules/tomo-engine.md`
+- Tiers, ABR, the gateway, link measurement: `memories/CLAUDE-slipstream.md`
+- Audio track switching: `memories/CLAUDE-multi-audio.md`
+- A Jellyfin call: `memories/CLAUDE-api-reference.md`, then <https://api.jellyfin.org/openapi/jellyfin-openapi-stable.json>
+- A context or manager's state: `memories/CLAUDE-state-management.md`
+- Credentials, SecureStore, app config: `memories/CLAUDE-configuration.md`
+- A new screen or hook, folder structure: `memories/CLAUDE-patterns.md`
+- A component, colour or design token: `memories/CLAUDE-components.md`
+- expo-tvos-search or any dependency: `memories/CLAUDE-external-dependencies.md`
+- Any tvOS focus/Menu/navigation design: `memories/CLAUDE-lessons-learned.md` and `git log -S`
+- A playback failure, a failing suite, a device, Metro or build problem: `memories/CLAUDE-debugging.md`, then `memories/CLAUDE-lessons-learned.md`
+- Accounts, profiles, PIN, user switching: `memories/CLAUDE-multiuser.md`
+- Writing or changing tests: `memories/CLAUDE-testing.md`
+- The playback suite or its fixtures: `test/playback/CLAUDE.md`
+- Security: `memories/CLAUDE-security.md`
+- Performance: `memories/CLAUDE-app-performance.md`
+- Setup: `memories/CLAUDE-development.md`
+- Icons, Top Shelf art: `memories/CLAUDE-tvos-icons.md`
+- App Store copy, screenshots, naming, review notes, What's New: `memories/CLAUDE-apple-store-metadata.md` (its decisions of record come first)
+- Roadmap or competitors: `memories/CLAUDE-roadmap.md`
+- Reading a screenshot or image: `memories/CLAUDE-image-analysis.md`
+- "Does Tomo support X?": `FEATURES.md`
+- Signing, archive, Mac captures: `docs/RELEASING.md`
 
-- The user runs several sessions in this checkout. Re-run `git log --oneline -10` and `git status` before any review, doc or "the branch has X" claim.
-- Commit only on the user's go, only files this session touched, one commit per concern, never `git add .`/`-A`. Rename with `mv`, never `git mv`. No attribution trailers ever: `git log -1 --format=%(trailers)` prints nothing.
-- Before any `git stash`/`pop`, check `git diff --quiet -- <files>`; never pop an entry that is not mine.
-- Ask before mutating shared state: node_modules, patches (`patch-package --reverse`), lockfiles, caches.
-- NEVER run `npm run prebuild`/`prebuild:tv`/`expo prebuild`, xcodebuild or archive on my own. The user builds. Never caveat a native change with "needs a prebuild".
-- Never `npm publish`, tag, or post to any registry or service. Never post PR/issue comments with `gh` (they post as the user); PR body edits on request are fine. Fix what a review comment raises before replying to it.
-- PR bodies and CHANGELOG are terse and factual, list only what was measured, never verification gaps.
-- No pipeline locks, guards or scripts unless asked; "can we guard against X?" is a question.
-- Hands off booted sims and devices (`simctl openurl/io/launch`, `devicectl`) unless asked that turn. Never `process launch` on the TV while the user runs it from Xcode.
-- While `npm run test:playback` runs, app source and the Jellyfin server are frozen.
-- The personal Jellyfin (localhost:8096) is real media: reads any time, every write (library, path, user) asked per action.
-- Kill only by explicit PIDs read from `ps -eo pid,etime,command`; never `pkill -f`/`pgrep -f` (Jellyfin's command line contains the ffmpeg path).
-- Never write a username, home path or scratchpad path into a repo file, even for one run. Debug dumps go to `os.tmpdir()`.
-- Fixtures are synthetic: no real library paths, volume names or titles.
-- Test steps name concrete items from `test/playback/manifest.json`, never "any HDR10 file you have". Engineered repros are mine, ordinary-use logs are the user's.
+`memories/CLAUDE-lessons-learned.md` takes a new entry only when asked: one `## Note:` paragraph of confirmed facts (mechanism, fix with commit hash, rule).
 
 ## Product Decisions of Record (never re-propose)
 
-- The server is a file host: on a link that carries the source (>= 1.2x its rate) no server rung or transcode is touched. Design: `memories/CLAUDE-slipstream.md`.
-- The phone player is the PRESENTED AVKit player. Native chrome is the moat: no custom controls, no overlay buttons, no lib patches for player behaviour. Player-adjacent UI goes between episodes (`components/up-next-interstitial.tsx`), never over the presentation.
+- The server is a file host: on a link that carries the source (>= 1.2x its rate) no server rung or transcode is touched.
+- The phone player is the PRESENTED AVKit player. No custom controls, overlay buttons or lib patches for player behaviour. Player-adjacent UI goes between episodes (`components/up-next-interstitial.tsx`), never over the presentation.
 - Never add hunks to `patches/react-native-video+*.patch` for player behaviour; editing an existing hunk needs a go. Stay on RNV 6.19.2 until v7's podspec gains `:tvos`.
-- `showNotificationControls={!Platform.isTV}` in app/player.tsx is load-bearing for the AirPlay dialog.
+- `showNotificationControls={!Platform.isTV}` in `components/player-host.tsx` is load-bearing for the AirPlay dialog.
 - tvOS Menu key = native pop, zero handlers.
 - tvOS screens never get a native `UINavigationBar`. Ship TV layout changes behind `!Platform.isTV` from the first commit.
 - On tvOS never render an absolutely positioned view above focusables (react-native-tvos forces `isUserInteractionEnabled`, `pointerEvents` cannot opt out). Inset shadows go on the container.
@@ -104,164 +93,100 @@ Add 10 blank lines BEFORE and AFTER response text for visual breathing room in t
 - Never auto-logout on network failure. Recovery matches servers by stored `jellyfin_server_id`.
 - Issue 73: explicit `Recursive=false` on every non-recursive `/Items` call. Shared library folders are unsupported by Jellyfin; no app-side scoping.
 - Issue 76 (Touch Alternatives eats keys): no plist/defaults fix exists.
-- No in-player remote subtitle search (Jellyfin returns empty for `Type: Video`). No Apple Watch app. iOS 27 Generated Subtitles stay out of copy until approved.
-- App Store screenshots: iPhone/iPad portrait only, tvOS landscape. 1320x2868 goes in the hidden 6.9" slot. Caption band: gold #FFC312, ink #2B1F05, Space Grotesk SemiBold.
-- Naming "Tomo TV, a Jellyfin Client" is the branding doc's own example: never propose a rename or logo change.
-- App Review Notes must be filled for any new platform submission; adding a platform is a new-app review.
-- App Store What's New: a few short lines, one user benefit each, in the viewer's words. No internals (engine, codecs, M3U/playlist, focus targets, row counts, timings) and no niche fixes; those stay in CHANGELOG.
+- No in-player remote subtitle search (Jellyfin returns empty for `Type: Video`). No Apple Watch app.
 
-## Engine and Platform Facts
+## Platform Facts
 
 - Subtitles never route playback to the server. The lane is picked by codec, measurement or verdict; name that, never a fixture nickname.
-- The engine's session anchor is the first keyframe it sees: the first generation MUST open at position 0. Move the segment index, never the clock.
-- Per-pixel/per-sample realtime loops belong in the -O2 FFmpeg frameworks, never app-target Swift (Debug runs ~300x slower).
-- Engine sources live in `packages/tomo-engine/ios/{LocalRemuxer,LiveSources}`; the TomoEngine pod and `packages/tomo-engine/Package.swift` glob them, so a new file needs no registration. Tomo-only native files stay in `native/ios/` and are copied by their plugin.
-- Native changes: `swift build --package-path packages/tomo-engine` and `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer npm run test:engine` before "done".
-- Any Swift file subclassing RCTEventEmitter needs a literal `import React`.
 - Jellyfin auth in URLs is `ApiKey=` (lowercase `api_key` 401s on Jellyfin 12). Never rename the SecureStore key `jellyfin_api_key`.
 - Item ids are MD5(type + path): identical across servers. State keyed only by id survives a server switch; scope it to the session.
 - Jellyfin attaches a sidecar only when its filename starts with the video's full filename then `.`.
-- Reanimated worklet helpers are not hoisted: define them above their callers.
-- tvOS simulator has no HEVC decoder: an `encode hevc` plan failing at 0.0s on the sim is judged on a device.
 - `isReadyForDisplay` never fires for audio-only; gate reveal on it only for video.
 - Dolby Vision proof is only `hdrMode = Dolby` in Console.app (needs Match Dynamic Range on). The in-app DV badge proves nothing. Profile 7 converts in our FFmpeg, no libdovi.
 - Atmos: the AirPods Control Center badge is conclusive when positive, not when negative.
 - The flash before playback on Apple TV is Match Content; ask its setting before hunting open-time artifacts.
 - Codec coverage claim: "59 of 110 allowlist prefixes proven through the real pipeline, zero failures", never "497 decoders". Probe with `npm run probe:codecs`, never `nm`.
-- Before changing the HLS master shape, read Apple's HLS authoring spec appendixes, not only RFC 8216.
+- HTTP is allowed to all networks (HTTPS recommended for public servers: HTTP sends credentials in plaintext). Only Jellyfin servers are supported.
 
-## Debugging Order
+## Working Rules
 
-- Playback failure: Jellyfin log (`~/Library/Application Support/jellyfin/log/`, grep the item id, newest `FFmpeg.*-<id>` log) and the item Path first, then app code.
-- Continue Watching "missing": grep the app log for `CW row fetch` and `Auth credentials saved` to confirm the account.
-- Whole playback suite failing: the app is signed into another server. `xcrun simctl spawn <udid> log show --last 45m --predicate 'process == "TomoTV"' | grep -o -E "url: https?://[^/]+" | sort | uniq -c`. Never pipe the run through `tail`.
-- Device cannot reach Metro: check the macOS firewall for the current node binary (`scripts/check-firewall.sh`), then VPN on the phone.
-- AVPlayer -1001 on every LAN URL on the Apple TV while the engine plays: reboot the TV.
-- Top Shelf showing stale/static content after reinstall: fresh install and reboot before suspecting code.
-- Build failure: read the `.xcactivitylog` in DerivedData, not only the pasted errors.
-- `log` is aliased to `git log` in this shell: use `/usr/bin/log show`.
-- Link speed ground truth is the server NIC's tx_bytes or Cloudflare `__down`, never the Mac.
-- Console.app is `-0500`, the JS logger is `Z`.
-- Device logs: `xcrun devicectl device process launch --console --payload-url "tomotv://player?videoId=<id>&probe=1" dev.keiver.tomotv` (only when asked).
-- Sign a sim into any server: `tomotv://dev-session?...` (dev builds), then route links like `tomotv:///settings`. macOS 27 has no Simulator.app: drive the tvOS sim with `simctl openurl`, the Metro inspector and lldb `UIFocusDebugger`.
-- JS thread profiling: Metro inspector at `http://localhost:8081/json` with `Origin: http://127.0.0.1:8081`, `Tracing` domain.
+Add 10 blank lines BEFORE and AFTER response text.
 
-## Testing (standing work, every session)
+- A review reply is the verdict: "Nothing found" or the defects, one line each with file:line. A full review reads every changed file, checks `git log -S` before calling something a regression and whether a test asserts it before calling it a bug. The user's tested design choices are not bugs.
+- Plain words, no jargon, in chat, test names, comments, commits and docs. No coined or pretty phrasing ("owed", "landing"). A test name says plainly what it checks.
+- A question gets a prose answer and the turn ends; edits wait for a go. A "why" gets the measured finding and a proposal, then a stop.
+- Never relitigate a settled claim. Say "I was wrong", never "what I meant was". Hold ground only on verified facts; cave only on evidence.
+- Name our own regressions plainly: commit, mechanism, why nothing caught it. Never turn evidence the user already gave into a question.
+- Never present a tangential bug as a discovery, invent problems from taste, or mention jest force-exit/test-hygiene noise.
+- Never close with "not tested on device" or any untested caveat; the user's build/test/device process is never a gap. A device run on the named target is the verdict.
+- Approved scope is literal ("restore the titles" = titles only). An unasked safeguard, guard script, lock or helper is slop; delete it on the first push-back. "Can we guard against X?" is a question.
+- When the user names the fix, apply it site-wide at once, no root-cause hunt.
+- Confirmed findings in a review/fix request get fixed and tested in the same turn, never offered as options. Same root cause at N sites = a failing test per site, then fix all N.
+- A readiness evaluation, "what's new", research, agent run or `/loop` is READ-ONLY: findings, then wait for a go.
+- Smallest change that removes the reported symptom; anything else found is one reported line. Copy/comment staleness can be fixed in-pass; runtime behaviour changes near a task wait for a go.
+- Never remove or shrink a user-visible feature (clips, reels, bursts) for perf without asking; list every surface that reads the output first. Never remove a user capability (orientation, gestures) to dodge a library bug; use the native presentation instead.
+- Never change user-visible strings, titles or SEO text unless that string is named. Grep `services/i18n/locales/` and `Settings` copy before calling behaviour a bug: what the copy describes is a design decision.
+- Read a screenshot precisely: name the broken element and state first, fix only that.
+- Exhaust app-altitude fixes using the library's own events before patching libraries or adding native surface. No private Apple APIs, ever.
+- Type safety (no `any` without justification); try-catch around async operations.
 
-- The jest `coverageThreshold` only ratchets up, never down to green a run.
-- Components are the grind: extract pure logic to a named export and test it. No snapshot tests.
+## Shared Checkout, Builds and Devices
+
+- Several sessions share this checkout. Re-run `git log --oneline -10` and `git status` before any review, doc or "the branch has X" claim.
+- One commit per concern. Rename with `mv`, never `git mv`. After committing, `git log -1 --format=%(trailers)` prints nothing.
+- Before any `git stash`/`pop`, check `git diff --quiet -- <files>`; never pop an entry that is not mine.
+- Ask before mutating shared state: node_modules, patches (`patch-package --reverse`), lockfiles, caches.
+- NEVER run `npm run prebuild`/`prebuild:tv`/`expo prebuild`, xcodebuild or archive. The user builds. Never caveat a native change with "needs a prebuild".
+- Never `npm publish`, tag, or post to any registry or service. Never post PR/issue comments with `gh` (they post as the user); PR body edits on request are fine. Fix what a review comment raises before replying to it.
+- PR bodies and CHANGELOG are terse and factual, list only what was measured, never verification gaps.
+- Hands off booted sims and devices (`simctl openurl/io/launch`, `devicectl`) unless asked that turn. Never `process launch` on the TV while the user runs it from Xcode.
+- While `npm run test:playback` runs, app source and the Jellyfin server are frozen.
+- The personal Jellyfin (localhost:8096) is real media: reads any time, every write (library, path, user) asked per action.
+- Kill only by explicit PIDs read from `ps -eo pid,etime,command`; never `pkill -f`/`pgrep -f` (Jellyfin's command line contains the ffmpeg path).
+- Never write a username, home path or scratchpad path into a repo file, even for one run. Debug dumps go to `os.tmpdir()`.
+- Fixtures are synthetic: no real library paths, volume names or titles.
+- Test steps name concrete items from `test/playback/manifest.json`, never "any HDR10 file you have". Engineered repros are mine, ordinary-use logs are the user's.
+
+## Testing
+
+- While working, run only the tests the change touches: `npx jest <path>` for Jest; `swift test --package-path packages/tomo-engine --filter <TestClass>` (or `--package-path native/ios`) for Swift.
+- `npm run test:engine` runs every Swift test in both packages (about 10 minutes). It is the release-final run: never during work and never as a review step.
+- Specs live in `__tests__/` beside their target. Components are the grind: extract pure logic to a named export and test it. No snapshot tests.
+- The `coverageThreshold` in `jest.config.js` only ratchets up, never down to green a run.
 - No open-handle leaks: clear timers, `.unref()`, remove listeners.
 - The `test`/`engine` CI checks on `main` stay required.
 
-## Memory Bank Keyword Index
+## Comments
 
-Load these files automatically when mentioned:
+None by default. Add one only for a constraint the code cannot show (a spec rule, an ordering invariant, a format quirk), one line, present tense. A docblock is at most 2 lines, an inline block 1, and comments stay under 5% of the lines a diff adds.
 
-**Implementation:**
+- Never write runtime behaviour claims (device, player, remote, OS, server, network): that is a measurement and goes in the commit message with how it was measured.
+- Never paraphrase what an Apple or third-party API does unless grepped in the SDK header that turn; then name the header symbol.
+- Never write pointers to other files, lines or callers, temporal framing ("now", "used to", "no longer", "this replaced Y"), justification blocks, or essays in data files (a `comment` field in a JSON fixture is a comment).
+- When a diff touches a function, every comment in it is re-read against the new code and fixed in the same diff. A wrong comment gets the comment fixed, never the code.
+- Never repeat a comment's claim to the user or into docs, store copy, CHANGELOG, a test name or another comment unless traced in code that turn; otherwise quote it as "the comment at file:line claims X, unverified". A runtime claim in a comment is confirmed only by a log, a measurement or the user's device run.
 
-- "features" / "does Tomo support" / "which platforms" -> `FEATURES.md`
-- "API" / "jellyfinApi" / "functions" -> `memories/CLAUDE-api-reference.md`
-- "state" / "manager" / "context" -> `memories/CLAUDE-state-management.md`
-- "audio tracks" / "multi-audio" -> `memories/CLAUDE-multi-audio.md`
-- "config" / "credentials" / "SecureStore" -> `memories/CLAUDE-configuration.md`
-- "pattern" / "how do I" / "example" -> `memories/CLAUDE-patterns.md`
-- "external" / "expo-tvos-search" / "dependencies" -> `memories/CLAUDE-external-dependencies.md`
-- "lessons" / "bug" / "debugging" -> `memories/CLAUDE-lessons-learned.md`
-- "multiuser" / "profiles" / "user switching" / "accounts" / "PIN" -> `memories/CLAUDE-multiuser.md`
-- "engine" / "remux" / "codec" / "transcode" / "deinterlace" / "swscale" -> `memories/CLAUDE-playback-engine.md`
-- "slipstream" / "adaptive" / "ABR" / "variants" / "gateway" -> `memories/CLAUDE-slipstream.md`
-
-**Testing and Components:**
-
-- "testing" / "tests" / "coverage" / "jest" -> `memories/CLAUDE-testing.md`
-- "playback suite" / "test:playback" / "fixtures" / "development-videos" -> `test/playback/CLAUDE.md`
-- "components" / "UI" / "design system" -> `memories/CLAUDE-components.md`
-
-**Security and Performance:**
-
-- "security" / "audit" / "vulnerability" -> `memories/CLAUDE-security.md`
-- "performance" / "optimization" / "slow" -> `memories/CLAUDE-app-performance.md`
-
-**Development and Deployment:**
-
-- "setup" / "install" / "development" -> `memories/CLAUDE-development.md`
-- "icons" / "tvOS icons" / "top shelf" -> `memories/CLAUDE-tvos-icons.md`
-- "App Store" / "metadata" / "screenshots" / "submission" / "review notes" -> `memories/CLAUDE-apple-store-metadata.md`
-- "roadmap" / "competitors" / "2.1" / "3.0" / "Infuse" / "Swiftfin" -> `memories/CLAUDE-roadmap.md`
-
-**Other:**
-
-- "image" / "vision" / "screenshot analysis" -> `memories/CLAUDE-image-analysis.md`
-- "Jellyfin API" / "server API" -> Official API docs at <https://api.jellyfin.org/openapi/jellyfin-openapi-stable.json>
-- "architecture" / "tech stack" / "folder structure" -> `memories/CLAUDE-patterns.md` (Architecture Reference section)
-- "color" / "palette" / "design tokens" -> `memories/CLAUDE-components.md` (Design System section)
-
-## Lessons Learned
-
-`memories/CLAUDE-lessons-learned.md` holds case studies. Add an entry only when asked: one `## Note:` paragraph of confirmed facts (mechanism, fix with commit hash, rule). No status write-ups after shipping.
-
-## Development Commands
+## Commands
 
 ```bash
-npm start                         # Refreshes dev IP and starts Metro/Expo
-npm run logs                      # Stream native NSLog/os_log from the booted simulator (second pane beside npm start)
-npm run ios                       # Build and run on iOS simulator
-npm test                          # Run all tests once
-npm run test:watch                # Watch mode for tests
-npm run test:coverage             # Generate coverage report
-npm run lint                      # ESLint and Prettier checks
-npm run clear                     # Prepare iOS, Mac, tvOS; open Xcode and start Metro (user runs it)
-npm run clearmac                  # Prepare Mac Catalyst, open Xcode and start Metro (user runs it)
-npm run prebuild:all              # Generate all three projects without Xcode/Metro (user runs it)
-npm run prebuild:mac              # Generate only the Catalyst project (user runs it)
-npm run prebuild                  # Clean native prebuild (user runs it)
-npm run prebuild:tv               # Prebuild with Apple TV support, EXPO_TV=1 (user runs it)
-npm run archive -- <next-build>   # Archive iOS, Mac, tvOS with one increasing build number (user runs it)
+npm start                 # Refreshes dev IP and starts Metro/Expo
+npm run logs              # Stream native NSLog/os_log from the booted simulator
+npx jest <path>           # The touched Jest tests
+npm run lint              # ESLint and Prettier checks
+npm run test:release      # Project and release script tests
+npm run test:engine       # Every Swift test, release-final only (about 10 minutes)
+npm run probe:codecs      # What the FFmpeg build registers
 ```
 
-The root workspace has `TomoTV-iOS`, `TomoTV-macOS` and `TomoTV-tvOS`. Use
-**My Mac (Mac Catalyst)** for the Mac scheme. Signing, Metal Toolchain consent
-and manual captures in `applestore/captures/mac/` are documented in `docs/RELEASING.md`.
+The user runs `npm run clear`, `npm run clearmac`, the `prebuild` scripts and `npm run archive -- <next-build>`. Schemes: `TomoTV-iOS`, `TomoTV-macOS`, `TomoTV-tvOS`; the Mac uses **My Mac (Mac Catalyst)**.
 
-## Native Code Development
+## End of Every Session: Keep These Files True
 
-**CRITICAL: Edit native sources in `packages/*/ios/` and `native/`, and project configuration in `plugins/` and `scripts/`, NOT generated `ios/`, `macos/`, `tvos/` or `android/`.** Prebuild regenerates the platform projects, copies Tomo's native sources from `native/ios/` and links the engine as the TomoEngine pod.
+They load into sessions, so a stale line is a confident wrong answer. Before the session ends, update the file that owns the fact, in the same change, when the session:
 
-## Code Quality Standards
+- added, removed or renamed a package, a `native/ios/` module, a `memories/` file or a file or symbol named in any of them;
+- changed which way the packages depend on each other;
+- added an npm script worth naming, or changed what one does;
+- settled a product decision or measured a platform fact worth keeping.
 
-- Type safety (no `any` without justification)
-- Error handling (try-catch around async operations)
-- No scale animations on grid items (performance rule)
-- No over-engineering, no premature abstraction
-- Edit repo files with the Edit tool only, never sed/python/heredoc rewrites; show the diff.
-
-### Comments: none by default, 1 line when one is earned
-
-No comment is the default. Add one only for a constraint the code cannot show (a spec rule, an ordering invariant, a format quirk), one line, present tense. Ceilings: a docblock is 2 lines, an inline block is 1, and comments stay under 5% of the lines a diff adds. Over the ceiling, delete.
-
-Never write:
-
-- **Runtime behaviour claims**: what the device, player, remote, OS, server or network does ("left/right skips tracks", "delivery is encoder-paced", "keeps the iPad idiom"). That is a measurement; it goes in the commit message with how it was measured.
-- **What an Apple or third-party key/API does**, unless grepped in the SDK header that turn, and then name the header symbol, not a paraphrase.
-- **Pointers elsewhere**: other files, line numbers, callers, or values defined in another place. They go stale on the next edit.
-- **Temporal framing**: "now", "used to", "no longer", "previously", "the old X", "this replaced Y". When behaviour changes, DELETE the comment describing the old behaviour.
-- **Justification blocks** defending a choice or explaining what could not be done. That belongs in the commit message.
-- **Essays in data files.** A `comment` field in a JSON manifest or fixture is still a comment.
-- **Restated call graphs.** A caller list is wrong the day someone adds a caller.
-
-When a diff touches a function, every comment in that function is re-read against the new code and deleted or corrected in the same diff.
-
-### Reading: comments are what is under review, never the evidence
-
-- Never repeat a comment's claim to the user or into docs, store copy, CHANGELOG, a test name or another comment unless I traced it in code that turn. Otherwise quote it as "the comment at file:line claims X, unverified".
-- A runtime behaviour claim in a comment is confirmed only by a log, a measurement or the user's device run. Reading code is not enough.
-- Form a finding from the code path first, then check the comment against it, never the other way round.
-- A wrong comment gets the comment fixed. Never change code because its comment is wrong.
-
-A full review reads every changed file and runs `npm run test:engine` before reporting once. Open the call path before repeating any claim a comment or commit message makes. Check `git log -S` before calling something a regression and whether a test asserts it before calling it a bug. The user's tested design choices are not bugs. Every finding names a file:line that was actually opened, or it does not ship.
-
-## Known Issues
-
-1. The on-device engine (packages/tomo-engine/ios/LocalRemuxer) plays progressive H.264/HEVC in any container by stream copy, and everything else the linked FFmpeg decodes by VideoToolbox transcode, any bit depth, audio-only files included; interlaced sources (interlaced H.264 too, read off the SPS when live TS hides the field order) are deinterlaced on device by bwdif, never copied, since HLS forbids interlaced samples. Subtitles send nothing to the server: text tracks ship as selectable HLS renditions, image tracks (PGS, DVD/VobSub, DVB, XSUB) are decoded on device to timed bitmaps the app draws over the native player. Server-side transcoding remains for codecs the build cannot decode and for files this device measured itself running below realtime on (the engine times segment 0 before the player is bound; `services/engineVerdicts.ts` remembers the file). We build FFmpeg ourselves (`scripts/ffmpeg/build.sh`, published by `.github/workflows/build-ffmpeg.yml`, fetched by `packages/tomo-engine/scripts/fetch-ffmpeg.js`) with every native decoder enabled, 520 of them, versus the 60 MPVKit's prebuilt allowlist left on, so DivX 3, Theora, DV, Cinepak and VVC all decode on device. `npm run probe:codecs` prints what the build actually registers. **Decision tree, allowlists and rationale: `memories/CLAUDE-playback-engine.md`**
-2. HTTP allowed to all networks; HTTPS recommended for public servers (HTTP exposes credentials in plaintext)
-3. Only works with Jellyfin servers (not Plex, Emby, etc.)
+Then run `npx jest __tests__/claudeMd.test.ts`. It fails on a named path that no longer exists, an `npm run` script missing from `package.json`, a symbol missing from the file it is listed under, a package without its own rule file in `.claude/rules/`, a package, `native/ios/` module or `memories/` file this file does not name, and a package file that imports app code or imports against the dependency direction.
