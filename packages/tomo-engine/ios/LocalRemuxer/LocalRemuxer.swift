@@ -266,7 +266,7 @@ class LocalRemuxer: RCTEventEmitter {
     ///                                provider key it opens as many as the budget spares, never fewer than one
     ///   fallbackInputUrl: String?  : the channel through the server, opened once when the input itself will not open
     ///   livePriority: String?      : "playback" (default), "ring" or "preview"; a higher one takes a full budget's slot from a lower
-    ///   liveAudioLanguage: String? : live HLS: the audio rendition made the default, by language; the group's default when absent
+    ///   liveAudioLanguage: String? : live: the audio track made the default, by language; the source's default when absent
     ///   livePlaylist: Bool?        : live: the input is an HLS playlist whatever its URL's extension
     ///   liveBufferSeconds: Double? : live: seconds of output the media playlists wait for, the player's start buffer
     ///   describesInput: Bool?      : the open input names its own range, size, rate and bit rate, and the audio tracks,

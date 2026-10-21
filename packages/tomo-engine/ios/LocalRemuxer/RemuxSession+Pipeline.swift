@@ -1639,6 +1639,14 @@ extension RemuxSession {
             if config.isLive, defaults.count == 1, let first = defaults.first {
                 audioIndices = [first] + audioIndices.filter { $0 != first }
             }
+            // A stream with no master (raw TS) puts the asked language first itself.
+            let wanted = LiveVariantPicker.baseLanguage(config.liveAudioLanguage)
+            if config.isLive, !wanted.isEmpty, let asked = audioIndices.first(where: { index in
+                let tag = av_dict_get(input.pointee.streams[Int(index)]?.pointee.metadata, "language", nil, 0).map { String(cString: $0.pointee.value) } ?? ""
+                return LiveVariantPicker.baseLanguage(tag) == wanted
+            }) {
+                audioIndices = [asked] + audioIndices.filter { $0 != asked }
+            }
             let tracks: [RemuxAudioTrack] = audioIndices.enumerated().map { position, index in
                 if let known = config.audioTracks.first(where: { $0.index == Int(index) }) { return known }
                 let metadata = input.pointee.streams[Int(index)]?.pointee.metadata

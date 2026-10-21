@@ -73,7 +73,7 @@ export interface EngineSessionConfig {
   inputConnections?: number;
   fallbackInputUrl?: string;
   livePriority?: "playback" | "ring" | "preview";
-  /** Live HLS: the audio rendition made the default, by language code; the group's default when absent. */
+  /** Live: the audio track made the default, by language code; the source's default when absent. */
   liveAudioLanguage?: string;
   /** Live: the input is an HLS playlist whatever its URL's extension. */
   livePlaylist?: boolean;
