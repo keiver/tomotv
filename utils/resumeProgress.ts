@@ -1,5 +1,5 @@
 import { JELLYFIN_TIME } from "@/services/jellyfin/constants";
-import { JellyfinVideoItem } from "@/types/jellyfin";
+import { JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 
 // The native position observer's interval (AudioQueuePlayer.swift), so the last tick of a
 // track lands a second short of its end.
@@ -17,6 +17,25 @@ export function cardResumeProgress(item: Pick<JellyfinVideoItem, "RunTimeTicks" 
   // Runtime-less kinds (live/strm): the server's own percentage is the only measure.
   const percent = item.UserData?.PlayedPercentage;
   return percent != null ? percent / 100 : undefined;
+}
+
+/** Watched fraction (0-1) of a series or season card, or undefined for any other card or one with nothing watched. */
+export function folderWatchedProgress(item: Pick<JellyfinItem, "Type" | "UserData">): number | undefined {
+  if (item.Type !== "Series" && item.Type !== "Season") return undefined;
+  if (item.UserData?.Played) return 1;
+  const percent = item.UserData?.PlayedPercentage ?? 0;
+  return percent > 0 ? percent / 100 : undefined;
+}
+
+/** The episode a season opens on: the last one started or watched in list order if unfinished, else the one after it. */
+export function bingeFocusId(items: Pick<JellyfinItem, "Id" | "Type" | "UserData">[]): string | undefined {
+  const episodes = items.filter((item) => item.Type === "Episode");
+  for (let i = episodes.length - 1; i >= 0; i--) {
+    const { Played, PlaybackPositionTicks } = episodes[i].UserData ?? {};
+    if (Played) return episodes[i + 1]?.Id;
+    if ((PlaybackPositionTicks ?? 0) > 0) return episodes[i].Id;
+  }
+  return undefined;
 }
 
 /** Position of the playing track as a 0 to 1 fraction of its runtime. */

@@ -12,6 +12,7 @@ import { useViewItemCount } from "@/hooks/useViewItemCount";
 import { folderPosterSource } from "@/services/itemArtwork";
 import { locale, t } from "@/services/i18n";
 import { cleanLabel } from "@/utils/cleanLabel";
+import { folderWatchedProgress } from "@/utils/resumeProgress";
 import { JellyfinItem } from "@/types/jellyfin";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
@@ -202,7 +203,15 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
           <View style={[styles.borderOverlay, focused && styles.borderOverlayFocused, styles.squareBottom]} pointerEvents="none" />
         </View>
         <View>
-          <CardStand name={folderName || t("a11y.folder")} icon={showsFavoriteHeart(folder) ? "heart" : undefined} focused={focused} scrolls clear surface={COLORS.SURFACE_SUNKEN} />
+          <CardStand
+            name={folderName || t("a11y.folder")}
+            icon={showsFavoriteHeart(folder) ? "heart" : undefined}
+            focused={focused}
+            progress={folderWatchedProgress(folder)}
+            scrolls
+            clear
+            surface={COLORS.SURFACE_SUNKEN}
+          />
           {navBarVisible ? <CardNavProgress active={navigating} title={folderName || t("a11y.folder")} stand baseColor={COLORS.SURFACE_SUNKEN} /> : null}
         </View>
         {focused ? <View style={[styles.focusRing, { borderColor: palette.accent }]} pointerEvents="none" /> : null}
@@ -218,6 +227,8 @@ function arePropsEqual(prev: FolderGridItemProps, next: FolderGridItemProps): bo
     prev.folder.ChildCount === next.folder.ChildCount &&
     prev.folder.RecursiveItemCount === next.folder.RecursiveItemCount &&
     prev.folder.UserData?.IsFavorite === next.folder.UserData?.IsFavorite &&
+    prev.folder.UserData?.Played === next.folder.UserData?.Played &&
+    prev.folder.UserData?.PlayedPercentage === next.folder.UserData?.PlayedPercentage &&
     prev.folder.ImageTags?.Primary === next.folder.ImageTags?.Primary &&
     prev.folder.SeriesId === next.folder.SeriesId &&
     prev.folder.SeriesPrimaryImageTag === next.folder.SeriesPrimaryImageTag &&
