@@ -100,11 +100,9 @@ function StandBody({
   const { accent, ink } = useCardPalette();
   const filled = progress != null;
   const full = filled && standFillPercent(progress) === 100;
-  // A watched card's base swaps its colours on focus: dark, the name in the accent.
-  const fullAndFocused = full && focused;
   const resting = isLowContrast(accent) ? COLORS.TEXT_PRIMARY : accent;
   // White on the LIVE red reads; gold on it does not. Over a partial fill the accent runs through a difference blend; a full one takes the ink.
-  const text = fullAndFocused ? resting : full || (focused && !filled) ? ink : filled ? accent : fresh ? COLORS.TEXT_PRIMARY : resting;
+  const text = full || (focused && !filled) ? ink : filled ? accent : fresh ? COLORS.TEXT_PRIMARY : resting;
   const glyphSize = IS_TV ? 15 : 9;
   const nameStyle = StyleSheet.flatten([styles.name, { color: text }]);
   const lead =
@@ -116,13 +114,13 @@ function StandBody({
         {mark?.(text)}
       </>
     ) : null;
-  const background = fullAndFocused ? COLORS.BACKGROUND_DEEP : focused && !filled ? accent : clear ? "transparent" : COLORS.BACKGROUND_DEEP;
+  const background = focused && !filled ? accent : clear ? "transparent" : COLORS.BACKGROUND_DEEP;
   return (
     <View style={[styles.base, { backgroundColor: background }]} pointerEvents="none" testID="card-stand">
       {IS_TV && background === "transparent" ? <GlassSurface style={StyleSheet.absoluteFill} tintColor={withAlpha(surface, CARD_GLASS_TINT_ALPHA)} pointerEvents="none" /> : null}
       {filled ? null : red}
       {/* An unpadded layer: an absolute child's percentage width resolves against its parent's padded inner width. */}
-      {filled && !fullAndFocused ? (
+      {filled ? (
         <View style={StyleSheet.absoluteFill}>
           <View style={[styles.fill, { width: `${standFillPercent(progress)}%`, backgroundColor: accent }]} testID="card-stand-fill" />
         </View>

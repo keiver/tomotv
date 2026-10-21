@@ -195,31 +195,15 @@ describe("card palette", () => {
     expect(nameOn(0.4)).toEqual({ color: ACCENT, blend: "difference" });
   });
 
-  it("a focused watched card's base goes dark with the name in the accent and no fill", () => {
-    const bright = "#4F99FF";
-    let tree!: TestRenderer.ReactTestRenderer;
-    act(() => {
-      tree = TestRenderer.create(
-        <CardPaletteOverride.Provider value={cardPalette(bright)}>
-          <CardStand name="Film" focused progress={1} />
-        </CardPaletteOverride.Provider>,
-      );
-    });
-    const base = tree.root.findAll((n) => n.props.testID === "card-stand" && typeof n.type === "string")[0];
-    const text = tree.root.findAll((n) => typeof n.type === "string" && n.props.children === "Film")[0];
-    expect(StyleSheet.flatten(base.props.style).backgroundColor).toBe(COLORS.BACKGROUND_DEEP);
-    expect(StyleSheet.flatten(text.props.style).color).toBe(bright);
-    expect(tree.root.findAll((n) => n.props.testID === "card-stand-fill")).toHaveLength(0);
-    act(() => tree.unmount());
-  });
-
-  it("a focused card part way through keeps its fill", () => {
-    let tree!: TestRenderer.ReactTestRenderer;
-    act(() => {
-      tree = TestRenderer.create(<CardStand name="Film" focused progress={0.4} />);
-    });
-    expect(tree.root.findAll((n) => n.props.testID === "card-stand-fill" && typeof n.type === "string")).toHaveLength(1);
-    act(() => tree.unmount());
+  it("a focused card keeps its fill at any progress", () => {
+    for (const progress of [0.4, 1]) {
+      let tree!: TestRenderer.ReactTestRenderer;
+      act(() => {
+        tree = TestRenderer.create(<CardStand name="Film" focused progress={progress} />);
+      });
+      expect(tree.root.findAll((n) => n.props.testID === "card-stand-fill" && typeof n.type === "string")).toHaveLength(1);
+      act(() => tree.unmount());
+    }
   });
 
   it("the fill sits in a layer with no padding, so its percentage spans the whole base", () => {
