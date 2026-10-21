@@ -311,6 +311,12 @@ final class EndpointProbeTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(started), 3)
     }
 
+    func testABodyCutOffBeforeItsEndIsNoAnswer() throws {
+        let origin = try routes(["/cue.vtt": .headersThenStall(200, headers: ["Content-Type": "text/vtt"], bodyPrefix: 20)])
+        let answer = EndpointProbe.request(URL(string: "\(origin.base)/cue.vtt")!, keepBody: true, timeout: 1)
+        guard case .unknown = answer else { return XCTFail("a cut-off body read as \(answer)") }
+    }
+
     func testAClosedPortIsRefused() throws {
         let closed = try ScriptedOrigin { _ in .respond(200) }
         let port = closed.port
