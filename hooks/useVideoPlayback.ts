@@ -1363,8 +1363,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           const audioStreams = (item.MediaStreams ?? []).filter((stream) => stream.Type === "Audio");
           const playingAudio = audioStreams.find((stream) => stream.Index === audioStreamIndexForReportingRef.current) ?? audioStreams.find((stream) => stream.IsDefault === true) ?? audioStreams[0];
           const selectedSubtitleIndex = startingSubtitleRendition(getSubtitlePreferenceSync(playingAudio?.Language), subtitleRenditionsRef.current);
+          // A channel opened again keeps the language AVPlayer was playing.
+          const liveAudioLanguage = isLiveRef.current ? reportedAudioLanguageRef.current : undefined;
           return startLocalRemux(item, audioStreamIndexForReportingRef.current ?? undefined, offset, {
             ...(serverVideoOnly ? { serverVideoOnly: true } : {}),
+            ...(liveAudioLanguage ? { audioLanguage: liveAudioLanguage } : {}),
             selectedSubtitleIndex,
           }).catch(rethrowAs(PLAYBACK_ERROR_IDS.ENGINE_START));
         };

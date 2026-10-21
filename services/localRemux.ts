@@ -701,7 +701,8 @@ export async function startLocalRemux(
   startOffsetSeconds?: number,
   // prewarm: a live ring neighbour no player reads yet, kept out of the plan and probe the playing session owns.
   // selectedSubtitleIndex: the track the stored choice lands on, decoded from the start with the default and forced ones.
-  options: { prewarm?: boolean; liveWindowSeconds?: number; serverVideoOnly?: boolean; livePriority?: "preview" | "ring"; selectedSubtitleIndex?: number | null } = {},
+  // audioLanguage: live, the language made the default rendition; the stored audio preference when absent.
+  options: { prewarm?: boolean; liveWindowSeconds?: number; serverVideoOnly?: boolean; livePriority?: "preview" | "ring"; selectedSubtitleIndex?: number | null; audioLanguage?: string } = {},
 ): Promise<string> {
   if (!isLocalRemuxAvailable()) {
     throw new Error("Local remux native module not available on this platform");
@@ -725,7 +726,7 @@ export async function startLocalRemux(
         ...(videoItem.livePlaylist ? { playlist: true } : {}),
         // A neighbour or a card preview yields its origin connection to the channel playing (the engine's connection budget).
         ...(options.livePriority || options.prewarm ? { priority: options.livePriority ?? "ring" } : {}),
-        ...(getAudioPreferenceSync() ? { audioLanguage: getAudioPreferenceSync()! } : {}),
+        ...((options.audioLanguage ?? getAudioPreferenceSync()) ? { audioLanguage: (options.audioLanguage ?? getAudioPreferenceSync())! } : {}),
         ...(options.liveWindowSeconds ? { windowSeconds: options.liveWindowSeconds } : {}),
         // Read straight from its origin, never through a server open: the engine checks a manifest answers. A raw TS
         // origin is not probed, since a probe costs a second provider connection.

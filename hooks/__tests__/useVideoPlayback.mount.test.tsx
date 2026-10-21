@@ -3356,6 +3356,22 @@ describe("useVideoPlayback (mounted)", () => {
         expect(ref.current!.get().paused).toBe(false);
       });
 
+      it("reopens in the audio language the player was playing", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        await playToStable(ref);
+        await act(async () => {
+          callbacks(ref).onAudioTracks({
+            audioTracks: [
+              { index: 0, language: "en", selected: false },
+              { index: 1, language: "es", selected: true },
+            ],
+          } as never);
+        });
+        await drop(ref);
+        expect(mockStartLocalRemux.mock.calls[0][3]).not.toHaveProperty("audioLanguage");
+        expect(mockStartLocalRemux.mock.calls[1][3]).toMatchObject({ audioLanguage: "es" });
+      });
+
       it("binds the reopened channel's new session with no second pass through the metadata step", async () => {
         const { ref } = await mount({ videoId: "video-1" });
         await playToStable(ref);
