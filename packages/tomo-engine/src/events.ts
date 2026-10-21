@@ -327,10 +327,40 @@ export function subscribeSubtitleRequests(token: string, listener: SubtitleReque
   };
 }
 
+/**
+ * A live session's input lost and reopening in the session (`reopening`), or back (`reopened`, after
+ * `attempts` opens). The player keeps the same URL throughout; only its buffer drains and refills.
+ */
+export type EngineLiveEvent = { token: string; event: "reopening" | "reopened"; reason: string; attempts?: number };
+
+type LiveListener = (event: EngineLiveEvent) => void;
+const liveListeners = new Map<string, Set<LiveListener>>();
+let liveSubscription: { remove: () => void } | null = null;
+
+function watchEngineLive(): void {
+  if (liveSubscription || !isLocalRemuxAvailable() || !nativeEmits("onEngineLive")) return;
+  liveSubscription = engineEmitter().addListener("onEngineLive", (event: EngineLiveEvent) => {
+    liveListeners.get(event.token)?.forEach((listener) => listener(event));
+  });
+}
+
+/** One live session's input drops and returns, until the returned function runs. Never fires on a native build without the event. */
+export function subscribeEngineLive(token: string, listener: LiveListener): () => void {
+  watchEngineLive();
+  const listeners = liveListeners.get(token) ?? new Set<LiveListener>();
+  listeners.add(listener);
+  liveListeners.set(token, listeners);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) liveListeners.delete(token);
+  };
+}
+
 /** Drops what a stopped session left behind: its link reading and listeners, its stage history and its failure. */
 export function forgetSession(token: string): void {
   rememberLink(token, null);
   linkListeners.delete(token);
+  liveListeners.delete(token);
   stageReports.delete(token);
   failureReports.delete(token);
 }

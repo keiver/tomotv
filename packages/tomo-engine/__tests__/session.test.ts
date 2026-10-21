@@ -29,6 +29,7 @@ import {
   engineProgress,
   inputSubtitleRenditions,
   isConnectionBudgetFailure,
+  liveSessionConfig,
   liveSubtitleRenditions,
   localRemuxToken,
   originConnections,
@@ -211,6 +212,49 @@ describe("liveSubtitleRenditions", () => {
       [3, true, false, true],
       [4, false, true, undefined],
     ]);
+  });
+});
+
+describe("liveSessionConfig", () => {
+  it("names the channel's URL and nothing about its streams, with a 15s start buffer", () => {
+    const live = liveSessionConfig({ inputUrl: "https://origin/master.m3u8", itemId: "ch1" });
+    expect(live).toMatchObject({ inputUrl: "https://origin/master.m3u8", itemId: "ch1", isLive: true, describesInput: true, liveBufferSeconds: 15, liveSegmentSeconds: 2 });
+    expect(live.audioTracks).toEqual([]);
+    expect(live.tiers).toEqual([]);
+    for (const key of ["httpHeaders", "liveOriginKey", "livePriority", "liveAudioLanguage", "liveMaxBandwidth", "fallbackInputUrl", "liveWindowSeconds", "probeOrigin"]) {
+      expect(key in live).toBe(false);
+    }
+  });
+
+  it("carries how to reach the channel and which tracks to take", () => {
+    const live = liveSessionConfig({
+      inputUrl: "http://provider:8080/live/1.ts",
+      itemId: "ch1",
+      httpHeaders: { "User-Agent": "x" },
+      originKey: "provider:8080",
+      priority: "ring",
+      bufferSeconds: 20,
+      audioLanguage: "spa",
+      maxBandwidth: 2_500_000.7,
+      windowSeconds: 120,
+      fallbackInputUrl: "http://server/LiveTv/LiveStreamFiles/abc/stream.ts",
+      checkOrigin: true,
+    });
+    expect(live).toMatchObject({
+      probeOrigin: true,
+      httpHeaders: { "User-Agent": "x" },
+      liveOriginKey: "provider:8080",
+      livePriority: "ring",
+      liveBufferSeconds: 20,
+      liveAudioLanguage: "spa",
+      liveMaxBandwidth: 2_500_000,
+      liveWindowSeconds: 120,
+      fallbackInputUrl: "http://server/LiveTv/LiveStreamFiles/abc/stream.ts",
+    });
+  });
+
+  it("answers the player on its first segment when asked for no buffer", () => {
+    expect(liveSessionConfig({ inputUrl: "u", itemId: "i", bufferSeconds: 0 }).liveBufferSeconds).toBe(0);
   });
 });
 

@@ -22,6 +22,8 @@ extension RemuxSession {
             return .data(Data(masterPlaylist().utf8), contentType: m3u8)
         case "media.m3u8":
             return .data(Data(mediaPlaylist().utf8), contentType: m3u8)
+        case "source.m3u8":
+            return sourcePlaylistResponse()
         case "init.mp4":
             return initResponse()
         case "iframes.m3u8":

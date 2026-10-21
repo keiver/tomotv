@@ -147,6 +147,10 @@ final class RemuxSession {
     var liveKeepSegments: Int
     /// The live input's connection lease while the input is open; guarded by stateLock.
     var inputLease: LiveConnectionBroker.Lease?
+    /// "http://127.0.0.1:{port}/{token}", set before start() by whoever serves the session.
+    var loopbackBase: String?
+    /// The trimmed master a live HLS input opens through the loopback; guarded by stateLock.
+    var sourcePlaylist: String?
     /// The live input reads `fallbackInputUrl`, not the origin its lease counts; guarded by stateLock.
     var inputIsFallback = false
 
@@ -332,8 +336,15 @@ final class RemuxSession {
     var liveDiscontinuitiesRemoved = 0
     /// Lowest segment still on disk; MEDIA-SEQUENCE.
     var firstRetainedSegment = 0
-    /// Fixed on the first playlist request; TARGETDURATION may not move afterwards.
+    /// The live TARGETDURATION served so far: it never falls, and rises only for a segment longer than it.
     var liveTargetDuration: Int?
+    /// EXT-X-START's distance behind the newest segment, fixed by the first live playlist.
+    var liveStartSeconds: Double?
+    /// A live read past this time is aborted by the interrupt callback and the input reopened. Pipeline thread only.
+    var liveReadDeadline: Date?
+    var liveReadStalled = false
+    /// The live input was lost and is reopening in place, or has reopened: the app's account of a drop.
+    var onLive: (([String: Any]) -> Void)?
     /// Longest keyframe interval seen on the source, which bounds a keyframe-aligned cut's overshoot.
     var maxKeyframeGapSeconds: Double = 0
     /// Every audio stream the demuxer found, in rendition order, for a session that reads its tracks

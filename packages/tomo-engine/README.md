@@ -50,6 +50,42 @@ The master playlist is answered once the input is open, so the player's first re
 the origin. `inputSubtitleRenditions` resolves the tracks the master published; the app needs
 them to draw an image track, which the engine serves as timed bitmaps.
 
+## Live sessions
+
+`liveSessionConfig` builds a live session from the channel's URL alone, described from the input:
+
+```ts
+import { liveSessionConfig, startSession, subscribeEngineLive } from "@keiver/tomo-engine";
+
+const masterUrl = await startSession(liveSessionConfig({ inputUrl, itemId, httpHeaders, originKey, audioLanguage: "es" }));
+```
+
+- **One variant, one audio track.** For an HLS master (a `.m3u8` or `.m3u` path; any other URL is
+  opened as given, with no request before the open) the engine fetches the master itself and
+  opens a trimmed copy served from its own loopback: the top video variant (or the highest at or
+  under `maxBandwidth`), one audio rendition (the `audioLanguage` match, skipping a described-video
+  track when another matches, then the default, then the first), no subtitle renditions. FFmpeg
+  then fetches only those playlists.
+- **Backlog at open.** A live HLS input opens 6 segments back from its edge (`live_start_index`),
+  so a provider that keeps a window fills the buffer at link speed.
+- **Start buffer.** The first answer to the player's playlist waits until `bufferSeconds`
+  (`LIVE_BUFFER_SECONDS`, 15) of output are cut, up to 20 s past that, and carries
+  `EXT-X-START` at the oldest buffered segment, so the player starts that far behind the newest
+  output. A source that gives no backlog fills it in real time; a device slower than real time
+  waits here too.
+- **In-session reopen.** A live read that brings nothing for twice its longest read so far (12 s at
+  least), or ends, closes the input and opens it again in the same session, for as long as the
+  session lives. The first try is at once; each further try, and each reopen within 60 s of the
+  last, waits 0.5, 1, 2, 4, then 5 s. The streams must come back the same; output continues where
+  it stopped behind a `DISCONTINUITY`, from the first keyframe past the source time already carried,
+  so the player rides its buffer and sees nothing twice. A
+  failed segment is skipped rather than retried (`seg_max_retry` 0). Three permanent refusals in a
+  row (no demuxer, 400, 401, 403, 404, another 4xx but 429) end the session with
+  `live input gone:`. The lease on the provider's budget is held through the reopen.
+- **Events.** `subscribeEngineLive(token, listener)` hands each `reopening` and `reopened`
+  (`EngineLiveEvent`, with the reason and the tries it took); `subscribeEngineFailure` hands the
+  failure that ends the session. `progress()` carries `bufferedSeconds`.
+
 ## Provider connection limits
 
 Every read that names a provider (`originKey`, `liveOriginKey` on a session config) takes a lease

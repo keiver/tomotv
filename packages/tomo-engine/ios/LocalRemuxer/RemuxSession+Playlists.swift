@@ -675,12 +675,13 @@ extension RemuxSession {
     /// a MAP per generation and a DISCONTINUITY at every splice. No ENDLIST, no PLAYLIST-TYPE.
     func livePlaylist(prefix: String) -> String {
         guard let rendition = rendition(withPrefix: prefix) else { return "#EXTM3U\n" }
-        // An empty media playlist is a player error; the first segment is seconds away.
-        _ = waitUntil(deadline: 20) { [weak self] in
+        // An empty media playlist is a player error; the first segment is seconds away. The first
+        // answer also waits for the start buffer, which the player then holds ahead of it.
+        _ = waitUntil(deadline: liveFirstAnswerDeadline) { [weak self] in
             guard let self else { return true }
             self.stateLock.lock()
             defer { self.stateLock.unlock() }
-            return !rendition.completed.isEmpty || self.failed || self.cancelled
+            return self.liveAnswerReadyLocked(rendition) || self.failed || self.cancelled
         }
         let target = liveTarget()
         stateLock.lock()
@@ -690,20 +691,47 @@ extension RemuxSession {
         let dates = liveDates
         let starts = liveGenerationStarts
         let removed = liveDiscontinuitiesRemoved
+        let startOffset = liveStartOffsetLocked(segments: segments, durations: durations)
         stateLock.unlock()
         return Self.renderLivePlaylist(
             prefix: prefix, target: target, firstRetained: first, segments: segments,
-            durations: durations, generationStarts: starts, discontinuitiesRemoved: removed, dates: dates, fallbackDuration: config.liveSegmentSeconds)
+            durations: durations, generationStarts: starts, discontinuitiesRemoved: removed, dates: dates, fallbackDuration: config.liveSegmentSeconds,
+            startOffset: startOffset)
+    }
+
+    /// How far behind the newest segment the player starts: everything the first playlist listed, the
+    /// buffer the engine built before the player was bound. Fixed then, so every rendition agrees.
+    func liveStartOffsetLocked(segments: [Int], durations: [Int: Double]) -> Double? {
+        if liveStartSeconds == nil, !segments.isEmpty {
+            liveStartSeconds = segments.reduce(0) { $0 + (durations[$1] ?? config.liveSegmentSeconds) }
+        }
+        return liveStartSeconds
+    }
+
+    /// A rendition's playlist may answer: once a segment exists, and the first answer of the session
+    /// only once the start buffer is built (under stateLock).
+    func liveAnswerReadyLocked(_ rendition: Rendition) -> Bool {
+        guard !rendition.completed.isEmpty else { return false }
+        return liveStartSeconds != nil || liveBufferedSecondsLocked() >= config.liveBufferSeconds
+    }
+
+    /// How long a live playlist waits for its answer: a segment, or the start buffer on top of it.
+    var liveFirstAnswerDeadline: Double { 20 + config.liveBufferSeconds }
+
+    /// Seconds of live output a player bound now would hold ahead of it (under stateLock).
+    func liveBufferedSecondsLocked() -> Double {
+        guard config.isLive, let primary = renditions.first(where: { $0.prefix.isEmpty }) else { return 0 }
+        return primary.completed.filter { $0 >= firstRetainedSegment }.reduce(0) { $0 + (liveDurations[$1] ?? config.liveSegmentSeconds) }
     }
 
     /// The image track's live playlist: the primary rendition's window, one cue-less VTT per segment.
     func liveSubtitlePlaylist(_ sub: RemuxSubtitle) -> String {
         guard let rendition = rendition(withPrefix: "") else { return "#EXTM3U\n" }
-        _ = waitUntil(deadline: 20) { [weak self] in
+        _ = waitUntil(deadline: liveFirstAnswerDeadline) { [weak self] in
             guard let self else { return true }
             self.stateLock.lock()
             defer { self.stateLock.unlock() }
-            return !rendition.completed.isEmpty || self.failed || self.cancelled
+            return self.liveAnswerReadyLocked(rendition) || self.failed || self.cancelled
         }
         let target = liveTarget()
         stateLock.lock()
@@ -713,20 +741,21 @@ extension RemuxSession {
         let dates = liveDates
         let starts = liveGenerationStarts
         let removed = liveDiscontinuitiesRemoved
+        let startOffset = liveStartOffsetLocked(segments: segments, durations: durations)
         stateLock.unlock()
         return Self.renderLivePlaylist(
             target: target, firstRetained: first, segments: segments, durations: durations, generationStarts: starts, discontinuitiesRemoved: removed,
-            dates: dates, fallbackDuration: config.liveSegmentSeconds, initName: nil, segmentName: { "sub\(sub.index)-\($0).vtt" })
+            dates: dates, fallbackDuration: config.liveSegmentSeconds, startOffset: startOffset, initName: nil, segmentName: { "sub\(sub.index)-\($0).vtt" })
     }
 
     /// The live playlist text from a snapshot of the session's live state (pure, host-testable).
     static func renderLivePlaylist(
         prefix: String, target: Int, firstRetained: Int, segments: [Int], durations: [Int: Double],
-        generationStarts: [Int: Int], discontinuitiesRemoved: Int = 0, dates: [Int: Date], fallbackDuration: Double
+        generationStarts: [Int: Int], discontinuitiesRemoved: Int = 0, dates: [Int: Date], fallbackDuration: Double, startOffset: Double? = nil
     ) -> String {
         renderLivePlaylist(
             target: target, firstRetained: firstRetained, segments: segments, durations: durations, generationStarts: generationStarts,
-            discontinuitiesRemoved: discontinuitiesRemoved, dates: dates, fallbackDuration: fallbackDuration,
+            discontinuitiesRemoved: discontinuitiesRemoved, dates: dates, fallbackDuration: fallbackDuration, startOffset: startOffset,
             initName: { liveInitName(prefix: prefix, generation: $0) },
             segmentName: { prefix.isEmpty ? "seg\($0).m4s" : "\(prefix)-seg\($0).m4s" })
     }
@@ -734,7 +763,7 @@ extension RemuxSession {
     /// `initName` maps a generation to its MAP; nil writes no MAP (a WebVTT rendition has none).
     static func renderLivePlaylist(
         target: Int, firstRetained: Int, segments: [Int], durations: [Int: Double], generationStarts: [Int: Int], discontinuitiesRemoved: Int = 0,
-        dates: [Int: Date], fallbackDuration: Double, initName: ((Int) -> String)?, segmentName: (Int) -> String
+        dates: [Int: Date], fallbackDuration: Double, startOffset: Double? = nil, initName: ((Int) -> String)?, segmentName: (Int) -> String
     ) -> String {
         func generation(of n: Int) -> Int { generationStarts.filter { $0.key <= n }.values.max() ?? 0 }
         let formatter = ISO8601DateFormatter()
@@ -745,6 +774,7 @@ extension RemuxSession {
         out += "#EXT-X-MEDIA-SEQUENCE:\(firstRetained)\n"
         // Splices at or before the first listed segment have left the playlist, the pruned ones included.
         out += "#EXT-X-DISCONTINUITY-SEQUENCE:\(discontinuitiesRemoved + generationStarts.keys.filter { $0 > 0 && $0 <= firstRetained }.count)\n"
+        if let startOffset, startOffset > 0 { out += String(format: "#EXT-X-START:TIME-OFFSET=-%.3f,PRECISE=NO\n", startOffset) }
         var listed: Int? = nil
         for n in segments {
             let gen = generation(of: n)

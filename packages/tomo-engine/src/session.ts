@@ -1,6 +1,7 @@
 import { engineLog } from "./config";
 import { attributeSession, forgetSession, watchEngineFailure, watchEngineLink, watchEnginePlan, watchEngineStage, watchEngineTier } from "./events";
 import { engineModule, isLocalRemuxAvailable } from "./native";
+import { LIVE_BUFFER_SECONDS, LIVE_SEGMENT_SECONDS } from "./playbackConstants";
 import type { SourcePosition, SubtitleRendition } from "./subtitles";
 
 /** One audio track of a session, as the native side reads it (LocalRemuxer.startRemux). */
@@ -72,12 +73,85 @@ export interface EngineSessionConfig {
   inputConnections?: number;
   fallbackInputUrl?: string;
   livePriority?: "playback" | "ring" | "preview";
+  /** Live HLS: the audio rendition to carry, by language code; the group's default when absent. */
+  liveAudioLanguage?: string;
+  /** Live HLS: the highest variant BANDWIDTH to carry, bits per second; the top variant when absent. */
+  liveMaxBandwidth?: number;
+  /** Live: seconds of output the media playlists wait for before answering, the player's start buffer. */
+  liveBufferSeconds?: number;
   stopRequests?: EngineStopRequest[];
   /**
    * The open input names its own range, size, rate and bit rate, and whichever of `audioTracks`,
    * `subtitles` and `durationSeconds` are left empty. Takes no `tiers` and no `serverVideoOnly`.
    */
   describesInput?: boolean;
+}
+
+/** A live channel the engine reads from its origin, as any app knows it: a URL and how to reach it. */
+export interface LiveSessionInput {
+  inputUrl: string;
+  /** Keys the frame caches; the channel's own id. */
+  itemId: string;
+  /** Headers the origin requires, sent on every read of the channel. */
+  httpHeaders?: Record<string, string>;
+  /** The provider whose connection budget the channel spends (setOriginConnectionBudget); its host when absent. */
+  originKey?: string;
+  /** "playback" for the channel on screen; a neighbour kept warm or a card preview yields to it. */
+  priority?: "playback" | "ring" | "preview";
+  /** Seconds the player starts behind the newest output; LIVE_BUFFER_SECONDS when absent. */
+  bufferSeconds?: number;
+  /** The audio language to carry from a channel that offers several (ISO 639-1 or -2). */
+  audioLanguage?: string;
+  /** The highest variant bit rate the link carries; the top variant when absent. */
+  maxBandwidth?: number;
+  /** Seconds of output kept and listed; the player's rewind. */
+  windowSeconds?: number;
+  /** A second way to the same channel (a relay), opened once when the origin itself will not open. */
+  fallbackInputUrl?: string;
+  /** An HLS origin read with no server between: its refusal is checked beside the open, so a refused channel fails in seconds. */
+  checkOrigin?: boolean;
+}
+
+/**
+ * The config of a live session from the channel's URL alone: the engine reads the tracks, the
+ * picture and the codecs off the input, opens one variant and one audio rendition of an HLS master,
+ * and answers the player once `bufferSeconds` are built.
+ */
+export function liveSessionConfig(input: LiveSessionInput): EngineSessionConfig {
+  const buffer = input.bufferSeconds ?? LIVE_BUFFER_SECONDS;
+  return {
+    inputUrl: input.inputUrl,
+    itemId: input.itemId,
+    audioTracks: [],
+    durationSeconds: 0,
+    subtitles: [],
+    videoRange: "",
+    codecs: "",
+    primaryVideoCodecs: "",
+    primaryVideoBandwidth: 0,
+    sourceBandwidth: 0,
+    serverVideoOnly: false,
+    supplementalCodecs: "",
+    width: 0,
+    height: 0,
+    frameRate: 0,
+    bandwidth: 0,
+    readAheadSegments: 0,
+    startOffsetSeconds: 0,
+    tiers: [],
+    isLive: true,
+    liveSegmentSeconds: LIVE_SEGMENT_SECONDS,
+    liveBufferSeconds: Number.isFinite(buffer) && buffer > 0 ? buffer : 0,
+    ...(input.windowSeconds && input.windowSeconds > 0 ? { liveWindowSeconds: input.windowSeconds } : {}),
+    ...(input.httpHeaders && Object.keys(input.httpHeaders).length > 0 ? { httpHeaders: input.httpHeaders } : {}),
+    ...(input.originKey ? { liveOriginKey: input.originKey } : {}),
+    ...(input.priority && input.priority !== "playback" ? { livePriority: input.priority } : {}),
+    ...(input.audioLanguage ? { liveAudioLanguage: input.audioLanguage } : {}),
+    ...(input.maxBandwidth && Number.isFinite(input.maxBandwidth) && input.maxBandwidth > 0 ? { liveMaxBandwidth: Math.floor(input.maxBandwidth) } : {}),
+    ...(input.fallbackInputUrl ? { fallbackInputUrl: input.fallbackInputUrl } : {}),
+    ...(input.checkOrigin ? { probeOrigin: true } : {}),
+    describesInput: true,
+  };
 }
 
 /** What a session needs when the input describes itself: where to read, and where to resume. */
@@ -277,6 +351,8 @@ export type EngineProgress = {
   recovering?: boolean;
   hasPlayableSupplier?: boolean;
   sourceRetryAfterSeconds?: number;
+  /** Live: seconds of output a player bound now would hold ahead of it. */
+  bufferedSeconds?: number;
 };
 
 export async function engineProgress(token: string): Promise<EngineProgress | null> {
@@ -295,6 +371,7 @@ export async function engineProgress(token: string): Promise<EngineProgress | nu
       ...(typeof progress.sourceRetryAfterSeconds === "number" && Number.isFinite(progress.sourceRetryAfterSeconds) && progress.sourceRetryAfterSeconds >= 0
         ? { sourceRetryAfterSeconds: progress.sourceRetryAfterSeconds }
         : {}),
+      ...(typeof progress.bufferedSeconds === "number" && Number.isFinite(progress.bufferedSeconds) ? { bufferedSeconds: progress.bufferedSeconds } : {}),
     };
   } catch (error) {
     engineLog().warn("Engine progress read failed", error, { service: "LocalRemux", token });

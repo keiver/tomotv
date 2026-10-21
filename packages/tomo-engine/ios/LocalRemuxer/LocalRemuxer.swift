@@ -84,7 +84,7 @@ class LocalRemuxer: RCTEventEmitter {
 
     // RCTEventEmitter.h carries no nullability audit, so the imported Swift
     // signature is the implicitly-unwrapped [String]!.
-    override func supportedEvents() -> [String]! { ["onEnginePlan", "onEngineThroughput", "onEngineTier", "onEngineFailed", "onEngineStage", "onEngineSubtitleRequest", "onEngineLink", "onLiveFrame"] }
+    override func supportedEvents() -> [String]! { ["onEnginePlan", "onEngineThroughput", "onEngineTier", "onEngineFailed", "onEngineStage", "onEngineSubtitleRequest", "onEngineLink", "onEngineLive", "onLiveFrame"] }
 
     override func startObserving() {
         Self.lock.lock()
@@ -165,6 +165,14 @@ class LocalRemuxer: RCTEventEmitter {
         let listening = Self.hasListeners
         Self.lock.unlock()
         if listening { sendEvent(withName: "onEngineFailed", body: failure) }
+    }
+
+    /// A live input lost and reopening in its session, or reopened, sent only while JS listens.
+    private func publish(live: [String: Any]) {
+        Self.lock.lock()
+        let listening = Self.hasListeners
+        Self.lock.unlock()
+        if listening { sendEvent(withName: "onEngineLive", body: live) }
     }
 
     /// A startup step the session finished, sent only while JS listens.
@@ -258,6 +266,9 @@ class LocalRemuxer: RCTEventEmitter {
     ///                                provider key it opens as many as the budget spares, never fewer than one
     ///   fallbackInputUrl: String?  : the channel through the server, opened once when the input itself will not open
     ///   livePriority: String?      : "playback" (default), "ring" or "preview"; a higher one takes a full budget's slot from a lower
+    ///   liveAudioLanguage: String? : live HLS: the audio rendition to carry by language; the group's default when absent
+    ///   liveMaxBandwidth: Int?     : live HLS: the highest variant BANDWIDTH to carry; the top variant when absent
+    ///   liveBufferSeconds: Double? : live: seconds of output the media playlists wait for, the player's start buffer
     ///   describesInput: Bool?      : the open input names its own range, size, rate and bit rate, and the audio tracks,
     ///                                subtitles and durationSeconds the config leaves empty; the master waits for it
     ///
@@ -396,6 +407,9 @@ class LocalRemuxer: RCTEventEmitter {
                 inputConnections: (config["inputConnections"] as? Int) ?? 0,
                 fallbackInputUrl: config["fallbackInputUrl"] as? String,
                 livePriority: LiveConnectionBroker.Priority(name: (config["livePriority"] as? String) ?? "playback"),
+                liveAudioLanguage: (config["liveAudioLanguage"] as? String) ?? "",
+                liveMaxBandwidth: (config["liveMaxBandwidth"] as? Int) ?? 0,
+                liveBufferSeconds: (config["liveBufferSeconds"] as? Double) ?? 0,
                 primaryVideoCodecs: (config["primaryVideoCodecs"] as? String) ?? "",
                 primaryVideoBandwidth: (config["primaryVideoBandwidth"] as? Int) ?? 0,
                 sourceBandwidth: (config["sourceBandwidth"] as? Int) ?? 0,
@@ -413,6 +427,8 @@ class LocalRemuxer: RCTEventEmitter {
             session.onStage = { [weak self] stage in self?.publish(stage: stage) }
             session.onLink = { [weak self] link in self?.publish(link: link) }
             session.onSubtitleRequest = { [weak self] request in self?.publish(subtitleRequest: request) }
+            session.onLive = { [weak self] live in self?.publish(live: live) }
+            session.loopbackBase = "http://127.0.0.1:\(port)/\(session.token)"
             session.start()
             Self.sessions[session.token] = session
             Self.sessionOrder.append(session.token)

@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.4.0
+
+- `liveSessionConfig({ inputUrl, itemId, httpHeaders?, originKey?, priority?, bufferSeconds?, audioLanguage?, maxBandwidth?, windowSeconds?, fallbackInputUrl?, checkOrigin? })` builds a live session described from its input. `LIVE_BUFFER_SECONDS` (15) and `LIVE_SEGMENT_SECONDS` (2) replace `LIVE_START_BUFFER_SEGMENTS` and `LIVE_START_BUFFER_CAP_MS`.
+- A live HLS master (a `.m3u8` or `.m3u` path) is opened as a trimmed copy the engine serves itself: one video variant (the top one, or the highest under `liveMaxBandwidth`) and one audio rendition (`liveAudioLanguage`, then the default, then the first; a described-video track only when nothing else matches), with no subtitle renditions. FFmpeg fetched every playlist and first segment of the full master at open; on a Pluto master the open and first 2 s of copy took 0.65 to 1.28 s trimmed against 6.1 to 6.5 s full (Mac, 3 runs each).
+- A live HLS input opens 6 segments behind its edge (`live_start_index -6`) and skips a failed segment instead of retrying it (`seg_max_retry 0`).
+- The first answer to a live playlist waits for `liveBufferSeconds` of output (up to 20 s past it) and carries `EXT-X-START` at the oldest buffered segment. Measured with the host AVPlayer bound at once: playback starts after 16.3 s with 12.4 s loaded ahead.
+- A live read silent for twice its longest read so far (12 s at least), or a live read that ends, reopens the input in the same session: the first try at once, then waits of 0.5, 1, 2, 4, then 5 s that carry across reopens within 60 s of each other (a feed that ends at every open: 432 opens in 4 s before, 5 after), and output continues behind a `DISCONTINUITY` from the first keyframe past the source time already carried (that feed's 6 s were output 300 s over before, once after) (`LiveReopenTests`: 16 s of origin silence; the host AVPlayer rode a 13 s gap with no wait). Three permanent refusals in a row end the session with `live input gone:`; streams that come back different end it too.
+- `onEngineLive` and `subscribeEngineLive(token, listener)`: each `reopening` and `reopened` of a live session. `progress()` carries `bufferedSeconds`.
+- The engine's own loopback reads are not counted as the origin serving (`SourceReadEvidence`).
+- `keptForReason` keeps a live session measured below real time on the engine whatever timed it (`"live"`); `liveHasServerRung` is gone.
+
 ## 1.3.0
 
 - A VOD playlist ends at the picture's last frame (MP4 and MOV track durations, Matroska's DURATION tag) when that is short of the runtime by up to 60 s, instead of at the runtime, which is the longest stream. Audio past the last frame is not written, and a track that stops before it is carried on with silence (transcoded tracks, and copied AAC through `SilenceEncoder`). A listed segment no stream fills is answered with the track's previous segment instead of a 404, which AVPlayer turned into -1100 at the picture's end (`StreamEndTests`: muxed, split and Matroska, audio longer and shorter than the picture).

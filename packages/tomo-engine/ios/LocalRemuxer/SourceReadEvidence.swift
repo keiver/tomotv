@@ -9,6 +9,8 @@ final class SourceReadEvidence {
     private var defaultOpen: IOOpen?
     private let onServed: (() -> Void)?
     private(set) var served = false
+    /// Opens under this prefix are the reader's own loopback (a trimmed master), not the source answering.
+    var ignoredPrefix: String?
 
     init(onServed: (() -> Void)? = nil) {
         self.onServed = onServed
@@ -37,7 +39,8 @@ final class SourceReadEvidence {
         let evidence = Unmanaged<SourceReadEvidence>.fromOpaque(opaque).takeUnretainedValue()
         guard let original = evidence.defaultOpen else { return -EINVAL }
         let result = original(context, pb, url, flags, options)
-        if result >= 0, flags & AVIO_FLAG_READ != 0, let io = pb?.pointee { evidence.observeFirstByte(io) }
+        let ignored = evidence.ignoredPrefix.map { prefix in url.map { String(cString: $0).hasPrefix(prefix) } ?? false } ?? false
+        if result >= 0, flags & AVIO_FLAG_READ != 0, !ignored, let io = pb?.pointee { evidence.observeFirstByte(io) }
         return result
     }
 }
