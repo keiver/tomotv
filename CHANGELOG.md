@@ -30,6 +30,7 @@ All notable changes to Tomo TV are documented here.
 - On Apple TV the empty space after a short shelf's last card leads focus to that card
 - The card title scroll, the now-playing bars, the recording pulse, the search sweep and the avatar ring run on React Native's native driver. The folder loading bar and the Up Next countdown scale their fill instead of resizing it
 - On iPhone, iPad and Mac the info panel's loading line sits centred on the screen until the panel has its final height, then the card, its close button and its controls appear together. On iPhone the five round action buttons fit one row
+- The Open Source page credits React Native Video, the video player component, in its own row
 
 ### Fixed
 
