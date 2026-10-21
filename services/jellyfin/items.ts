@@ -942,7 +942,7 @@ export async function fetchLatestItems(limit = 20): Promise<JellyfinItem[] | nul
     userId: config.userId,
     Limit: String(limit),
     // ParentId is Fields-gated; the shelf's binge queue builds from SeriesId ?? ParentId.
-    Fields: "Path,MediaStreams,Genres,ProductionYear,ParentId,ImageTags,PrimaryImageAspectRatio",
+    Fields: "Path,MediaStreams,Genres,ProductionYear,ParentId,ImageTags,PrimaryImageAspectRatio,RecursiveItemCount",
     EnableUserData: "true",
   });
 
@@ -964,7 +964,8 @@ export async function fetchLatestItems(limit = 20): Promise<JellyfinItem[] | nul
     }
 
     const data = await response.json();
-    return (Array.isArray(data) ? data : []) as JellyfinItem[];
+    // A grouped entry's ChildCount is how many of the Limit window's items it absorbed, not its size.
+    return (Array.isArray(data) ? data : []).map((item: JellyfinItem) => ({ ...item, ChildCount: undefined }));
   } catch (error) {
     logger.warn("Failed to fetch latest items", error, { service: "JellyfinAPI" });
     return null;

@@ -3375,6 +3375,20 @@ describe("jellyfinApi", () => {
       expect(result?.[1].Type).toBe("Series");
     });
 
+    it("fetchLatestItems asks for the episode count and drops the endpoint's grouped ChildCount", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => [{ Id: "2", Name: "New Series", Type: "Series", ChildCount: 8, RecursiveItemCount: 116 }],
+      });
+
+      const result = await fetchLatestItems();
+
+      const url = (global.fetch as jest.Mock).mock.calls[0][0] as string;
+      expect(new URLSearchParams(url.split("?")[1]).get("Fields")).toContain("RecursiveItemCount");
+      expect(result?.[0].ChildCount).toBeUndefined();
+      expect(result?.[0].RecursiveItemCount).toBe(116);
+    });
+
     it("fetchLatestItems returns null on failure, not an empty list", async () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: false, status: 500, statusText: "Internal Server Error" });
 
