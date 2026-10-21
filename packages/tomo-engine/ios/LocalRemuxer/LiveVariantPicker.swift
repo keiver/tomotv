@@ -3,8 +3,8 @@
 //  TomoTV
 //
 //  The variant of a multivariant HLS playlist a live read takes: for a frame, the cheapest whose
-//  picture is tall enough for a card; for playback, one variant and one audio rendition, cut out
-//  of the master. FFmpeg's HLS demuxer given the master reads every variant's segments.
+//  picture is tall enough for a card; for playback, the top variant with every rendition it names,
+//  cut out of the master.
 //
 
 import Foundation
@@ -82,10 +82,9 @@ enum LiveVariantPicker {
         return nil
     }
 
-    /// A multivariant playlist cut to one video variant and one audio rendition of its group, URIs
-    /// absolute, subtitle groups dropped; nil when the text names no video variant. Opening this
-    /// instead of the master spares the demuxer every other variant's playlist and first segment.
-    static func trimmedMaster(_ master: String, base: String, audioLanguage: String = "", maxBandwidth: Int = 0) -> String? {
+    /// A multivariant playlist cut to its top video variant with every rendition of its groups, URIs absolute,
+    /// the `audioLanguage` rendition the audio default; nil when the text names no video variant.
+    static func trimmedMaster(_ master: String, base: String, audioLanguage: String = "") -> String? {
         let lines = master.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
         let resolve = { (uri: String) in URL(string: uri, relativeTo: URL(string: base))?.absoluteString ?? uri }
         var streams: [(attributes: String, uri: String, bandwidth: Int)] = []
@@ -102,35 +101,55 @@ enum LiveVariantPicker {
             }
             index += 1
         }
-        guard !streams.isEmpty else { return nil }
-        let fitting = maxBandwidth > 0 ? streams.filter { $0.bandwidth <= maxBandwidth } : streams
-        let chosen = fitting.isEmpty
-            ? streams.min { $0.bandwidth < $1.bandwidth }!
-            : fitting.max { $0.bandwidth < $1.bandwidth }!
+        guard let chosen = streams.max(by: { $0.bandwidth < $1.bandwidth }) else { return nil }
 
         var out = ["#EXTM3U"]
         out += lines.filter { $0.hasPrefix("#EXT-X-VERSION:") || $0 == "#EXT-X-INDEPENDENT-SEGMENTS" }.prefix(2)
-        var variant = removing("SUBTITLES", from: chosen.attributes)
-        if let group = attribute("AUDIO", in: chosen.attributes) {
-            let renditions = lines.filter { $0.hasPrefix("#EXT-X-MEDIA:") }.map { String($0.dropFirst("#EXT-X-MEDIA:".count)) }
-                .filter { attribute("TYPE", in: $0) == "AUDIO" && attribute("GROUP-ID", in: $0) == group }
-            if let picked = pickAudio(renditions, language: audioLanguage) {
-                var media = removing("DEFAULT", from: removing("AUTOSELECT", from: picked))
-                if let uri = attribute("URI", in: picked) { media = removing("URI", from: media) + ",URI=\"\(resolve(uri))\"" }
-                out.append("#EXT-X-MEDIA:\(media),DEFAULT=YES,AUTOSELECT=YES")
-            } else {
-                variant = removing("AUDIO", from: variant)
+        var variant = chosen.attributes
+        let media = lines.filter { $0.hasPrefix("#EXT-X-MEDIA:") }.map { String($0.dropFirst("#EXT-X-MEDIA:".count)) }
+        let audioGroup = attribute("AUDIO", in: chosen.attributes)
+        let audio = media.filter { attribute("TYPE", in: $0) == "AUDIO" && attribute("GROUP-ID", in: $0) == audioGroup }
+        let defaultAudio = pickAudio(audio, language: audioLanguage)
+        for rendition in media {
+            guard let type = attribute("TYPE", in: rendition), ["AUDIO", "SUBTITLES", "CLOSED-CAPTIONS"].contains(type),
+                  attribute("GROUP-ID", in: rendition) == attribute(type, in: chosen.attributes) else { continue }
+            var line = rendition
+            if let uri = attribute("URI", in: rendition) { line = removing("URI", from: line) + ",URI=\"\(resolve(uri))\"" }
+            if type == "AUDIO" {
+                line = removing("DEFAULT", from: line)
+                line = rendition == defaultAudio ? removing("AUTOSELECT", from: line) + ",DEFAULT=YES,AUTOSELECT=YES" : line + ",DEFAULT=NO"
             }
+            out.append("#EXT-X-MEDIA:\(line)")
         }
+        if audioGroup != nil, audio.isEmpty { variant = removing("AUDIO", from: variant) }
         out.append("#EXT-X-STREAM-INF:\(variant)")
         out.append(resolve(chosen.uri))
         return out.joined(separator: "\n") + "\n"
     }
 
+    /// The key scheme a live channel is refused for: SAMPLE-AES, or a key format other than a plain key
+    /// (FairPlay, Widevine, PlayReady). AES-128 with a plain key is not refused. Nil when none is named.
+    static func drmKeyFormat(_ playlist: String) -> String? {
+        for raw in playlist.split(whereSeparator: \.isNewline) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            let tag = line.hasPrefix("#EXT-X-KEY:") ? "#EXT-X-KEY:" : line.hasPrefix("#EXT-X-SESSION-KEY:") ? "#EXT-X-SESSION-KEY:" : nil
+            guard let tag else { continue }
+            let attributes = String(line.dropFirst(tag.count))
+            let method = attribute("METHOD", in: attributes) ?? "NONE"
+            let keyFormat = attribute("KEYFORMAT", in: attributes) ?? "identity"
+            if method.hasPrefix("SAMPLE-AES") { return keyFormat == "identity" ? method : keyFormat }
+            if method != "NONE", keyFormat != "identity" { return keyFormat }
+        }
+        return nil
+    }
+
     /// The asked language (two- or three-letter code, region ignored), then the group's default, then
-    /// the first; a rendition that describes the video for the blind only when nothing else matches.
+    /// the first; a rendition for the blind or the deaf only when nothing else matches.
     static func pickAudio(_ renditions: [String], language: String) -> String? {
-        let main = renditions.filter { !(attribute("CHARACTERISTICS", in: $0) ?? "").contains("describes-video") }
+        let main = renditions.filter {
+            let characteristics = attribute("CHARACTERISTICS", in: $0) ?? ""
+            return !characteristics.contains("describes-video") && !characteristics.contains("describes-music-and-sound")
+        }
         let pool = main.isEmpty ? renditions : main
         let isDefault = { (r: String) in attribute("DEFAULT", in: r) == "YES" }
         let wanted = baseLanguage(language)

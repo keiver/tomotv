@@ -62,6 +62,9 @@ extension RemuxSession {
             if config.isLive, subtitle.isImage {
                 return .data(Data(emptySubtitleBody().utf8), contentType: "text/vtt")
             }
+            if config.isLive, subtitle.isEngineText {
+                return .data(Data(liveSubtitleBody(streamIndex: index, segment: segment).utf8), contentType: "text/vtt")
+            }
             guard subtitle.isEngineText else { return .notFound }
             if let body = subtitleSegment(streamIndex: index, segment: segment) {
                 return .data(Data(body.utf8), contentType: "text/vtt")

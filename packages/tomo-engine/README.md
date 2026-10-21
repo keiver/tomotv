@@ -57,15 +57,22 @@ them to draw an image track, which the engine serves as timed bitmaps.
 ```ts
 import { liveSessionConfig, startSession, subscribeEngineLive } from "@keiver/tomo-engine";
 
-const masterUrl = await startSession(liveSessionConfig({ inputUrl, itemId, httpHeaders, originKey, audioLanguage: "es" }));
+const masterUrl = await startSession(liveSessionConfig({ inputUrl, itemId, httpHeaders, originKey, audioLanguage: "es", playlist: isHls }));
 ```
 
-- **One variant, one audio track.** For an HLS master (a `.m3u8` or `.m3u` path; any other URL is
-  opened as given, with no request before the open) the engine fetches the master itself and
-  opens a trimmed copy served from its own loopback: the top video variant (or the highest at or
-  under `maxBandwidth`), one audio rendition (the `audioLanguage` match, skipping a described-video
-  track when another matches, then the default, then the first), no subtitle renditions. FFmpeg
-  then fetches only those playlists.
+- **One variant, every rendition.** For an HLS master (a `.m3u8` or `.m3u` path, or any URL given
+  `playlist: true`; any other URL is opened as given, with no request before the open) the engine
+  fetches the master itself and opens a trimmed copy served from its own loopback: the top video
+  variant with every audio rendition it names (its subtitle renditions the engine reads itself).
+  FFmpeg then fetches no other variant.
+  The `audioLanguage` rendition is the default and listed first (skipping a described-video or
+  hearing-impaired one while another matches, then the master's default). The master is checked
+  for DRM as it is read, and the chosen variant's playlist beside the open; either fails the
+  session with `channel is DRM protected (<system>)`.
+- **Subtitles.** Each SUBTITLES rendition is a track the engine follows itself (the master FFmpeg
+  opens names none; a variant whose CODECS names IMSC and no WebVTT offers none): each new segment
+  is read until a read succeeds, its cues placed by that segment's own `X-TIMESTAMP-MAP` once the
+  video reaches them, and served as an HLS subtitle rendition on the video's window.
 - **Backlog at open.** A live HLS input opens 6 segments back from its edge (`live_start_index`),
   so a provider that keeps a window fills the buffer at link speed.
 - **Start buffer.** The first answer to the player's playlist waits until `bufferSeconds`
@@ -81,7 +88,11 @@ const masterUrl = await startSession(liveSessionConfig({ inputUrl, itemId, httpH
   so the player rides its buffer and sees nothing twice. A
   failed segment is skipped rather than retried (`seg_max_retry` 0). Three permanent refusals in a
   row (no demuxer, 400, 401, 403, 404, another 4xx but 429) end the session with
-  `live input gone:`. The lease on the provider's budget is held through the reopen.
+  `live input gone:`. The lease on the provider's budget is held through the reopen, and a refused
+  reopen makes lower reads on the provider yield as the first open does; a refusal within 15 s of the
+  reopen closing its own read teaches the budget nothing. A reopen whose read of the master fails
+  opens the trimmed master it already holds. A timing step past the longest segment cut so far
+  (never less than one segment) is a hole in the source and starts a new generation.
 - **Events.** `subscribeEngineLive(token, listener)` hands each `reopening` and `reopened`
   (`EngineLiveEvent`, with the reason and the tries it took); `subscribeEngineFailure` hands the
   failure that ends the session. `progress()` carries `bufferedSeconds`.

@@ -61,39 +61,46 @@ final class LiveVariantPickerTests: XCTestCase {
     640930/playlist.m3u8
     """
 
-    func testATrimmedMasterKeepsTheTopVariantAndTheDefaultAudioOnly() {
+    func testATrimmedMasterKeepsTheTopVariantEveryAudioAndTheSubtitles() {
         let trimmed = LiveVariantPicker.trimmedMaster(grouped, base: "https://stitcher.example/channel/master.m3u8?sid=1")
         XCTAssertEqual(trimmed, """
         #EXTM3U
         #EXT-X-VERSION:5
+        #EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="English",DEFAULT=NO,FORCED=NO,LANGUAGE="en",URI="https://stitcher.example/channel/subs/en.m3u8"
         #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",LANGUAGE="en",NAME="English [Original]",CHANNELS="2",URI="https://stitcher.example/channel/audio/en.m3u8",DEFAULT=YES,AUTOSELECT=YES
-        #EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=3321280,AUDIO="audio"
+        #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",LANGUAGE="en",NAME="English",AUTOSELECT=YES,CHANNELS="2",CHARACTERISTICS="public.accessibility.describes-video",URI="https://stitcher.example/channel/audio/ad.m3u8",DEFAULT=NO
+        #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",LANGUAGE="es",NAME="Español",AUTOSELECT=YES,CHANNELS="2",URI="https://stitcher.example/channel/audio/es.m3u8",DEFAULT=NO
+        #EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=3321280,SUBTITLES="subs",AUDIO="audio"
         https://stitcher.example/channel/3321280/playlist.m3u8
 
         """)
     }
 
-    func testATrimmedMasterTakesTheAskedLanguage() {
+    func testATrimmedMasterMakesTheAskedLanguageTheDefaultAndKeepsTheRest() {
         let trimmed = LiveVariantPicker.trimmedMaster(grouped, base: "https://o/c/master.m3u8", audioLanguage: "spa")
         XCTAssertTrue(trimmed?.contains("URI=\"https://o/c/audio/es.m3u8\",DEFAULT=YES") == true, trimmed ?? "nil")
-        XCTAssertFalse(trimmed?.contains("audio/en.m3u8") == true)
+        XCTAssertTrue(trimmed?.contains("URI=\"https://o/c/audio/en.m3u8\",DEFAULT=NO") == true, trimmed ?? "nil")
+        XCTAssertTrue(trimmed?.contains("URI=\"https://o/c/audio/ad.m3u8\",DEFAULT=NO") == true, trimmed ?? "nil")
     }
 
-    func testATrimmedMasterNeverPicksTheDescribedVideoTrackWhenAnotherMatches() {
+    func testATrimmedMasterNeverMakesTheDescribedVideoTrackTheDefaultWhenAnotherMatches() {
         let trimmed = LiveVariantPicker.trimmedMaster(grouped, base: "https://o/c/master.m3u8", audioLanguage: "en")
-        XCTAssertTrue(trimmed?.contains("audio/en.m3u8") == true, trimmed ?? "nil")
-        XCTAssertFalse(trimmed?.contains("audio/ad.m3u8") == true)
+        XCTAssertTrue(trimmed?.contains("URI=\"https://o/c/audio/en.m3u8\",DEFAULT=YES") == true, trimmed ?? "nil")
+        XCTAssertTrue(trimmed?.contains("URI=\"https://o/c/audio/ad.m3u8\",DEFAULT=NO") == true, trimmed ?? "nil")
     }
 
-    func testATrimmedMasterTakesTheTopVariantUnderTheLinkCap() {
-        let trimmed = LiveVariantPicker.trimmedMaster(grouped, base: "https://o/c/master.m3u8", maxBandwidth: 2_000_000)
-        XCTAssertTrue(trimmed?.contains("BANDWIDTH=1042180") == true, trimmed ?? "nil")
-        XCTAssertTrue(trimmed?.hasSuffix("https://o/c/1042180/playlist.m3u8\n") == true)
+    func testATrimmedMasterNeverMakesAHearingImpairedTrackTheDefaultWhenAnotherMatches() {
+        let master = grouped.replacingOccurrences(of: "NAME=\"English [Original]\",AUTOSELECT=YES,DEFAULT=YES", with: "NAME=\"English SDH\",AUTOSELECT=YES,DEFAULT=YES,CHARACTERISTICS=\"public.accessibility.describes-music-and-sound\"")
+        let trimmed = LiveVariantPicker.trimmedMaster(master, base: "https://o/c/master.m3u8", audioLanguage: "")
+        XCTAssertTrue(trimmed?.contains("URI=\"https://o/c/audio/es.m3u8\",DEFAULT=YES") == true, trimmed ?? "nil")
+        XCTAssertTrue(trimmed?.contains("URI=\"https://o/c/audio/en.m3u8\",DEFAULT=NO") == true, trimmed ?? "nil")
     }
 
-    func testATrimmedMasterUnderACapNoVariantFitsTakesTheCheapest() {
-        let trimmed = LiveVariantPicker.trimmedMaster(grouped, base: "https://o/c/master.m3u8", maxBandwidth: 100_000)
-        XCTAssertTrue(trimmed?.contains("BANDWIDTH=640930") == true, trimmed ?? "nil")
+    func testAPlaylistKeyThatNoLaneDecodesIsReadAsDrm() {
+        XCTAssertEqual(LiveVariantPicker.drmKeyFormat("#EXTM3U\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI=\"skd://k\",KEYFORMAT=\"com.apple.streamingkeydelivery\"\n"), "com.apple.streamingkeydelivery")
+        XCTAssertEqual(LiveVariantPicker.drmKeyFormat("#EXTM3U\n#EXT-X-SESSION-KEY:METHOD=SAMPLE-AES,URI=\"k\"\n"), "SAMPLE-AES")
+        XCTAssertNil(LiveVariantPicker.drmKeyFormat("#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"k\"\n"))
+        XCTAssertNil(LiveVariantPicker.drmKeyFormat("#EXTM3U\n#EXT-X-KEY:METHOD=NONE\n"))
     }
 
     func testATrimmedMasterOfMuxedVariantsHasNoAudioRendition() {

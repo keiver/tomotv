@@ -212,22 +212,23 @@ final class LiveConnectionBroker {
         victims.forEach { $0.onRevoke() }
     }
 
-    /// `lease`'s live input dropped just after it or another read on its origin opened while both were held: the origin
-    /// kicked one to admit the other. The budget becomes what was held besides it, and the reads below `lease` go
-    /// (a preview takes nothing from anyone), with any preview left no slot spare.
-    func noteLost(_ lease: Lease) {
+    /// `lease`'s live input dropped just after a read on its origin opened while both were held: the budget becomes what
+    /// was held besides it, the reads below `lease` go (a preview takes nothing) and a preview left no slot spare. True for a kick.
+    @discardableResult
+    func noteLost(_ lease: Lease) -> Bool {
         cond.lock()
         let others = (active[lease.key] ?? []).filter { $0 !== lease }
         let recent = { (candidate: Lease) in Date().timeIntervalSince(candidate.grantedAt) < 10 }
         guard !others.isEmpty, recent(lease) || others.contains(where: { $0.grantedAt > lease.grantedAt && recent($0) }) else {
             cond.unlock()
-            return
+            return false
         }
         learnLocked(key: lease.key, limit: others.count)
         var victims = lease.priority == .preview ? [] : victimsLocked(key: lease.key, limit: budgets[lease.key] ?? others.count, below: lease.priority, keeping: lease)
         victims += previewsWithoutSpareLocked(key: lease.key, limit: budgets[lease.key] ?? others.count)
         cond.unlock()
         victims.forEach { $0.onRevoke() }
+        return true
     }
 
     /// Whether `lease` opened beside another read on its origin whose limit is not known: such a read opens without

@@ -91,6 +91,13 @@ final class TextSubtitleDecoder {
         converter = AssToWebVTT(header: header)
     }
 
+    /// A live WebVTT track the engine reads itself: its cues come only through `add`.
+    init(liveStreamIndex: Int32) {
+        streamIndex = liveStreamIndex
+        timeBase = AVRational(num: 1, den: 1000)
+        converter = AssToWebVTT(header: nil)
+    }
+
     deinit {
         if decoder != nil { avcodec_free_context(&decoder) }
     }
@@ -157,6 +164,11 @@ final class TextSubtitleDecoder {
         lock.unlock()
     }
 
+    /// A cue read outside the demuxer: a live WebVTT segment the engine fetched itself.
+    func add(_ cue: TextSubtitleCue) {
+        append(cue)
+    }
+
     private func append(_ cue: TextSubtitleCue) {
         lock.lock()
         defer { lock.unlock() }
@@ -182,6 +194,14 @@ final class TextSubtitleDecoder {
         lock.lock()
         defer { lock.unlock() }
         return cues.filter { $0.end > from && $0.start < to }
+    }
+
+    /// Live: the cues of segments that left the window.
+    func dropCues(endingBefore time: Double) {
+        lock.lock()
+        defer { lock.unlock() }
+        cues.filter { $0.end < time }.forEach { recorded.remove($0) }
+        cues.removeAll { $0.end < time }
     }
 
     var isComplete: Bool {

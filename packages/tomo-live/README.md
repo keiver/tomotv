@@ -46,24 +46,46 @@ configureLive({
 ## Live playback controller
 
 A playing channel stays on the engine: the engine reopens a lost input inside the session, and
-the app starts a new session only when that one ends. `watchLiveSession` follows a session for its
-whole life and says what to do when it ends:
+the controller starts a new session only when that one ends. `LivePlayback` holds one channel's
+play, one per player:
 
 ```ts
-import { LiveDropCounter, watchLiveSession } from "@keiver/tomo-live";
+import { LivePlayback } from "@keiver/tomo-live";
+import { liveSessionConfig, startSession } from "@keiver/tomo-engine";
 
-const drops = new LiveDropCounter(); // one per channel play, kept across its sessions
-const stop = watchLiveSession(token, drops, {
-  onReopening: () => showBuffering(),
-  onReopened: () => hideBuffering(),
-  onEnded: (message, decision) => (decision.reopen ? setTimeout(startAgain, decision.delayMs) : showError(message)),
+const live = new LivePlayback<Channel>({
+  openChannel: (channelId) => openChannel(channelId),
+  startSession: (channel) => startSession(liveSessionConfig({ inputUrl: channel.url, itemId: channel.id, playlist: channel.isHls })),
+  closeChannel: (channel) => releaseTuner(channel),
 });
+
+await live.play(channelId, {
+  onUrl: (url, token) => player.load(url), // the first URL, then each one a reopen starts
+  onState: (state) => show(state), // opening, buffering, playing, reopening, failed
+  onDrop: (message, cause, decision) => showReopening(decision.delayMs),
+  onEnded: (message, cause) => showError(message), // a failure no open fixes
+});
+player.onPlaying(() => live.notePlaying());
+player.onError((error) => live.fail(error.message, false, undefined, error));
+live.stop(); // leaving; `release(keepHot)` hands a channel that played to the ring instead
 ```
 
-`planLiveRecovery` is the rule behind `decision`: reopen after 0.5, 1, 2, 4, then 5 s
-(`LIVE_REOPEN_DELAYS_MS`), counted from zero again once the channel played
-`LIVE_RECOVERY_RESET_MS` (60 s) without a drop, and stop only on a failure no open fixes
-(`isPermanentLiveFailure`: the engine gave the input up, the origin refused every path, or DRM).
+`play` takes a ring or card preview session for the channel when one is hot, else opens the
+channel and starts its session. After a drop (the session ending, or `fail` for the player's own
+error) it waits, opens the channel again and hands the new URL to `onUrl`. An app with its own
+steps passes them as handlers: `startSession(item)` for the start, `prepare({ url, token, ready })`
+before each bind (a throw is a drop, `false` ends the play with no bind), `onOpened(item)` for each channel the play opens itself, and
+`{ opened }` for a channel it already opened with `open`. The `isPermanent(error)` dep names the
+app's own final failures. The rule is
+`planLiveRecovery`: reopen after 0.5, 1, 2, 4, then 5 s (`LIVE_REOPEN_DELAYS_MS`), counted from
+zero again once the channel has been playing `LIVE_RECOVERY_RESET_MS` (60 s) since it last started,
+and stop only on a failure no open fixes (`isPermanentLiveFailure`: the engine gave the input up,
+the origin refused every path, or DRM).
+
+The steps underneath stay public: `open(channelId, current)` (null once `current()` turns false,
+with nothing left open), `takeAdopted`, `bind(token, url, watch)`, `drop(message, permanent)`,
+`reopenAfterWait(reopen)` and `cancelWait()`. `watchLiveSession` and `LiveDropCounter` are the
+pieces under those.
 
 ## Channel origins
 

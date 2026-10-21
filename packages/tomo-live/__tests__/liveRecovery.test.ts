@@ -27,6 +27,9 @@ it("treats an origin that refuses the channel, DRM, and an input the engine gave
   expect(isPermanentLiveFailure("live input gone: Server returned 404 Not Found")).toBe(true);
   expect(isPermanentLiveFailure("origin refused the playlist (HTTP 403)")).toBe(true);
   expect(isPermanentLiveFailure("channel is DRM protected (com.widevine)")).toBe(true);
+  // The same failures behind an app's own prefix for a failed start.
+  expect(isPermanentLiveFailure("engine failed: origin refused the playlist (HTTP 403)")).toBe(true);
+  expect(isPermanentLiveFailure("engine failed: live input gone: Server returned 404 Not Found")).toBe(true);
 });
 
 it("treats a lost input, a silent feed and an unreachable host as worth another open", () => {

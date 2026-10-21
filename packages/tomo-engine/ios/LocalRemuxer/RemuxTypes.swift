@@ -161,10 +161,10 @@ struct RemuxConfig {
     /// Live: the same channel through the server, opened once when the input itself cannot be (its headers do not apply).
     var fallbackInputUrl: String? = nil
     var livePriority: LiveConnectionBroker.Priority = .playback
-    /// Live HLS: the audio rendition to carry, by language code; empty takes the group's default.
+    /// Live HLS: the audio rendition made the default, by language code; empty keeps the group's default.
     var liveAudioLanguage = ""
-    /// Live HLS: the highest variant BANDWIDTH to carry; 0 takes the top variant.
-    var liveMaxBandwidth = 0
+    /// Live: the input is an HLS playlist whatever its URL's extension.
+    var livePlaylist = false
     /// Live: seconds of output the media playlists wait for before they answer, the player's start buffer; 0 answers on the first segment.
     var liveBufferSeconds: Double = 0
     var primaryVideoCodecs = ""

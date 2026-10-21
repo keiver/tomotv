@@ -54,8 +54,8 @@ function liveDeviceProfile() {
 /** Jellyfin's relay of an open tuner stream (a shared TS stream, an HDHomeRun): a byte copy of the channel. */
 const RELAY_PATH = /\/LiveTv\/LiveStreamFiles\//i;
 
-/** Reasons that change only the container or the delivery: a TranscodingUrl giving no other is a copy of the channel. */
-const COPY_REASONS = new Set(["DirectPlayError", "ContainerNotSupported"]);
+/** The reasons a TranscodingUrl may carry and still be taken as a copy of the channel. */
+const COPY_REASONS = new Set(["DirectPlayError"]);
 
 /** The server's HLS of an open channel when it copies the channel; null when it would re-encode any of it. */
 export function remuxOf(server: string, transcodingUrl: string | null | undefined): string | null {
@@ -78,14 +78,16 @@ function isManifestSource(source: JellyfinMediaSource): boolean {
   return source.Container === "hls" || source.Container === "dash" || /\.(?:m3u8?|mpd)(?:$|\?)/i.test(source.Path);
 }
 
-/**
- * The URL the engine opens for a manifest channel: the master as given, the engine cutting it to the
- * variant and audio that play. A DRM channel fails here, in a second, and not after the engine timed out on it.
- */
-async function manifestInput(masterUrl: string, headers: Record<string, string> | undefined): Promise<string> {
-  const system = await manifestDrm(masterUrl, headers, API_TIMEOUTS.SHORT);
+/** The URL the engine opens for a manifest channel: the master as given, a DASH MPD checked here for DRM. */
+async function manifestInput(source: JellyfinMediaSource, masterUrl: string): Promise<string> {
+  if (!isDashSource(source)) return masterUrl;
+  const system = await manifestDrm(masterUrl, source.RequiredHttpHeaders, API_TIMEOUTS.SHORT);
   if (system) throw new Error(`channel is DRM protected (${system})`);
   return masterUrl;
+}
+
+function isDashSource(source: JellyfinMediaSource): boolean {
+  return source.Container === "dash" || /\.mpd(?:$|\?)/i.test(source.Path ?? "");
 }
 
 const CATEGORY_PARAMS: Record<LiveTvCategory, string> = { news: "isNews", sports: "isSports", kids: "isKids", movie: "isMovie", series: "isSeries" };
@@ -328,11 +330,14 @@ async function describeChannel(
   if (!options.quiet) setPlaybackStage("opening");
   const origin = await manifestOrigin(source);
   logger.info("Live channel resolved to its origin", { service: "LiveTv", channel: channel.Name });
-  return { channel, playable: { ...described, liveStreamUrl: origin.url, ...(origin.headers ? { liveHttpHeaders: origin.headers } : {}) } };
+  return {
+    channel,
+    playable: { ...described, liveStreamUrl: origin.url, ...(origin.headers ? { liveHttpHeaders: origin.headers } : {}), ...(isDashSource(source) ? {} : { livePlaylist: true }) },
+  };
 }
 
 async function manifestOrigin(source: JellyfinMediaSource): Promise<ChannelOrigin> {
-  const url = await manifestInput(await plutoStreamUrl(source.Path!), source.RequiredHttpHeaders);
+  const url = await manifestInput(source, await plutoStreamUrl(source.Path!));
   return { url, ...(source.RequiredHttpHeaders ? { headers: source.RequiredHttpHeaders } : {}) };
 }
 
@@ -418,7 +423,7 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
     } else if (source.Path && RELAY_PATH.test(source.Path)) {
       input = { url: liveStreamUrlFor(config.server, config.apiKey, source.Path), via: "relay" };
     } else if (isManifestSource(source)) {
-      input = { url: await manifestInput(await plutoStreamUrl(source.Path!), source.RequiredHttpHeaders), headers: source.RequiredHttpHeaders, via: "manifest" };
+      input = { url: await manifestInput(source, await plutoStreamUrl(source.Path!)), headers: source.RequiredHttpHeaders, via: "manifest" };
     } else if (source.Path && /^https?$/i.test(source.Protocol ?? "")) {
       const { url, headers: own } = splitPipeHeaders(source.Path);
       if ((await originReach(url)) === "reachable") input = { url, headers: mergeOriginHeaders(source.RequiredHttpHeaders, own), originKey: originKeyOf(url), via: "origin" };
@@ -456,6 +461,7 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
     liveStreamUrl: input.url,
     liveHttpHeaders: input.headers && Object.keys(input.headers).length > 0 ? input.headers : undefined,
     liveOriginKey: input.originKey,
+    ...(input.via === "manifest" && !isDashSource(source) ? { livePlaylist: true } : {}),
   };
 }
 

@@ -152,6 +152,8 @@ export interface JellyfinVideoItem {
   liveHttpHeaders?: Record<string, string>;
   // A raw TS channel read without a server open: its provider's connection budget.
   liveOriginKey?: string;
+  // liveStreamUrl is an HLS playlist whatever its extension.
+  livePlaylist?: boolean;
   // A channel built from the device's own tuner playlist parse: the server holds no item for it
   // yet, so server-side writes (favorite, record) and the server lane are unavailable.
   playlistPending?: boolean;

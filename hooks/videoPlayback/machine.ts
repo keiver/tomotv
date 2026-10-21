@@ -40,6 +40,7 @@ export type VideoPlayerAction =
   | { type: "FETCH_METADATA" }
   | { type: "METADATA_FETCHED"; details: JellyfinVideoItem; mode: PlaybackMode; hasSubtitles: boolean }
   | { type: "STREAM_CREATED"; streamUrl: string; mode?: PlaybackMode }
+  | { type: "LIVE_STREAM"; streamUrl: string }
   | { type: "PROCESSING_CHANGED"; mode: PlaybackMode }
   | { type: "PLAYER_READY" }
   | { type: "PLAYER_PLAYING" }
@@ -79,6 +80,11 @@ function reduce(state: VideoPlayerState, action: VideoPlayerAction): VideoPlayer
         mode: action.mode ?? state.mode,
         streamUrl: action.streamUrl,
       };
+
+    case "LIVE_STREAM":
+      // A reopened channel's new session, bound with no metadata reload.
+      if (state.type !== "INITIALIZING_PLAYER" && state.type !== "READY" && state.type !== "PLAYING" && state.type !== "ERROR") return state;
+      return { type: "INITIALIZING_PLAYER", mode: "localRemux", streamUrl: action.streamUrl };
 
     case "PROCESSING_CHANGED":
       if (state.type !== "INITIALIZING_PLAYER" && state.type !== "READY" && state.type !== "PLAYING") return state;

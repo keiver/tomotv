@@ -14,6 +14,20 @@ describe("videoPlayerReducer", () => {
     expect(next).toEqual({ type: "INITIALIZING_PLAYER", mode: "transcode", streamUrl: "https://server/master.m3u8" });
   });
 
+  it("binds a reopened live channel's URL from wherever playback stood, with no metadata reload", () => {
+    const url = "http://127.0.0.1/t2/master.m3u8";
+    for (const from of [
+      { type: "PLAYING", mode: "localRemux" },
+      { type: "READY", mode: "localRemux" },
+      { type: "INITIALIZING_PLAYER", mode: "localRemux", streamUrl: "http://127.0.0.1/t1/master.m3u8" },
+      { type: "ERROR", error: "live input lost", canRetryWithTranscode: false },
+    ] as VideoPlayerState[]) {
+      expect(videoPlayerReducer(from, { type: "LIVE_STREAM", streamUrl: url })).toEqual({ type: "INITIALIZING_PLAYER", mode: "localRemux", streamUrl: url });
+    }
+    const idle: VideoPlayerState = { type: "IDLE" };
+    expect(videoPlayerReducer(idle, { type: "LIVE_STREAM", streamUrl: url })).toBe(idle);
+  });
+
   it("changes processing without replacing the URL or resetting playback state", () => {
     const initial: VideoPlayerState = { type: "INITIALIZING_PLAYER", mode: "localRemux", streamUrl: "http://127.0.0.1/session/master.m3u8" };
     expect(videoPlayerReducer(initial, { type: "PROCESSING_CHANGED", mode: "transcode" })).toEqual({ ...initial, mode: "transcode" });

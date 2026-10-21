@@ -29,5 +29,5 @@ export function liveReopenCount(previous: number, playedMsSinceLastDrop: number)
  * permanent refusals, or the origin refused every path to the channel or carries DRM.
  */
 export function isPermanentLiveFailure(message: string): boolean {
-  return message.startsWith("live input gone:") || message.startsWith("origin refused") || message.includes("DRM protected");
+  return message.includes("live input gone:") || message.includes("origin refused") || message.includes("DRM protected");
 }

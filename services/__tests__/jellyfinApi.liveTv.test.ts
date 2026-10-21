@@ -292,7 +292,7 @@ describe("live TV client", () => {
             Id: "ms-2",
             Container: "hls",
             Protocol: "Http",
-            Path: "https://origin.example/live/playlist.m3u8",
+            Path: "https://origin.example/live/playlist?channel=2",
             IsInfiniteStream: true,
             SupportsDirectPlay: false,
             SupportsDirectStream: false,
@@ -303,35 +303,14 @@ describe("live TV client", () => {
         ],
       }),
     });
-    // The master and one variant, read with the tuner's headers for DRM: the engine opens the master and cuts it itself.
-    (global.fetch as jest.Mock).mockResolvedValueOnce({
-      ok: true,
-      text: async () => "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360\nlow/index.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=3200000,RESOLUTION=1920x1080\nhigh/index.m3u8\n",
-    });
-    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, text: async () => "#EXTM3U\n#EXTINF:6,\nseg1.ts\n" });
     const channel = await openChannel("c2", { Id: "c2", Name: "Two", Type: "TvChannel", Path: "" });
-    expect(channel.liveStreamUrl).toBe("https://origin.example/live/playlist.m3u8");
+    expect(channel.liveStreamUrl).toBe("https://origin.example/live/playlist?channel=2");
     expect(channel.liveHttpHeaders).toEqual({ "User-Agent": "Mozilla/5.0" });
     expect(channel.LiveStreamId).toBe("ls-2");
-    const [masterUrl, masterInit] = (global.fetch as jest.Mock).mock.calls[1];
-    expect(masterUrl).toBe("https://origin.example/live/playlist.m3u8");
-    expect(masterInit.headers).toEqual({ "User-Agent": "Mozilla/5.0" });
-  });
-
-  it("opens the master as given when it cannot be read ahead of the engine", async () => {
-    const source = {
-      Id: "ms-2",
-      Container: "hls",
-      Protocol: "Http",
-      Path: "https://origin.example/live/playlist.m3u8",
-      IsInfiniteStream: true,
-      SupportsDirectPlay: false,
-      LiveStreamId: "ls-2",
-      MediaStreams: [],
-    };
-    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ MediaSources: [source] }) });
-    (global.fetch as jest.Mock).mockRejectedValueOnce(new Error("timed out"));
-    expect((await openChannel("c2", { Id: "c2", Name: "Two", Type: "TvChannel", Path: "" })).liveStreamUrl).toBe("https://origin.example/live/playlist.m3u8");
+    // No extension names it a playlist, so the engine is told it is one, to trim it and check it for DRM.
+    expect(channel.livePlaylist).toBe(true);
+    // The engine reads the master itself, DRM check included: the app asks the origin nothing.
+    expect((global.fetch as jest.Mock).mock.calls.map(([url]) => String(url)).filter((url) => url.startsWith("https://origin.example"))).toEqual([]);
   });
 
   it("tells real DRM from a plain AES-128 key", () => {
@@ -380,6 +359,7 @@ describe("live TV client", () => {
     const channel = await openChannel("c5", { Id: "c5", Name: "Five", Type: "TvChannel", Path: "" });
     expect(channel.liveStreamUrl).toBe("https://origin.example/live/Manifest.mpd");
     expect(channel.liveHttpHeaders).toEqual({ "User-Agent": "Mozilla/5.0" });
+    expect(channel.livePlaylist).toBeUndefined();
     expect((global.fetch as jest.Mock).mock.calls).toHaveLength(2);
   });
 
@@ -395,28 +375,6 @@ describe("live TV client", () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true });
     await expect(openChannel("c6", { Id: "c6", Name: "Six", Type: "TvChannel", Path: "" })).rejects.toThrow("DRM protected (cenc)");
     expect(String((global.fetch as jest.Mock).mock.calls[2][0])).toBe(`${SERVER}/LiveStreams/Close?liveStreamId=ls-6`);
-  });
-
-  it("refuses a DRM channel at the open and releases the tuner, before any lane runs", async () => {
-    (global.fetch as jest.Mock).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        MediaSources: [
-          { Id: "ms-4", Container: "hls", Protocol: "Http", Path: "https://origin.example/drm/master.m3u8", IsInfiniteStream: true, SupportsDirectPlay: false, LiveStreamId: "ls-4", MediaStreams: [] },
-        ],
-      }),
-    });
-    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, url: "https://cdn.example/drm/master.m3u8", text: async () => "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=3000000\nhigh.m3u8\n" });
-    (global.fetch as jest.Mock).mockResolvedValueOnce({
-      ok: true,
-      text: async () => '#EXTM3U\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI="skd://k",KEYFORMAT="com.apple.streamingkeydelivery"\n#EXTINF:6,\ns0.ts\n',
-    });
-    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true });
-    await expect(openChannel("c4", { Id: "c4", Name: "Four", Type: "TvChannel", Path: "" })).rejects.toThrow("DRM protected (com.apple.streamingkeydelivery)");
-    const calls = (global.fetch as jest.Mock).mock.calls.map(([url]) => String(url));
-    // The variant resolved against the master's landing URL, not the shortlink it was asked for.
-    expect(calls[2]).toBe("https://cdn.example/drm/high.m3u8");
-    expect(calls[3]).toBe(`${SERVER}/LiveStreams/Close?liveStreamId=ls-4`);
   });
 
   it("resolves a manifest channel's origin for a frame grab without opening it, and no origin for a tuner channel", async () => {
@@ -483,10 +441,10 @@ describe("live TV client", () => {
     expect(urls).toContain(`${SERVER}/LiveStreams/Close?liveStreamId=ls-b`);
   });
 
-  it("takes the server's HLS only as a copy: container and delivery reasons, never a codec one", () => {
+  it("takes the server's HLS only as a copy: no reason or DirectPlayError alone", () => {
     expect(remuxOf(SERVER, "/videos/x/master.m3u8?LiveStreamId=1")).toBe(`${SERVER}/videos/x/master.m3u8?LiveStreamId=1`);
     expect(remuxOf(SERVER, "/videos/x/master.m3u8?TranscodeReasons=DirectPlayError&a=1")).toBe(`${SERVER}/videos/x/master.m3u8?TranscodeReasons=DirectPlayError&a=1`);
-    expect(remuxOf(SERVER, "/videos/x/master.m3u8?TranscodeReasons=ContainerNotSupported%2CDirectPlayError")).not.toBeNull();
+    expect(remuxOf(SERVER, "/videos/x/master.m3u8?TranscodeReasons=ContainerNotSupported%2CDirectPlayError")).toBeNull();
     expect(remuxOf(SERVER, "/videos/x/master.m3u8?TranscodeReasons=VideoCodecNotSupported,DirectPlayError")).toBeNull();
     expect(remuxOf(SERVER, "/videos/x/master.m3u8?TranscodeReasons=AudioCodecNotSupported")).toBeNull();
     expect(remuxOf(SERVER, undefined)).toBeNull();
@@ -545,6 +503,7 @@ describe("live TV client", () => {
 
     expect(channel.liveStreamUrl).toBe("https://origin.example/live/master.m3u8");
     expect(channel.liveHttpHeaders).toEqual({ "User-Agent": "Tuner" });
+    expect(channel.livePlaylist).toBe(true);
     expect(channel.PlaySessionId).toBe("ps-get");
     expect(channel.LiveStreamId).toBeUndefined();
     expect(channel).not.toHaveProperty("liveTranscodeUrl");

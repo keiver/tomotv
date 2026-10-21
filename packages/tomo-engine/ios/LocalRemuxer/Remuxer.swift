@@ -330,6 +330,14 @@ final class RemuxSession {
     var liveDurations: [Int: Double] = [:]
     /// Wall time each live segment started, for EXT-X-PROGRAM-DATE-TIME.
     var liveDates: [Int: Date] = [:]
+    /// Output second each live segment starts at, where its subtitle window opens.
+    var liveSegmentStarts: [Int: Double] = [:]
+    /// Live: the trimmed master's SUBTITLES renditions (attribute lists), kept out of what FFmpeg opens.
+    var liveSubtitleRenditions: [String] = []
+    /// Live text subtitle track -> the playlist URI of its rendition.
+    var liveSubtitleURIs: [Int: String] = [:]
+    /// Live text subtitle track -> when its last completed read of the rendition playlist began.
+    var liveSubtitlePolledAt: [Int32: Date] = [:]
     /// Segment index -> generation that opened there. Every entry after segment 0 is a splice.
     var liveGenerationStarts: [Int: Int] = [0: 0]
     /// Splices whose bookkeeping the prune dropped; DISCONTINUITY-SEQUENCE counts them still.

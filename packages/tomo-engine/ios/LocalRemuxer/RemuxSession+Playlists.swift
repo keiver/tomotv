@@ -801,8 +801,7 @@ extension RemuxSession {
         // refreshed while selected and never after. The request is the selection.
         noteSubtitleRequest(sub.index)
 
-        // Live carries image tracks only, on the video's own window: the same segments and
-        // target (authoring spec 5.6), cue-less bodies, no init.
+        // Live subtitles list the video's window, segments and target (authoring spec 5.6); an image track's bodies are cue-less.
         if config.isLive { return liveSubtitlePlaylist(sub) }
 
         if sub.isEngineText {
@@ -989,6 +988,29 @@ extension RemuxSession {
         var out = "WEBVTT\nX-TIMESTAMP-MAP=MPEGTS:0,LOCAL:00:00:00.000\n"
         for cue in decoder.cues(from: start + window.anchor, to: end + window.anchor) {
             out += "\n" + webVTTTimestamp(cue.start - window.anchor) + " --> " + webVTTTimestamp(cue.end - window.anchor) + "\n"
+            out += cue.text + "\n"
+        }
+        return out
+    }
+
+    /// A completed live segment's cues, on the output timeline, once the rendition was read after the segment was cut.
+    func liveSubtitleBody(streamIndex: Int, segment: Int) -> String {
+        stateLock.lock()
+        let decoder = textSubtitles[Int32(streamIndex)]
+        let start = liveSegmentStarts[segment]
+        let duration = liveDurations[segment]
+        let cutAt = liveDates[segment + 1] ?? Date()
+        stateLock.unlock()
+        guard let decoder, let start, let duration else { return emptySubtitleBody() }
+        _ = waitUntil(deadline: 4) { [weak self] in
+            guard let self else { return true }
+            self.stateLock.lock()
+            defer { self.stateLock.unlock() }
+            return self.cancelled || (self.liveSubtitlePolledAt[Int32(streamIndex)].map { $0 >= cutAt } ?? false)
+        }
+        var out = "WEBVTT\nX-TIMESTAMP-MAP=MPEGTS:0,LOCAL:00:00:00.000\n"
+        for cue in decoder.cues(from: start, to: start + duration) {
+            out += "\n" + webVTTTimestamp(cue.start) + " --> " + webVTTTimestamp(cue.end) + "\n"
             out += cue.text + "\n"
         }
         return out

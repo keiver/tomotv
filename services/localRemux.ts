@@ -722,6 +722,7 @@ export async function startLocalRemux(
         itemId: videoItem.Id,
         ...(videoItem.liveHttpHeaders ? { httpHeaders: videoItem.liveHttpHeaders } : {}),
         ...(videoItem.liveOriginKey ? { originKey: videoItem.liveOriginKey } : {}),
+        ...(videoItem.livePlaylist ? { playlist: true } : {}),
         // A neighbour or a card preview yields its origin connection to the channel playing (the engine's connection budget).
         ...(options.livePriority || options.prewarm ? { priority: options.livePriority ?? "ring" } : {}),
         ...(getAudioPreferenceSync() ? { audioLanguage: getAudioPreferenceSync()! } : {}),

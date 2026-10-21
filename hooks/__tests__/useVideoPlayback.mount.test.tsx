@@ -1638,9 +1638,9 @@ describe("useVideoPlayback (mounted)", () => {
         channelId: "video-1",
         details: expect.objectContaining({ LiveStreamId: "ls-1" }),
         url: "http://127.0.0.1:9999/s/abc/master.m3u8",
-        token: "token:http://127.0.0.1:9999/s/abc/master.m3u8",
+        token: "abc",
       });
-      expect(mockStopLocalRemux).not.toHaveBeenCalledWith("token:http://127.0.0.1:9999/s/abc/master.m3u8");
+      expect(mockStopLocalRemux).not.toHaveBeenCalledWith("abc");
       expect(closeLiveStream).not.toHaveBeenCalled();
     });
 
@@ -1765,7 +1765,7 @@ describe("useVideoPlayback (mounted)", () => {
           jest.advanceTimersByTime(1_500);
         });
         expect(ref.current!.get().state).toMatchObject({ type: "ERROR", error: "Playback stalled while waiting for the server", canRetryWithTranscode: true });
-        expect(mockStopLocalRemux).toHaveBeenCalledWith("token:http://127.0.0.1:9999/s/abc/master.m3u8");
+        expect(mockStopLocalRemux).toHaveBeenCalledWith("abc");
       } finally {
         jest.useRealTimers();
       }
@@ -3354,6 +3354,66 @@ describe("useVideoPlayback (mounted)", () => {
         await drop(ref);
         expect(mockStartLocalRemux).toHaveBeenCalledTimes(2);
         expect(ref.current!.get().paused).toBe(false);
+      });
+
+      it("binds the reopened channel's new session with no second pass through the metadata step", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        await playToStable(ref);
+        await drop(ref);
+        expect(mockProbeEmit.mock.calls.filter(([event]) => event === "mode")).toHaveLength(1);
+        expect(mockDetails).toHaveBeenCalledTimes(2);
+        expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/s/abc/master.m3u8");
+      });
+
+      it("hands a viewer's retry of a failed channel to the controller, which waits and opens it again", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        await playToStable(ref);
+        await act(async () => {
+          callbacks(ref).onError({ error: { errorString: "channel is DRM protected (com.apple.streamingkeydelivery)" } } as never);
+          jest.advanceTimersByTime(1);
+        });
+        expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: false });
+
+        mockDetails.mockRejectedValueOnce(new Error("The server did not open video-1"));
+        await act(async () => {
+          ref.current!.get().retry();
+          for (let hop = 0; hop < 30; hop++) await Promise.resolve();
+        });
+        await act(async () => {
+          jest.advanceTimersByTime(1);
+        });
+        expect(mockDetails).toHaveBeenCalledTimes(2);
+        expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: true });
+
+        await act(async () => {
+          jest.advanceTimersByTime(500);
+          for (let hop = 0; hop < 30; hop++) await Promise.resolve();
+        });
+        expect(mockDetails).toHaveBeenCalledTimes(3);
+        expect(mockStartLocalRemux).toHaveBeenCalledTimes(2);
+        for (let round = 0; round < 5 && ref.current!.get().state.type !== "INITIALIZING_PLAYER"; round++) {
+          await act(async () => {
+            jest.advanceTimersByTime(20);
+            for (let hop = 0; hop < 10; hop++) await Promise.resolve();
+          });
+        }
+        expect(ref.current!.get().state).toMatchObject({ type: "INITIALIZING_PLAYER" });
+        expect(mockProbeEmit.mock.calls.filter(([event]) => event === "mode")).toHaveLength(1);
+      });
+
+      it("stops reopening a channel the engine found DRM protected", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        await playToStable(ref);
+        await act(async () => {
+          callbacks(ref).onError({ error: { errorString: "channel is DRM protected (com.apple.streamingkeydelivery)" } } as never);
+          jest.advanceTimersByTime(1);
+        });
+        await act(async () => {
+          jest.advanceTimersByTime(10_000);
+          for (let hop = 0; hop < 30; hop++) await Promise.resolve();
+        });
+        expect(mockStartLocalRemux).toHaveBeenCalledTimes(1);
+        expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: false });
       });
 
       it("reopens paused when the viewer paused before the drop", async () => {

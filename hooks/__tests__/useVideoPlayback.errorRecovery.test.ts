@@ -10,7 +10,7 @@
  */
 
 import { PlaybackErrorType, planErrorRecovery, type ErrorRecoveryInput } from "../useVideoPlayback";
-import { AUTOMATIC_RETRY_BUDGET_MS, automaticRetryDelay, planLiveErrorRecovery, shouldAutomaticallyRetry } from "../videoPlayback/errorRecovery";
+import { AUTOMATIC_RETRY_BUDGET_MS, automaticRetryDelay, isPermanentLiveError, shouldAutomaticallyRetry } from "../videoPlayback/errorRecovery";
 
 describe("automatic network recovery", () => {
   it("caps the delay without exhausting retries", () => {
@@ -290,27 +290,21 @@ describe("planErrorRecovery: a held file degrades instead of reaching a server",
   });
 });
 
-describe("planLiveErrorRecovery", () => {
-  const base = { errorType: PlaybackErrorType.STALLED, message: "live playback stalled for 60s", attempts: 0 };
-
-  it("opens the channel afresh on its first drop", () => {
-    expect(planLiveErrorRecovery(base)).toEqual({ reopen: true, delayMs: 500 });
+describe("isPermanentLiveError", () => {
+  it("takes a stall or a lost input for something another open fixes", () => {
+    expect(isPermanentLiveError(PlaybackErrorType.STALLED, "live playback stalled for 60s")).toBe(false);
+    expect(isPermanentLiveError(PlaybackErrorType.NETWORK, "live input lost: no data for 12s")).toBe(false);
   });
 
-  it("opens it again on every later drop too, never handing it to the server, waiting longer each time", () => {
-    expect(planLiveErrorRecovery({ ...base, attempts: 1 })).toEqual({ reopen: true, delayMs: 1000 });
-    expect(planLiveErrorRecovery({ ...base, attempts: 20 })).toEqual({ reopen: true, delayMs: 5000 });
-  });
-
-  it("stops at the error on a failure every open repeats: the account, a gone channel, DRM", () => {
+  it("takes the account, a gone channel and DRM for failures every open repeats", () => {
     for (const errorType of [PlaybackErrorType.UNAUTHORIZED, PlaybackErrorType.NOT_FOUND, PlaybackErrorType.PROTECTED]) {
-      expect(planLiveErrorRecovery({ ...base, errorType })).toEqual({ reopen: false });
+      expect(isPermanentLiveError(errorType, "")).toBe(true);
     }
   });
 
-  it("stops at the error when the engine gave the input up, the server could only re-encode it, or the engine cannot take it", () => {
-    expect(planLiveErrorRecovery({ ...base, message: "live input gone: Server returned 404 Not Found" })).toEqual({ reopen: false });
-    expect(planLiveErrorRecovery({ ...base, message: "The server can carry News 24 only by re-encoding it" })).toEqual({ reopen: false });
-    expect(planLiveErrorRecovery({ ...base, message: "the open gave the engine nothing to read" })).toEqual({ reopen: false });
+  it("takes an input the engine gave up, a channel the server could only re-encode, or one the engine cannot take, for permanent", () => {
+    expect(isPermanentLiveError(PlaybackErrorType.STALLED, "live input gone: Server returned 404 Not Found")).toBe(true);
+    expect(isPermanentLiveError(PlaybackErrorType.STALLED, "The server can carry News 24 only by re-encoding it")).toBe(true);
+    expect(isPermanentLiveError(PlaybackErrorType.STALLED, "the open gave the engine nothing to read")).toBe(true);
   });
 });

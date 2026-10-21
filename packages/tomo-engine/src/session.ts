@@ -73,10 +73,10 @@ export interface EngineSessionConfig {
   inputConnections?: number;
   fallbackInputUrl?: string;
   livePriority?: "playback" | "ring" | "preview";
-  /** Live HLS: the audio rendition to carry, by language code; the group's default when absent. */
+  /** Live HLS: the audio rendition made the default, by language code; the group's default when absent. */
   liveAudioLanguage?: string;
-  /** Live HLS: the highest variant BANDWIDTH to carry, bits per second; the top variant when absent. */
-  liveMaxBandwidth?: number;
+  /** Live: the input is an HLS playlist whatever its URL's extension. */
+  livePlaylist?: boolean;
   /** Live: seconds of output the media playlists wait for before answering, the player's start buffer. */
   liveBufferSeconds?: number;
   stopRequests?: EngineStopRequest[];
@@ -100,22 +100,22 @@ export interface LiveSessionInput {
   priority?: "playback" | "ring" | "preview";
   /** Seconds the player starts behind the newest output; LIVE_BUFFER_SECONDS when absent. */
   bufferSeconds?: number;
-  /** The audio language to carry from a channel that offers several (ISO 639-1 or -2). */
+  /** The audio language played first on a channel that offers several (ISO 639-1 or -2); every language is carried. */
   audioLanguage?: string;
-  /** The highest variant bit rate the link carries; the top variant when absent. */
-  maxBandwidth?: number;
   /** Seconds of output kept and listed; the player's rewind. */
   windowSeconds?: number;
   /** A second way to the same channel (a relay), opened once when the origin itself will not open. */
   fallbackInputUrl?: string;
   /** An HLS origin read with no server between: its refusal is checked beside the open, so a refused channel fails in seconds. */
   checkOrigin?: boolean;
+  /** The input is an HLS playlist whatever its URL's extension, so it is trimmed and checked for DRM. */
+  playlist?: boolean;
 }
 
 /**
  * The config of a live session from the channel's URL alone: the engine reads the tracks, the
- * picture and the codecs off the input, opens one variant and one audio rendition of an HLS master,
- * and answers the player once `bufferSeconds` are built.
+ * picture and the codecs off the input, opens the top variant of an HLS master with every rendition
+ * it names, and answers the player once `bufferSeconds` are built.
  */
 export function liveSessionConfig(input: LiveSessionInput): EngineSessionConfig {
   const buffer = input.bufferSeconds ?? LIVE_BUFFER_SECONDS;
@@ -147,7 +147,7 @@ export function liveSessionConfig(input: LiveSessionInput): EngineSessionConfig 
     ...(input.originKey ? { liveOriginKey: input.originKey } : {}),
     ...(input.priority && input.priority !== "playback" ? { livePriority: input.priority } : {}),
     ...(input.audioLanguage ? { liveAudioLanguage: input.audioLanguage } : {}),
-    ...(input.maxBandwidth && Number.isFinite(input.maxBandwidth) && input.maxBandwidth > 0 ? { liveMaxBandwidth: Math.floor(input.maxBandwidth) } : {}),
+    ...(input.playlist ? { livePlaylist: true } : {}),
     ...(input.fallbackInputUrl ? { fallbackInputUrl: input.fallbackInputUrl } : {}),
     ...(input.checkOrigin ? { probeOrigin: true } : {}),
     describesInput: true,

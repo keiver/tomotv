@@ -1,4 +1,4 @@
-import { isPermanentLiveFailure, planLiveRecovery, type LiveRecoveryDecision } from "@keiver/tomo-live";
+import { isPermanentLiveFailure } from "@keiver/tomo-live";
 import type { ServerTranscodeBlock } from "@/services/transcodePolicy";
 import { PlaybackErrorType } from "@/utils/errorClassification";
 import { IdentifiedError, PLAYBACK_ERROR_IDS } from "@/utils/errorIds";
@@ -136,20 +136,10 @@ export function planErrorRecovery(input: ErrorRecoveryInput): ErrorRecoveryDecis
   };
 }
 
-export interface LiveErrorInput {
-  errorType: PlaybackErrorType;
-  /** What failed, as the engine or the player put it. */
-  message: string;
-  /** This drop's place in the channel's run of drops (LiveDropCounter.drop). */
-  attempts: number;
-}
-
 /** Failures every open of the channel repeats: the account, a channel the server no longer has, DRM. */
 const LIVE_PERMANENT: readonly PlaybackErrorType[] = [PlaybackErrorType.UNAUTHORIZED, PlaybackErrorType.NOT_FOUND, PlaybackErrorType.PROTECTED];
 
-/** A dropped live channel opens again on the engine, after a growing wait, until a failure no open fixes. */
-export function planLiveErrorRecovery(input: LiveErrorInput): LiveRecoveryDecision {
-  const permanent =
-    LIVE_PERMANENT.includes(input.errorType) || isPermanentLiveFailure(input.message) || /only by re-encoding|engine cannot take this channel|gave the engine nothing to read/.test(input.message);
-  return planLiveRecovery({ attempts: input.attempts, permanent });
+/** A live failure no open of the channel fixes; every other one opens it again. */
+export function isPermanentLiveError(errorType: PlaybackErrorType, message: string): boolean {
+  return LIVE_PERMANENT.includes(errorType) || isPermanentLiveFailure(message) || /only by re-encoding|engine cannot take this channel|gave the engine nothing to read/.test(message);
 }

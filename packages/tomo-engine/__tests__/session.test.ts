@@ -221,7 +221,7 @@ describe("liveSessionConfig", () => {
     expect(live).toMatchObject({ inputUrl: "https://origin/master.m3u8", itemId: "ch1", isLive: true, describesInput: true, liveBufferSeconds: 15, liveSegmentSeconds: 2 });
     expect(live.audioTracks).toEqual([]);
     expect(live.tiers).toEqual([]);
-    for (const key of ["httpHeaders", "liveOriginKey", "livePriority", "liveAudioLanguage", "liveMaxBandwidth", "fallbackInputUrl", "liveWindowSeconds", "probeOrigin"]) {
+    for (const key of ["httpHeaders", "liveOriginKey", "livePriority", "liveAudioLanguage", "livePlaylist", "fallbackInputUrl", "liveWindowSeconds", "probeOrigin"]) {
       expect(key in live).toBe(false);
     }
   });
@@ -235,19 +235,19 @@ describe("liveSessionConfig", () => {
       priority: "ring",
       bufferSeconds: 20,
       audioLanguage: "spa",
-      maxBandwidth: 2_500_000.7,
       windowSeconds: 120,
       fallbackInputUrl: "http://server/LiveTv/LiveStreamFiles/abc/stream.ts",
       checkOrigin: true,
+      playlist: true,
     });
     expect(live).toMatchObject({
       probeOrigin: true,
+      livePlaylist: true,
       httpHeaders: { "User-Agent": "x" },
       liveOriginKey: "provider:8080",
       livePriority: "ring",
       liveBufferSeconds: 20,
       liveAudioLanguage: "spa",
-      liveMaxBandwidth: 2_500_000,
       liveWindowSeconds: 120,
       fallbackInputUrl: "http://server/LiveTv/LiveStreamFiles/abc/stream.ts",
     });

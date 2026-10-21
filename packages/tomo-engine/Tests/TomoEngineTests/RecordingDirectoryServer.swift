@@ -36,6 +36,12 @@ final class RecordingDirectoryServer {
 
     func stop() { listener.cancel() }
 
+    /// Seconds every answer waits before it is sent: a far origin.
+    var latency: TimeInterval = 0
+
+    /// Path -> how many of its next requests are answered 503.
+    var refusals: [String: Int] = [:]
+
     /// While silent, every request is taken and never answered: a feed that died without closing.
     private var silent = false
     private var held: [NWConnection] = []
@@ -68,13 +74,17 @@ final class RecordingDirectoryServer {
             let agent = lines.first { $0.lowercased().hasPrefix("user-agent:") }.map { String($0.dropFirst("user-agent:".count)).trimmingCharacters(in: .whitespaces) }
             self.lock.lock()
             self.recorded.append(Request(path: path, userAgent: agent))
+            let refused = (self.refusals[path] ?? 0) > 0
+            if refused { self.refusals[path]! -= 1 }
             self.lock.unlock()
             let file = self.root.appendingPathComponent(String(path.drop { $0 == "/" }))
-            let body = try? Data(contentsOf: file)
-            let status = body == nil ? "404 Not Found" : "200 OK"
+            let body = refused ? nil : try? Data(contentsOf: file)
+            let status = refused ? "503 Service Unavailable" : body == nil ? "404 Not Found" : "200 OK"
             let type = path.hasSuffix(".m3u8") ? "application/vnd.apple.mpegurl" : "video/mp2t"
             let response = "HTTP/1.1 \(status)\r\nContent-Type: \(type)\r\nContent-Length: \(body?.count ?? 0)\r\nConnection: close\r\n\r\n"
-            connection.send(content: Data(response.utf8) + (body ?? Data()), completion: .contentProcessed { _ in connection.cancel() })
+            self.queue.asyncAfter(deadline: .now() + self.latency) {
+                connection.send(content: Data(response.utf8) + (body ?? Data()), completion: .contentProcessed { _ in connection.cancel() })
+            }
         }
     }
 }
