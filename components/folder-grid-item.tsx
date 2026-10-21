@@ -10,7 +10,7 @@ import { useCardPalette } from "@/hooks/useCardPalette";
 import { useFolderPreview } from "@/hooks/useFolderPreview";
 import { useViewItemCount } from "@/hooks/useViewItemCount";
 import { folderPosterSource } from "@/services/itemArtwork";
-import { t } from "@/services/i18n";
+import { locale, t } from "@/services/i18n";
 import { cleanLabel } from "@/utils/cleanLabel";
 import { JellyfinItem } from "@/types/jellyfin";
 import { Image } from "expo-image";
@@ -189,7 +189,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             </View>
           )}
 
-          {itemCount != null ? <CardCornerTab segments={[{ label: itemCount }]} surface={COLORS.SURFACE_SUNKEN} /> : null}
+          {itemCount != null ? <CardCornerTab segments={[{ label: itemCount.toLocaleString(locale()) }]} surface={COLORS.SURFACE_SUNKEN} /> : null}
           {recording ? (
             <View style={styles.recBadge} pointerEvents="none">
               <CardBadge segments={[{ icon: "videocam-outline", label: t("liveTv.rec") }]} focused={focused} tone="live" />

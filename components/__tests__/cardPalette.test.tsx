@@ -37,6 +37,7 @@ import { VideoGridItem } from "@/components/video-grid-item";
 import { COLORS } from "@/constants/colors";
 import { CardPaletteOverride } from "@/hooks/useCardPalette";
 import { cardPalette, isLowContrast } from "@/services/cardTheme";
+import { __setLocaleForTests } from "@/services/i18n";
 import type { JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 
 const ACCENT = "#1A237E";
@@ -114,13 +115,27 @@ describe("card palette", () => {
       );
     });
     expect(tree.root.findAllByType(CardBadge)).toHaveLength(0);
-    expect(tree.root.findByType(CardCornerTab).props.segments).toEqual([{ label: 3 }]);
+    expect(tree.root.findByType(CardCornerTab).props.segments).toEqual([{ label: "3" }]);
     const tab = tree.root.findAll((n) => n.props.testID === "card-corner-tab" && typeof n.type === "string")[0];
     expect(StyleSheet.flatten(tab.props.style)).toMatchObject({ backgroundColor: COLORS.SURFACE_SUNKEN, top: 0, left: 0, borderBottomRightRadius: expect.any(Number) });
     // The theme's accent is too dark to read on the card, so the count is white, like the name.
-    expect(tab.findAll((n) => typeof n.type === "string" && n.props.children === 3).map((n) => StyleSheet.flatten(n.props.style).color)).toEqual([COLORS.TEXT_PRIMARY]);
+    expect(tab.findAll((n) => typeof n.type === "string" && n.props.children === "3").map((n) => StyleSheet.flatten(n.props.style).color)).toEqual([COLORS.TEXT_PRIMARY]);
     expect(tree.root.findByType(CardStand).props).toMatchObject({ name: "Shows", icon: "heart" });
     act(() => tree.unmount());
+  });
+
+  it.each([
+    ["en", "11,365"],
+    ["de", "11.365"],
+  ] as const)("a folder count groups its digits the way the app's language does (%s)", (tag, label) => {
+    __setLocaleForTests(tag);
+    let tree!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      tree = TestRenderer.create(<FolderGridItem folder={{ ...folder, RecursiveItemCount: 11365 } as JellyfinItem} onPress={jest.fn()} index={0} />);
+    });
+    expect(tree.root.findByType(CardCornerTab).props.segments).toEqual([{ label }]);
+    act(() => tree.unmount());
+    __setLocaleForTests("en");
   });
   it("the base names a card in the accent at rest (white when the accent is too dark), in the ink on the accent when focused", () => {
     const standColours = (accent: string, focused: boolean) => {
