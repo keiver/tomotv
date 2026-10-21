@@ -6,8 +6,8 @@ export interface JellyfinMediaStream {
   BitRate?: number;
   BitDepth?: number; // Bits per color component (8 or 10); gates on-device video transcode
   IsInterlaced?: boolean; // Interlaced video needs the server's deinterlacer
-  VideoRange?: string; // "SDR" | "HDR" — coarse range from Jellyfin
-  VideoRangeType?: string; // "SDR" | "HDR10" | "HDR10+" | "HLG" | "DOVI"... — drives the HLS VIDEO-RANGE attribute
+  VideoRange?: string; // "SDR" | "HDR": coarse range from Jellyfin
+  VideoRangeType?: string; // "SDR" | "HDR10" | "HDR10+" | "HLG" | "DOVI"...; drives the HLS VIDEO-RANGE attribute
   // Dolby Vision configuration record, as Jellyfin reads it from the container.
   // Profile 8 with BlCompatibility 1 (PQ) or 4 (HLG) is single-layer and plays
   // as plain HDR on any player, which is what SUPPLEMENTAL-CODECS advertises.
@@ -17,9 +17,9 @@ export interface JellyfinMediaStream {
   RpuPresentFlag?: number;
   ElPresentFlag?: number;
   BlPresentFlag?: number;
-  Level?: number; // Codec level (e.g. 31, 41 for H.264 3.1/4.1; 120 for HEVC 4.0) — half of the CODECS tag
-  Profile?: string; // "Main", "High", "Main 10"... — the other half of the CODECS tag
-  RealFrameRate?: number; // Frames per second, e.g. 23.976 — the HLS FRAME-RATE attribute
+  Level?: number; // Codec level (e.g. 31, 41 for H.264 3.1/4.1; 120 for HEVC 4.0), half of the CODECS tag
+  Profile?: string; // "Main", "High", "Main 10"...; the other half of the CODECS tag
+  RealFrameRate?: number; // Frames per second, e.g. 23.976; the HLS FRAME-RATE attribute
   AverageFrameRate?: number; // Fallback when RealFrameRate is absent
   SampleRate?: number; // Audio sample rate in Hz, for the FLAC bandwidth estimate
   DisplayTitle?: string;
@@ -150,11 +150,8 @@ export interface JellyfinVideoItem {
   LiveStreamId?: string;
   liveStreamUrl?: string;
   liveHttpHeaders?: Record<string, string>;
-  // A raw TS channel read without a server open: its provider's connection budget, and the server's pass-through.
+  // A raw TS channel read without a server open: its provider's connection budget.
   liveOriginKey?: string;
-  liveFallbackUrl?: string;
-  // The server's HLS transcode of the channel, the rung below the engine.
-  liveTranscodeUrl?: string;
   // A channel built from the device's own tuner playlist parse: the server holds no item for it
   // yet, so server-side writes (favorite, record) and the server lane are unavailable.
   playlistPending?: boolean;
@@ -188,7 +185,7 @@ export interface JellyfinVideoItem {
   seriesOfficialRating?: string;
   seriesGenres?: string[];
   SeriesPrimaryImageTag?: string; // Seasons and episodes: the series poster, drawn for a season without its own
-  ParentId?: string; // Containing folder — sibling queue source for non-episode items
+  ParentId?: string; // Containing folder: sibling queue source for non-episode items
   SeasonName?: string;
   IndexNumber?: number;
   IndexNumberEnd?: number; // Multi-episode files ("S01E01-E02"): the last episode the file holds
@@ -206,7 +203,7 @@ export interface JellyfinVideoItem {
   Software?: string;
   ExposureTime?: number; // Seconds
   FocalLength?: number; // Millimetres
-  // APEX values, not an f-number and not seconds — Jellyfin stores EXIF
+  // APEX values, not an f-number and not seconds; Jellyfin stores EXIF
   // ApertureValue and ShutterSpeedValue raw (Emby.Photos/PhotoProvider.cs).
   Aperture?: number;
   ShutterSpeed?: number;
@@ -235,7 +232,7 @@ export interface JellyfinVideoItem {
     IsFavorite?: boolean;
     Played?: boolean;
     PlaybackPositionTicks?: number; // Server-side resume position (100ns ticks)
-    PlayedPercentage?: number; // 0-100; not always populated — compute from ticks/RunTimeTicks when absent
+    PlayedPercentage?: number; // 0-100; not always populated; compute from ticks/RunTimeTicks when absent
     PlayCount?: number;
     LastPlayedDate?: string;
     UnplayedItemCount?: number; // Folder kinds only

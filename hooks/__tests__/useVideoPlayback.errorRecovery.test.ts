@@ -109,7 +109,7 @@ describe("network gateway item recovery", () => {
   });
 });
 
-describe("planErrorRecovery — engine restart rung", () => {
+describe("planErrorRecovery: engine restart rung", () => {
   it("restarts the engine once for a mid-playback starvation", () => {
     const d = planErrorRecovery({ ...base, errorType: PlaybackErrorType.STALLED });
     expect(d.action.kind).toBe("restartRemux");
@@ -151,7 +151,7 @@ describe("planErrorRecovery — engine restart rung", () => {
   });
 });
 
-describe("planErrorRecovery — preserved pre-existing paths", () => {
+describe("planErrorRecovery: preserved pre-existing paths", () => {
   it("mid-playback localRemux failure latches transcode up front and carries the playhead", () => {
     const d = planErrorRecovery(base);
     expect(d.action.kind).toBe("reportError");
@@ -183,7 +183,7 @@ describe("planErrorRecovery — preserved pre-existing paths", () => {
       expect(d.action.kind).toBe("refreshCredentials");
       expect(d.carryPositionSec).toBeNull();
     }
-    // A 401 mid-remux still spends the engine rung up front — today's behavior, preserved.
+    // A 401 mid-remux still spends the engine rung up front: today's behavior, preserved.
     expect(planErrorRecovery({ ...base, errorType: PlaybackErrorType.UNAUTHORIZED }).latchTranscodeUpFront).toBe(true);
   });
 
@@ -228,7 +228,7 @@ describe("planErrorRecovery — preserved pre-existing paths", () => {
   });
 });
 
-describe("classifyPlaybackError — starvation", () => {
+describe("classifyPlaybackError: starvation", () => {
   const { classifyPlaybackError } = jest.requireActual<typeof import("../useVideoPlayback")>("../useVideoPlayback");
 
   it("classifies the native -12889 code+domain shape", () => {
@@ -246,7 +246,7 @@ describe("classifyPlaybackError — starvation", () => {
   });
 });
 
-describe("planErrorRecovery — a held file degrades instead of reaching a server", () => {
+describe("planErrorRecovery: a held file degrades instead of reaching a server", () => {
   it("spends the subtitles rather than the transcode rung, and stops the dead session", () => {
     const d = planErrorRecovery({ ...base, heldOnDisk: true });
     expect(d.dropSubtitles).toBe(true);
@@ -291,30 +291,26 @@ describe("planErrorRecovery — a held file degrades instead of reaching a serve
 });
 
 describe("planLiveErrorRecovery", () => {
-  const base = { mode: "localRemux" as const, errorType: PlaybackErrorType.STALLED, hasReopened: false, lane: "engine" as const };
+  const base = { errorType: PlaybackErrorType.STALLED, message: "live playback stalled for 60s", attempts: 0 };
 
-  it("opens the channel afresh on its first drop: a dropped tuner only comes back that way", () => {
-    expect(planLiveErrorRecovery(base)).toEqual({ reopen: true, toServer: false, retry: true });
+  it("opens the channel afresh on its first drop", () => {
+    expect(planLiveErrorRecovery(base)).toEqual({ reopen: true, delayMs: 500 });
   });
 
-  it("takes the server's transcode on the second drop", () => {
-    expect(planLiveErrorRecovery({ ...base, hasReopened: true })).toEqual({ reopen: false, toServer: true, retry: true });
+  it("opens it again on every later drop too, never handing it to the server, waiting longer each time", () => {
+    expect(planLiveErrorRecovery({ ...base, attempts: 1 })).toEqual({ reopen: true, delayMs: 1000 });
+    expect(planLiveErrorRecovery({ ...base, attempts: 20 })).toEqual({ reopen: true, delayMs: 5000 });
   });
 
-  it("ends at the error once the channel is already on the server", () => {
-    expect(planLiveErrorRecovery({ ...base, mode: "transcode", hasReopened: true, lane: "server" })).toEqual({ reopen: false, toServer: false, retry: false });
+  it("stops at the error on a failure every open repeats: the account, a gone channel, DRM", () => {
+    for (const errorType of [PlaybackErrorType.UNAUTHORIZED, PlaybackErrorType.NOT_FOUND, PlaybackErrorType.PROTECTED]) {
+      expect(planLiveErrorRecovery({ ...base, errorType })).toEqual({ reopen: false });
+    }
   });
 
-  it("spends no cold opens on a 401, which fails every rung the same way", () => {
-    expect(planLiveErrorRecovery({ ...base, errorType: PlaybackErrorType.UNAUTHORIZED })).toEqual({ reopen: false, toServer: false, retry: false });
-  });
-
-  it("does not reopen from the server lane, which is the last rung", () => {
-    expect(planLiveErrorRecovery({ ...base, mode: "transcode", lane: "server" })).toEqual({ reopen: false, toServer: false, retry: false });
-  });
-
-  it("ends at the error after the one reopen when the server rung is ruled out", () => {
-    expect(planLiveErrorRecovery({ ...base, serverTranscodingAllowed: false })).toEqual({ reopen: true, toServer: false, retry: true });
-    expect(planLiveErrorRecovery({ ...base, hasReopened: true, serverTranscodingAllowed: false })).toEqual({ reopen: false, toServer: false, retry: false });
+  it("stops at the error when the engine gave the input up, the server could only re-encode it, or the engine cannot take it", () => {
+    expect(planLiveErrorRecovery({ ...base, message: "live input gone: Server returned 404 Not Found" })).toEqual({ reopen: false });
+    expect(planLiveErrorRecovery({ ...base, message: "The server can carry News 24 only by re-encoding it" })).toEqual({ reopen: false });
+    expect(planLiveErrorRecovery({ ...base, message: "the open gave the engine nothing to read" })).toEqual({ reopen: false });
   });
 });

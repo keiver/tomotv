@@ -1,3 +1,4 @@
+import { isPermanentLiveFailure, planLiveRecovery, type LiveRecoveryDecision } from "@keiver/tomo-live";
 import type { ServerTranscodeBlock } from "@/services/transcodePolicy";
 import { PlaybackErrorType } from "@/utils/errorClassification";
 import { IdentifiedError, PLAYBACK_ERROR_IDS } from "@/utils/errorIds";
@@ -136,31 +137,19 @@ export function planErrorRecovery(input: ErrorRecoveryInput): ErrorRecoveryDecis
 }
 
 export interface LiveErrorInput {
-  mode: PlaybackMode;
   errorType: PlaybackErrorType;
-  /** This play has already reopened the channel once. */
-  hasReopened: boolean;
-  /** Which rung the channel is on. */
-  lane: "engine" | "server";
-  /** False when the device or the server rules the server rung out. */
-  serverTranscodingAllowed?: boolean;
+  /** What failed, as the engine or the player put it. */
+  message: string;
+  /** This drop's place in the channel's run of drops (LiveDropCounter.drop). */
+  attempts: number;
 }
 
-export interface LiveErrorDecision {
-  /** Open the channel afresh on the engine: a dropped tuner stream only comes back that way. */
-  reopen: boolean;
-  /** Spend the engine rung and take the server's transcode. */
-  toServer: boolean;
-  /** Either rung: a retry is coming, so the reducer must not treat this as terminal. */
-  retry: boolean;
-}
+/** Failures every open of the channel repeats: the account, a channel the server no longer has, DRM. */
+const LIVE_PERMANENT: readonly PlaybackErrorType[] = [PlaybackErrorType.UNAUTHORIZED, PlaybackErrorType.NOT_FOUND, PlaybackErrorType.PROTECTED];
 
-/** The live ladder: one fresh engine open, then the server's transcode, then the error. */
-export function planLiveErrorRecovery(input: LiveErrorInput): LiveErrorDecision {
-  const engineLane = input.mode === "localRemux";
-  // A 401 fails every rung the same way; a reopen would only spend two cold opens on it.
-  const retriable = input.errorType !== PlaybackErrorType.UNAUTHORIZED;
-  const reopen = retriable && engineLane && !input.hasReopened;
-  const toServer = retriable && engineLane && !reopen && input.lane === "engine" && input.serverTranscodingAllowed !== false;
-  return { reopen, toServer, retry: reopen || toServer };
+/** A dropped live channel opens again on the engine, after a growing wait, until a failure no open fixes. */
+export function planLiveErrorRecovery(input: LiveErrorInput): LiveRecoveryDecision {
+  const permanent =
+    LIVE_PERMANENT.includes(input.errorType) || isPermanentLiveFailure(input.message) || /only by re-encoding|engine cannot take this channel|gave the engine nothing to read/.test(input.message);
+  return planLiveRecovery({ attempts: input.attempts, permanent });
 }

@@ -1,11 +1,10 @@
 /**
- * The raw TS lane: which channels read their origin, which the server's pass-through, which keep a server open.
+ * The raw TS lane: which channels read their origin with no server open, and which the server opens.
  */
 import { NativeModules } from "react-native";
 import { originKeyOf, rawLiveInput, resetLiveInput, splitPipeHeaders } from "../jellyfin/liveInput";
 import type { JellyfinMediaSource } from "@/types/jellyfin";
 
-const SERVER = "http://192.168.1.100:8096";
 const UA = { "User-Agent": "Mozilla/5.0 Chrome" };
 const probeOriginReach = jest.fn();
 
@@ -33,42 +32,39 @@ describe("raw live input", () => {
     expect(originKeyOf("http://provider.example/live/1.ts")).toBe("provider.example");
   });
 
-  it("reads a reachable origin with the server's User-Agent under the line's headers, the pass-through as fallback", async () => {
-    const input = await rawLiveInput(SERVER, "k", "ch1", source({ Path: "http://provider.example:8080/1.ts|user-agent=Own%2F1&Referer=x" }));
+  it("reads a reachable origin with the server's User-Agent under the line's headers", async () => {
+    const input = await rawLiveInput(source({ Path: "http://provider.example:8080/1.ts|user-agent=Own%2F1&Referer=x" }));
     expect(input).toEqual({
       url: "http://provider.example:8080/1.ts",
       headers: { "user-agent": "Own/1", referer: "x" },
       originKey: "provider.example:8080",
-      fallbackUrl: `${SERVER}/Videos/ch1/stream?static=true&ApiKey=k`,
-      via: "origin",
     });
   });
 
-  it("reads through the server when this device cannot reach the host, still on the provider's budget", async () => {
+  it("leaves a host this device cannot reach to a server open, which relays or copies it", async () => {
     probeOriginReach.mockResolvedValue("refused");
-    const input = await rawLiveInput(SERVER, "k", "ch1", source({ Path: "http://127.0.0.1:9102/live.ts" }));
-    expect(input).toEqual({ url: `${SERVER}/Videos/ch1/stream?static=true&ApiKey=k`, originKey: "127.0.0.1:9102", via: "server" });
+    await expect(rawLiveInput(source({ Path: "http://127.0.0.1:9102/live.ts" }))).resolves.toBeNull();
   });
 
   it("asks a host's reach once, then again after a server switch", async () => {
-    await rawLiveInput(SERVER, "k", "ch1", source());
-    await rawLiveInput(SERVER, "k", "ch2", source({ Path: "http://provider.example:8080/live/u/p/102.ts" }));
+    await rawLiveInput(source());
+    await rawLiveInput(source({ Path: "http://provider.example:8080/live/u/p/102.ts" }));
     expect(probeOriginReach).toHaveBeenCalledTimes(1);
     resetLiveInput();
-    await rawLiveInput(SERVER, "k", "ch1", source());
+    await rawLiveInput(source());
     expect(probeOriginReach).toHaveBeenCalledTimes(2);
   });
 
   it("leaves to a server open what the server itself will not direct play", async () => {
     // A tuner stream limit or looping turns direct play off; HDHomeRun answers Udp; a manifest has its own lane.
-    await expect(rawLiveInput(SERVER, "k", "c", source({ SupportsDirectPlay: false }))).resolves.toBeNull();
-    await expect(rawLiveInput(SERVER, "k", "c", source({ Protocol: "Udp" }))).resolves.toBeNull();
-    await expect(rawLiveInput(SERVER, "k", "c", source({ Path: "http://provider.example/live/index.m3u8" }))).resolves.toBeNull();
+    await expect(rawLiveInput(source({ SupportsDirectPlay: false }))).resolves.toBeNull();
+    await expect(rawLiveInput(source({ Protocol: "Udp" }))).resolves.toBeNull();
+    await expect(rawLiveInput(source({ Path: "http://provider.example/live/index.m3u8" }))).resolves.toBeNull();
     expect(probeOriginReach).not.toHaveBeenCalled();
   });
 
   it("keeps the server open on a native build without the connection broker", async () => {
     NativeModules.LocalRemuxer = { ...NativeModules.LocalRemuxer, setLivePriority: undefined };
-    await expect(rawLiveInput(SERVER, "k", "c", source())).resolves.toBeNull();
+    await expect(rawLiveInput(source())).resolves.toBeNull();
   });
 });

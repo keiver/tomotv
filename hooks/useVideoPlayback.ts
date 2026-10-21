@@ -17,10 +17,9 @@ import {
   JELLYFIN_TIME,
   closeLiveStream,
   isLiveSource,
-  noteOpenFailed,
-  openChannel,
   type MediaSegmentWindow,
 } from "@/services/jellyfinApi";
+import { LiveDropCounter, watchLiveSession, type LiveRecoveryDecision } from "@keiver/tomo-live";
 import { linkRungsAllowed, serverTranscodeAllowed, serverTranscodeBlock, type ServerTranscodeBlock } from "@/services/transcodePolicy";
 import { heldImageSubtitleForOrdinal, playsConverted, playsFromDisk, playsRepackaged } from "@/services/downloads/localSource";
 import { usePlaybackReporter } from "./usePlaybackReporter";
@@ -140,8 +139,6 @@ import {
   ENGINE_PREFLIGHT_CAP_MS,
   ENGINE_SEGMENT_DEADLINE_MS,
   ENGINE_TRACK_RAMP_SEC,
-  LIVE_START_BUFFER_CAP_MS,
-  LIVE_START_BUFFER_SEGMENTS,
   LIVE_START_DEADLINE_MS,
   LIVE_STALL_DEADLINE_MS,
   PLAYER_BUFFER_REPORT_MS,
@@ -151,6 +148,9 @@ import {
   SUBTITLE_CAPTURE_SETTLE_MS,
   VOD_OPEN_DEADLINE_MS,
 } from "./videoPlayback/constants";
+
+/** A live session the engine ended: the drop it counts and the recovery it planned ride with the error. */
+type LiveEndedError = OnVideoErrorData & { liveDecision?: LiveRecoveryDecision };
 
 // Classification moved to utils/errorClassification.ts so non-player code
 // (library, search) can share it; re-exported to keep existing call sites.
@@ -376,6 +376,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const resumePausedRef = useRef<boolean | null>(null);
   const gatewayRecoveryRef = useRef<{ token: string; attempt: number; position: number; timer: ReturnType<typeof setTimeout> } | null>(null);
   const playerErrorRef = useRef<((error: OnVideoErrorData) => void) | null>(null);
+  // The engine's account of the live session the player is bound to, for as long as it plays.
+  const liveWatchRef = useRef<(() => void) | null>(null);
   // The ceiling AVPlayer picks its variant under, from the link the engine measured behind the
   // loopback (0 = uncapped). AVPlayer's own estimator only ever sees 127.0.0.1.
   const linkCapRef = useRef(0);
@@ -584,10 +586,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const isLiveRef = useRef<boolean>(false);
   const standInRef = useRef<boolean>(false);
   const liveStreamIdRef = useRef<string | null>(null);
-  // One fresh open of the channel per play after the stream drops; the second drop is the error.
-  const liveReopenedRef = useRef(false);
-  // The live ladder: the engine, then the server's transcode when the open returned one, then the error.
-  const liveLaneRef = useRef<"engine" | "server">("engine");
+  // The channel's drops this play: each reopens it after a longer wait, counted afresh after a stretch of good play.
+  const liveDropsRef = useRef(new LiveDropCounter());
+  // The wait before the reopen a live drop scheduled; the retry effect reads it.
+  const liveRetryDelayRef = useRef<number | null>(null);
   // The channel this play opened and the engine URL it reads, handed to the live ring on a flip.
   const liveDetailsRef = useRef<JellyfinVideoItem | null>(null);
   const liveSessionUrlRef = useRef<string | null>(null);
@@ -660,24 +662,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
       if (!details) fail("Video not found or unavailable");
 
-      // A channel the engine could not play opens on the server now, for its transcode.
-      if (isLiveSource(details) && liveLaneRef.current === "server" && !details.liveTranscodeUrl) {
-        setPlaybackStage("opening");
-        // Every open is one consumer the server counts; the engine's is released for the server's.
-        const engineOpen = details.LiveStreamId;
-        details = await openChannel(videoId, details, { serverOnly: true }).finally(() => {
-          if (engineOpen) void closeLiveStream(engineOpen);
-        });
-        if (requestIdRef.current !== currentRequestId) {
-          void closeLiveStream(details.LiveStreamId);
-          return;
-        }
-      }
-
       setVideoDetails(details);
       mediaSourceIdRef.current = details.MediaSources?.[0]?.Id ?? null;
-      // Live TV: the engine reads the channel, the server's transcode follows; resume, the link
-      // gate and verdicts do not apply.
+      // Live TV: the engine reads the channel and nothing else does; resume, the link gate and
+      // verdicts do not apply.
       const live = isLiveSource(details);
       isLiveRef.current = live;
       standInRef.current = details.playlistPending === true;
@@ -700,8 +688,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         directPlayFailed: directPlayFailedRef.current,
         hasTriedTranscoding,
         heldEngineSpent: heldEngineSpentRef.current,
-        liveLane: liveLaneRef.current,
-        serverTranscodingAllowed: serverTranscodeAllowed(details),
       });
       const { audioOnly, hasTextSubs, textSubtitles, burnInStream } = gates;
       if (!isMountedRef.current || requestIdRef.current !== currentRequestId) return;
@@ -761,10 +747,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           codec: details.MediaStreams?.find((stream) => stream.Type === "Video")?.Codec,
           container: details.MediaSources?.[0]?.Container,
         });
-      } else if (gates.live) {
-        liveLaneRef.current = "server";
-        logger.info("Live channel on the server's transcode", { service: "useVideoPlayback", reason: lane.liveFallbackReason });
-        probeEmit("fallback", { from: "localRemux", to: "transcode", reason: lane.liveFallbackReason ?? "" });
       } else if (lane.mode === "transcode") {
         // Fallback only: the engine could not take this file. The server session carries no
         // subtitle rendition from inside the file.
@@ -824,9 +806,17 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
       // An attempt the viewer already left: its failure belongs to no channel on screen.
       if (!isMountedRef.current || requestIdRef.current !== currentRequestId) return;
+      // A live channel reopening after a drop keeps trying under the live rule, its wait growing.
+      if (isLiveRef.current) {
+        const decision = planLiveErrorRecovery({ errorType, message: err instanceof Error ? err.message : String(err), attempts: liveDropsRef.current.drop() });
+        liveRetryDelayRef.current = decision.reopen ? decision.delayMs : null;
+        probeEmit("error", { mode: "metadata", message: String(err), willRetry: decision.reopen });
+        dispatch({ type: "PLAYER_ERROR", error: { message: errorMessage, ref: { id: errorIdOf(err, PLAYBACK_ERROR_IDS.META) } }, mode: "localRemux", hasTriedTranscode: !decision.reopen });
+        return;
+      }
       // No lane takes the item, so no stage stopped and no retry can change the answer.
       if (serverOff) resetPlaybackStages();
-      const autoRetry = !serverOff && shouldAutomaticallyRetry({ live: isLiveRef.current, heldOnDisk: playsFromDisk(videoId), errorType, ladderSpent: true, retryingForMs: retryingForMs() });
+      const autoRetry = !serverOff && shouldAutomaticallyRetry({ live: false, heldOnDisk: playsFromDisk(videoId), errorType, ladderSpent: true, retryingForMs: retryingForMs() });
       probeEmit("error", { mode: "metadata", message: String(err), willRetry: autoRetry });
       dispatch({
         type: "PLAYER_ERROR",
@@ -1053,41 +1043,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         let preparedPreset: QualityPreset | undefined;
         let presetResolved = false;
         const ownsAttempt = () => isMountedRef.current && requestIdRef.current === currentRequestId;
-
-        // A live channel's server transcode, opened on first need; null when the server offers none.
-        let liveServerRung: Promise<string | null> | null = null;
-        // Its own function for the same reason as the lanes below: no value block may sit in a try.
-        const openChannelOnServer = async (): Promise<string | null> => {
-          const opened = await openChannel(videoId, details, { serverOnly: true });
-          // The engine's open is one consumer the server counts; released for the server's.
-          if (liveStreamIdRef.current) void closeLiveStream(liveStreamIdRef.current);
-          liveStreamIdRef.current = null;
-          if (requestIdRef.current !== currentRequestId) {
-            void closeLiveStream(opened.LiveStreamId);
-            return null;
-          }
-          liveStreamIdRef.current = opened.LiveStreamId ?? null;
-          mediaSourceIdRef.current = opened.MediaSources?.[0]?.Id ?? mediaSourceIdRef.current;
-          // The transcode runs under the session the open named, which a Stopped report ends.
-          if (opened.PlaySessionId) playSessionIdRef.current = opened.PlaySessionId;
-          return opened.liveTranscodeUrl ?? null;
-        };
-        const openLiveServerRung = () => {
-          if (liveServerRung !== null) return liveServerRung;
-          liveServerRung = (async () => {
-            if (!serverTranscodeAllowed(details)) return null;
-            if (details.liveTranscodeUrl) return details.liveTranscodeUrl;
-            try {
-              return await openChannelOnServer();
-            } catch (openError) {
-              logger.warn("Live channel has no server transcode to fall back on", openError, { service: "useVideoPlayback", videoId });
-              // Neither lane plays it: the ring neither warms nor heats it for a while.
-              noteOpenFailed(videoId);
-              return null;
-            }
-          })();
-          return liveServerRung;
-        };
 
         const resolveTranscodePreset = async (): Promise<QualityPreset | undefined> => {
           if (presetResolved) return preparedPreset;
@@ -1339,8 +1294,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             const keptFor = keptForReason({
               belowRealtime: under,
               live: isLiveRef.current,
-              // The channel's own rung, opened only when one is needed to decide.
-              liveHasServerRung: under && isLiveRef.current && !readBound(sample) ? (await openLiveServerRung()) !== null : false,
               tierDeclared: tierDeclaredFor(token),
               readBound: sample !== null && readBound(sample),
               serverTranscodingAllowed: !serverDenied,
@@ -1369,22 +1322,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
                 segmentSeconds: sample.segmentSeconds,
                 readSeconds: sample.readSeconds,
               });
-              // A read-bound live start buys runway before the player binds: the
-              // spinner holds until two segments stand ahead or the cap passes,
-              // so origin jitter drains a cushion instead of stalling frame one.
-              if (keptFor === "live" && readBound(sample)) {
-                const gateStarted = Date.now();
-                while (Date.now() - gateStarted < LIVE_START_BUFFER_CAP_MS && requestIdRef.current === currentRequestId) {
-                  const cushion = throughputRef.current.samples.at(-1)?.cushion ?? sample.cushion;
-                  if (cushion >= LIVE_START_BUFFER_SEGMENTS) break;
-                  await new Promise((resolve) => setTimeout(resolve, 500));
-                }
-                logger.info("Live start buffer gate released", {
-                  service: "useVideoPlayback",
-                  waitedSeconds: (Date.now() - gateStarted) / 1000,
-                  cushion: throughputRef.current.samples.at(-1)?.cushion ?? sample.cushion,
-                });
-              }
             } else if (!sample || belowRealtime(sample)) {
               // A channel, or a session that read nothing, says nothing about the device: no verdict.
               // Nor does one the server-off wait ended, which stops only when the reads stop.
@@ -1557,14 +1494,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // selectedAudioTrackIndexRef holds AVPlayer's positional index after an auto-load,
             // which as AudioStreamIndex would point at the wrong stream (0 is video).
             const audioStreamIndex = audioStreamIndexForReportingRef.current ?? undefined;
-            // A live channel plays the URL the server opened it with; nothing here is ours to steer.
-            url =
-              isLiveRef.current && details.liveTranscodeUrl
-                ? details.liveTranscodeUrl
-                : await viaShim(
-                    await getTranscodingStreamUrl(videoId, details, audioStreamIndex, undefined, burnInIndex, playSessionIdRef.current, await resolveTranscodePreset(), await videoDecodeSupport()),
-                    iframeLine,
-                  );
+            url = await viaShim(
+              await getTranscodingStreamUrl(videoId, details, audioStreamIndex, undefined, burnInIndex, playSessionIdRef.current, await resolveTranscodePreset(), await videoDecodeSupport()),
+              iframeLine,
+            );
 
             if (!ownsAttempt()) return;
             preparedMapping = audioStreamIndex === undefined ? orderAudioTracks(getAudioTracks(details), null) : [audioStreamIndex];
@@ -1595,39 +1528,30 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // A run the viewer already left: its session is torn down, and every ref below belongs
             // to the item that replaced it.
             if (requestIdRef.current !== currentRequestId) return false;
-            // The server reads the provider on the same account, and its pass-through answers the same 429.
             const providerFull = remuxError instanceof LiveProviderFullError;
-            if (serverDenied && !providerFull) throw remuxError;
-            const liveServerUrl = isLiveRef.current && !providerFull ? await openLiveServerRung() : null;
-            if (requestIdRef.current !== currentRequestId) return false;
-            if (liveServerUrl) {
-              // The server's transcode is the rung below the engine; its open stays held for it.
-              liveLaneRef.current = "server";
-              setPlaybackStage("server");
-              logger.warn("Live channel failed on the engine, taking the server's transcode", remuxError, { service: "useVideoPlayback", videoId });
-              probeEmit("fallback", { from: "localRemux", to: "transcode", reason: remuxError instanceof Error ? remuxError.message : String(remuxError) });
-              preparedMode = "transcode";
-              preparedTransport = "server";
-              hasTriedTranscodingRef.current = true;
-              setHasTriedTranscoding(true);
-              url = liveServerUrl;
-            } else if (isLiveRef.current) {
-              // No rung below the engine: a channel it could not open at all (a DRM'd origin, a
-              // dead feed) fails the same way on a second open, so this is the error.
-              logger.error("Live channel failed on the engine", remuxError, { service: "useVideoPlayback", videoId });
-              probeEmit("error", { mode: "localRemux", message: remuxError instanceof Error ? remuxError.message : String(remuxError), willRetry: false });
+            if (isLiveRef.current) {
+              // A channel plays on the engine or not at all: a start that failed opens the channel
+              // again after a growing wait, until a failure no open fixes. A provider with no
+              // connection left says so instead: another device is using its streams.
+              const message = remuxError instanceof Error ? remuxError.message : String(remuxError);
+              const errorType = providerFull ? PlaybackErrorType.PROVIDER_LIMIT : classifyPlaybackError(remuxError);
+              const decision: LiveRecoveryDecision = providerFull ? { reopen: false } : planLiveErrorRecovery({ errorType, message, attempts: liveDropsRef.current.drop() });
+              liveRetryDelayRef.current = decision.reopen ? decision.delayMs : null;
+              if (decision.reopen) setPlaybackStage("reopening");
+              logger.error("Live channel failed on the engine", remuxError, { service: "useVideoPlayback", videoId, next: decision.reopen ? `reopen in ${decision.delayMs}ms` : "error" });
+              probeEmit("error", { mode: "localRemux", message, willRetry: decision.reopen });
               void closeLiveStream(liveStreamIdRef.current);
               liveStreamIdRef.current = null;
-              const errorType = providerFull ? PlaybackErrorType.PROVIDER_LIMIT : classifyPlaybackError(remuxError);
-              const serverOff = providerFull ? null : serverOffForError(remuxError, errorType, serverTranscodeBlock(details), false);
               dispatch({
                 type: "PLAYER_ERROR",
-                error: { message: getPlaybackErrorMessage(errorType), ref: { id: errorIdOf(remuxError, PLAYBACK_ERROR_IDS.STREAM), lane: "ENG" }, ...(serverOff ? { serverOff } : {}) },
+                error: { message: getPlaybackErrorMessage(errorType), ref: { id: errorIdOf(remuxError, PLAYBACK_ERROR_IDS.STREAM), lane: "ENG" } },
                 mode: "localRemux",
-                hasTriedTranscode: true,
+                hasTriedTranscode: !decision.reopen,
               });
               return false;
-            } else if (remuxError instanceof EngineInputMissingError) {
+            }
+            if (serverDenied) throw remuxError;
+            if (remuxError instanceof EngineInputMissingError) {
               // The server has no file at the path; the transcode lane would read the same path.
               logger.error("The server could not find the file", remuxError, { service: "useVideoPlayback", videoId });
               probeEmit("error", { mode: "localRemux", message: remuxError.message, willRetry: false });
@@ -1732,6 +1656,21 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         // picks itself is re-selected below without AVKit hearing of it. Off picked on this item holds.
         if (viewerSubtitleStreamRef.current !== null && getSubtitlePreferenceSync().kind === "language") showCaptionsAlways();
         streamUrlRef.current = url;
+        // The engine reopens a lost channel inside the session and reports it; a session it had to
+        // end comes back as a drop, planned by the same rule as the player's own errors.
+        liveWatchRef.current?.();
+        liveWatchRef.current = null;
+        const liveToken = isLiveRef.current ? localRemuxTokenRef.current : null;
+        if (liveToken) {
+          liveWatchRef.current = watchLiveSession(liveToken, liveDropsRef.current, {
+            onReopening: ({ reason }) => logger.warn("Live input lost, the engine reopens it in the session", { service: "useVideoPlayback", reason }),
+            onReopened: ({ attempts }) => logger.info("Live input back in the session", { service: "useVideoPlayback", attempts }),
+            onEnded: (message, liveDecision) => {
+              if (!isMountedRef.current || localRemuxTokenRef.current !== liveToken) return;
+              playerErrorRef.current?.({ error: { errorString: message }, liveDecision } as LiveEndedError);
+            },
+          });
+        }
         setStreamUrl(url);
         setStreamTransport(preparedTransport);
         // Captured here rather than at load: every path that resumes (first play,
@@ -2222,17 +2161,13 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       const errorType = classifyPlaybackError(error.error);
 
       if (isLiveRef.current) {
-        const { reopen, toServer, retry } = planLiveErrorRecovery({
-          mode: currentMode,
-          errorType,
-          hasReopened: liveReopenedRef.current,
-          lane: liveLaneRef.current,
-          serverTranscodingAllowed: !videoDetails || serverTranscodeAllowed(videoDetails),
-        });
-        if (reopen) liveReopenedRef.current = true;
-        if (toServer) liveLaneRef.current = "server";
+        // A channel plays on the engine or not at all: a drop opens it again after a growing wait,
+        // until a failure no open fixes.
+        const decision = (error as LiveEndedError).liveDecision ?? planLiveErrorRecovery({ errorType, message: originalMessage, attempts: liveDropsRef.current.drop() });
+        const retry = decision.reopen;
+        liveRetryDelayRef.current = decision.reopen ? decision.delayMs : null;
         if (retry) setPlaybackStage("reopening");
-        logger.error("Live playback error", error, { service: "useVideoPlayback", lane: currentMode, next: reopen ? "reopen" : toServer ? "server" : "error" });
+        logger.error("Live playback error", error, { service: "useVideoPlayback", lane: currentMode, next: decision.reopen ? `reopen in ${decision.delayMs}ms` : "error" });
         probeEmit("error", { mode: currentMode, message: originalMessage, willRetry: retry });
         stopLocalRemux(localRemuxTokenRef.current);
         localRemuxTokenRef.current = null;
@@ -2244,7 +2179,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           clearTimeout(stallWatchRef.current.timer);
           stallWatchRef.current = null;
         }
-        // With no rung left the Stopped report is what ends the server's transcode for this play.
+        // Nothing of the dead stream carries into the next one: its clock, its buffer depth, its playing edge.
+        currentTimeRef.current = 0;
+        setForwardBufferSeconds(null);
+        playerPlayingRef.current = false;
+        // With nothing left to try, the Stopped report ends the play.
         if (!retry) {
           resetPlaybackSessionRef.current?.();
           // The dead player must leave the window on TV: parked offstage with its stream it keeps
@@ -2826,9 +2765,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     const throughputWatch = throughputRef.current;
     isMountedRef.current = true;
 
+    const liveWatch = liveWatchRef;
     return () => {
       isMountedRef.current = false;
       requestIdRef.current += 1;
+      liveWatch.current?.();
+      liveWatch.current = null;
       if (gatewayRecoveryRef.current) clearTimeout(gatewayRecoveryRef.current.timer);
       gatewayRecoveryRef.current = null;
 
@@ -2978,8 +2920,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     hasTriedRemuxRestartRef.current = false;
     copyRebuiltRef.current = false;
     liveStarvedLoggedRef.current = false;
-    liveReopenedRef.current = false;
-    liveLaneRef.current = "engine";
+    liveDropsRef.current.reset();
+    liveRetryDelayRef.current = null;
     dropThroughputWatch(throughputRef.current);
     // One hand-over per item, like the transcode latch above it.
     throughputRef.current.handedOver = false;
@@ -3204,7 +3146,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           dispatch({ type: "RETRY_WITH_TRANSCODE" });
         }
       },
-      state.autoRetry ? automaticRetryDelay(retryAttemptRef.current++) : 500,
+      isLiveRef.current && liveRetryDelayRef.current !== null ? liveRetryDelayRef.current : state.autoRetry ? automaticRetryDelay(retryAttemptRef.current++) : 500,
     );
     if (state.autoRetry) retryWindowStartRef.current ??= Date.now();
 
@@ -3326,8 +3268,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     hasTriedRemuxRestartRef.current = false;
     copyRebuiltRef.current = false;
     liveStarvedLoggedRef.current = false;
-    liveReopenedRef.current = false;
-    liveLaneRef.current = "engine";
+    liveDropsRef.current.reset();
+    liveRetryDelayRef.current = null;
     heldEngineSpentRef.current = false;
     resetPlaybackStages();
     stallFallbackRef.current = false;

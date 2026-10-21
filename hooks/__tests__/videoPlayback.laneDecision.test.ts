@@ -27,8 +27,6 @@ function pick(details: JellyfinVideoItem, options: Options = {}): { mode: Playba
     directPlayFailed: false,
     hasTriedTranscoding: false,
     heldEngineSpent: false,
-    liveLane: "engine",
-    serverTranscodingAllowed: true,
     ...gateInput,
   });
   const lane = selectLane(gates, { canRemux: gates.engineGate && engineAccepts, subtitlesOff });
@@ -205,20 +203,18 @@ describe("lane selection", () => {
       expect(pick(channel({ liveStreamUrl: "http://origin/live.ts" })).mode).toBe("localRemux");
     });
 
-    it("takes the server's transcode once the engine is spent on the channel", () => {
-      const result = pick(channel({ liveStreamUrl: "http://origin/live.ts", liveTranscodeUrl: "http://server/live.m3u8" }), { liveLane: "server" });
-      expect(result.mode).toBe("transcode");
+    it("never takes the server's transcode: a channel the engine cannot take is refused", () => {
+      const result = pick(channel({ liveStreamUrl: "http://origin/live.ts" }), { engineAccepts: false });
+      expect(result.mode).not.toBe("transcode");
+      expect(result.unplayable).toMatch(/engine cannot take this channel's stream/);
     });
 
-    it("refuses a channel neither lane can play rather than picking one", () => {
-      expect(pick(channel({}), { engineAccepts: false }).unplayable).toMatch(/cannot reach the engine/);
+    it("refuses a channel whose open gave the engine nothing to read", () => {
+      expect(pick(channel({}), { engineAccepts: false }).unplayable).toMatch(/gave the engine nothing to read/);
     });
 
-    it("leaves the server's transcode untaken when the server is not to be asked, whichever rung the channel is on", () => {
-      const offered = channel({ liveStreamUrl: "http://origin/live.ts", liveTranscodeUrl: "http://server/live.m3u8" });
-      expect(pick(offered, { engineAccepts: false, serverTranscodingAllowed: false }).unplayable).toMatch(/server offers no transcode/);
-      expect(pick(offered, { liveLane: "server", engineAccepts: false, serverTranscodingAllowed: false }).unplayable).toMatch(/server offers no transcode/);
-      expect(pick(offered, { engineAccepts: false }).mode).toBe("transcode");
+    it("keeps a channel on the engine after earlier attempts on it", () => {
+      expect(pick(channel({ liveStreamUrl: "http://origin/live.ts" }), { hasTriedTranscoding: true }).mode).toBe("localRemux");
     });
   });
 });

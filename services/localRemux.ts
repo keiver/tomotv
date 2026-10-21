@@ -32,6 +32,7 @@ import {
   type IFrameLine,
   isAudioTrackCarriable,
   isLocalRemuxAvailable,
+  liveSessionConfig,
   manifestName,
   publishedRenditionNames,
   requestPosterFrame as requestEnginePosterFrame,
@@ -47,6 +48,7 @@ import {
 import { JELLYFIN_TIME } from "@/services/jellyfin/constants";
 import { audioCatalogue, playbackMediaStreams, sourcePosition, type AudioCatalogueTrack } from "@/services/jellyfin/audioTracks";
 import { generatePlaySessionId, getCachedConfig } from "@/services/jellyfin/session";
+import { getAudioPreferenceSync } from "@/services/audioPreference";
 import { getSubtitleUrl, isImageBasedSubtitleCodec, isTextSidecar } from "@/services/jellyfin/subtitles";
 import { deviceDecodes, isLiveSource, sourceVideoRange } from "@/services/jellyfin/media";
 import { linkRungsAllowed, serverTranscodeAllowed } from "@/services/transcodePolicy";
@@ -141,12 +143,6 @@ onPlaybackHoldChange(syncPosterQueuePause);
 // owner, so each runtime syncs it to its own hold state at load. A microtask, so module
 // initialization order never sees the call.
 queueMicrotask(syncPosterQueuePause);
-
-/**
- * Live segment target. AVPlayer starts a live playlist three target durations in (tvOS sim,
- * 2026-09-11): 2s puts the first frame ~12s after the press on a transcoded channel, 6s ~21s.
- */
-const LIVE_SEGMENT_SECONDS = 2;
 
 /**
  * Producer read-ahead depth, in 6s segments: 20 = a 120s cushion. Sized from the
@@ -247,15 +243,6 @@ function audioOutput(stream: JellyfinMediaStream): { usesServerAudio: boolean; c
   if (codec.startsWith("alac")) return { usesServerAudio: false, codecs: "alac", bandwidth: sourceBandwidth ?? lossless };
   if (codec.startsWith("flac")) return { usesServerAudio: false, codecs: "fLaC,mp4a.40.2", bandwidth: Math.max(sourceBandwidth ?? 0, encodedBandwidth) };
   return { usesServerAudio: false, codecs: codec ? "fLaC,mp4a.40.2" : "", bandwidth: encodedBandwidth };
-}
-
-/**
- * A live track is always carried: the engine discovers the real codec off the stream and copies or
- * re-encodes it there, so a label it would not carry (a tuner's unprobed "MPEG") declares no CODECS.
- */
-function liveAudioOutput(stream: JellyfinMediaStream): { usesServerAudio: boolean; codecs: string; bandwidth: number } {
-  const carried = audioOutput(stream);
-  return { usesServerAudio: false, codecs: carried.usesServerAudio ? "" : carried.codecs, bandwidth: carried.bandwidth };
 }
 
 export function slipstreamInputBandwidth(videoItem: JellyfinVideoItem): number {
@@ -726,16 +713,38 @@ export async function startLocalRemux(
   // being written is live too, read from the static stream the server keeps
   // growing (ProgressiveFileStream).
   const live = isLiveSource(videoItem);
+  if (live) {
+    if (options.serverVideoOnly) throw new Error("Server-video gateway requires network VOD video");
+    // The channel's URL alone, the way any app opens one: the engine reads its tracks, picture and codecs off the input.
+    const url = await startSession(
+      liveSessionConfig({
+        inputUrl: videoItem.liveStreamUrl ?? getVideoStreamUrl(videoItem.Id, videoItem),
+        itemId: videoItem.Id,
+        ...(videoItem.liveHttpHeaders ? { httpHeaders: videoItem.liveHttpHeaders } : {}),
+        ...(videoItem.liveOriginKey ? { originKey: videoItem.liveOriginKey } : {}),
+        // A neighbour or a card preview yields its origin connection to the channel playing (the engine's connection budget).
+        ...(options.livePriority || options.prewarm ? { priority: options.livePriority ?? "ring" } : {}),
+        ...(getAudioPreferenceSync() ? { audioLanguage: getAudioPreferenceSync()! } : {}),
+        ...(options.liveWindowSeconds ? { windowSeconds: options.liveWindowSeconds } : {}),
+        // Read straight from its origin, never through a server open: the engine checks a manifest answers. A raw TS
+        // origin is not probed, since a probe costs a second provider connection.
+        checkOrigin: !!videoItem.liveStreamUrl && !videoItem.LiveStreamId && !videoItem.liveOriginKey,
+      }),
+      { attributePlan: !options.prewarm, tierDeclared: false },
+    );
+    logger.info("Local remux session started", { service: "LocalRemux", itemId: videoItem.Id, live: true, prewarm: options.prewarm === true });
+    return url;
+  }
   const mediaStreams = playbackMediaStreams(videoItem);
   const serverVideoOnly = options.serverVideoOnly === true;
-  if (serverVideoOnly && (live || playsFromDisk(videoItem.Id) || !mediaStreams.some((stream) => stream.Type === "Video"))) {
+  if (serverVideoOnly && (playsFromDisk(videoItem.Id) || !mediaStreams.some((stream) => stream.Type === "Video"))) {
     throw new Error("Server-video gateway requires network VOD video");
   }
   if (serverVideoOnly && !serverTranscodeAllowed(videoItem)) {
     throw new Error("Server video transcoding is not permitted for this source");
   }
-  const inputUrl = videoItem.liveStreamUrl ?? getVideoStreamUrl(videoItem.Id, videoItem);
-  const durationSeconds = live ? 0 : (videoItem.RunTimeTicks ?? 0) / JELLYFIN_TIME.TICKS_PER_SECOND;
+  const inputUrl = getVideoStreamUrl(videoItem.Id, videoItem);
+  const durationSeconds = (videoItem.RunTimeTicks ?? 0) / JELLYFIN_TIME.TICKS_PER_SECOND;
 
   const orderedAudio = audioCatalogue(videoItem, preferredAudioStreamIndex);
   const audioTracks = orderedAudio.map((track) => ({
@@ -744,8 +753,8 @@ export async function startLocalRemux(
     name: track.name,
     language: track.stream.Language || "und",
     isDefault: track.stream.IsDefault === true,
-    ...(!live && track.source ? { source: track.source } : {}),
-    ...(serverVideoOnly ? { usesServerAudio: true, codecs: "mp4a.40.2", bandwidth: RUNG_AUDIO_BANDWIDTH } : live ? liveAudioOutput(track.stream) : audioOutput(track.stream)),
+    ...(track.source ? { source: track.source } : {}),
+    ...(serverVideoOnly ? { usesServerAudio: true, codecs: "mp4a.40.2", bandwidth: RUNG_AUDIO_BANDWIDTH } : audioOutput(track.stream)),
   }));
   if (audioTracks.some((track) => track.usesServerAudio) && (playsFromDisk(videoItem.Id) || !mediaStreams.some((stream) => stream.Type === "Video") || !serverTranscodeAllowed(videoItem))) {
     throw new Error("Audio track requires an unavailable server supplier");
@@ -806,9 +815,9 @@ export async function startLocalRemux(
 
   // Slipstream ladder: always offered for a streamable source with audio. The engine orders the
   // master by the link it measures and AVPlayer's own ABR moves between the variants. A held
-  // file reads off disk (no server URL belongs in its playlist); a live channel has no server tier.
+  // file reads off disk (no server URL belongs in its playlist).
   // BANDWIDTH covers the variant plus its audio rendition (RFC 8216 4.3.4.2); CODECS names the group.
-  const rungs = !live && !playsFromDisk(videoItem.Id) && (audioTracks.length > 0 || serverVideoOnly) ? offeredTierRungs(videoItem, preferredAudioStreamIndex, { serverVideoOnly }) : [];
+  const rungs = !playsFromDisk(videoItem.Id) && (audioTracks.length > 0 || serverVideoOnly) ? offeredTierRungs(videoItem, preferredAudioStreamIndex, { serverVideoOnly }) : [];
   const streamsByIndex = new Map(mediaStreams.map((stream) => [stream.Index, stream]));
   // One server audio group: audio-lo, 96 kb/s stereo AAC, on every rung.
   const tierAudioPlan = { bandwidth: SURVIVAL_AUDIO_BITRATE, tag: "mp4a.40.2" };
@@ -870,19 +879,10 @@ export async function startLocalRemux(
       // EXT-X-START resume: AVPlayer opens at the offset; its first segment
       // request drives the producer's seek-restart there (no position-zero
       // production, no post-load auto-seek).
-      startOffsetSeconds: !live && startOffsetSeconds != null && startOffsetSeconds > 0 ? startOffsetSeconds : 0,
+      startOffsetSeconds: startOffsetSeconds != null && startOffsetSeconds > 0 ? startOffsetSeconds : 0,
       tiers: tiersConfig,
-      isLive: live,
-      liveSegmentSeconds: LIVE_SEGMENT_SECONDS,
-      ...(live && options.liveWindowSeconds ? { liveWindowSeconds: options.liveWindowSeconds } : {}),
-      ...(live && videoItem.liveHttpHeaders ? { httpHeaders: videoItem.liveHttpHeaders } : {}),
-      // Read straight from its origin, never through a server open: the engine checks a manifest answers. A raw TS
-      // origin is not probed, since a probe costs a second provider connection.
-      ...(live && videoItem.liveStreamUrl && !videoItem.LiveStreamId && !videoItem.liveOriginKey ? { probeOrigin: true } : {}),
-      ...(live && videoItem.liveOriginKey ? { liveOriginKey: videoItem.liveOriginKey } : {}),
-      ...(live && videoItem.liveFallbackUrl ? { fallbackInputUrl: videoItem.liveFallbackUrl } : {}),
-      // A neighbour or a card preview yields its origin connection to the channel playing (the engine's connection budget).
-      ...(live && (options.livePriority || options.prewarm) ? { livePriority: options.livePriority ?? "ring" } : {}),
+      isLive: false,
+      liveSegmentSeconds: 6,
       ...(stopRequests.length > 0 ? { stopRequests } : {}),
     },
     // The CALLER owns the token on the returned URL and hands it back to stopLocalRemux.
@@ -892,7 +892,7 @@ export async function startLocalRemux(
   logger.info("Local remux session started", {
     service: "LocalRemux",
     itemId: videoItem.Id,
-    live,
+    live: false,
     durationSeconds: Math.round(durationSeconds),
     audioTrackCount: audioTracks.length,
     subtitleCount: subtitles.length,

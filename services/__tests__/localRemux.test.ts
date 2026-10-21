@@ -523,8 +523,8 @@ describe("canRemuxLocally", () => {
   });
 
   // This used to decline, and declining is what handed every Blu-ray remux to
-  // the server to be re-encoded end to end — video and lossless audio included
-  // — purely because its subtitles are pictures. The engine decodes them now.
+  // the server to be re-encoded end to end (video and lossless audio included)
+  // purely because its subtitles are pictures. The engine decodes them now.
   it("accepts files whose subtitles are image-based", async () => {
     const pgs = item({
       streams: [
@@ -1900,7 +1900,7 @@ describe("session ownership", () => {
 /**
  * Image subtitles are display-set based, not range based: each set supersedes
  * the previous one and a set with no images is an erase. These are T06's real
- * packet times, measured with ffprobe — 44854 bytes at 6.256s, a 30-byte erase
+ * packet times, measured with ffprobe: 44854 bytes at 6.256s, a 30-byte erase
  * at 10.927s, and so on.
  *
  * Modelling them as {start, end} ranges was the original mistake. It forced the
@@ -2613,21 +2613,19 @@ describe("startLocalRemux on a live channel", () => {
       ],
     });
 
-  it("hands the engine the opened stream in live mode: no runtime, no tier, image subtitles only, no offset", async () => {
+  it("hands the engine the opened stream in live mode from its URL alone, with the start buffer: no runtime, no tier, no offset", async () => {
     await startLocalRemux(live(), undefined, 120);
     const config = mockStartRemux.mock.calls[0][0];
     expect(config.isLive).toBe(true);
-    // Jellyfin's -1 goes through as-is; the ordinal keeps the identities apart and nothing names a file position.
-    expect(config.audioTracks.map((track: { index: number; identity: string; name: string; source?: unknown }) => [track.index, track.identity, track.name, track.source])).toEqual([
-      [-1, "c1:live0", "Audio 1", undefined],
-      [-1, "c1:live1", "Audio 2", undefined],
-    ]);
+    // The engine reads the tracks, picture and codecs off the stream: the server's labels describe nothing it uses.
+    expect(config.describesInput).toBe(true);
+    expect(config.audioTracks).toEqual([]);
+    expect(config.subtitles).toEqual([]);
+    expect(config.liveBufferSeconds).toBe(15);
     expect(config.liveSegmentSeconds).toBe(2);
     expect(config.inputUrl).toBe("http://server:8096/LiveTv/LiveStreamFiles/x/stream.ts?ApiKey=k");
     expect(config.durationSeconds).toBe(0);
     expect(config.startOffsetSeconds).toBe(0);
-    // The DVB track rides as an image rendition the app draws; a text track would not (below).
-    expect(config.subtitles.map((sub: { index: number; isImage: boolean }) => [sub.index, sub.isImage])).toEqual([[2, true]]);
     expect(config.tierPlaylistUrl).toBeUndefined();
     expect(config.tiers).toEqual([]);
     expect(config.httpHeaders).toBeUndefined();
@@ -2635,15 +2633,11 @@ describe("startLocalRemux on a live channel", () => {
     expect(config.probeOrigin).toBeUndefined();
   });
 
-  it("hands a tuner's unprobed audio label to the engine as a carried track, never a server-fed one", async () => {
+  it("passes no tuner audio label to the engine, which finds the real codec on the stream", async () => {
     // The HDHomeRun lineup's "MPEG" (issue 89): the engine discovers the real MP2 off the stream.
     const tuner = { ...live(), MediaStreams: [live().MediaStreams![0], { Type: "Audio", Codec: "MPEG", Index: -1 }] };
     await startLocalRemux(tuner as typeof tuner & JellyfinVideoItem, undefined, 120);
-    const config = mockStartRemux.mock.calls[0][0];
-    expect(config.audioTracks).toHaveLength(1);
-    expect(config.audioTracks[0].usesServerAudio).toBe(false);
-    expect(config.audioTracks[0].codecs).toBe("");
-    expect(config.audioTracks[0].serverAudioUrl).toBeUndefined();
+    expect(mockStartRemux.mock.calls[0][0].audioTracks).toEqual([]);
   });
 
   it("asks the engine to check an origin the channel is read from directly", async () => {
@@ -2667,11 +2661,11 @@ describe("startLocalRemux on a live channel", () => {
     expect(mockStartRemux.mock.calls[0][0].subtitles).toEqual([]);
   });
 
-  it("validates only the image subset that a live session publishes", async () => {
+  it("leaves a live session's subtitle tracks to the engine, which finds the image ones on the stream", async () => {
     const channel = live();
     channel.MediaStreams = [...(channel.MediaStreams ?? []), { Type: "Subtitle", Codec: "subrip", IsExternal: true }, { Type: "Subtitle", Codec: "subrip", Index: 2 }];
     await startLocalRemux(channel);
-    expect(mockStartRemux.mock.calls[0][0].subtitles.map((subtitle: { index: number }) => subtitle.index)).toEqual([2]);
+    expect(mockStartRemux.mock.calls[0][0].subtitles).toEqual([]);
   });
 
   it("hands the engine the origin's required headers for a manifest channel", async () => {
