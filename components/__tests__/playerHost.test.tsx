@@ -22,6 +22,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   hasPoster: jest.fn(() => false),
   subscribeAuthChange: jest.fn(() => () => {}),
   fetchNextEpisodeAutoPlay: jest.fn(async () => mockAutoPlay.enabled),
+  isLiveChannel: (item: { Type?: string } | null) => item?.Type === "TvChannel",
 }));
 const mockQueue = { queue: [] as { Id: string; Name: string }[], currentIndex: -1 };
 jest.mock("@/services/playQueueManager", () => ({
@@ -84,7 +85,7 @@ let stateType: string | null = null;
 /** Whether a reported ERROR still has a rung left. */
 let canRetry = false;
 /** The item details the hook has fetched. */
-let details: { Id: string; Name: string } | null = null;
+let details: { Id: string; Name: string; Type?: string } | null = null;
 const hookCalls: { videoId: string; skip?: boolean }[] = [];
 /** Stable across renders, so a test can assert the bridge never reached it. */
 const hookPause = jest.fn();
@@ -174,6 +175,22 @@ describe("PlayerHost", () => {
 
   afterEach(async () => {
     await act(async () => renderer.unmount());
+  });
+
+  it.each([
+    ["a channel opened without the live flag", { Id: "ch-9", Name: "MLB", Type: "TvChannel" }, false, true],
+    ["a live session", { Id: "ch-9", Name: "MLB", Type: "TvChannel" }, true, true],
+    ["a movie", { Id: "movie-1", Name: "Film", Type: "Movie" }, false, undefined],
+  ])("marks the artwork as a logo for %s", async (_name, item, isLive, logo) => {
+    details = item;
+    await act(async () => {
+      bridge().requestSession({ videoId: item.Id, sessionKey: "k1", isLive });
+    });
+    sourceUri = "http://stream/1";
+    await act(async () => {
+      renderer.update(<PlayerHost />);
+    });
+    expect(renderer.root.findByType(Video).props.source.metadata.logo).toBe(logo);
   });
 
   it("registers its bridge and sits idle with no session", () => {

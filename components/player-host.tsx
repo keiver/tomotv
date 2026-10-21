@@ -10,7 +10,7 @@ import { useVideoPlayback } from "@/hooks/useVideoPlayback";
 import { stageReason, stageStatus, stageStopped, usePlaybackStage } from "@/hooks/usePlaybackStage";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { chapterFrameUrl } from "@/services/localRemux";
-import { fetchNextEpisodeAutoPlay, getChapterImageUrl, JELLYFIN_TIME } from "@/services/jellyfinApi";
+import { fetchNextEpisodeAutoPlay, getChapterImageUrl, isLiveChannel, JELLYFIN_TIME } from "@/services/jellyfinApi";
 import { playQueueManager } from "@/services/playQueueManager";
 import { isJoined as syncPlayIsJoined } from "@/services/syncPlayManager";
 import { cleanLabel } from "@/utils/cleanLabel";
@@ -394,8 +394,8 @@ export function PlayerHost() {
       ...(lines ? { subtitle: cleanLabel(lines.subtitle) } : {}),
       ...(Platform.isTV ? playerInfoTags(videoDetails) : {}),
       ...(artwork ? { imageUri: artwork.uri } : {}),
-      // A channel's image is its logo: the patch bakes it onto the info panel's tile.
-      ...(session?.isLive ? { logo: true } : {}),
+      // A channel's image is its logo however the player was opened: the patch bakes it onto the info panel's tile.
+      ...(session?.isLive || isLiveChannel(videoDetails) ? { logo: true } : {}),
     };
   }, [videoDetails, artwork, session?.isLive]);
   const streamSource = useMemo<PlayerSource | null>(
