@@ -465,6 +465,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   // The Resume label's own condition: a long press on it starts over.
   const startOver = !photo && !book && !inGroup && !!details?.UserData?.PlaybackPositionTicks;
   const isContainer = details ? isFolder(details) : false;
+  const watchableFolder = details?.Type === "Series" || details?.Type === "Season";
   // Audio, video or any mix of the two. Gated on what the container actually holds, so a
   // photo album never offers to download a set the downloads screen could not play.
   const canDownloadFolder = isContainer && downloadsSupported() && !!mediaKinds && (mediaKinds.video || mediaKinds.audio);
@@ -882,7 +883,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
           sweep is a MediaTypes flatten, which no folder is in, and a favorited library is
           absent even from the unfiltered recursive query (measured, 10.11.11). Its "Watched"
           is not a flag either: Folder.MarkPlayed sweeps every descendant and resets each
-          resume position, which no card here could state. */}
+          resume position, so only a series or season offers it, whose card fill states it. */}
       {!isContainer && !photo && !live ? (
         <View style={styles.actionRow}>
           <InfoActionRow
@@ -901,9 +902,9 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
           />
         </View>
       ) : (
-        extras.length > 0 && (
+        (watchableFolder || extras.length > 0) && (
           <View style={styles.actionRow}>
-            <InfoActionRow extras={extras} />
+            <InfoActionRow isPlayed={isPlayed} onToggleWatched={watchableFolder ? toggleWatched : undefined} extras={extras} />
           </View>
         )
       )}
