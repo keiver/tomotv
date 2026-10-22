@@ -170,12 +170,29 @@ def programmes(channel, durations, epoch, start, end, pattern):
     return [entry for entry in out if entry[1] > start]
 
 
-def programme_xml(directory, channel, start, stop, sources, items, base):
+def slot_index(epoch, pattern, t):
+    """Positive slots before t, counted from the epoch, so a slot keeps its programme across regenerations."""
+    unit = sum(abs(s) for s in pattern)
+    cycles, off = divmod(t - epoch, unit)
+    n = int(cycles) * sum(1 for s in pattern if s > 0)
+    for slot in pattern:
+        if off <= 0:
+            break
+        if slot > 0:
+            n += 1
+        off -= abs(slot)
+    return n
+
+
+def programme_xml(directory, channel, start, stop, sources, items, base, index):
     names = [(items.get(src) or {}).get("Name") or os.path.splitext(os.path.basename(src))[0] for src in sources]
     first = items.get(sources[0]) or {}
     series = {(items.get(src) or {}).get("SeriesName") for src in sources}
     distinct = list(dict.fromkeys(names))
-    if len(series) == 1 and None not in series:
+    listed = channel.get("programmes")
+    if listed:
+        title, sub = listed[index % len(listed)]["title"], None
+    elif len(series) == 1 and None not in series:
         title, sub = series.pop(), (distinct[0] if len(distinct) == 1 else f"{distinct[0]} to {distinct[-1]}")
     elif len(distinct) == 1:
         title, sub = distinct[0], None
@@ -186,7 +203,7 @@ def programme_xml(directory, channel, start, stop, sources, items, base):
     parts = [f'  <programme start="{stamp(start)}" stop="{stamp(stop)}" channel="{channel["id"]}">', f"<title>{escape(title)}</title>"]
     if sub:
         parts.append(f"<sub-title>{escape(sub)}</sub-title>")
-    desc = first.get("Overview") if len(distinct) == 1 else " / ".join(distinct)
+    desc = listed[index % len(listed)]["desc"] if listed else first.get("Overview") if len(distinct) == 1 else " / ".join(distinct)
     if desc:
         parts.append(f"<desc>{escape(desc)}</desc>")
     parts.append(f"<category>{escape(category)}</category>")
@@ -270,7 +287,7 @@ def generate(directory):
                 count += 1
             continue
         for p_start, p_stop, sources in programmes(channel, durations, epoch, start, end, pattern):
-            xml.append(programme_xml(directory, channel, p_start, p_stop, sources, items, base))
+            xml.append(programme_xml(directory, channel, p_start, p_stop, sources, items, base, slot_index(epoch, pattern, p_start)))
             count += 1
     xml.append("</tv>")
     write_atomic(os.path.join(directory, "live.m3u"), "\n".join(m3u) + "\n")
