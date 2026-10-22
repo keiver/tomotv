@@ -44,7 +44,16 @@ export default function ChannelsScreen() {
   const preferences = useLiveTvPreferences();
   useChannelFavoritesSync();
   const playlistIds = usePlaylistChannelIds(preferences.filter);
-  const { items: listed, isLoading, isLoadingMore, hasMore, error, loadMore, retry } = useChannels(preferences.sort, activeCategory(preferences.filter), activeChannelList(preferences), playlistIds);
+  const category = activeCategory(preferences.filter);
+  const {
+    items: listed,
+    isLoading,
+    isLoadingMore,
+    hasMore,
+    error,
+    loadMore,
+    retry,
+  } = useChannels(preferences.sort, category, activeChannelList(preferences), playlistIds, category ? preferences.categoryEdits[category] : undefined);
   const filtered = preferences.filter !== "all";
   // Hide offline narrows to channels whose health check concluded down; unchecked ones stay.
   const healthGen = useHealthGeneration(preferences.hideOffline);

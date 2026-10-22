@@ -53,7 +53,7 @@ import { useItemDownload } from "@/hooks/useItemDownload";
 import { downloadsSupported } from "@/services/downloads/paths";
 import { useIsAdministrator } from "@/hooks/useIsAdministrator";
 import { useShowInFolder } from "@/hooks/useShowInFolder";
-import { CATEGORY_LABELS } from "@/hooks/useChannelFilterChoices";
+import { CATEGORY_LABELS } from "@/utils/channelGroups";
 import { useLiveTvManagement } from "@/hooks/useLiveTvManagement";
 import { useRecordActions } from "@/hooks/useRecordActions";
 import { EXTERNAL_GUIDE_PREFIX, formatClock, formatClockRange, formatDayLabel, isAiring, programCategory, programTimes } from "@/utils/guide";

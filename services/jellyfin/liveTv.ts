@@ -7,7 +7,7 @@ import { JellyfinItem, JellyfinMediaSource, JellyfinProgram, JellyfinSeriesTimer
 import { CACHE } from "@/constants/app";
 import { engineCodecAllowlists } from "@/services/localRemux";
 import { activeGuideUrls, fetchExternalAiringPrograms } from "@/services/externalGuide";
-import { channelListKey, favoriteKey, getLiveTvPreferences, LIVE_TV_CATEGORIES, type ChannelFavorite, type LiveTvCategory } from "@/services/liveTvPreferences";
+import { channelListKey, favoriteKey, getLiveTvPreferences, type ChannelFavorite, type LiveTvCategory } from "@/services/liveTvPreferences";
 import { setPlaybackStage } from "@/services/playbackStage";
 import { cachedRequest } from "@/services/requestCache";
 import { logger } from "@/utils/logger";
@@ -94,7 +94,7 @@ const CATEGORY_PARAMS: Record<LiveTvCategory, string> = { news: "isNews", sports
 
 /** Channels listed with no current programme get the one airing now from the device guides already open.
  *  Bounded by the page the caller fetched; any failure leaves the page as the server sent it. */
-async function fillAiringFromGuides<T extends JellyfinVideoItem>(channels: T[]): Promise<T[]> {
+export async function fillAiringFromGuides<T extends JellyfinVideoItem>(channels: T[]): Promise<T[]> {
   const bare = channels.filter((channel) => channel.Type === "TvChannel" && !channel.CurrentProgram);
   if (bare.length === 0) return channels;
   try {
@@ -112,9 +112,7 @@ async function fillAiringFromGuides<T extends JellyfinVideoItem>(channels: T[]):
 }
 
 /** One page of channels in the server's channel order; the whole list when no page is asked for. */
-export async function fetchChannels(
-  page: { startIndex?: number; limit?: number; sortBy?: "SortName" | "Name"; category?: LiveTvCategory; favorite?: boolean } = {},
-): Promise<{ items: JellyfinItem[]; total?: number }> {
+export async function fetchChannels(page: { startIndex?: number; limit?: number; sortBy?: "SortName" | "Name"; favorite?: boolean } = {}): Promise<{ items: JellyfinItem[]; total?: number }> {
   const config = await getConfig();
   if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
   const query = new URLSearchParams({
@@ -127,7 +125,6 @@ export async function fetchChannels(
     ...(page.startIndex !== undefined ? { startIndex: String(page.startIndex) } : {}),
     ...(page.limit !== undefined ? { limit: String(page.limit) } : {}),
     ...(page.sortBy ? { sortBy: page.sortBy } : {}),
-    ...(page.category ? { [CATEGORY_PARAMS[page.category]]: "true" } : {}),
     ...(page.favorite ? { isFavorite: "true" } : {}),
   });
   const response = await fetchWithTimeout(
@@ -166,29 +163,16 @@ export async function fetchChannelOrder(order: { sortBy?: "SortName" | "Name"; c
   return ((json.Items ?? []) as JellyfinItem[]).map(({ Id, Name, Type }) => ({ Id, Name, Type }) as JellyfinItem);
 }
 
-/** Category flags move only when guide data refreshes, so mounts share one read for a while. */
-const CHANNEL_CATEGORIES_TTL_MS = 60 * 60 * 1000;
+/** Category flags move only when guide data refreshes, so mounts share one read for a while; the guide's refresh drops it. */
+const CATEGORY_CHANNELS_TTL_MS = 60 * 60 * 1000;
 
-/** The categories with at least one channel: the flags come from XMLTV programme categories, so most servers have few. */
-export async function fetchChannelCategories(): Promise<LiveTvCategory[]> {
+/** The ids of the server's channels in a category, in the guide's order for the sort. */
+export async function fetchCategoryChannelIds(category: LiveTvCategory, sortBy: "SortName" | "Name"): Promise<string[]> {
   const config = await getConfig();
-  if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
   return cachedRequest(
-    `channelCategories:${config.server}:${config.userId}`,
-    async () => {
-      const headers = { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) };
-      const present = await Promise.all(
-        LIVE_TV_CATEGORIES.map(async (category) => {
-          const query = new URLSearchParams({ userId: config.userId, limit: "0", enableTotalRecordCount: "true", [CATEGORY_PARAMS[category]]: "true" });
-          const response = await fetchWithTimeout(`${config.server}/LiveTv/Channels?${query.toString()}`, { headers }, API_TIMEOUTS.NORMAL);
-          if (!response.ok) throwRequestError(response, `Failed to count channels: ${response.status}`);
-          const json = await response.json();
-          return (json.TotalRecordCount ?? 0) > 0;
-        }),
-      );
-      return LIVE_TV_CATEGORIES.filter((_, index) => present[index]);
-    },
-    CHANNEL_CATEGORIES_TTL_MS,
+    `guide:category:${config.server}:${config.userId}:${category}:${sortBy}`,
+    async () => (await fetchChannelOrder({ sortBy, category })).map((channel) => channel.Id),
+    CATEGORY_CHANNELS_TTL_MS,
   );
 }
 

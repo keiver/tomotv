@@ -5,7 +5,7 @@
 import {
   closeLeftoverOpens,
   closeLiveStream,
-  fetchChannelCategories,
+  fetchCategoryChannelIds,
   fetchChannelOrder,
   fetchChannels,
   fetchChannelsByIds,
@@ -18,6 +18,7 @@ import {
 import { dashProtection, drmKeyFormat, liveStreamUrlFor, remuxOf } from "../jellyfin/liveTv";
 import { recordClose, recordedOpens, recordOpen } from "../jellyfin/liveOpens";
 import { logger } from "@/utils/logger";
+import { invalidateByPrefix } from "@/services/requestCache";
 
 jest.mock("../jellyfin/liveOpens", () => {
   const opens = new Map<string, { server: string; deviceId: string }>();
@@ -139,22 +140,28 @@ describe("live TV client", () => {
     expect(url).toContain("isSports=true");
   });
 
-  it("holds a page to a category through the server's flag", async () => {
-    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 0 }) });
-    await fetchChannels({ startIndex: 0, limit: 40, category: "kids" });
+  it("reads a category's channel ids through the server's flag without programmes or images, once until the guide's reads are dropped", async () => {
+    invalidateByPrefix("guide:");
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        Items: [
+          { Id: "c2", Name: "Two", Type: "TvChannel" },
+          { Id: "c1", Name: "One", Type: "TvChannel" },
+        ],
+      }),
+    });
+    await expect(fetchCategoryChannelIds("kids", "SortName")).resolves.toEqual(["c2", "c1"]);
     const [url] = (global.fetch as jest.Mock).mock.calls[0];
     expect(url).toContain("isKids=true");
-  });
-
-  it("names the categories the server has channels for, one count query each", async () => {
-    (global.fetch as jest.Mock).mockImplementation(async (url: string) => ({
-      ok: true,
-      json: async () => ({ Items: [], TotalRecordCount: url.includes("isKids=true") || url.includes("isSeries=true") ? 1 : 0 }),
-    }));
-    await expect(fetchChannelCategories()).resolves.toEqual(["kids", "series"]);
-    const urls = (global.fetch as jest.Mock).mock.calls.map(([url]) => url as string);
-    expect(urls).toHaveLength(5);
-    for (const url of urls) expect(url).toContain("limit=0");
+    expect(url).toContain("sortBy=SortName");
+    expect(url).toContain("addCurrentProgram=false");
+    expect(url).toContain("enableImages=false");
+    await fetchCategoryChannelIds("kids", "SortName");
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    invalidateByPrefix("guide:");
+    await fetchCategoryChannelIds("kids", "SortName");
+    expect(global.fetch).toHaveBeenCalledTimes(2);
   });
 
   it("fetches channels by id in chunks of 100 with includeItemTypes, keeping the ids' order and dropping unknown ids", async () => {

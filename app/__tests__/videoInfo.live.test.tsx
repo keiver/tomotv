@@ -91,6 +91,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   fetchTimers: jest.fn(),
   fetchSeriesTimers: jest.fn(),
   fetchLiveTvManagement: jest.fn(),
+  fetchCategoryChannelIds: jest.fn(async () => []),
 }));
 jest.mock("@/hooks/useTunerGroups", () => ({ useTunerGroups: () => [] }));
 

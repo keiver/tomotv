@@ -16,6 +16,7 @@ jest.mock("@/hooks/useTunerGroups", () => ({
     { name: "Shop", channelIds: ["c2"] },
   ],
 }));
+jest.mock("@/hooks/useCategoryChannelIds", () => ({ useCategoryChannelIds: () => ({ news: [], kids: ["c9"], movie: ["c1"] }) }));
 
 const channel = { Id: "c1", Name: "One", ChannelNumber: "7" };
 
@@ -30,6 +31,7 @@ describe("ChannelGroupBand", () => {
     updateLiveTvPreferences({
       favorites: [],
       playlistEdits: {},
+      categoryEdits: {},
       groups: [
         { id: "g1", name: "Sports", channels: [{ number: "7", name: "One" }] },
         { id: "g2", name: "Movies", channels: [] },
@@ -38,7 +40,7 @@ describe("ChannelGroupBand", () => {
     });
   });
 
-  it("lists every group, the channel's ticked and the rest unticked", () => {
+  it("lists every group, the server's non-empty categories included, the channel's ticked and the rest unticked", () => {
     let tree!: TestRenderer.ReactTestRenderer;
     act(() => {
       tree = TestRenderer.create(<ChannelGroupBand channel={channel} />);
@@ -50,7 +52,31 @@ describe("ChannelGroupBand", () => {
       ["Kids", false],
       ["General", true],
       ["Shop", false],
+      ["Kids", false],
+      ["Movies", true],
     ]);
+  });
+
+  it("adds the channel to a category it is not in, takes it out of one it is, and undoes each on a second press", () => {
+    let tree!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      tree = TestRenderer.create(<ChannelGroupBand channel={channel} />);
+    });
+    act(() => cells(tree)[6].press());
+    act(() => cells(tree)[7].press());
+    expect(
+      cells(tree)
+        .slice(6)
+        .map(({ checked }) => checked),
+    ).toEqual([true, false]);
+    expect(getLiveTvPreferences().categoryEdits).toEqual({ kids: { added: ["c1"], removed: [] }, movie: { added: [], removed: ["c1"] } });
+    act(() => cells(tree)[6].press());
+    act(() => cells(tree)[7].press());
+    expect(
+      cells(tree)
+        .slice(6)
+        .map(({ checked }) => checked),
+    ).toEqual([false, true]);
   });
 
   it("adds the channel to a playlist group it is not in, and takes it out of one it is", () => {
@@ -62,7 +88,7 @@ describe("ChannelGroupBand", () => {
     act(() => cells(tree)[4].press());
     expect(
       cells(tree)
-        .slice(4)
+        .slice(4, 6)
         .map(({ label, checked }) => [label, checked]),
     ).toEqual([
       ["General", false],
@@ -78,11 +104,12 @@ describe("ChannelGroupBand", () => {
     });
     const radii = () => tree.root.findAllByType(GuideGroupCell).map((cell) => cell.props.bottomRightRadius);
     const layOutPlaceholder = (width: number) => act(() => tree.root.findByType(GuideGroupPlaceholder).props.onLayout({ nativeEvent: { layout: { x: 0, y: 0, width, height: 40 } } }));
-    expect(radii()).toEqual([undefined, undefined, undefined, undefined, undefined, undefined]);
+    const square = Array(8).fill(undefined);
+    expect(radii()).toEqual(square);
     layOutPlaceholder(0);
-    expect(radii()).toEqual([undefined, undefined, undefined, undefined, undefined, 28]);
+    expect(radii()).toEqual([...square.slice(1), 28]);
     layOutPlaceholder(120);
-    expect(radii()).toEqual([undefined, undefined, undefined, undefined, undefined, undefined]);
+    expect(radii()).toEqual(square);
   });
 
   it("adds the channel to an unticked group on press", () => {
