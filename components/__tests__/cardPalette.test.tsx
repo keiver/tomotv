@@ -34,6 +34,7 @@ import { FolderLoadingBar } from "@/components/folder-loading-bar";
 import { glassTint } from "@/components/glass-button";
 import { GlassSurface } from "@/components/glass-surface";
 import { VideoGridItem } from "@/components/video-grid-item";
+import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { CardPaletteOverride } from "@/hooks/useCardPalette";
 import { cardPalette, isLowContrast } from "@/services/cardTheme";
@@ -118,7 +119,7 @@ describe("card palette", () => {
     expect(tree.root.findByType(CardCornerTab).props.segments).toEqual([{ label: "3" }]);
     const tab = tree.root.findAll((n) => n.props.testID === "card-corner-tab" && typeof n.type === "string")[0];
     const tabStyle = StyleSheet.flatten(tab.props.style);
-    expect(tabStyle).toMatchObject({ backgroundColor: COLORS.SURFACE_SUNKEN, position: "absolute", right: 22 });
+    expect(tabStyle).toMatchObject({ backgroundColor: COLORS.SURFACE_SUNKEN, position: "absolute", right: DESIGN.BORDER_RADIUS_CARD });
     expect(tabStyle.top).toBeLessThan(0);
     const tabInstance = tree.root.findByType(CardCornerTab);
     expect(tabInstance.parent!.children[0]).toBe(tabInstance);

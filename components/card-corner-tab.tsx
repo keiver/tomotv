@@ -1,6 +1,7 @@
 import { type BadgeSegment } from "@/components/card-badge";
 import { CARD_GLASS_TINT_ALPHA, STAND_NAME_TEXT } from "@/components/card-stand";
 import { GlassSurface } from "@/components/glass-surface";
+import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { isLowContrast } from "@/services/cardTheme";
@@ -14,7 +15,7 @@ const IS_TV = Platform.isTV;
 const TAB_RISE = IS_TV ? 22 : 14;
 /** The tab's radius, and how far its foot tucks under the card, so only its rounded top shows. */
 const TAB_RADIUS = IS_TV ? 12 : 8;
-const TAB_INSET = IS_TV ? 44 : 22;
+const TAB_INSET = DESIGN.BORDER_RADIUS_CARD;
 
 interface CardCornerTabProps {
   segments: BadgeSegment[];
