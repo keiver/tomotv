@@ -133,10 +133,10 @@ const CORNER_STOPS = [
 ];
 const BOTTOM_STOPS = [
   [0, 0],
-  [0.55, 0.36],
-  [1, 0.84],
+  [0.55, 0.26],
+  [1, 0.64],
 ];
-const FOOT_WASH = 0.22;
+const FOOT_WASH = 0.18;
 
 /**
  * One vertical rhythm for the whole set.
@@ -413,7 +413,8 @@ function overlay(L) {
   <defs>
     ${washDefs}
     <filter id="lift" x="-25%" y="-25%" width="150%" height="150%">
-      <feDropShadow dx="0" dy="${round(L.H * 0.0025)}" stdDeviation="${round(L.W * 0.005)}" flood-color="${ink.shadow}" flood-opacity="0.55"/>
+      <feDropShadow dx="0" dy="${round(L.H * 0.0012)}" stdDeviation="${round(L.W * 0.0015)}" flood-color="${ink.shadow}" flood-opacity="0.6"/>
+      <feDropShadow dx="0" dy="${round(L.H * 0.003)}" stdDeviation="${round(L.W * 0.007)}" flood-color="${ink.shadow}" flood-opacity="0.55"/>
     </filter>
   </defs>
   ${wash}
