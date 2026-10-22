@@ -201,19 +201,29 @@ export function describedSessionConfig(input: DescribedSessionInput): EngineSess
   };
 }
 
+const setLimits = new Map<string, number>();
+
 /**
  * How many connections a provider allows this device at once, for every read that names `originKey`;
  * 0 forgets the limit and leaves the provider's own refusals to teach it. False when the binary has no such method.
  */
 export async function setOriginConnectionBudget(originKey: string, connections: number): Promise<boolean> {
   if (!isLocalRemuxAvailable() || !originKey || typeof engineModule().setOriginBudget !== "function") return false;
+  const limit = Number.isFinite(connections) && connections > 0 ? Math.floor(connections) : 0;
   try {
-    await engineModule().setOriginBudget(originKey, Number.isFinite(connections) && connections > 0 ? Math.floor(connections) : 0);
+    await engineModule().setOriginBudget(originKey, limit);
+    if (limit > 0) setLimits.set(originKey, limit);
+    else setLimits.delete(originKey);
     return true;
   } catch (error) {
     engineLog().warn("Failed to set an origin's connection budget", error, { service: "LocalRemux" });
     return false;
   }
+}
+
+/** The limit setOriginConnectionBudget last gave the engine for a provider; null when none is set. */
+export function originConnectionLimit(originKey: string | null | undefined): number | null {
+  return (originKey && setLimits.get(originKey)) || null;
 }
 
 /** A provider's limit as the engine holds it, and the connections this device has open on it now. */

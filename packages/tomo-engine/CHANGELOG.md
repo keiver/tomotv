@@ -2,6 +2,7 @@
 
 ## 1.4.0
 
+- `originConnectionLimit(originKey)`: the limit `setOriginConnectionBudget` last gave the engine for a provider, read synchronously; null when none is set or the engine refused it.
 - `liveSessionConfig({ inputUrl, itemId, httpHeaders?, originKey?, priority?, bufferSeconds?, audioLanguage?, windowSeconds?, fallbackInputUrl?, checkOrigin?, playlist? })` builds a live session described from its input. `LIVE_BUFFER_SECONDS` (15) and `LIVE_SEGMENT_SECONDS` (2) replace `LIVE_START_BUFFER_SEGMENTS` and `LIVE_START_BUFFER_CAP_MS`.
 - A live HLS master (a `.m3u8` or `.m3u` path, or any URL with `playlist: true`) is opened as a trimmed copy the engine serves itself: the top video variant with every audio rendition it names; its subtitle renditions are read by the engine itself. `liveAudioLanguage` marks which audio rendition is the default (then the master's default, never a described-video or hearing-impaired one while another matches), and the engine lists that track first. A raw TS input lists the audio stream tagged with that language first, never one tagged for the visually or hearing impaired (`LiveSelectiveOpenTests`).
 - The trim's read of the master checks it for DRM (SAMPLE-AES, or a key format other than a plain key), and the chosen variant's playlist is checked beside the open; either fails the session with `channel is DRM protected (<system>)`.

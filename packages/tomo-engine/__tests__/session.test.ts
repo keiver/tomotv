@@ -32,6 +32,7 @@ import {
   liveSessionConfig,
   liveSubtitleRenditions,
   localRemuxToken,
+  originConnectionLimit,
   originConnections,
   reportPlayerBuffer,
   setLiveSessionPriority,
@@ -311,6 +312,29 @@ describe("setOriginConnectionBudget", () => {
   it("is false when the engine refuses", async () => {
     mockRemuxer!.setOriginBudget = jest.fn().mockRejectedValue(new Error("x"));
     await expect(setOriginConnectionBudget("provider-a", 1)).resolves.toBe(false);
+  });
+});
+
+describe("originConnectionLimit", () => {
+  it("is the limit the engine last took for the provider, and null once forgotten or never set", async () => {
+    mockRemuxer!.setOriginBudget = jest.fn().mockResolvedValue(undefined);
+    expect(originConnectionLimit("provider-b")).toBeNull();
+    await setOriginConnectionBudget("provider-b", 1);
+    expect(originConnectionLimit("provider-b")).toBe(1);
+    await setOriginConnectionBudget("provider-b", 3);
+    expect(originConnectionLimit("provider-b")).toBe(3);
+    await setOriginConnectionBudget("provider-b", 0);
+    expect(originConnectionLimit("provider-b")).toBeNull();
+    expect(originConnectionLimit("")).toBeNull();
+    expect(originConnectionLimit(undefined)).toBeNull();
+  });
+
+  it("keeps the last limit when the engine refuses a new one", async () => {
+    mockRemuxer!.setOriginBudget = jest.fn().mockResolvedValue(undefined);
+    await setOriginConnectionBudget("provider-c", 1);
+    mockRemuxer!.setOriginBudget = jest.fn().mockRejectedValue(new Error("x"));
+    await setOriginConnectionBudget("provider-c", 2);
+    expect(originConnectionLimit("provider-c")).toBe(1);
   });
 });
 

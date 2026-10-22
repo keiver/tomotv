@@ -104,9 +104,10 @@ on that provider's budget before it opens a connection. A budget is set by the a
 from the provider's own refusals:
 
 ```ts
-import { originConnections, setOriginConnectionBudget } from "@keiver/tomo-engine";
+import { originConnectionLimit, originConnections, setOriginConnectionBudget } from "@keiver/tomo-engine";
 
 await setOriginConnectionBudget("provider.example", 2); // 0 forgets it
+originConnectionLimit("provider.example"); // 2, the limit set; null when none is
 const state = await originConnections("provider.example"); // { budget, active }
 ```
 
