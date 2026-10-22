@@ -142,6 +142,16 @@ describe("card palette", () => {
     act(() => tree.unmount());
     __setLocaleForTests("en");
   });
+  it("off TV the base's name is left aligned", () => {
+    let tree!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      tree = TestRenderer.create(<CardStand name="Film" focused={false} scrolls />);
+    });
+    const text = tree.root.findAll((n) => typeof n.type === "string" && n.props.children === "Film")[0];
+    expect(StyleSheet.flatten(text.props.style).textAlign).toBe("left");
+    act(() => tree.unmount());
+  });
+
   it("the base names a card in the accent at rest (white when the accent is too dark), in the ink on the accent when focused", () => {
     const standColours = (accent: string, focused: boolean) => {
       let tree!: TestRenderer.ReactTestRenderer;

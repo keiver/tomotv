@@ -56,6 +56,13 @@ describe("card glass on TV", () => {
     act(() => lit.unmount());
   });
 
+  it("on TV the base's name is centred", () => {
+    const tree = mount(<CardStand name="Pilot" focused={false} scrolls />);
+    const text = tree.root.findAll((n) => typeof n.type === "string" && n.props.children === "Pilot")[0];
+    expect(StyleSheet.flatten(text.props.style).textAlign).toBe("center");
+    act(() => tree.unmount());
+  });
+
   it("a base that is not clear stays solid", () => {
     const tree = mount(<CardStand name="Channel" focused={false} />);
     expect(glass(tree)).toHaveLength(0);

@@ -128,7 +128,7 @@ function StandBody({
       <View style={[styles.row, filled && !full && styles.blend]}>
         {scrolls ? (
           <>
-            {/* The mark sits at the left edge and the name keeps the card's centre, clear of it on both sides. */}
+            {/* The mark sits at the left edge and the name clears it on both sides, centred on TV. */}
             {lead ? <View style={styles.leadSlot}>{lead}</View> : null}
             <View style={[styles.scrollSlot, lead ? { marginHorizontal: glyphSize + LEAD_GAP } : null]}>
               <MarqueeText active={focused} style={StyleSheet.flatten([nameStyle, styles.scrollName])}>
@@ -162,7 +162,7 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: IS_TV ? "center" : "flex-start",
     gap: IS_TV ? 8 : 4,
   },
   // Under the name in the tree; its own radius, so the base needs no clip.
@@ -207,6 +207,6 @@ const styles = StyleSheet.create({
   },
   scrollName: {
     width: "100%",
-    textAlign: "center",
+    textAlign: IS_TV ? "center" : "left",
   },
 });
