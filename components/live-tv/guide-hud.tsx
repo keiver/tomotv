@@ -5,7 +5,7 @@ import { useChannelFilterChoices } from "@/hooks/useChannelFilterChoices";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { updateLiveTvPreferences, type ChannelFilter } from "@/services/liveTvPreferences";
 import React, { useCallback } from "react";
-import { findNodeHandle, Platform, ScrollView, StyleSheet, View } from "react-native";
+import { findNodeHandle, Platform, ScrollView, StyleSheet, View, type LayoutChangeEvent } from "react-native";
 
 const IS_TV = Platform.isTV;
 /** The band's full height. */
@@ -58,10 +58,12 @@ interface HudBandProps {
   children: React.ReactNode;
   /** No grid lines or cast shadow: the band sits flush in a footer, not over guide rows. */
   flush?: boolean;
+  /** The floor past the last cell: zero wide once the cells reach the band's end. */
+  onPlaceholderLayout?: (event: LayoutChangeEvent) => void;
 }
 
 /** The band's surface: a leading corner slot, then group cells on one frosted floor. */
-export function HudBand({ cornerWidth, cornerActions, children, flush }: HudBandProps) {
+export function HudBand({ cornerWidth, cornerActions, children, flush, onPlaceholderLayout }: HudBandProps) {
   const edge = !flush && styles.leadingEdge;
   return (
     <View style={[styles.band, !flush && styles.bandOverRows]}>
@@ -69,7 +71,7 @@ export function HudBand({ cornerWidth, cornerActions, children, flush }: HudBand
       <View style={[styles.cellsHost, !cornerActions && edge]}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.cells} contentContainerStyle={styles.cellsContent}>
           {children}
-          <GuideGroupPlaceholder />
+          <GuideGroupPlaceholder onLayout={onPlaceholderLayout} />
         </ScrollView>
       </View>
     </View>

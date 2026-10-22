@@ -1,5 +1,7 @@
 /** The info panel's group band lists Favorites and every group, ticking the channel's own, and a press toggles it. */
 import { ChannelGroupBand } from "@/components/live-tv/channel-group-band";
+import { GuideGroupCell } from "@/components/live-tv/guide-group-cell";
+import { GuideGroupPlaceholder } from "@/components/live-tv/guide-group-placeholder";
 import { getLiveTvPreferences, isChannelInGroup, updateLiveTvPreferences } from "@/services/liveTvPreferences";
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
@@ -67,6 +69,20 @@ describe("ChannelGroupBand", () => {
       ["Shop", true],
     ]);
     expect(getLiveTvPreferences().playlistEdits).toEqual({ Shop: { added: ["c1"], removed: [] }, General: { added: [], removed: ["c1"] } });
+  });
+
+  it("rounds the last group cell only when the cells reach the band's end", () => {
+    let tree!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      tree = TestRenderer.create(<ChannelGroupBand channel={channel} cornerRadius={28} />);
+    });
+    const radii = () => tree.root.findAllByType(GuideGroupCell).map((cell) => cell.props.bottomRightRadius);
+    const layOutPlaceholder = (width: number) => act(() => tree.root.findByType(GuideGroupPlaceholder).props.onLayout({ nativeEvent: { layout: { x: 0, y: 0, width, height: 40 } } }));
+    expect(radii()).toEqual([undefined, undefined, undefined, undefined, undefined, undefined]);
+    layOutPlaceholder(0);
+    expect(radii()).toEqual([undefined, undefined, undefined, undefined, undefined, 28]);
+    layOutPlaceholder(120);
+    expect(radii()).toEqual([undefined, undefined, undefined, undefined, undefined, undefined]);
   });
 
   it("adds the channel to an unticked group on press", () => {

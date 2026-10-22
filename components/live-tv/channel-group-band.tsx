@@ -7,7 +7,7 @@ import { useCardPalette } from "@/hooks/useCardPalette";
 import { useChannelGroupChoices } from "@/hooks/useChannelGroupChoices";
 import { t } from "@/services/i18n";
 import { type ChannelIdentity } from "@/services/liveTvPreferences";
-import React from "react";
+import React, { useState } from "react";
 
 // The section card's radius (settingsStyles.section): the end cells sit in its bottom corners.
 const CARD_RADIUS = 32;
@@ -24,9 +24,12 @@ interface ChannelGroupBandProps {
 export function ChannelGroupBand({ channel, nextFocusUp, cornerRadius = CARD_RADIUS }: ChannelGroupBandProps) {
   const { accent } = useCardPalette();
   const choices = useChannelGroupChoices(channel);
+  // The last cell sits in the card's corner only when the cells reach the band's end.
+  const [filled, setFilled] = useState(false);
   return (
     <HudBand
       flush
+      onPlaceholderLayout={({ nativeEvent }) => setFilled(nativeEvent.layout.width < 1)}
       cornerActions={
         <HudAction
           titled
@@ -38,7 +41,7 @@ export function ChannelGroupBand({ channel, nextFocusUp, cornerRadius = CARD_RAD
         />
       }>
       {choices.map((choice, index) => (
-        <GuideGroupCell key={choice.key} label={choice.label} selected={choice.member} onPress={choice.toggle} bottomRightRadius={index === choices.length - 1 ? cornerRadius : undefined} />
+        <GuideGroupCell key={choice.key} label={choice.label} selected={choice.member} onPress={choice.toggle} bottomRightRadius={filled && index === choices.length - 1 ? cornerRadius : undefined} />
       ))}
     </HudBand>
   );
