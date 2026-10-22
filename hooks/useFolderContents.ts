@@ -87,6 +87,9 @@ function annotateWithFavorites(list: JellyfinItem[]): JellyfinItem[] {
 function annotateWithPlayed(list: JellyfinItem[]): JellyfinItem[] {
   if (getPlayedOverrides().size === 0) return list; // fast path: nothing changed this session
   return list.map((item) => {
+    // Container state is a server aggregate: a later episode mark can change it without
+    // marking the container itself. Persistent overrides would hide that fresh aggregate.
+    if (item.Type === "Series" || item.Type === "Season") return item;
     const played = playedOverride(item);
     if (played === undefined || !!item.UserData?.Played === played) return item;
     return { ...item, UserData: { ...item.UserData, Played: played } };
@@ -407,10 +410,18 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   useEffect(() => {
     return subscribePlayedChange((itemId, played) => {
       const unmarked = (item: JellyfinItem) => item.Id !== itemId && item.SeasonId !== itemId && item.SeriesId !== itemId;
+      const patchContainer = (item: JellyfinItem): JellyfinItem => {
+        // A recursive toggle has a known aggregate now; the next server read owns it again.
+        if (unmarked(item) || (item.Type !== "Series" && item.Type !== "Season")) return item;
+        return { ...item, UserData: { ...item.UserData, Played: played, PlayedPercentage: played ? 100 : 0 } };
+      };
+      // Compare subsequent reads against the patched state, so an aggregate returning to its
+      // pre-toggle value still replaces the optimistic fill during background revalidation.
+      rawItemsRef.current = rawItemsRef.current.map(patchContainer);
       setItems((prev) => {
         if (activeFilters?.played && !played) return prev.filter(unmarked);
         if (activeFilters?.unplayed && played) return prev.filter(unmarked);
-        return annotateWithPlayed(prev);
+        return annotateWithPlayed(prev.map(patchContainer));
       });
     });
   }, [activeFilters]);

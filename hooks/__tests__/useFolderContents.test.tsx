@@ -11,6 +11,7 @@ import { clearFolderContentsCache } from "@/services/folderContentsCache";
 import { addFavoriteIds, clearFavoriteIdsCache } from "@/services/favoritesCache";
 import { clearPlayedCache, markPlayed } from "@/services/playedCache";
 import { EMPTY_FILTERS, JellyfinItem, LibraryFilters } from "@/types/jellyfin";
+import { folderWatchedProgress } from "@/utils/resumeProgress";
 
 import {
   fetchFavoriteIds,
@@ -312,6 +313,52 @@ describe("useFolderContents", () => {
 
     const seasonEpisodes = (played: boolean): JellyfinItem[] =>
       ["e1", "e2"].map((id) => ({ Id: id, Name: id, Type: "Episode", SeasonId: "season-1", SeriesId: "series-1", UserData: { Played: played } }) as JellyfinItem);
+
+    it("uses a season's fresh aggregate after an episode reverses a series mark", async () => {
+      const season = { Id: "season-1", Name: "Season 1", Type: "Season", SeriesId: "series-1", UserData: { Played: false, PlayedPercentage: 50 } } as JellyfinItem;
+      mockFolder.mockResolvedValue({ items: [season], total: 1 });
+      const ref = await mount("series-1");
+
+      await act(async () => {
+        markPlayed("series-1", true);
+        lastPlayedListener()("series-1", true);
+      });
+      expect(folderWatchedProgress(ref.current!.get().items[0])).toBe(1);
+
+      await act(async () => {
+        markPlayed("e1", false);
+        lastPlayedListener()("e1", false);
+        // The normal background read must apply even when the aggregate returns to its original value.
+        const calls = (useAppStateRefresh as jest.Mock).mock.calls;
+        calls[calls.length - 1][0]();
+      });
+
+      expect(ref.current!.get().items[0].UserData?.Played).toBe(false);
+      expect(folderWatchedProgress(ref.current!.get().items[0])).toBe(0.5);
+    });
+
+    it.each(["Season", "Series"])("uses fresh %s totals after an episode reverses its own folder mark", async (Type) => {
+      markPlayed("container-1", true);
+      markPlayed("e1", false);
+      mockFolder.mockResolvedValue({ items: [{ Id: "container-1", Name: "Container", Type, UserData: { Played: false, PlayedPercentage: 50 } }], total: 1 });
+
+      const ref = await mount("parent-1");
+
+      expect(folderWatchedProgress(ref.current!.get().items[0])).toBe(0.5);
+    });
+
+    it("clears a season's watched fill immediately when its series is marked unwatched", async () => {
+      mockFolder.mockResolvedValue({ items: [{ Id: "season-1", Name: "Season 1", Type: "Season", SeriesId: "series-1", UserData: { Played: true, PlayedPercentage: 100 } }], total: 1 });
+      const ref = await mount("series-1");
+
+      await act(async () => {
+        markPlayed("series-1", false);
+        lastPlayedListener()("series-1", false);
+      });
+
+      expect(ref.current!.get().items[0].UserData?.Played).toBe(false);
+      expect(folderWatchedProgress(ref.current!.get().items[0])).toBeUndefined();
+    });
 
     it("an episode marked watched earlier shows the server's unwatched state after its season is marked unwatched", async () => {
       markPlayed("e1", true);
