@@ -1163,8 +1163,9 @@ const styles = StyleSheet.create({
   padScroll: {
     flexGrow: 0,
   },
+  // Hidden by the card's clip, never by opacity: the action circles are glass.
   unseen: {
-    opacity: 0,
+    transform: [{ translateY: 10000 }],
   },
   cardContentPad: {
     paddingBottom: 28,
