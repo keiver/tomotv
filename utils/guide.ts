@@ -71,8 +71,8 @@ export function guideMetrics(isTV: boolean): GuideMetrics {
   const compactColumnWidth = isTV ? channelColumnWidth : Math.round((rowHeight - 1) * GRID.PORTRAIT_RATIO + padding);
   const cardInset = { vertical: 0, horizontal: 0 };
   return isTV
-    ? { pxPerMinute: 8, rowHeight, channelColumnWidth, compactColumnWidth, rulerHeight: 74, cardInset }
-    : { pxPerMinute: 4, rowHeight, channelColumnWidth, compactColumnWidth, rulerHeight: 47, cardInset };
+    ? { pxPerMinute: 8, rowHeight, channelColumnWidth, compactColumnWidth, rulerHeight: 81, cardInset }
+    : { pxPerMinute: 4, rowHeight, channelColumnWidth, compactColumnWidth, rulerHeight: 51, cardInset };
 }
 
 export interface CellGeometry {
