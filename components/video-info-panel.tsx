@@ -717,11 +717,19 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   const folderInRow = showFolderCta && (!isContainer || folderCtas.length < 2);
   const seriesSet = !!recording.seriesTimerId;
   const extras: InfoExtraAction[] = [
-    ...(isContainer ? folderCtas.slice(2).map((cta) => ({ key: cta.kind, icon: cta.icon, label: cta.title, onPress: () => handlePlayFolder(cta.kind) })) : []),
-    ...(showFolderCta && !folderInRow ? [{ key: "folder", icon: "folder-outline" as const, label: t("info.showInFolder"), onPress: handleShowInFolder }] : []),
-    ...(shareable && folderInRow ? [{ key: "share", icon: "share-outline" as const, label: t("common.share"), onPress: () => void handleShare() }] : []),
-    ...(canDownloadFolder ? [{ key: "downloadAll", icon: "arrow-down" as const, label: t("info.downloadAll"), onPress: handleDownloadFolder }] : []),
-    ...(canDelete ? [{ key: "delete", icon: "trash-outline" as const, label: t("common.delete"), destructive: true, onPress: handleDelete }] : []),
+    ...(isContainer
+      ? folderCtas.slice(2).map((cta) => ({
+          key: cta.kind,
+          icon: cta.icon,
+          label: cta.title,
+          word: cta.kind === "video" ? t("info.word.videos") : cta.kind === "audio" ? (musical ? t("info.word.music") : t("info.word.audio")) : t("info.word.slideshow"),
+          onPress: () => handlePlayFolder(cta.kind),
+        }))
+      : []),
+    ...(showFolderCta && !folderInRow ? [{ key: "folder", icon: "folder-outline" as const, label: t("info.showInFolder"), word: t("info.word.folder"), onPress: handleShowInFolder }] : []),
+    ...(shareable && folderInRow ? [{ key: "share", icon: "share-outline" as const, label: t("common.share"), word: t("info.word.share"), onPress: () => void handleShare() }] : []),
+    ...(canDownloadFolder ? [{ key: "downloadAll", icon: "arrow-down" as const, label: t("info.downloadAll"), word: t("info.word.download"), onPress: handleDownloadFolder }] : []),
+    ...(canDelete ? [{ key: "delete", icon: "trash-outline" as const, label: t("common.delete"), word: t("info.word.delete"), destructive: true, onPress: handleDelete }] : []),
   ];
 
   const recordShown = recordTimer !== undefined && (!!recordTimer || !programEnded);
