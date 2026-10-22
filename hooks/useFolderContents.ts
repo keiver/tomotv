@@ -30,8 +30,16 @@ import { useIsFocused } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const PAGE_SIZE = 60;
-/** Pages a `focusId` load reads before giving up (600 items); past it the folder opens at the top. */
+/** Pages a first load reads to reach `focusId` or an unwatched episode (600 items); past it the folder opens at the top. */
 const MAX_FOCUS_PAGES = 10;
+
+/** Whether the list's last episode is watched, this session's marks included. */
+function lastEpisodeWatched(list: JellyfinItem[]): boolean {
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (list[i].Type === "Episode") return playedOverride(list[i]) ?? !!list[i].UserData?.Played;
+  }
+  return false;
+}
 
 // Whether more pages remain. Prefer the server's TotalRecordCount; when it's omitted (it's optional
 // on the response) fall back to "a full page probably has more" so pagination still works.
@@ -91,7 +99,7 @@ function annotateWithPlayed(list: JellyfinItem[]): JellyfinItem[] {
  * `folderId` is fixed for the lifetime of the hook and the router's back stack is the single source
  * of truth for navigation.
  */
-export function useFolderContents(folderId: string | null, type?: "folder" | "playlist" | "livetv", filters?: LibraryFilters, focusId?: string): FolderContentsState {
+export function useFolderContents(folderId: string | null, type?: "folder" | "playlist" | "livetv", filters?: LibraryFilters, focusId?: string, readPastWatched = false): FolderContentsState {
   const cacheKey = folderId ?? "root";
 
   // Serialize the selection so callers don't have to memoize the filters object; a changed
@@ -104,12 +112,13 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   // Filtered views are never cached (entries are keyed by folder only), so they still spin.
   // Held in state with a lazy initializer, not a ref written during render: same
   // once-at-mount evaluation, without reading or writing a ref mid-render.
-  // A seed that lacks `focusId` with pages left is refused: the grid would paint and focus its top first.
+  // A seed that lacks `focusId`, or ends on a watched episode under `readPastWatched`, with pages left is
+  // refused: the grid would paint and focus its top first.
   const [seed] = useState<FolderCacheEntry | null>(() => {
     const cached = activeFilters ? undefined : getFolderCache(cacheKey);
     if (!cached || Date.now() - cached.timestamp >= CACHE.DEFAULT_TTL_MS) return null;
-    const lacksFocus = !!focusId && !cached.items.some((item) => item.Id === focusId);
-    return lacksFocus && hasMorePages(cached.items.length, cached.items.length, cached.total) ? null : cached;
+    const short = focusId ? !cached.items.some((item) => item.Id === focusId) : readPastWatched && lastEpisodeWatched(cached.items);
+    return short && hasMorePages(cached.items.length, cached.items.length, cached.total) ? null : cached;
   });
 
   const [items, setItems] = useState<JellyfinItem[]>(() => {
@@ -182,10 +191,12 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
       let lastPageLength = first.items.length;
       let pageSize = limit;
       // "Show In Folder": read on until the target is in hand, so the grid mounts once, already holding it.
+      // `readPastWatched`: read on until an unwatched episode is in hand, so a season's binge pick finds it.
       // A failed later page keeps what arrived; the grid then opens at the top.
-      if (focusId) {
+      if (focusId || readPastWatched) {
         const seen = new Set(loaded.map((item) => item.Id));
-        for (let pages = 1; pages < MAX_FOCUS_PAGES && !seen.has(focusId) && hasMorePages(nextStartIndex, lastPageLength, total); pages++) {
+        const short = () => (focusId ? !seen.has(focusId) : lastEpisodeWatched(loaded));
+        for (let pages = 1; pages < MAX_FOCUS_PAGES && short() && hasMorePages(nextStartIndex, lastPageLength, total); pages++) {
           let more: { items: JellyfinItem[]; total?: number };
           try {
             more = await fetchPage(nextStartIndex);
@@ -205,7 +216,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
       }
       return { items: loaded, total, nextStartIndex, lastPageLength, pageSize };
     },
-    [cacheKey, folderId, fetchPage, focusId],
+    [cacheKey, folderId, fetchPage, focusId, readPastWatched],
   );
 
   // The server's SortName order has no tie-break past Name; same-named episodes come back in row

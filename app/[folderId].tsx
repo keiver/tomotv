@@ -67,7 +67,7 @@ function FolderScreen() {
 
   // "Show In Folder" arrives with the item to focus; the first load reads pages until it holds it.
   const focusId = params.focusId;
-  const { items, isLoading, isLoadingMore, hasMoreResults, error, loadMore, refresh } = useFolderContents(folderId, folderType, filters, focusId);
+  const { items, isLoading, isLoadingMore, hasMoreResults, error, loadMore, refresh } = useFolderContents(folderId, folderType, filters, focusId, IS_TV && !focusId);
   // TV: a season opens on its binge episode, picked once from the first listing so a later read never moves focus.
   const [bingeId, setBingeId] = useState<string | null>();
   if (IS_TV && !focusId && bingeId === undefined && !isLoading && items.length > 0) setBingeId(bingeFocusId(items) ?? null);

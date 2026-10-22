@@ -718,6 +718,80 @@ describe("useFolderContents", () => {
     });
   });
 
+  describe("reading past watched episodes (a season's binge pick)", () => {
+    beforeEach(() => mockFolder.mockReset());
+    afterEach(() => mockFolder.mockReset());
+
+    const episodes = (played: boolean, ...ids: string[]): JellyfinItem[] =>
+      ids.map((id) => ({ Id: id, Name: id, Type: "Episode", SeasonId: "season-1", UserData: { Played: played } }) as JellyfinItem);
+
+    async function mountSeason(readPastWatched: boolean) {
+      const renders: { isLoading: boolean; ids: string[] }[] = [];
+      function Probe() {
+        const state = useFolderContents("season-1", undefined, undefined, undefined, readPastWatched);
+        renders.push({ isLoading: state.isLoading, ids: state.items.map((i) => i.Id) });
+        return null;
+      }
+      await act(async () => {
+        TestRenderer.create(<Probe />);
+      });
+      return renders;
+    }
+
+    it("reads on while the last loaded episode is watched, then paints once", async () => {
+      mockFolder
+        .mockResolvedValueOnce({ items: episodes(true, "e1", "e2"), total: 6 })
+        .mockResolvedValueOnce({ items: [...episodes(true, "e3"), ...episodes(false, "e4")], total: 6 })
+        .mockResolvedValueOnce({ items: episodes(false, "e5", "e6"), total: 6 });
+
+      const renders = await mountSeason(true);
+
+      expect(mockFolder).toHaveBeenCalledTimes(2);
+      expect(mockFolder).toHaveBeenNthCalledWith(2, "season-1", { limit: 60, startIndex: 2 });
+      const painted = renders.filter((r) => r.ids.length > 0);
+      expect(painted[0].ids).toEqual(["e1", "e2", "e3", "e4"]);
+      expect(painted.every((r) => !r.isLoading)).toBe(true);
+    });
+
+    it("reads one page when its last episode is unwatched", async () => {
+      mockFolder.mockResolvedValueOnce({ items: [...episodes(true, "e1"), ...episodes(false, "e2")], total: 4 });
+
+      await mountSeason(true);
+
+      expect(mockFolder).toHaveBeenCalledTimes(1);
+    });
+
+    it("reads one page when not asked to read past watched episodes", async () => {
+      mockFolder.mockResolvedValueOnce({ items: episodes(true, "e1", "e2"), total: 4 });
+
+      await mountSeason(false);
+
+      expect(mockFolder).toHaveBeenCalledTimes(1);
+    });
+
+    it("counts an episode marked unwatched this session as unwatched", async () => {
+      markPlayed("e2", false);
+      mockFolder.mockResolvedValueOnce({ items: episodes(true, "e1", "e2"), total: 4 });
+
+      await mountSeason(true);
+
+      expect(mockFolder).toHaveBeenCalledTimes(1);
+    });
+
+    it("refuses a cached seed whose last episode is watched and reads on from a fresh first page", async () => {
+      mockFolder.mockResolvedValueOnce({ items: episodes(true, "e1", "e2"), total: 4 });
+      await mount("season-1"); // caches page one only
+      (Date.now as jest.Mock).mockReturnValue(NOW + 60_000);
+      mockFolder.mockResolvedValueOnce({ items: episodes(true, "e1", "e2"), total: 4 }).mockResolvedValueOnce({ items: episodes(false, "e3", "e4"), total: 4 });
+
+      const renders = await mountSeason(true);
+
+      expect(renders[0]).toEqual({ isLoading: true, ids: [] });
+      expect(mockFolder).toHaveBeenLastCalledWith("season-1", { limit: 60, startIndex: 2 });
+      expect(renders[renders.length - 1].ids).toEqual(["e1", "e2", "e3", "e4"]);
+    });
+  });
+
   describe("overlapping loads", () => {
     it("ignores a stale first-page load that resolves after a refresh", async () => {
       let resolveInitial!: (v: { items: JellyfinItem[]; total?: number }) => void;
