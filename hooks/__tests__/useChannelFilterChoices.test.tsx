@@ -64,6 +64,14 @@ describe("useChannelFilterChoices", () => {
     expect(render().map((choice) => choice.filter)).toEqual(["all", "playlist:News"]);
   });
 
+  it("puts a picked group missing from a partial read before the playlist groups that did load", () => {
+    mockPreferences = { favorites: [], groups: [{ id: "g1", name: "Mine", channels: [] }], filter: "playlist:News" };
+    mockTunerGroups = [{ name: "Kids", channelIds: ["b"] }];
+    mockComplete = false;
+    mockCategories = ["sports"];
+    expect(render().map((choice) => choice.filter)).toEqual(["all", "group:g1", "playlist:News", "playlist:Kids", "category:sports"]);
+  });
+
   it("shows Favorites while it is picked even with no favorite left", () => {
     mockPreferences = { favorites: [], groups: [], filter: "favorites" };
     expect(render().map((choice) => choice.filter)).toEqual(["all", "favorites"]);

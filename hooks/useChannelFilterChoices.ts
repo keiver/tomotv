@@ -1,3 +1,4 @@
+import { joinableGroups } from "@/hooks/useChannelGroupChoices";
 import { useLiveTvCategories } from "@/hooks/useLiveTvCategories";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { useTunerGroups } from "@/hooks/useTunerGroups";
@@ -29,13 +30,14 @@ export function useChannelFilterChoices(): ChannelFilterChoice[] {
   const playlistGroups = useTunerGroups();
   return useMemo(() => {
     const choices: ChannelFilterChoice[] = [{ filter: "all", label: t("liveTv.groupAll") }];
-    if (favorites.length > 0 || filter === "favorites") choices.push({ filter: "favorites", label: t("library.favorites") });
-    for (const group of groups) choices.push({ filter: `group:${group.id}`, label: group.name });
-    // The picked group holds its slot until a read of every tuner drops it; a dead pick then resets to All (usePlaylistChannelIds).
+    const showFavorites = favorites.length > 0 || filter === "favorites";
+    for (const group of joinableGroups(groups, playlistGroups)) {
+      if (group.kind !== "favorites" || showFavorites) choices.push({ filter: group.filter, label: group.label });
+    }
+    // The picked group holds its slot, ahead of the playlist's groups, until a read of every tuner drops it; a dead pick then resets to All (usePlaylistChannelIds).
     const picked = activePlaylistGroup(filter);
     const unconfirmed = playlistGroups === null || (lastKnownTunerData()?.complete !== true && !playlistGroups.some((group) => group.name === picked));
-    if (picked !== null && unconfirmed) choices.push({ filter, label: picked });
-    for (const group of playlistGroups ?? []) choices.push({ filter: `playlist:${group.name}`, label: group.name });
+    if (picked !== null && unconfirmed) choices.splice(choices.length - (playlistGroups?.length ?? 0), 0, { filter, label: picked });
     for (const category of categories) choices.push({ filter: `category:${category}`, label: CATEGORY_LABELS[category]() });
     return choices;
   }, [favorites.length, groups, filter, playlistGroups, categories]);
