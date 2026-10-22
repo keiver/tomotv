@@ -1350,8 +1350,11 @@ extension RemuxSession {
         if config.isLive || config.liveOriginKey != nil {
             let key = originKey
             let subject = config.isLive ? "live input" : "input"
-            let yielded: () -> Void = { [weak self] in self?.fail("\(subject) yielded its connection to a higher-priority read") }
+            let yielded: () -> Void = { [weak self] in
+                self?.fail(LiveConnectionBroker.shared.isHeld(key) ? LiveConnectionBroker.heldMessage : "\(subject) yielded its connection to a higher-priority read")
+            }
             guard let held = LiveConnectionBroker.shared.acquire(key: key, priority: config.livePriority, timeout: 10, onRevoke: yielded) else {
+                if LiveConnectionBroker.shared.isHeld(key) { return fail(LiveConnectionBroker.heldMessage) }
                 return fail(config.isLive ? "no connection left on the live origin" : "no connection left on the origin")
             }
             lease = held

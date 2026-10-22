@@ -29,21 +29,25 @@ import {
   engineProgress,
   inputSubtitleRenditions,
   isConnectionBudgetFailure,
+  isRecordingHoldFailure,
   liveSessionConfig,
   liveSubtitleRenditions,
   localRemuxToken,
   originConnectionLimit,
   originConnections,
+  originHeld,
   reportPlayerBuffer,
   setLiveSessionPriority,
   setLiveWindow,
   setOriginConnectionBudget,
+  setOriginRecording,
   startFrameProvider,
   startPlaylistShim,
   startSession,
   stopFrameProvider,
   stopLocalRemux,
   stopPlaylistShim,
+  subscribeOriginHolds,
 } from "../src/session";
 import { fittedIFrameSize, iframeStreamInf } from "../src/tags";
 
@@ -350,9 +354,49 @@ describe("originConnections", () => {
 
   it("reads the limit in force and the connections held, null while no limit is known", async () => {
     mockRemuxer!.originBudget = jest.fn().mockResolvedValue({ budget: 2, active: 1 });
-    await expect(originConnections("provider-a")).resolves.toEqual({ budget: 2, active: 1 });
+    await expect(originConnections("provider-a")).resolves.toEqual({ budget: 2, active: 1, held: false });
     mockRemuxer!.originBudget.mockResolvedValue({ budget: null, active: 0 });
-    await expect(originConnections("provider-a")).resolves.toEqual({ budget: null, active: 0 });
+    await expect(originConnections("provider-a")).resolves.toEqual({ budget: null, active: 0, held: false });
+  });
+
+  it("reads whether a recording holds the provider and remembers it", async () => {
+    mockRemuxer!.originBudget = jest.fn().mockResolvedValue({ budget: 1, active: 0, held: true });
+    await expect(originConnections("provider-read")).resolves.toEqual({ budget: 1, active: 0, held: true });
+    expect(originHeld("provider-read")).toBe(true);
+    mockRemuxer!.originBudget.mockResolvedValue({ budget: 1, active: 0, held: false });
+    await originConnections("provider-read");
+    expect(originHeld("provider-read")).toBe(false);
+  });
+});
+
+describe("setOriginRecording", () => {
+  it("tells the engine and remembers whether the provider is held, telling listeners only on a change", async () => {
+    const listener = jest.fn();
+    const stop = subscribeOriginHolds(listener);
+    mockRemuxer!.setOriginRecording = jest.fn().mockResolvedValue(true);
+    await expect(setOriginRecording("provider-r", true)).resolves.toBe(true);
+    expect(mockRemuxer!.setOriginRecording).toHaveBeenCalledWith("provider-r", true);
+    expect(originHeld("provider-r")).toBe(true);
+    await setOriginRecording("provider-r", true);
+    expect(listener).toHaveBeenCalledTimes(1);
+    mockRemuxer!.setOriginRecording.mockResolvedValue(false);
+    await expect(setOriginRecording("provider-r", false)).resolves.toBe(false);
+    expect(originHeld("provider-r")).toBe(false);
+    expect(listener).toHaveBeenCalledTimes(2);
+    stop();
+  });
+
+  it("is false without the method, an empty key, or when the call fails", async () => {
+    await expect(setOriginRecording("provider-x", true)).resolves.toBe(false);
+    mockRemuxer!.setOriginRecording = jest.fn().mockRejectedValue(new Error("x"));
+    await expect(setOriginRecording("", true)).resolves.toBe(false);
+    await expect(setOriginRecording("provider-x", true)).resolves.toBe(false);
+    expect(originHeld("provider-x")).toBe(false);
+  });
+
+  it("names a session a recording ended or refused", () => {
+    expect(isRecordingHoldFailure("live origin is held by a recording")).toBe(true);
+    expect(isRecordingHoldFailure("live input yielded its connection to a higher-priority read")).toBe(false);
   });
 });
 

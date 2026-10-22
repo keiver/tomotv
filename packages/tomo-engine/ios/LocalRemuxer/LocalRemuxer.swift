@@ -880,14 +880,25 @@ class LocalRemuxer: RCTEventEmitter {
     }
 
     /// The limit in force for a provider, set or learned from its refusals, and the connections held on it now:
-    /// `{budget, active}`, budget null while nothing has set or shown one.
+    /// `{budget, active, held}`, budget null while nothing has set or shown one.
     @objc func originBudget(
         _ key: NSString,
         resolver resolve: @escaping RCTPromiseResolveBlock,
         rejecter _: @escaping RCTPromiseRejectBlock
     ) {
         let budget: Any = LiveConnectionBroker.shared.budget(for: key as String).map { $0 as Any } ?? NSNull()
-        resolve(["budget": budget, "active": LiveConnectionBroker.shared.activeCount(for: key as String)])
+        resolve(["budget": budget, "active": LiveConnectionBroker.shared.activeCount(for: key as String), "held": LiveConnectionBroker.shared.isHeld(key as String)])
+    }
+
+    /// Whether a server recording reads the provider now; resolves whether that holds its only connection.
+    @objc func setOriginRecording(
+        _ key: NSString,
+        active: Bool,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter _: @escaping RCTPromiseRejectBlock
+    ) {
+        LiveConnectionBroker.shared.setRecording(active, for: key as String)
+        resolve(LiveConnectionBroker.shared.isHeld(key as String))
     }
 
     /// AVPlayer's buffer past the playhead. Resolves the variant-cap floor the copy needs (0 = none).

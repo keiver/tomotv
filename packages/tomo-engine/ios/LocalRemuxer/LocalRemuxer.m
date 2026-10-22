@@ -108,6 +108,12 @@ RCT_EXTERN_METHOD(originBudget
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(setOriginRecording
+                  : (nonnull NSString *)key active
+                  : (BOOL)active resolver
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(setPlayerBuffer
                   : (nonnull NSString *)token aheadSeconds
                   : (nonnull NSNumber *)aheadSeconds sinceSeek

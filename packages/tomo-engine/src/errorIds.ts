@@ -13,6 +13,8 @@ export const PLAYBACK_ERROR_IDS = {
   LIVE_NOLANE: "PB-LIVE-NOLANE",
   /** The channel's provider answered 429: its streams at once are all in use. */
   LIVE_LIMIT: "PB-LIVE-LIMIT",
+  /** A recording holds the channel's provider, whose limit is one connection. */
+  LIVE_RECORDING: "PB-LIVE-RECORDING",
   /** The engine session did not start. */
   ENGINE_START: "PB-ENGINE-START",
   /** The engine reported a failure before its first segment. */

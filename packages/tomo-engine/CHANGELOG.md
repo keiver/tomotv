@@ -2,6 +2,7 @@
 
 ## 1.4.0
 
+- `setOriginRecording(originKey, active)`: a server recording reads the provider. At a limit of 1, set or learned, every read on it ends (playback included) and none opens, failing with `live origin is held by a recording` (`isRecordingHoldFailure`, `PLAYBACK_ERROR_IDS.LIVE_RECORDING`). `originHeld`, `subscribeOriginHolds`, and `held` in `originConnections` (`LiveConnectionBrokerTests`).
 - `originConnectionLimit(originKey)`: the limit `setOriginConnectionBudget` last gave the engine for a provider, read synchronously; null when none is set. A limit the engine refused leaves the last one in place.
 - `liveSessionConfig({ inputUrl, itemId, httpHeaders?, originKey?, priority?, bufferSeconds?, audioLanguage?, windowSeconds?, fallbackInputUrl?, checkOrigin?, playlist? })` builds a live session described from its input. `LIVE_BUFFER_SECONDS` (15) and `LIVE_SEGMENT_SECONDS` (2) replace `LIVE_START_BUFFER_SEGMENTS` and `LIVE_START_BUFFER_CAP_MS`.
 - A live HLS master (a `.m3u8` or `.m3u` path, or any URL with `playlist: true`) is opened as a trimmed copy the engine serves itself: the top video variant with every audio rendition it names; its subtitle renditions are read by the engine itself. `liveAudioLanguage` marks which audio rendition is the default (then the master's default, never a described-video or hearing-impaired one while another matches), and the engine lists that track first. A raw TS input lists the audio stream tagged with that language first, never one tagged for the visually or hearing impaired (`LiveSelectiveOpenTests`).

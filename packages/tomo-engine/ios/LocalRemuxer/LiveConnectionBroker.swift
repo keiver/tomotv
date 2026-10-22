@@ -68,6 +68,10 @@ final class LiveConnectionBroker {
     private var lostBesidePreview: [String: Set<String>] = [:]
     /// Keys that never showed room and refused two channels beside a preview: a full origin that teaches no number.
     private var previewsStopped = Set<String>()
+    /// Keys a server recording reads: at a budget of 1 the recording owns the only slot.
+    private var recording = Set<String>()
+
+    static let heldMessage = "live origin is held by a recording"
 
     /// A budget under the reads held revokes the lowest ones below playback until the key fits it, and any
     /// preview left with no slot spare beside it.
@@ -79,9 +83,26 @@ final class LiveConnectionBroker {
         lostBesidePreview[key] = nil
         var victims = budget > 0 ? victimsLocked(key: key, limit: budget, below: .playback, keeping: nil) : []
         if budget > 0 { victims += previewsWithoutSpareLocked(key: key, limit: budget) }
+        victims += heldVictimsLocked(key)
         cond.broadcast()
         cond.unlock()
         victims.forEach { $0.onRevoke() }
+    }
+
+    /// A recording starting on a one-connection key revokes every read on it, playback included.
+    func setRecording(_ active: Bool, for key: String) {
+        cond.lock()
+        if active { recording.insert(key) } else { recording.remove(key) }
+        let victims = heldVictimsLocked(key)
+        cond.broadcast()
+        cond.unlock()
+        victims.forEach { $0.onRevoke() }
+    }
+
+    func isHeld(_ key: String) -> Bool {
+        cond.lock()
+        defer { cond.unlock() }
+        return isHeldLocked(key)
     }
 
     func budget(for key: String) -> Int? {
@@ -116,7 +137,7 @@ final class LiveConnectionBroker {
         cond.lock()
         defer { cond.unlock() }
         if priority == .preview, previewsStopped.contains(key) { return nil }
-        guard hasRoomLocked(key, spare: priority == .preview ? 1 : 0) else { return nil }
+        guard !isHeldLocked(key), hasRoomLocked(key, spare: priority == .preview ? 1 : 0) else { return nil }
         return grantLocked(key: key, priority: priority, onRevoke: onRevoke)
     }
 
@@ -129,7 +150,8 @@ final class LiveConnectionBroker {
         let deadline = Date().addingTimeInterval(timeout)
         cond.lock()
         defer { cond.unlock() }
-        while !hasRoomLocked(key) {
+        while !hasRoomLocked(key) || isHeldLocked(key) {
+            if isHeldLocked(key) { return nil }
             let waitingOn = (active[key] ?? []).contains { $0.revoking }
             if !waitingOn {
                 guard let victim = (active[key] ?? []).filter({ $0.priority < priority }).min(by: { $0.priority < $1.priority }) else {
@@ -170,6 +192,7 @@ final class LiveConnectionBroker {
         if learn { learnLocked(key: lease.key, limit: others.count) }
         var victims = lease.priority == .preview ? [] : victimsLocked(key: lease.key, limit: min(budgets[lease.key] ?? .max, others.count), below: lease.priority, keeping: lease)
         victims += previewsWithoutSpareLocked(key: lease.key, limit: budgets[lease.key] ?? others.count)
+        victims += heldVictimsLocked(lease.key)
         cond.unlock()
         victims.forEach { $0.onRevoke() }
         return victims.contains { $0 !== lease } || lease.priority == .playback
@@ -207,7 +230,7 @@ final class LiveConnectionBroker {
         }
         if learn { learnLocked(key: lease.key, limit: others.count) }
         if besidePreview, !roomShown.contains(lease.key), lost >= 2 { previewsStopped.insert(lease.key) }
-        let victims = previewsWithoutSpareLocked(key: lease.key, limit: budgets[lease.key] ?? others.count)
+        let victims = previewsWithoutSpareLocked(key: lease.key, limit: budgets[lease.key] ?? others.count) + heldVictimsLocked(lease.key)
         cond.unlock()
         victims.forEach { $0.onRevoke() }
     }
@@ -226,6 +249,7 @@ final class LiveConnectionBroker {
         learnLocked(key: lease.key, limit: others.count)
         var victims = lease.priority == .preview ? [] : victimsLocked(key: lease.key, limit: budgets[lease.key] ?? others.count, below: lease.priority, keeping: lease)
         victims += previewsWithoutSpareLocked(key: lease.key, limit: budgets[lease.key] ?? others.count)
+        victims += heldVictimsLocked(lease.key)
         cond.unlock()
         victims.forEach { $0.onRevoke() }
         return true
@@ -267,6 +291,18 @@ final class LiveConnectionBroker {
             preview.revoking = true
             victims.append(preview)
         }
+        return victims
+    }
+
+    private func isHeldLocked(_ key: String) -> Bool {
+        recording.contains(key) && budgets[key] == 1
+    }
+
+    /// Every read on a held key not already told to yield, marked revoking.
+    private func heldVictimsLocked(_ key: String) -> [Lease] {
+        guard isHeldLocked(key) else { return [] }
+        let victims = (active[key] ?? []).filter { !$0.revoking }
+        victims.forEach { $0.revoking = true }
         return victims
     }
 

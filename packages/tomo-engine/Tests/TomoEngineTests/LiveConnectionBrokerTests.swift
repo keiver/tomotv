@@ -64,6 +64,59 @@ final class LiveConnectionBrokerTests: XCTestCase {
         XCTAssertFalse(revoked)
     }
 
+    func testARecordingOnAOneConnectionKeyRevokesPlaybackAndRefusesEveryReadAtOnce() {
+        let broker = LiveConnectionBroker()
+        broker.setBudget(1, for: "k")
+        var revoked = false
+        let playback = broker.tryAcquire(key: "k", priority: .playback) { revoked = true }
+        XCTAssertNotNil(playback)
+        broker.setRecording(true, for: "k")
+        XCTAssertTrue(revoked)
+        XCTAssertTrue(broker.isHeld("k"))
+        playback?.release()
+        let started = Date()
+        XCTAssertNil(broker.acquire(key: "k", priority: .playback, timeout: 5, onRevoke: {}))
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1, "a held key made playback wait out its timeout")
+        XCTAssertNil(broker.tryAcquire(key: "k", priority: .sweep, onRevoke: {}))
+    }
+
+    func testARecordingEndingFreesTheKey() {
+        let broker = LiveConnectionBroker()
+        broker.setBudget(1, for: "k")
+        broker.setRecording(true, for: "k")
+        broker.setRecording(false, for: "k")
+        XCTAssertFalse(broker.isHeld("k"))
+        XCTAssertNotNil(broker.tryAcquire(key: "k", priority: .playback, onRevoke: {}))
+    }
+
+    func testARecordingOnAKeyWithMoreThanOneConnectionOrNoBudgetChangesNothing() {
+        let broker = LiveConnectionBroker()
+        broker.setBudget(2, for: "two")
+        var revoked = false
+        let playback = broker.tryAcquire(key: "two", priority: .playback) { revoked = true }
+        broker.setRecording(true, for: "two")
+        broker.setRecording(true, for: "none")
+        XCTAssertNotNil(playback)
+        XCTAssertFalse(revoked)
+        XCTAssertFalse(broker.isHeld("two"))
+        XCTAssertFalse(broker.isHeld("none"))
+        XCTAssertNotNil(broker.tryAcquire(key: "none", priority: .playback, onRevoke: {}))
+    }
+
+    func testABudgetOfOneLearnedWhileRecordingHoldsTheKey() {
+        let broker = LiveConnectionBroker()
+        broker.setRecording(true, for: "k")
+        XCTAssertFalse(broker.isHeld("k"))
+        var playbackRevoked = false
+        let playback = broker.tryAcquire(key: "k", priority: .playback) { playbackRevoked = true }
+        let sweep = broker.tryAcquire(key: "k", priority: .sweep, onRevoke: {})
+        XCTAssertNotNil(playback)
+        broker.noteRefusal(of: sweep!)
+        XCTAssertEqual(broker.budget(for: "k"), 1)
+        XCTAssertTrue(broker.isHeld("k"))
+        XCTAssertTrue(playbackRevoked)
+    }
+
     func testAPreviewThePlayerAdoptedKeepsItsSlotFromTheRing() {
         let broker = LiveConnectionBroker()
         broker.setBudget(2, for: "k")

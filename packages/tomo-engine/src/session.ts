@@ -231,24 +231,66 @@ export interface OriginConnections {
   /** Set by setOriginConnectionBudget or learned from the provider's refusals; null while neither has happened. */
   budget: number | null;
   active: number;
+  /** A server recording reads the provider and its limit is 1: the engine opens nothing on it. */
+  held: boolean;
 }
 
 /** What the engine knows of a provider's connections, for a screen that shows or edits the limit; null without the method. */
 export async function originConnections(originKey: string): Promise<OriginConnections | null> {
   if (!isLocalRemuxAvailable() || !originKey || typeof engineModule().originBudget !== "function") return null;
   try {
-    const answer = (await engineModule().originBudget(originKey)) as { budget?: unknown; active?: unknown } | null;
+    const answer = (await engineModule().originBudget(originKey)) as { budget?: unknown; active?: unknown; held?: unknown } | null;
     if (!answer || typeof answer.active !== "number") return null;
-    return { budget: typeof answer.budget === "number" && answer.budget > 0 ? answer.budget : null, active: answer.active };
+    const held = answer.held === true;
+    noteHeld(originKey, held);
+    return { budget: typeof answer.budget === "number" && answer.budget > 0 ? answer.budget : null, active: answer.active, held };
   } catch (error) {
     engineLog().warn("Failed to read an origin's connections", error, { service: "LocalRemux" });
     return null;
   }
 }
 
+const heldOrigins = new Set<string>();
+const holdListeners = new Set<() => void>();
+
+function noteHeld(originKey: string, held: boolean): void {
+  if (heldOrigins.has(originKey) === held) return;
+  if (held) heldOrigins.add(originKey);
+  else heldOrigins.delete(originKey);
+  for (const listener of holdListeners) listener();
+}
+
+/** Tells the engine a server recording reads the provider; at a limit of 1 every read on it ends and none opens. Resolves whether it is held. */
+export async function setOriginRecording(originKey: string, active: boolean): Promise<boolean> {
+  if (!isLocalRemuxAvailable() || !originKey || typeof engineModule().setOriginRecording !== "function") return false;
+  try {
+    const held = (await engineModule().setOriginRecording(originKey, active)) === true;
+    noteHeld(originKey, held);
+    return held;
+  } catch (error) {
+    engineLog().warn("Failed to set an origin's recording", error, { service: "LocalRemux" });
+    return false;
+  }
+}
+
+/** Whether a recording held the provider at the engine's last answer. */
+export function originHeld(originKey: string | null | undefined): boolean {
+  return !!originKey && heldOrigins.has(originKey);
+}
+
+export function subscribeOriginHolds(listener: () => void): () => void {
+  holdListeners.add(listener);
+  return () => holdListeners.delete(listener);
+}
+
 /** A session the broker ended for its provider's budget, not the channel: no slot was left, or a higher read took its connection. */
 export function isConnectionBudgetFailure(message: string): boolean {
   return message.startsWith("no connection left on the") || message.endsWith("yielded its connection to a higher-priority read");
+}
+
+/** A session ended or refused because a recording holds its provider's only connection. */
+export function isRecordingHoldFailure(message: string): boolean {
+  return message.includes("live origin is held by a recording");
 }
 
 export interface StartSessionOptions {
