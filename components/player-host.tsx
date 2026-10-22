@@ -5,7 +5,7 @@ import { t } from "@/services/i18n";
 import { usePlayerSessionHost, type HostMode, type PlayerHostBridge, type PlayerTvConfig } from "@/contexts/PlayerSessionContext";
 import { setPlaybackHold } from "@/services/playbackHold";
 import { setToastPlayerOnScreen } from "@/services/toast";
-import { isHotChannel } from "@/services/liveRing";
+import { channelOnOneConnection, isHotChannel } from "@/services/liveRing";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
 import { stageReason, stageStatus, stageStopped, usePlaybackStage } from "@/hooks/usePlaybackStage";
 import { useItemPoster } from "@/hooks/useItemPoster";
@@ -34,6 +34,8 @@ import type { JellyfinVideoItem } from "@/types/jellyfin";
 const RESTORE_REARM_MS = 1000;
 /** How long channel swipes must stop before the channel they land on opens, in ms. */
 const LIVE_FLIP_SETTLE_MS = 500;
+/** The same wait when the channel's provider is set to one connection: a swipe that opens it takes the only slot. */
+const ONE_CONNECTION_FLIP_SETTLE_MS = 3000;
 
 const ignore = () => {};
 
@@ -898,10 +900,13 @@ export function PlayerHost() {
         const hot = isHotChannel(target.videoId);
         setLiveSettling(!hot);
         if (!hot) {
-          settleTimerRef.current = setTimeout(() => {
-            settleTimerRef.current = null;
-            setLiveSettling(false);
-          }, LIVE_FLIP_SETTLE_MS);
+          settleTimerRef.current = setTimeout(
+            () => {
+              settleTimerRef.current = null;
+              setLiveSettling(false);
+            },
+            !target.picked && channelOnOneConnection(target.videoId) ? ONE_CONNECTION_FLIP_SETTLE_MS : LIVE_FLIP_SETTLE_MS,
+          );
         }
         applySession({ ...current, videoId: target.videoId, videoName: target.videoName ?? current.videoName, startPositionTicks: undefined, playedAtStart: undefined });
       },

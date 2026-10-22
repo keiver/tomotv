@@ -825,7 +825,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
         logger.info("Live TV: channel picked from the panel", { service: "VideoPlayer", to: channel.Name });
         probeEmit("flip", { direction: 0, from: videoId, to: channel.Id });
         flipCenterRef.current = channel;
-        switchLiveChannel({ videoId: channel.Id, videoName: channel.Name });
+        switchLiveChannel({ videoId: channel.Id, videoName: channel.Name, picked: true });
         router.setParams({ videoId: channel.Id, videoName: channel.Name });
         return;
       }
