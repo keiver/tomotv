@@ -656,6 +656,27 @@ export async function fetchRecordings(): Promise<{ items: JellyfinItem[]; total?
   return { items: (json.Items ?? []) as JellyfinItem[], total: json.TotalRecordCount };
 }
 
+/** The recording a timer is writing now; null while it has none. */
+export async function fetchInProgressRecording(timerId: string): Promise<JellyfinItem | null> {
+  const response = await liveTvRequest(`/LiveTv/Recordings?${await userQuery({ isInProgress: "true" })}`, {}, API_TIMEOUTS.QUICK);
+  const json = (await response.json()) as { Items?: (JellyfinItem & { TimerId?: string })[] };
+  return json.Items?.find((item) => item.TimerId === timerId) ?? null;
+}
+
+/** The first bytes of a recording's file as written so far; empty while nothing has reached disk (the server answers 416). */
+export async function readRecordingStart(itemId: string): Promise<Uint8Array> {
+  const config = await getConfig();
+  if (!config.server || !config.apiKey) throw new Error("Jellyfin server not configured.");
+  const response = await fetchWithTimeout(
+    `${config.server}/Items/${encodeURIComponent(itemId)}/Download`,
+    { headers: { Authorization: getAuthHeader(config.deviceId, config.apiKey), Range: "bytes=0-187" } },
+    API_TIMEOUTS.QUICK,
+  );
+  if (response.status === 416) return new Uint8Array(0);
+  if (!response.ok) throwRequestError(response, `Recording read failed: ${response.status}`);
+  return new Uint8Array(await response.arrayBuffer());
+}
+
 export async function fetchProgram(programId: string): Promise<JellyfinProgram> {
   const response = await liveTvRequest(`/LiveTv/Programs/${encodeURIComponent(programId)}?${await userQuery({ fields: "PrimaryImageAspectRatio" })}`);
   return (await response.json()) as JellyfinProgram;

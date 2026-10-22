@@ -1,6 +1,7 @@
 import { t } from "@/services/i18n";
 import { cancelSeriesTimer, cancelTimer, createSeriesTimer, createTimer, fetchSeriesTimers, fetchTimerDefaults, fetchTimers } from "@/services/jellyfinApi";
 import { getLiveTvPreferences } from "@/services/liveTvPreferences";
+import { checkNewRecording, reserveForRecording, stopRecordingCheck } from "@/services/recordingHold";
 import { reportRecordingTimers } from "@/services/recordingStatus";
 import { showToast } from "@/services/toast";
 import type { JellyfinProgram, JellyfinSeriesTimer, JellyfinTimer } from "@/types/jellyfin";
@@ -133,7 +134,7 @@ export function useRecordActions(target: RecordTarget | null) {
       const remainingMs = airing && program ? programTimes(program).endMs - Date.now() : 0;
       const doneToast = remainingMs > 0 ? t("liveTv.recordingStartedFor").replace("{duration}", durationLabel(remainingMs)) : t("liveTv.recordingScheduled");
       const endMs = program ? programTimes(program).endMs : Date.now();
-      return run("record", async () => createTimer(await fetchTimerDefaults(programId)), doneToast, standIn(endMs, airing));
+      return run("record", () => writeAfterReserve(airing ? channelId : null, async () => createTimer(await fetchTimerDefaults(programId)), programId), doneToast, standIn(endMs, airing));
     }
     if (!channelId) return;
     const nowMs = Date.now();
@@ -147,17 +148,18 @@ export function useRecordActions(target: RecordTarget | null) {
     const timerName = (program?.Name || channelName).replace(/^[.\s]+/, "") || channelId;
     return run(
       "record",
-      async () => {
-        const defaults = await fetchTimerDefaults();
-        await createTimer({
-          ...defaults,
-          ChannelId: channelId,
-          Name: timerName,
-          ...(program?.Overview ? { Overview: program.Overview } : {}),
-          StartDate: new Date(startMs).toISOString(),
-          EndDate: new Date(endMs).toISOString(),
-        });
-      },
+      () =>
+        writeAfterReserve(airing ? channelId : null, async () => {
+          const defaults = await fetchTimerDefaults();
+          await createTimer({
+            ...defaults,
+            ChannelId: channelId,
+            Name: timerName,
+            ...(program?.Overview ? { Overview: program.Overview } : {}),
+            StartDate: new Date(startMs).toISOString(),
+            EndDate: new Date(endMs).toISOString(),
+          });
+        }),
       airing ? t("liveTv.recordingStartedFor").replace("{duration}", durationLabel(endMs - startMs)) : t("liveTv.recordingScheduled"),
       { ...standIn(endMs, airing), Name: timerName, StartDate: new Date(startMs).toISOString() },
     );
@@ -165,10 +167,23 @@ export function useRecordActions(target: RecordTarget | null) {
   const recordSeries = useCallback(() => {
     const airing = !!program && isAiring(program, Date.now());
     const endMs = program ? programTimes(program).endMs : Date.now();
-    return run("series", async () => createSeriesTimer(await fetchTimerDefaults(programId)), t("liveTv.recordingScheduled"), standIn(endMs, airing, STAND_IN_SERIES_ID), STAND_IN_SERIES_ID);
-  }, [run, standIn, programId, program]);
+    return run(
+      "series",
+      () =>
+        writeAfterReserve(
+          airing ? channelId : null,
+          async () => createSeriesTimer(await fetchTimerDefaults(programId)),
+          programId,
+          async () => createTimer(await fetchTimerDefaults(programId)),
+        ),
+      t("liveTv.recordingScheduled"),
+      standIn(endMs, airing, STAND_IN_SERIES_ID),
+      STAND_IN_SERIES_ID,
+    );
+  }, [run, standIn, programId, program, channelId]);
   const cancel = useCallback(() => {
     if (timer && !timer.Id) return rereadStandIn();
+    if (timer?.Status === "InProgress" && timer.ChannelId) stopRecordingCheck(timer.ChannelId);
     return run("cancel", async () => (timer ? cancelTimer(timer.Id) : undefined), t(timer?.Status === "InProgress" ? "liveTv.recordingStopped" : "liveTv.recordingCanceled"), null);
   }, [run, rereadStandIn, timer]);
   const cancelSeries = useCallback(() => {
@@ -179,6 +194,21 @@ export function useRecordActions(target: RecordTarget | null) {
   }, [run, rereadStandIn, timer, seriesTimerId]);
 
   return { timer, seriesTimerId, busy, settled, record, recordSeries, cancel, cancelSeries };
+}
+
+/**
+ * A timer write that starts a recording now on `channelId` waits for this device to let its provider go; a failed write
+ * lets it back. On a one-connection provider the recording is then checked for the stream, made again by `recreate`.
+ */
+export async function writeAfterReserve(channelId: string | null, write: () => Promise<void>, programId?: string, recreate: () => Promise<void> = write): Promise<void> {
+  const release = channelId ? await reserveForRecording(channelId) : null;
+  try {
+    await write();
+  } catch (error) {
+    release?.();
+    throw error;
+  }
+  if (channelId && release) void checkNewRecording(channelId, programId, recreate);
 }
 
 /** The live rule covering a program: linked from its timer in any status (a cancelled airing keeps the link), else the rule's own program. */

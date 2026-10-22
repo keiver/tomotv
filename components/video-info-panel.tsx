@@ -57,6 +57,8 @@ import { useShowInFolder } from "@/hooks/useShowInFolder";
 import { CATEGORY_LABELS } from "@/utils/channelGroups";
 import { useLiveTvManagement } from "@/hooks/useLiveTvManagement";
 import { useRecordActions } from "@/hooks/useRecordActions";
+import { useChannelHeld, useHeldRecording, useRecordingChecking } from "@/hooks/useRecordingStatus";
+import { recordingInProgress } from "@/services/recordingHold";
 import { EXTERNAL_GUIDE_PREFIX, formatClock, formatClockRange, formatDayLabel, isAiring, programCategory, programTimes } from "@/utils/guide";
 import { readGuideProgram } from "@/utils/programInfo";
 import { PlaybackLane, predictPlaybackLane } from "@/services/localRemux";
@@ -504,13 +506,27 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   const { autoUpdate } = useLiveTvPreferences();
   const playbackHeld = usePlaybackHeld();
   const clipShown = !!liveFrame && !!liveClip && active && autoUpdate && !playbackHeld;
-  const handleWatch = useCallback(() => {
+  // At one connection a recording holds the provider: Watch plays the recording instead, once it has the stream.
+  const channelHeld = useChannelHeld();
+  const providerHeld = watchable && channelHeld(liveChannelId);
+  const holdingTimer = useHeldRecording(liveChannelId, providerHeld);
+  const recordingChecking = useRecordingChecking(liveChannelId, providerHeld);
+  const watchesRecording = providerHeld && holdingTimer?.Status === "InProgress" && !recordingChecking;
+  const handleWatch = useCallback(async () => {
     if (!liveChannelId) return;
+    let destination = { pathname: "/player" as const, params: { videoId: liveChannelId, videoName: liveChannelName, live: "1" } as Record<string, string> };
+    if (watchesRecording && holdingTimer) {
+      const item = await recordingInProgress(holdingTimer).catch((err) => {
+        logger.warn("Recording read failed", err, { service: "VideoInfo" });
+        return null;
+      });
+      if (!item) return;
+      destination = { pathname: "/player" as const, params: { videoId: item.Id, videoName: item.Name } };
+    }
     showGlobalLoader();
-    const destination = { pathname: "/player" as const, params: { videoId: liveChannelId, videoName: liveChannelName, live: "1" } };
     if (IS_TV) router.push(destination);
     else router.replace(destination);
-  }, [liveChannelId, liveChannelName, router, showGlobalLoader]);
+  }, [liveChannelId, liveChannelName, router, showGlobalLoader, watchesRecording, holdingTimer]);
   const groupChannel = useMemo(
     () => (liveChannel && details ? { Id: details.Id, Name: details.Name, ChannelNumber: details.ChannelNumber, playlistPending: details.playlistPending } : null),
     [liveChannel, details],
@@ -748,12 +764,12 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
       {watchable && (
         <FocusableButton
           ref={leadCtaRef}
-          title={t("liveTv.watch")}
+          title={watchesRecording ? t("liveTv.watchRecording") : t("liveTv.watch")}
           variant="primary"
           hasTVPreferredFocus
           style={pairButton}
           icon={<Ionicons name="play" size={IS_TV ? 34 : 22} color={palette.onAccent} />}
-          onPress={handleWatch}
+          onPress={() => void handleWatch()}
         />
       )}
       {!recordShown ? null : recordTimer ? (

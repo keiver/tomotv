@@ -29,6 +29,7 @@ import { PlayQueueProvider } from "@/contexts/PlayQueueContext";
 import { registerMultiAudioPlugin } from "@/services/multiAudioLoader";
 import { applyScreenshotSizeLockAtLaunch } from "@/services/screenshotSizeLock";
 import { videoDecodeSupport } from "@/services/localRemux";
+import { watchRecordingHolds } from "@/services/recordingHold";
 import { logger } from "@/utils/logger";
 import { t } from "@/services/i18n";
 import { LocaleBoundary } from "@/components/locale-boundary";
@@ -112,6 +113,9 @@ export default function RootLayout() {
     // Dev Mac builds: a stored screenshot size lock survives the reload.
     applyScreenshotSizeLockAtLaunch();
   }, []);
+
+  // A recording on a one-connection provider keeps this device off that provider.
+  useEffect(() => watchRecordingHolds(), []);
 
   // Redraws the header titles below and the hosts outside the navigator in a picked language.
   useLocale();

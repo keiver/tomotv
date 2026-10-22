@@ -1,6 +1,7 @@
 /** Record writes: a write that landed stands even when the re-read fails, and a cancel on that stand-in reads first. */
 import { useRecordActions, type RecordTarget } from "@/hooks/useRecordActions";
 import { cancelSeriesTimer, cancelTimer, createSeriesTimer, createTimer, fetchSeriesTimers, fetchTimerDefaults, fetchTimers } from "@/services/jellyfinApi";
+import { checkNewRecording, reserveForRecording } from "@/services/recordingHold";
 import { showToast } from "@/services/toast";
 import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
@@ -18,6 +19,12 @@ jest.mock("@/services/toast", () => ({ showToast: jest.fn() }));
 jest.mock("@/services/i18n", () => ({ t: (key: string) => key }));
 jest.mock("@/services/liveTvPreferences", () => ({ getLiveTvPreferences: () => ({ recordingMinutes: 60 }) }));
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), warn: jest.fn(), info: jest.fn(), debug: jest.fn() } }));
+const mockRelease = jest.fn();
+jest.mock("@/services/recordingHold", () => ({
+  reserveForRecording: jest.fn(async () => mockRelease),
+  checkNewRecording: jest.fn(async () => undefined),
+  stopRecordingCheck: jest.fn(),
+}));
 
 type Actions = ReturnType<typeof useRecordActions>;
 const Harness = forwardRef<{ get: () => Actions }, { target: RecordTarget }>(({ target }, ref) => {
@@ -148,5 +155,45 @@ describe("useRecordActions", () => {
     await act(async () => ref.current!.get().record());
     expect(showToast).toHaveBeenCalledWith("liveTv.recordingFailed", "error");
     expect(ref.current!.get().timer).toBeNull();
+    expect(mockRelease).toHaveBeenCalled();
+  });
+
+  it("an airing program's timer is written only after this device let its provider go", async () => {
+    const ref = await mount();
+    await act(async () => ref.current!.get().record());
+    expect(reserveForRecording).toHaveBeenCalledWith("ch1");
+    expect(jest.mocked(reserveForRecording).mock.invocationCallOrder[0]).toBeLessThan(jest.mocked(createTimer).mock.invocationCallOrder[0]);
+    expect(mockRelease).not.toHaveBeenCalled();
+  });
+
+  it("checks the new recording for the stream, making it again with the same write", async () => {
+    const ref = await mount();
+    await act(async () => ref.current!.get().record());
+    expect(checkNewRecording).toHaveBeenCalledWith("ch1", "p1", expect.any(Function));
+    jest.mocked(createTimer).mockClear();
+    await jest.mocked(checkNewRecording).mock.calls[0][2]();
+    expect(fetchTimerDefaults).toHaveBeenLastCalledWith("p1");
+    expect(createTimer).toHaveBeenCalledTimes(1);
+  });
+
+  it("a series recorded while airing makes the airing again, never the rule", async () => {
+    const ref = await mount();
+    await act(async () => ref.current!.get().recordSeries());
+    expect(createSeriesTimer).toHaveBeenCalledTimes(1);
+    await jest.mocked(checkNewRecording).mock.calls[0][2]();
+    expect(createSeriesTimer).toHaveBeenCalledTimes(1);
+    expect(createTimer).toHaveBeenCalledTimes(1);
+  });
+
+  it("a later program's timer is written without letting anything go", async () => {
+    const later = { StartDate: new Date(now + 3_600_000).toISOString(), EndDate: new Date(now + 7_200_000).toISOString() };
+    const ref = React.createRef<{ get: () => Actions }>();
+    await act(async () => {
+      TestRenderer.create(<Harness ref={ref} target={{ programId: "p2", channelId: "ch1", channelName: "News", program: later }} />);
+    });
+    await act(async () => ref.current!.get().record());
+    expect(createTimer).toHaveBeenCalled();
+    expect(reserveForRecording).not.toHaveBeenCalled();
+    expect(checkNewRecording).not.toHaveBeenCalled();
   });
 });

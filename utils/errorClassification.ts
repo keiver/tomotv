@@ -26,11 +26,17 @@ export enum PlaybackErrorType {
   PROTECTED = "PROTECTED",
   /** A live provider refused the channel (429): its streams at once are in use elsewhere. */
   PROVIDER_LIMIT = "PROVIDER_LIMIT",
+  /** A recording holds the channel's provider, whose limit is one connection. */
+  RECORDING_HOLD = "RECORDING_HOLD",
   UNKNOWN = "UNKNOWN",
 }
 
 // Patterns for classifying errors - order matters (more specific first)
 const ERROR_PATTERNS: { type: PlaybackErrorType; patterns: RegExp[] }[] = [
+  {
+    type: PlaybackErrorType.RECORDING_HOLD,
+    patterns: [/held by a recording/i],
+  },
   {
     type: PlaybackErrorType.PROTECTED,
     patterns: [/\bDRM\b/, /SAMPLE-AES/i, /streamingkeydelivery/i, /widevine/i, /playready/i],
@@ -128,6 +134,7 @@ const PLAYBACK_ERROR_KEYS: Record<PlaybackErrorType, StringKey> = {
   [PlaybackErrorType.STALLED]: "player.error.stalled",
   [PlaybackErrorType.PROTECTED]: "player.error.protected",
   [PlaybackErrorType.PROVIDER_LIMIT]: "player.error.providerLimit",
+  [PlaybackErrorType.RECORDING_HOLD]: "player.error.providerLimit",
   [PlaybackErrorType.UNKNOWN]: "player.error.unknown",
 };
 

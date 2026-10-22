@@ -10,7 +10,8 @@
  */
 
 import { PlaybackErrorType, planErrorRecovery, type ErrorRecoveryInput } from "../useVideoPlayback";
-import { AUTOMATIC_RETRY_BUDGET_MS, automaticRetryDelay, isPermanentLiveError, shouldAutomaticallyRetry } from "../videoPlayback/errorRecovery";
+import { AUTOMATIC_RETRY_BUDGET_MS, automaticRetryDelay, isPermanentLiveError, reopensUntilAdmitted, shouldAutomaticallyRetry } from "../videoPlayback/errorRecovery";
+import { classifyPlaybackError as classifyError } from "@/utils/errorClassification";
 
 describe("automatic network recovery", () => {
   it("caps the delay without exhausting retries", () => {
@@ -306,5 +307,19 @@ describe("isPermanentLiveError", () => {
     expect(isPermanentLiveError(PlaybackErrorType.STALLED, "live input gone: Server returned 404 Not Found")).toBe(true);
     expect(isPermanentLiveError(PlaybackErrorType.STALLED, "The server can carry News 24 only by re-encoding it")).toBe(true);
     expect(isPermanentLiveError(PlaybackErrorType.STALLED, "the open gave the engine nothing to read")).toBe(true);
+  });
+
+  it("takes a recording holding the provider for permanent, and never retries it on its own", () => {
+    const errorType = classifyError(new Error("live origin is held by a recording"));
+    expect(errorType).toBe(PlaybackErrorType.RECORDING_HOLD);
+    expect(isPermanentLiveError(errorType, "live origin is held by a recording")).toBe(true);
+    expect(shouldAutomaticallyRetry({ live: false, heldOnDisk: false, errorType, ladderSpent: true, retryingForMs: 0 })).toBe(false);
+  });
+
+  it("opens a channel again on the provider's refusal only after its recording was stopped", () => {
+    expect(reopensUntilAdmitted({ reopening: false, errorType: PlaybackErrorType.PROVIDER_LIMIT, admitting: true })).toBe(true);
+    expect(reopensUntilAdmitted({ reopening: false, errorType: PlaybackErrorType.PROVIDER_LIMIT, admitting: false })).toBe(false);
+    expect(reopensUntilAdmitted({ reopening: false, errorType: PlaybackErrorType.NOT_FOUND, admitting: true })).toBe(false);
+    expect(reopensUntilAdmitted({ reopening: true, errorType: PlaybackErrorType.PROVIDER_LIMIT, admitting: true })).toBe(false);
   });
 });

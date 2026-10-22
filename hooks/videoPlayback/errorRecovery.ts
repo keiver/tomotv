@@ -34,6 +34,7 @@ export function shouldAutomaticallyRetry(input: { live: boolean; heldOnDisk: boo
     case PlaybackErrorType.UNAUTHORIZED:
     case PlaybackErrorType.NOT_FOUND:
     case PlaybackErrorType.PROTECTED:
+    case PlaybackErrorType.RECORDING_HOLD:
       return false;
     // A corrupt-looking message can still be one lane's fault, until every lane has said it.
     case PlaybackErrorType.CORRUPT:
@@ -136,8 +137,13 @@ export function planErrorRecovery(input: ErrorRecoveryInput): ErrorRecoveryDecis
   };
 }
 
-/** Failures every open of the channel repeats: the account, a channel the server no longer has, DRM. */
-const LIVE_PERMANENT: readonly PlaybackErrorType[] = [PlaybackErrorType.UNAUTHORIZED, PlaybackErrorType.NOT_FOUND, PlaybackErrorType.PROTECTED];
+/** Failures every open of the channel repeats: the account, a channel the server no longer has, DRM, a recording holding the provider. */
+const LIVE_PERMANENT: readonly PlaybackErrorType[] = [PlaybackErrorType.UNAUTHORIZED, PlaybackErrorType.NOT_FOUND, PlaybackErrorType.PROTECTED, PlaybackErrorType.RECORDING_HOLD];
+
+/** A channel whose provider's recording was just stopped opens again on the provider's refusal, until it plays. */
+export function reopensUntilAdmitted(input: { reopening: boolean; errorType: PlaybackErrorType; admitting: boolean }): boolean {
+  return input.admitting && !input.reopening && input.errorType === PlaybackErrorType.PROVIDER_LIMIT;
+}
 
 /** A live failure no open of the channel fixes; every other one opens it again. */
 export function isPermanentLiveError(errorType: PlaybackErrorType, message: string): boolean {

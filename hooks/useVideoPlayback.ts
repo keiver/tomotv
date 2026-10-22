@@ -72,6 +72,7 @@ import {
 } from "@/services/localRemux";
 import { retainLiveSession, takeRingSession, takeWarmDetails, yieldLiveRing } from "@/services/liveRing";
 import { takeLivePreview } from "@/services/livePreview";
+import { admitUntilPlaying, isAdmitting, isChannelHeld } from "@/services/recordingHold";
 import { recordTimeoutVerdict, rememberedVerdict, recordVerdict } from "@/services/engineVerdicts";
 import { downloadManager } from "@/services/downloads/manager";
 import { setPlaybackProbeEnabled, probeEmit, probeFirstPlaying, probeProgress, sourceSummary } from "@/services/playbackProbe";
@@ -102,6 +103,7 @@ import {
   engineSpentWithoutServer,
   isPermanentLiveError,
   planErrorRecovery,
+  reopensUntilAdmitted,
   ServerTranscodeOffError,
   serverOffForError,
   shouldAutomaticallyRetry,
@@ -420,6 +422,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // Request ID to prevent race conditions when videoId changes
   // Incremented on each videoId change, async operations check before updating state
   const requestIdRef = useRef(0);
+  const retryRef = useRef<() => void>(() => {});
 
   // === Refs for synchronous access in event handlers ===
   // Note: These refs cannot be consolidated into state because event handlers
@@ -647,6 +650,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         dispatch({ type: "METADATA_FETCHED", details: retried.details, mode: "localRemux", hasSubtitles: retried.hasSubtitles });
         return;
       }
+      if (await isChannelHeld(videoId)) failWith(PLAYBACK_ERROR_IDS.LIVE_RECORDING, "live origin is held by a recording");
       // A ring session or a neighbour's resolve of this channel is taken rather than opened twice.
       let details = await liveChannel.open(videoId, () => requestIdRef.current === currentRequestId);
 
@@ -1607,13 +1611,16 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               setStreamUrl(null);
             }
           }
-          const id = player ? errorIdOf(player, PLAYBACK_ERROR_IDS.AVPLAYER) : errorIdOf(cause, PLAYBACK_ERROR_IDS.META);
+          const id =
+            errorType === PlaybackErrorType.RECORDING_HOLD ? PLAYBACK_ERROR_IDS.LIVE_RECORDING : player ? errorIdOf(player, PLAYBACK_ERROR_IDS.AVPLAYER) : errorIdOf(cause, PLAYBACK_ERROR_IDS.META);
           const ref = player ? { id, lane: laneTagFor(transportRef.current, false), native: nativeErrorOf(player) } : cause instanceof IdentifiedError ? { id, lane: "ENG" as const } : { id };
           const serverOff = !retry && player ? serverOffForError(player, errorType, serverTranscodeBlock(item), false) : undefined;
           const attempt = requestIdRef.current;
+          const admitting = reopensUntilAdmitted({ reopening: retry, errorType, admitting: isAdmitting(videoId) });
           setImmediate(() => {
             if (!isMountedRef.current || requestIdRef.current !== attempt) return;
-            dispatch({ type: "PLAYER_ERROR", error: { message: getPlaybackErrorMessage(errorType), ref, ...(serverOff ? { serverOff } : {}) }, mode: "localRemux", hasTriedTranscode: !retry });
+            if (admitting) retryRef.current();
+            else dispatch({ type: "PLAYER_ERROR", error: { message: getPlaybackErrorMessage(errorType), ref, ...(serverOff ? { serverOff } : {}) }, mode: "localRemux", hasTriedTranscode: !retry });
           });
         };
 
@@ -3190,7 +3197,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     (event: OnPlaybackStateChangedData) => {
       syncPlayManager.notePlaybackState(event);
       playerPlayingRef.current = event.isPlaying;
-      if (event.isPlaying && isLiveRef.current) liveChannel.notePlaying();
+      if (event.isPlaying && isLiveRef.current) {
+        liveChannel.notePlaying();
+        admitUntilPlaying(null);
+      }
       // RNV's programmatic seek pauses the player itself and reports it with isSeeking.
       if (event.isPlaying) nativePausedRef.current = false;
       else if (!event.isSeeking) nativePausedRef.current = true;
@@ -3265,6 +3275,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     }
     dispatch({ type: "RETRY" });
   }, [liveChannel]);
+  useEffect(() => {
+    retryRef.current = retry;
+  }, [retry]);
 
   /**
    * Compute UI state from state machine
