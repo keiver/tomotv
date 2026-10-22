@@ -10,7 +10,6 @@ import {
   subscribeEngineThroughput,
 } from "@keiver/tomo-engine";
 import { AppState } from "react-native";
-import { originKeyOf } from "./channelOrigin";
 import { liveChannels } from "./config";
 import { noteOpenFailed, openRecentlyFailed } from "./openFailures";
 import { playlistChannelById } from "./playlistChannels";
@@ -118,12 +117,7 @@ export function ringAround(ring: readonly string[], centerId: string, radius: nu
   return ids;
 }
 
-/** The provider is set to one connection: a read beside the playing channel can only take its slot. */
-function oneConnectionUrl(url: string | null | undefined): boolean {
-  return !!url && originConnectionLimit(originKeyOf(url)) === 1;
-}
-
-/** Whether the channel's provider, read off its playlist row, is set to one connection. */
+/** Whether the channel's provider, read off its playlist row, is set to one connection: a read beside the playing channel can only take its slot. */
 export function channelOnOneConnection(channelId: string): boolean {
   return originConnectionLimit(playlistChannelById(channelId)?.originKey) === 1;
 }
@@ -193,7 +187,7 @@ async function heat(channelId: string): Promise<void> {
     details = await channels.resolve(channelId, { quiet: true });
     // A manifest resolve holds nothing open, so it keeps for a flip after the ring cooled.
     if (channels.streamUrl(details) && !channels.holdsOpen(details)) warm.set(channelId, { details, at: Date.now() });
-    if (!current() || oneConnectionUrl(channels.streamUrl(details))) {
+    if (!current()) {
       void channels.close(details);
       return;
     }
@@ -262,7 +256,7 @@ export function recenterLiveRing(ring: readonly string[], centerId: string, play
   trim();
   if (playing && surfing()) {
     for (const id of wanted) {
-      if (!hot.has(id) && !starting.has(id) && !openRecentlyFailed(id)) void heat(id);
+      if (!hot.has(id) && !starting.has(id) && !openRecentlyFailed(id) && !channelOnOneConnection(id)) void heat(id);
     }
   }
 }
@@ -299,7 +293,7 @@ export function takeRingSession<Item = unknown>(channelId: string): Promise<Ring
 
 /** Keeps a channel the player left mid-surf, still cutting segments, so flipping back is instant. False: stop it. */
 export function retainLiveSession<Item = unknown>(channel: HotChannel<Item>): boolean {
-  if (!active || !surfing() || hot.has(channel.channelId) || oneConnectionUrl(liveChannels().streamUrl(channel.details))) return false;
+  if (!active || !surfing() || hot.has(channel.channelId) || channelOnOneConnection(channel.channelId)) return false;
   const entry: HotEntry = { ...channel, segmentsCut: READY_SEGMENTS, ready: true, unsubscribe: () => {} };
   watch(entry);
   hot.set(channel.channelId, entry);

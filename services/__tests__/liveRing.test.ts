@@ -218,23 +218,28 @@ describe("liveRing", () => {
     expect(retainLiveSession({ ...left, channelId: "c12", token: "c12-x" })).toBe(false);
   });
 
-  it("starts no neighbour and keeps no channel left on a provider set to one connection", async () => {
-    (originConnectionLimit as jest.Mock).mockImplementation((key: string) => (key === "origin" ? 1 : null));
+  it("resolves nothing, starts no neighbour and keeps no channel left on a provider set to one connection", async () => {
+    (originConnectionLimit as jest.Mock).mockImplementation((key: string) => (key === "provider-one" ? 1 : null));
+    // The server's relay URL names the Jellyfin host: the playlist row is what names the provider.
+    const relayed = (id: string) => ({ Id: id, Name: id, LiveStreamId: `ls-${id}`, liveStreamUrl: `https://jellyfin/LiveTv/LiveStreamFiles/${id}/stream.ts` });
+    (resolveChannel as jest.Mock).mockImplementation((id: string) => Promise.resolve(relayed(id)));
     try {
+      for (const id of ["c4", "c5", "c6"]) mockPlaylistRows.set(id, "provider-one");
       recenterLiveRing(RING, "c5", true);
       await flush();
+      expect(resolveChannel).not.toHaveBeenCalled();
       expect(startLocalRemux).not.toHaveBeenCalled();
-      expect(closeLiveStream).toHaveBeenCalledWith("ls-c6");
-      expect(closeLiveStream).toHaveBeenCalledWith("ls-c4");
       expect(isHotChannel("c6")).toBe(false);
 
-      const left = { channelId: "c5", details: { Id: "c5", Name: "c5", liveStreamUrl: "https://origin/c5.m3u8" } as never, url: "http://127.0.0.1:1/c5-s/master.m3u8", token: "c5-s" };
+      const left = { channelId: "c5", details: relayed("c5") as never, url: "http://127.0.0.1:1/c5-s/master.m3u8", token: "c5-s" };
       expect(retainLiveSession(left)).toBe(false);
       expect(isHotChannel("c5")).toBe(false);
-      const elsewhere = { ...left, details: { Id: "c5", Name: "c5", liveStreamUrl: "https://other/c5.m3u8" } as never };
-      expect(retainLiveSession(elsewhere)).toBe(true);
+      mockPlaylistRows.set("c5", "provider-two");
+      expect(retainLiveSession(left)).toBe(true);
     } finally {
+      mockPlaylistRows.clear();
       (originConnectionLimit as jest.Mock).mockImplementation(() => null);
+      (resolveChannel as jest.Mock).mockImplementation((id: string) => Promise.resolve({ Id: id, Name: id, LiveStreamId: `ls-${id}`, liveStreamUrl: `https://origin/${id}.m3u8` }));
     }
   });
 
