@@ -19,7 +19,7 @@ import { cardResumeProgress } from "@/utils/resumeProgress";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Platform, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { GestureResponderEvent, Platform, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { t } from "@/services/i18n";
 
@@ -29,6 +29,13 @@ const CENTER_PAD = 40;
 
 // TV tab bar is at the top and already inside insets.top; phone bar is ~49px at the bottom.
 const TAB_BAR_HEIGHT = IS_TV ? 210 : 49;
+
+/** A gliding shelf's scroll events stop here, so the page never takes the touch from the shelf under the finger. */
+export function stopShelfScrollClaim(event: GestureResponderEvent): boolean {
+  event.stopPropagation();
+  return false;
+}
+const SHELF_SCROLL_CLAIM = { onScrollShouldSetResponder: stopShelfScrollClaim };
 
 interface HomeShelvesProps {
   /** The user's library views, loaded by the host route (useFolderContents(null)). */
@@ -205,10 +212,12 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
         status
       ) : (
         <ScrollView contentContainerStyle={scrollContentStyle} contentInsetAdjustmentBehavior="never" showsVerticalScrollIndicator={false}>
-          <MediaShelf title={t("library.libraries")} dot={recordingShelf} data={libraries} slotShapeFor={slotShapeFor} renderItem={renderLibrary} keyExtractor={keyExtractor} />
-          <ContinueWatchingRow onItemFocus={handleItemFocus} />
-          <ItemShelf title={t("library.favorites")} fetch={fetchFavoriteItems} refreshOnFavoriteChange onItemFocus={handleItemFocus} />
-          <ItemShelf title={t("library.new")} fetch={fetchLatestItems} onItemFocus={handleItemFocus} />
+          <View {...SHELF_SCROLL_CLAIM}>
+            <MediaShelf title={t("library.libraries")} dot={recordingShelf} data={libraries} slotShapeFor={slotShapeFor} renderItem={renderLibrary} keyExtractor={keyExtractor} />
+            <ContinueWatchingRow onItemFocus={handleItemFocus} />
+            <ItemShelf title={t("library.favorites")} fetch={fetchFavoriteItems} refreshOnFavoriteChange onItemFocus={handleItemFocus} />
+            <ItemShelf title={t("library.new")} fetch={fetchLatestItems} onItemFocus={handleItemFocus} />
+          </View>
         </ScrollView>
       )}
     </View>
