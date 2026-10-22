@@ -286,7 +286,9 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   const watchedPercent = hasProgress ? Math.round(Math.min(Math.max(progressPercent, 0), 1) * 100) : 0;
   const nowPlayingProgress = useNowPlayingProgress(video, nowPlayingAudio ? "audio" : nowPlayingVideo.active ? "video" : null, progressPercent, nowPlayingVideo.playing);
   const standProgress = nowPlaying ? nowPlayingProgress.fraction : hasProgress ? watchedPercent / 100 : isWatched(video) ? 1 : null;
-  const artBadge = isChannel ? null : badgeSegments;
+  // A shelf logo card has no picture to age: NOW is the guide's claim about the programme in the title; LIVE stays the picture's.
+  const channelNow = isChannel && !liveCard && !offlinePill && !recording && !liveFrame && !!airingName;
+  const artBadge = channelNow ? [{ label: t("liveTv.now") }] : isChannel ? null : badgeSegments;
   // One mark before the name: the playing bars, else a passed icon, else the favorite heart (a channel's is passed in).
   const nameIcon = leadingMark ?? (isChannel ? titleIcon : showsFavoriteHeart(video) ? "heart" : undefined);
   const metaMark = nowPlaying
@@ -351,7 +353,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
         {/* TV: a solid layer behind the picture carries the depth, so the card stays clear for its glass base. */}
         {IS_TV ? <View style={[styles.depthLayer, depth, square && styles.square, !liveCard && !focused && styles.depthLayerArt]} pointerEvents="none" /> : null}
         {/* A wall card's stand says offline with its glyph, so it skips the tab. */}
-        {artBadge && !offlinePill ? <CardCornerTab segments={artBadge} tone={video.Type === "Program" ? "live" : "plain"} focused={focused} /> : null}
+        {artBadge && !offlinePill ? <CardCornerTab segments={artBadge} tone={video.Type === "Program" || channelNow ? "live" : "plain"} focused={focused} /> : null}
         <View style={[styles.imageContainer, { aspectRatio: cardRatio }, square && styles.square, (standed || !liveCard) && styles.squareBottom]}>
           {liveFrame || poster || posterSource ? (
             <>
@@ -392,7 +394,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             </View>
           ) : null}
 
-          {offlinePill || (isChannel && (recording || (liveFrame ? liveMark : airingName))) ? (
+          {offlinePill || (isChannel && (recording || (liveFrame ? liveMark : liveCard && airingName))) ? (
             <View style={[styles.indexBadge, liveCard && styles.indexBadgeChannel]} pointerEvents="none">
               {offlinePill ? (
                 // A fact pill, not a broadcast mark: red stays for LIVE and REC.
@@ -402,7 +404,6 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               ) : isChannel && liveFrame ? (
                 <LiveFreshnessBadge channelId={video.Id} />
               ) : isChannel ? (
-                // A logo card has no picture to age: NOW is the guide's claim about the programme in the title; LIVE stays the picture's.
                 <CardBadge segments={[{ label: t("liveTv.now") }]} focused={focused} tone="live" />
               ) : null}
             </View>

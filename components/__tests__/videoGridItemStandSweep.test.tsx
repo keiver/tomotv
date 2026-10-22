@@ -148,6 +148,14 @@ describe("media card base", () => {
     act(() => tree.unmount());
   });
 
+  it("puts a shelf channel card's NOW on the corner tab in the live red, not over the picture", () => {
+    const airing = { ...channel, CurrentProgram: { Name: "News" } } as JellyfinVideoItem;
+    const tree = mount(<VideoGridItem video={airing} onPress={jest.fn()} index={0} titleIcon="heart" />);
+    expect(tree.root.findByType(CardCornerTab).props).toMatchObject({ segments: [{ label: t("liveTv.now") }], tone: "live" });
+    expect(tree.root.findAllByType(CardBadge)).toHaveLength(0);
+    act(() => tree.unmount());
+  });
+
   it("shows a passed channel heart before the name on a shelf channel card", () => {
     const tree = mount(<VideoGridItem video={channel} onPress={jest.fn()} index={0} titleIcon="heart" />);
     expect(tree.root.findByType(CardStand).findAll((n) => n.props.name === "heart")).not.toHaveLength(0);
