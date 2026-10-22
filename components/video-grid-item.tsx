@@ -340,11 +340,13 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
       nextFocusDown={nextFocusDown}
       accessible={!inert}
       // The card is ONE element to assistive tech (accessible flattens the
-      // subtree): name as the label, watched progress as the VALUE; screen
+      // subtree): name as the label, watched progress or offline as the VALUE; screen
       // readers announce "Name, 42% watched, button" and re-announce the value
       // if it changes, without the name/percent fused into one string.
       accessibilityLabel={airingName ? cardTitle : videoName || t("a11y.video")}
-      accessibilityValue={hasProgress ? { min: 0, max: 100, now: watchedPercent, text: t("a11y.percentWatched").replace("{percent}", String(watchedPercent)) } : undefined}
+      accessibilityValue={
+        hasProgress ? { min: 0, max: 100, now: watchedPercent, text: t("a11y.percentWatched").replace("{percent}", String(watchedPercent)) } : offline ? { text: t("liveTv.offline") } : undefined
+      }
       accessibilityRole="button"
       accessibilityHint={IS_TV ? (hasProgress ? t("a11y.pressToResume") : t("a11y.pressToPlay")) : hasProgress ? t("a11y.doubleTapResume") : t("a11y.doubleTapPlay")}
       style={[
@@ -405,7 +407,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             <View style={[styles.indexBadge, liveCard && styles.indexBadgeChannel]} pointerEvents="none">
               {offlinePill ? (
                 // A fact pill, not a broadcast mark: red stays for LIVE and REC.
-                <CardBadge segments={[{ label: t("liveTv.offline") }]} focused={focused} />
+                <CardBadge segments={[{ icon: "cloud-offline" }]} focused={focused} />
               ) : isChannel && recording ? (
                 <CardBadge segments={[{ label: t("liveTv.rec") }]} focused={focused} tone="live" />
               ) : isChannel && liveFrame ? (

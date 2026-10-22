@@ -87,6 +87,18 @@ describe("guide channel card without a title bar", () => {
     expect(tree.root.findAllByType(CardBadge)).toHaveLength(0);
     act(() => tree.unmount());
   });
+
+  it("marks an offline guide channel card with the cloud glyph and no Offline word, and tells screen readers it is offline", () => {
+    let tree!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      tree = TestRenderer.create(<VideoGridItem video={channel} onPress={jest.fn()} index={0} slotOrientation="landscape" liveCard offline />);
+    });
+    expect(tree.root.findAllByType(CardBadge).map((b) => b.props.segments)).toEqual([[{ icon: "cloud-offline" }]]);
+    expect(tree.root.findAllByType(Text).filter((n) => n.props.children === "Offline")).toHaveLength(0);
+    const card = tree.root.findAll((n) => n.props.accessibilityRole === "button" && typeof n.type === "string")[0];
+    expect(card.props.accessibilityValue).toEqual({ text: "Offline" });
+    act(() => tree.unmount());
+  });
 });
 
 describe("channel wall stand", () => {
