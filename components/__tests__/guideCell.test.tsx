@@ -262,15 +262,14 @@ describe("GuideCell", () => {
     expect(line(0)).toBe("Channel One");
   });
 
-  it("claims under a stand-in that the stream can be tried until frames show, with the origin's death verdict overriding", () => {
+  it("shows no status under a stand-in until the origin is judged dead, then says it seems offline", () => {
     const standIn = { ...program, Id: `${NO_GUIDE_PREFIX}c9`, Name: "No listings", EpisodeTitle: undefined };
     const status = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAllByProps({ testID: "guide-cell-status" })[0]?.findByType(Text).props.children;
     try {
       const tree = render({ program: standIn });
-      expect(status(tree)).toBe("Available to stream");
+      expect(status(tree)).toBeUndefined();
       act(() => noteChannelAlive("c9"));
-      expect(status(tree)).toBe("Available to stream");
-      // Shown frames carry the claim themselves: the seen line replaces the dot.
+      expect(status(tree)).toBeUndefined();
       mockReel = { at: T0, frames: [{ uri: "file:///f0.jpg", cacheKey: "k0" }] };
       const withFrames = render({ program: standIn });
       expect(status(withFrames)).toBeUndefined();

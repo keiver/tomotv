@@ -66,7 +66,6 @@
   "liveTv.recordingFailed": "Aufnahmeaktion fehlgeschlagen",
   "liveTv.noManagement": "Du hast auf diesem Server keine Berechtigung zur Live-TV-Verwaltung.",
   "liveTv.lastSeen": "Gesehen um {time}",
-  "liveTv.streamAvailable": "Zum Streamen verfügbar",
   "liveTv.seemsOffline": "Sender scheint offline",
   "liveTv.offline": "Offline",
   "liveTv.hideOffline": "Offline-Kanäle ausblenden",

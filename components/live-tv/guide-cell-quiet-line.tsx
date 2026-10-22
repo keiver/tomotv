@@ -24,15 +24,14 @@ interface GuideCellQuietLineProps {
 
 /**
  * The stand-in cell's lines: the channel name in the programme cell's own face, the hint trailing while
- * focused, then the seen time with the no-listings note, and until frames show, that the stream can be
- * tried. An origin judged dead (two refusals) swaps in the offline verdict.
+ * focused, then the seen time with the no-listings note. An origin judged dead (two refusals) adds the offline verdict.
  */
 export function GuideCellQuietLine({ channelId, channelName, favorite, programName, episodeTitle, focused, seenAt }: GuideCellQuietLineProps) {
   const health = useChannelHealth(channelId);
   const { accent } = useCardPalette();
   const [seenLead, seenTail] = t("liveTv.lastSeen").split("{time}");
   const trail = focused && episodeTitle ? episodeTitle : "";
-  const status = health === "down" ? { label: t("liveTv.seemsOffline"), color: COLORS.DESTRUCTIVE_SOFT } : seenAt === 0 ? { label: t("liveTv.streamAvailable"), color: COLORS.SUCCESS } : null;
+  const status = health === "down" ? { label: t("liveTv.seemsOffline"), color: COLORS.DESTRUCTIVE_SOFT } : null;
   return (
     <View style={styles.lines}>
       <View style={styles.titleRow}>
