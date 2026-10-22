@@ -180,9 +180,9 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
           : t("a11y.folderNav").replace("{name}", folderName)
       }>
       <View style={[styles.card, IS_TV ? null : depth, styles.cardOverhang]}>
-        {/* TV: a solid layer behind the picture carries the depth, so the card stays clear for its glass base. */}
+        {/* TV: a solid layer behind the picture carries the depth, so the card stays clear for its base. */}
         {IS_TV ? <View style={[styles.depthLayer, depth, !focused && styles.depthLayerArt]} pointerEvents="none" /> : null}
-        {itemCount != null ? <CardCornerTab segments={[{ label: itemCount.toLocaleString(locale()) }]} surface={COLORS.SURFACE_SUNKEN} focused={focused} /> : null}
+        {itemCount != null ? <CardCornerTab segments={[{ label: itemCount.toLocaleString(locale()) }]} focused={focused} /> : null}
         <View style={[styles.imageContainer, { aspectRatio: cardRatio }, styles.squareBottom]}>
           {thumbnailSource ? (
             <Image source={thumbnailSource} style={styles.poster} contentFit="cover" transition={0} priority={index < 10 ? "high" : "normal"} cachePolicy="memory-disk" recyclingKey={folder.Id} />
@@ -203,15 +203,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
           <View style={[styles.borderOverlay, focused && styles.borderOverlayFocused, styles.squareBottom]} pointerEvents="none" />
         </View>
         <View>
-          <CardStand
-            name={folderName || t("a11y.folder")}
-            icon={showsFavoriteHeart(folder) ? "heart" : undefined}
-            focused={focused}
-            progress={folderWatchedProgress(folder)}
-            scrolls
-            clear
-            surface={COLORS.SURFACE_SUNKEN}
-          />
+          <CardStand name={folderName || t("a11y.folder")} icon={showsFavoriteHeart(folder) ? "heart" : undefined} focused={focused} progress={folderWatchedProgress(folder)} scrolls />
           {navBarVisible ? <CardNavProgress active={navigating} title={folderName || t("a11y.folder")} stand baseColor={COLORS.SURFACE_SUNKEN} /> : null}
         </View>
         {focused ? <View style={[styles.focusRing, { borderColor: palette.accent }]} pointerEvents="none" /> : null}
@@ -282,7 +274,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
   },
-  // At rest the layer stops at the art, leaving the glass base over the canvas.
+  // At rest the layer stops at the art, leaving the base over the canvas.
   depthLayerArt: {
     bottom: STAND_HEIGHT,
   },

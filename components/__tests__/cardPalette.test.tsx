@@ -25,14 +25,12 @@ jest.mock("@/services/jellyfinApi", () => ({ isAudioItem: () => false, isBook: (
 jest.mock("@/contexts/PlayerSessionContext", () => ({ usePlayerSession: () => ({ sessionVideoId: null, hostMode: "idle", playbackState: { type: "IDLE" } }) }));
 jest.mock("@/services/audioPlayerManager", () => ({ audioPlayerManager: { getUIState: () => ({ playing: true, position: 0 }), subscribe: () => () => {} } }));
 
-import { BADGE_GLASS_TINT, CardBadge } from "@/components/card-badge";
+import { CardBadge } from "@/components/card-badge";
 import { CardCornerTab } from "@/components/card-corner-tab";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardStand } from "@/components/card-stand";
 import { FolderGridItem } from "@/components/folder-grid-item";
 import { FolderLoadingBar } from "@/components/folder-loading-bar";
-import { glassTint } from "@/components/glass-button";
-import { GlassSurface } from "@/components/glass-surface";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
@@ -62,17 +60,6 @@ function colours(element: React.ReactElement): string[] {
   }
   act(() => tree.unmount());
   return found;
-}
-
-/** The tint a badge hands its glass surface. */
-function glassTintOf(element: React.ReactElement): string {
-  let tree!: TestRenderer.ReactTestRenderer;
-  act(() => {
-    tree = TestRenderer.create(<CardPaletteOverride.Provider value={palette}>{element}</CardPaletteOverride.Provider>);
-  });
-  const tint = tree.root.findByType(GlassSurface).props.tintColor;
-  act(() => tree.unmount());
-  return tint;
 }
 
 describe("card palette", () => {
@@ -170,20 +157,17 @@ describe("card palette", () => {
     };
     const bright = "#4F99FF";
     expect(isLowContrast(bright)).toBe(false);
-    expect(standColours(bright, false)).toEqual({ text: bright, base: COLORS.BACKGROUND_DEEP });
+    expect(standColours(bright, false)).toEqual({ text: bright, base: COLORS.SURFACE_SUNKEN });
     expect(standColours(bright, true)).toEqual({ text: cardPalette(bright).ink, base: bright });
     expect(isLowContrast(ACCENT)).toBe(true);
     expect(standColours(ACCENT, false).text).toBe(COLORS.TEXT_PRIMARY);
   });
 
-  it("a badge is near-black glass at rest, the theme's deepened tint on focus; live is solid red", () => {
-    expect(glassTintOf(<CardBadge segments={[{ label: 3 }]} />)).toBe(BADGE_GLASS_TINT);
-    expect(glassTintOf(<CardBadge segments={[{ label: 3 }]} focused />)).toBe(glassTint(ACCENT, true));
+  it("a badge is the card's solid colour at rest and the accent with the ink on focus; live is solid red", () => {
+    expect(colours(<CardBadge segments={[{ label: 3 }]} />)).toEqual([COLORS.SURFACE_SUNKEN, COLORS.TEXT_PRIMARY]);
+    expect(colours(<CardBadge segments={[{ label: 3 }]} focused />)).toEqual([ACCENT, palette.ink]);
     expect(colours(<CardBadge segments={[{ label: "LIVE" }]} tone="live" />)).toEqual(expect.arrayContaining([COLORS.DESTRUCTIVE_DEEP, COLORS.TEXT_PRIMARY]));
     expect(colours(<CardBadge segments={[{ label: "LIVE" }]} tone="live" focused />)).toContain(COLORS.DESTRUCTIVE_DEEP);
-    expect(colours(<CardBadge segments={[{ label: 3 }]} />)).toContain(ACCENT);
-    expect(colours(<CardBadge segments={[{ label: 3 }]} />)).not.toContain(COLORS.ACCENT);
-    expect(colours(<CardBadge segments={[{ label: 3 }]} focused />)).toContain(COLORS.TEXT_PRIMARY);
   });
 
   it("a full base names the card in the ink, with no blend; a partial one blends the accent", () => {
@@ -255,7 +239,7 @@ describe("card palette", () => {
       );
     });
     const tab = tree.root.findAll((n) => n.props.testID === "card-corner-tab" && typeof n.type === "string")[0];
-    expect(StyleSheet.flatten(tab.props.style).backgroundColor).toBe(COLORS.SURFACE);
+    expect(StyleSheet.flatten(tab.props.style).backgroundColor).toBe(COLORS.SURFACE_SUNKEN);
     expect(StyleSheet.flatten(tab.findAll((n) => typeof n.type === "string" && n.props.children === "S01E05")[0].props.style).color).toBe(bright);
     act(() => tree.unmount());
   });

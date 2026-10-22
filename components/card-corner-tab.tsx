@@ -1,11 +1,9 @@
 import { type BadgeSegment } from "@/components/card-badge";
-import { CARD_GLASS_TINT_ALPHA, STAND_NAME_TEXT } from "@/components/card-stand";
-import { GlassSurface } from "@/components/glass-surface";
+import { STAND_NAME_TEXT } from "@/components/card-stand";
 import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { isLowContrast } from "@/services/cardTheme";
-import { withAlpha } from "@/utils/color";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
@@ -19,8 +17,6 @@ const TAB_INSET = DESIGN.BORDER_RADIUS_CARD;
 
 interface CardCornerTabProps {
   segments: BadgeSegment[];
-  /** The card's own back colour, which the tab is cut from. */
-  surface?: string;
   /** "live": the broadcast red, for a programme's NOW, REC or start time. */
   tone?: "plain" | "live";
   /** The card holds focus: the tab fills with the accent, like the base. */
@@ -28,7 +24,7 @@ interface CardCornerTabProps {
 }
 
 /** A folder tab on the card's top edge near its right corner. Render it as the card's first child so the art covers its foot. */
-export function CardCornerTab({ segments, surface = COLORS.SURFACE, tone = "plain", focused = false }: CardCornerTabProps) {
+export function CardCornerTab({ segments, tone = "plain", focused = false }: CardCornerTabProps) {
   const { accent, ink } = useCardPalette();
   const live = tone === "live";
   const lit = focused && !live;
@@ -45,18 +41,8 @@ export function CardCornerTab({ segments, surface = COLORS.SURFACE, tone = "plai
       ) : null}
     </View>
   ));
-  // TV at rest: glass tinted with the card's colour; the live red and the focused accent are solid.
-  if (IS_TV && !live && !lit) {
-    return (
-      <View style={styles.anchor} pointerEvents="none" testID="card-corner-tab">
-        <GlassSurface style={[styles.body, styles.fill]} radius={TAB_RADIUS} tintColor={withAlpha(surface, CARD_GLASS_TINT_ALPHA)} pointerEvents="none">
-          {content}
-        </GlassSurface>
-      </View>
-    );
-  }
   return (
-    <View style={[styles.anchor, styles.body, styles.solid, { backgroundColor: live ? COLORS.DESTRUCTIVE_DEEP : lit ? accent : surface }]} pointerEvents="none" testID="card-corner-tab">
+    <View style={[styles.anchor, styles.body, styles.solid, { backgroundColor: live ? COLORS.DESTRUCTIVE_DEEP : lit ? accent : COLORS.SURFACE_SUNKEN }]} pointerEvents="none" testID="card-corner-tab">
       {content}
     </View>
   );
@@ -76,9 +62,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: IS_TV ? 9 : 5,
-  },
-  fill: {
-    height: "100%",
   },
   solid: {
     borderRadius: TAB_RADIUS,

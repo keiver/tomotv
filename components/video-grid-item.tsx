@@ -350,7 +350,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
         inset && { paddingVertical: inset.vertical, paddingHorizontal: inset.horizontal },
       ]}>
       <View style={[styles.card, IS_TV ? null : depth, square && styles.square, !liveCard && styles.cardOverhang]}>
-        {/* TV: a solid layer behind the picture carries the depth, so the card stays clear for its glass base. */}
+        {/* TV: a solid layer behind the picture carries the depth, so the card stays clear for its base. */}
         {IS_TV ? <View style={[styles.depthLayer, depth, square && styles.square, !liveCard && !focused && styles.depthLayerArt]} pointerEvents="none" /> : null}
         {/* A wall card's stand says offline with its glyph, so it skips the tab. */}
         {artBadge && !offlinePill ? <CardCornerTab segments={artBadge} tone={video.Type === "Program" || channelNow ? "live" : "plain"} focused={focused} /> : null}
@@ -415,14 +415,14 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
         {standed ? (
           <View>
             <CardStand name={cardTitle} icon={titleIcon} focused={focused} offline={offline} liveChannelId={liveFrame && liveMark ? video.Id : undefined} />
-            {navBarVisible ? <CardNavProgress active={navigating} title={cardTitle} stand /> : null}
+            {navBarVisible ? <CardNavProgress active={navigating} title={cardTitle} stand baseColor={COLORS.SURFACE_SUNKEN} /> : null}
           </View>
         ) : null}
         {/* Rendered regardless of poster: a posterless placeholder card still owes the user its progress. */}
         {liveCard ? null : (
           <View>
-            <CardStand name={cardTitle} focused={focused} mark={metaMark} progress={standProgress} scrolls clear surface={COLORS.SURFACE} />
-            {navBarVisible ? <CardNavProgress active={navigating} title={cardTitle} startFraction={hasProgress ? watchedPercent / 100 : undefined} stand baseColor={COLORS.SURFACE} /> : null}
+            <CardStand name={cardTitle} focused={focused} mark={metaMark} progress={standProgress} scrolls />
+            {navBarVisible ? <CardNavProgress active={navigating} title={cardTitle} startFraction={hasProgress ? watchedPercent / 100 : undefined} stand baseColor={COLORS.SURFACE_SUNKEN} /> : null}
           </View>
         )}
         {focused ? <View style={[styles.focusRing, { borderColor: palette.accent }, square && styles.square]} pointerEvents="none" /> : null}
@@ -504,7 +504,7 @@ const styles = StyleSheet.create({
     // (a transparent background forces expensive per-pixel shadow tracing).
     // No overflow:hidden here: it would clip the glow; the image is already
     // clipped by imageContainer.
-    backgroundColor: COLORS.SURFACE,
+    backgroundColor: COLORS.SURFACE_SUNKEN,
     shadowColor: CARD_DEPTH.SHADOW_COLOR,
     shadowOffset: IS_TV ? CARD_DEPTH.SHADOW_OFFSET.tv : CARD_DEPTH.SHADOW_OFFSET.phone,
     shadowOpacity: CARD_DEPTH.SHADOW_OPACITY,
@@ -522,7 +522,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
   },
-  // At rest the layer stops at the art, leaving the glass base over the canvas.
+  // At rest the layer stops at the art, leaving the base over the canvas.
   depthLayerArt: {
     bottom: STAND_HEIGHT,
   },
@@ -539,7 +539,7 @@ const styles = StyleSheet.create({
     // aspectRatio set inline from the slot orientation (portrait 2:3 / landscape 16:9)
     borderRadius: DESIGN.BORDER_RADIUS_CARD,
     overflow: "hidden",
-    backgroundColor: COLORS.SURFACE,
+    backgroundColor: COLORS.SURFACE_SUNKEN,
     // Center an orientation-mismatched image in the slot (no-op when it fills it).
     justifyContent: "center",
     alignItems: "center",

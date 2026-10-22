@@ -1,4 +1,3 @@
-import { GlassSurface } from "@/components/glass-surface";
 import { LIVE_FRESH_MS } from "@/components/live-tv/live-freshness-badge";
 import { MarqueeText } from "@/components/MarqueeText";
 import { DESIGN, STAND_HEIGHT } from "@/constants/app";
@@ -7,14 +6,11 @@ import { useCardPalette } from "@/hooks/useCardPalette";
 import { useLiveFrameAge } from "@/hooks/useLiveFrameAge";
 import { isLowContrast } from "@/services/cardTheme";
 import { LIVE_FRAME_REFRESH_MS, LIVE_FRAME_TRANSITION_MS } from "@/services/liveFrames";
-import { withAlpha } from "@/utils/color";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect, useRef } from "react";
 import { Animated, Platform, StyleSheet, Text, useAnimatedValue, View } from "react-native";
 
 const IS_TV = Platform.isTV;
-/** How much of the card's colour tints a card's glass, shared by the base and the tab. */
-export const CARD_GLASS_TINT_ALPHA = 0.3;
 /** The stand's lettering, shared with the press sweep drawn over it. */
 export const STAND_NAME_TEXT = {
   fontSize: IS_TV ? 15 : 9,
@@ -51,14 +47,10 @@ interface CardStandProps {
   progress?: number | null;
   /** The name scrolls in full while the card holds focus. */
   scrolls?: boolean;
-  /** No fill at rest: the name sits on whatever is behind the card, through glass on TV. */
-  clear?: boolean;
-  /** The card's own colour, which tints the glass. */
-  surface?: string;
 }
 
 /**
- * A card's base: flush under the art, its full width, naming it. Dark or clear at rest, the accent on focus, or a progress fill.
+ * A card's base: flush under the art, its full width, naming it. The card colour at rest, the accent on focus, or a progress fill.
  * A channel's fresh picture paints it LIVE red, which steps down to dark: native opacity fades, idle between steps.
  */
 export function CardStand(props: CardStandProps) {
@@ -84,19 +76,7 @@ function LiveCardStand({ channelId, ...props }: CardStandProps & { channelId: st
   return <StandBody {...props} fresh={step === 0} red={props.focused ? null : <Animated.View style={[styles.red, { opacity: red }]} testID="card-stand-red" />} />;
 }
 
-function StandBody({
-  name,
-  icon,
-  focused,
-  offline = false,
-  mark,
-  progress,
-  scrolls = false,
-  clear = false,
-  surface = COLORS.SURFACE,
-  fresh,
-  red,
-}: CardStandProps & { fresh: boolean; red?: React.ReactNode }) {
+function StandBody({ name, icon, focused, offline = false, mark, progress, scrolls = false, fresh, red }: CardStandProps & { fresh: boolean; red?: React.ReactNode }) {
   const { accent, ink } = useCardPalette();
   const filled = progress != null;
   const full = filled && standFillPercent(progress) === 100;
@@ -114,10 +94,9 @@ function StandBody({
         {mark?.(text)}
       </>
     ) : null;
-  const background = focused && !filled ? accent : clear ? "transparent" : COLORS.BACKGROUND_DEEP;
+  const background = focused && !filled ? accent : COLORS.SURFACE_SUNKEN;
   return (
     <View style={[styles.base, { backgroundColor: background }]} pointerEvents="none" testID="card-stand">
-      {IS_TV && background === "transparent" ? <GlassSurface style={StyleSheet.absoluteFill} tintColor={withAlpha(surface, CARD_GLASS_TINT_ALPHA)} pointerEvents="none" /> : null}
       {filled ? null : red}
       {/* An unpadded layer: an absolute child's percentage width resolves against its parent's padded inner width. */}
       {filled ? (

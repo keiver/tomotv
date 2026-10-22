@@ -120,7 +120,7 @@ describe("channel wall stand", () => {
       return StyleSheet.flatten(name?.props.style).color;
     };
     const resting = style();
-    expect(resting.backgroundColor).toBe(COLORS.BACKGROUND_DEEP);
+    expect(resting.backgroundColor).toBe(COLORS.SURFACE_SUNKEN);
     expect(nameColor()).toBe(COLORS.ACCENT);
     act(() => tree.update(<VideoGridItem video={channel} onPress={jest.fn()} index={0} liveCard liveFrame={frame} titleIcon="heart" hideAiring stand highlighted />));
     expect(style().backgroundColor).toBe(COLORS.ACCENT);
@@ -178,7 +178,7 @@ describe("channel wall stand", () => {
     const tree = mountCard({ stand: true, offline: true, liveFrame: undefined });
     const glyph = tree.root.findAll((n) => n.props.testID === "card-stand-offline" && n.props.name === "cloud-offline");
     expect(glyph.length).toBeGreaterThan(0);
-    expect(StyleSheet.flatten(standOf(tree).props.style).backgroundColor).toBe(COLORS.BACKGROUND_DEEP);
+    expect(StyleSheet.flatten(standOf(tree).props.style).backgroundColor).toBe(COLORS.SURFACE_SUNKEN);
     act(() => tree.unmount());
     const online = mountCard({ stand: true });
     expect(online.root.findAll((n) => n.props.testID === "card-stand-offline")).toHaveLength(0);

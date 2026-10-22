@@ -1,4 +1,4 @@
-/** On TV a media card's base and its tab are glass at rest and the accent on focus, and the card's depth sits on a layer behind the art. */
+/** On TV a media card's base and its tab are the card's own colour at rest and the accent on focus, and the card's depth sits on a layer behind the art. */
 import React from "react";
 import { Platform, StyleSheet } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
@@ -44,16 +44,24 @@ function mount(element: React.ReactElement) {
 
 const glass = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAll((n) => (n.type as unknown) === "GlassSurface");
 
-describe("card glass on TV", () => {
-  it("a clear base is glass tinted with the card's colour at rest, and the accent with no glass on focus", () => {
-    const resting = mount(<CardStand name="Pilot" focused={false} clear surface={COLORS.SURFACE_SUNKEN} />);
-    expect(glass(resting)).toHaveLength(1);
-    expect(glass(resting)[0].props.tintColor).toContain("rgba");
+describe("card base and tab on TV", () => {
+  it("a base is the card's colour with no glass at rest, and the accent on focus", () => {
+    const resting = mount(<CardStand name="Pilot" focused={false} />);
+    expect(glass(resting)).toHaveLength(0);
+    expect(StyleSheet.flatten(resting.root.findByProps({ testID: "card-stand" }).props.style).backgroundColor).toBe(COLORS.SURFACE_SUNKEN);
     act(() => resting.unmount());
-    const lit = mount(<CardStand name="Pilot" focused clear />);
+    const lit = mount(<CardStand name="Pilot" focused />);
     expect(glass(lit)).toHaveLength(0);
     expect(StyleSheet.flatten(lit.root.findByProps({ testID: "card-stand" }).props.style).backgroundColor).toBe(ACCENT);
     act(() => lit.unmount());
+  });
+
+  it("a media card's base and tab are the same colour as a folder card's", () => {
+    const tree = mount(<VideoGridItem video={episode} onPress={jest.fn()} index={0} />);
+    expect(StyleSheet.flatten(tree.root.findByProps({ testID: "card-stand" }).props.style).backgroundColor).toBe(COLORS.SURFACE_SUNKEN);
+    const tab = tree.root.findAll((n) => n.props.testID === "card-corner-tab" && typeof n.type === "string")[0];
+    expect(StyleSheet.flatten(tab.props.style).backgroundColor).toBe(COLORS.SURFACE_SUNKEN);
+    act(() => tree.unmount());
   });
 
   it("on TV the base's name is centred", () => {
@@ -63,15 +71,11 @@ describe("card glass on TV", () => {
     act(() => tree.unmount());
   });
 
-  it("a base that is not clear stays solid", () => {
-    const tree = mount(<CardStand name="Channel" focused={false} />);
-    expect(glass(tree)).toHaveLength(0);
-    act(() => tree.unmount());
-  });
-
-  it("the tab is glass at rest and the accent with the ink on focus", () => {
+  it("the tab is the card's colour with no glass at rest, and the accent with the ink on focus", () => {
     const resting = mount(<CardCornerTab segments={[{ label: "S01E05" }]} />);
-    expect(glass(resting)).toHaveLength(1);
+    expect(glass(resting)).toHaveLength(0);
+    const restingTab = resting.root.findAll((n) => n.props.testID === "card-corner-tab" && typeof n.type === "string")[0];
+    expect(StyleSheet.flatten(restingTab.props.style).backgroundColor).toBe(COLORS.SURFACE_SUNKEN);
     act(() => resting.unmount());
     const lit = mount(<CardCornerTab segments={[{ label: "S01E05" }]} focused />);
     expect(glass(lit)).toHaveLength(0);
@@ -89,7 +93,7 @@ describe("card glass on TV", () => {
       return StyleSheet.flatten((card.children[0] as TestRenderer.ReactTestInstance).props.style);
     };
     const resting = mount(<VideoGridItem video={episode} onPress={jest.fn()} index={0} />);
-    expect(depthLayer(resting)).toMatchObject({ position: "absolute", bottom: STAND_HEIGHT, backgroundColor: COLORS.SURFACE });
+    expect(depthLayer(resting)).toMatchObject({ position: "absolute", bottom: STAND_HEIGHT, backgroundColor: COLORS.SURFACE_SUNKEN });
     act(() => resting.unmount());
     const lit = mount(<VideoGridItem video={episode} onPress={jest.fn()} index={0} highlighted />);
     expect(depthLayer(lit)).toMatchObject({ bottom: 0, shadowColor: ACCENT });
