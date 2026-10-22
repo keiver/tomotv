@@ -35,14 +35,17 @@ export function CardCornerTab({ segments, tone = "plain", focused = false }: Car
     <View key={index} style={styles.segment}>
       {icon ? <Ionicons name={icon} size={STAND_NAME_TEXT.fontSize} color={color} /> : null}
       {label != null ? (
-        <Text style={[styles.label, { color }]} numberOfLines={1}>
+        <Text style={[styles.label, live && styles.labelLive, { color }]} numberOfLines={1}>
           {label}
         </Text>
       ) : null}
     </View>
   ));
   return (
-    <View style={[styles.anchor, styles.body, styles.solid, { backgroundColor: live ? COLORS.DESTRUCTIVE_DEEP : lit ? accent : COLORS.SURFACE_SUNKEN }]} pointerEvents="none" testID="card-corner-tab">
+    <View
+      style={[styles.anchor, styles.body, live && styles.bodyLive, styles.solid, { backgroundColor: live ? COLORS.DESTRUCTIVE_DEEP : lit ? accent : COLORS.SURFACE_SUNKEN }]}
+      pointerEvents="none"
+      testID="card-corner-tab">
       {content}
     </View>
   );
@@ -63,6 +66,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: IS_TV ? 9 : 5,
   },
+  bodyLive: {
+    paddingHorizontal: IS_TV ? 10 : 6,
+  },
   solid: {
     borderRadius: TAB_RADIUS,
   },
@@ -73,5 +79,8 @@ const styles = StyleSheet.create({
   },
   label: {
     ...STAND_NAME_TEXT,
+  },
+  labelLive: {
+    fontSize: IS_TV ? 13 : 8,
   },
 });
