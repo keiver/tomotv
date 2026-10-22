@@ -1,5 +1,5 @@
 import { fetchRecentlyPlayed, fetchRecursiveVideos } from "@/services/jellyfinApi";
-import { getPlayedOverrides } from "@/services/playedCache";
+import { playedOverride } from "@/services/playedCache";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 
@@ -47,8 +47,7 @@ export function clearNextUpDismissals(): void {
 
 /** Played state with this session's overrides applied, so an item finished a minute ago isn't re-offered from a cached list. */
 function isPlayed(item: JellyfinVideoItem): boolean {
-  const override = getPlayedOverrides().get(item.Id);
-  return override ?? !!item.UserData?.Played;
+  return playedOverride(item) ?? !!item.UserData?.Played;
 }
 
 /** An item the resume list would already be showing — it owns its own card, we must not duplicate it. */

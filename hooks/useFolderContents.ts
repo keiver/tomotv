@@ -2,7 +2,7 @@ import { CACHE } from "@/constants/app";
 import { useAppStateRefresh } from "@/hooks/useAppStateRefresh";
 import { deleteFolderCache, FolderCacheEntry, getFolderCache, setFolderCache } from "@/services/folderContentsCache";
 import { getFavoriteIds, isFavoritesLoaded } from "@/services/favoritesCache";
-import { getPlayedOverrides } from "@/services/playedCache";
+import { getPlayedOverrides, playedOverride } from "@/services/playedCache";
 import {
   fetchChannels,
   fetchFavoriteIds,
@@ -77,10 +77,9 @@ function annotateWithFavorites(list: JellyfinItem[]): JellyfinItem[] {
  * memoized cards only re-render when their checkmark actually flips.
  */
 function annotateWithPlayed(list: JellyfinItem[]): JellyfinItem[] {
-  const overrides = getPlayedOverrides();
-  if (overrides.size === 0) return list; // fast path: nothing changed this session
+  if (getPlayedOverrides().size === 0) return list; // fast path: nothing changed this session
   return list.map((item) => {
-    const played = overrides.get(item.Id);
+    const played = playedOverride(item);
     if (played === undefined || !!item.UserData?.Played === played) return item;
     return { ...item, UserData: { ...item.UserData, Played: played } };
   });
@@ -396,9 +395,10 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   // view an item whose state no longer matches the filter is dropped in place.
   useEffect(() => {
     return subscribePlayedChange((itemId, played) => {
+      const unmarked = (item: JellyfinItem) => item.Id !== itemId && item.SeasonId !== itemId && item.SeriesId !== itemId;
       setItems((prev) => {
-        if (activeFilters?.played && !played) return prev.filter((item) => item.Id !== itemId);
-        if (activeFilters?.unplayed && played) return prev.filter((item) => item.Id !== itemId);
+        if (activeFilters?.played && !played) return prev.filter(unmarked);
+        if (activeFilters?.unplayed && played) return prev.filter(unmarked);
         return annotateWithPlayed(prev);
       });
     });

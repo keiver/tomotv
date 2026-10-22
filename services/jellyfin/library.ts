@@ -10,7 +10,7 @@
 import { EMPTY_FILTERS, JellyfinFolderResponse, JellyfinItem, JellyfinVideoItem, JellyfinVideosResponse, LibraryFilters } from "@/types/jellyfin";
 import { addFavoriteIds, getFavoriteIds, isFavoritesLoaded } from "@/services/favoritesCache";
 import { updateLiveTvAvailability } from "@/services/liveTvAvailability";
-import { getPlayedOverrides } from "@/services/playedCache";
+import { playedOverride } from "@/services/playedCache";
 import { cachedRequest } from "@/services/requestCache";
 import { CACHE } from "@/constants/app";
 import { logger } from "@/utils/logger";
@@ -698,8 +698,7 @@ async function resolveViewRootMatches(config: JellyfinConfig, parentId: string, 
   const [leaves, playedIds] = await Promise.all([fetchViewRootLeaves(config, parentId, filters), fetchPlayedIds(config), isFavoritesLoaded() ? Promise.resolve() : fetchFavoriteIds()]);
 
   const favoriteIds = getFavoriteIds();
-  const playedOverrides = getPlayedOverrides();
-  const isPlayed = (item: JellyfinItem) => playedOverrides.get(item.Id) ?? playedIds.has(item.Id);
+  const isPlayed = (item: JellyfinItem) => playedOverride(item) ?? playedIds.has(item.Id);
 
   // Stamp the state we just resolved onto the items. The view root returned them with EMPTY
   // UserData, so without this the grid paints no heart and no checkmark, and the long-press

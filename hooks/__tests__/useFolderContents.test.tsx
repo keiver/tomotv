@@ -309,6 +309,48 @@ describe("useFolderContents", () => {
 
       expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["a"]);
     });
+
+    const seasonEpisodes = (played: boolean): JellyfinItem[] =>
+      ["e1", "e2"].map((id) => ({ Id: id, Name: id, Type: "Episode", SeasonId: "season-1", SeriesId: "series-1", UserData: { Played: played } }) as JellyfinItem);
+
+    it("an episode marked watched earlier shows the server's unwatched state after its season is marked unwatched", async () => {
+      markPlayed("e1", true);
+      markPlayed("season-1", false);
+      mockFolder.mockResolvedValue({ items: seasonEpisodes(false), total: 2 });
+
+      const ref = await mount("season-1");
+
+      expect(ref.current!.get().items.map((i) => i.UserData?.Played)).toEqual([false, false]);
+    });
+
+    it("repaints every episode of a mounted season when the season is marked unwatched", async () => {
+      markPlayed("e1", true);
+      mockFolder.mockResolvedValue({ items: seasonEpisodes(false), total: 2 });
+      const ref = await mount("season-1");
+      expect(ref.current!.get().items[0].UserData?.Played).toBe(true);
+
+      await act(async () => {
+        markPlayed("season-1", false);
+        lastPlayedListener()("season-1", false);
+      });
+
+      expect(ref.current!.get().items.map((i) => i.UserData?.Played)).toEqual([false, false]);
+    });
+
+    it("drops every episode of a season marked unwatched from a played-filtered view", async () => {
+      mockFolder.mockResolvedValue({ items: [...seasonEpisodes(true), ...items("other")], total: 3 });
+      const ref = React.createRef<HookRef>();
+      await act(async () => {
+        TestRenderer.create(<Harness ref={ref} folderId="folder-1" filters={{ ...EMPTY_FILTERS, played: true }} />);
+      });
+
+      await act(async () => {
+        markPlayed("season-1", false);
+        lastPlayedListener()("season-1", false);
+      });
+
+      expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["other"]);
+    });
   });
 
   describe("caching", () => {

@@ -188,6 +188,7 @@ export interface JellyfinVideoItem {
   seriesGenres?: string[];
   SeriesPrimaryImageTag?: string; // Seasons and episodes: the series poster, drawn for a season without its own
   ParentId?: string; // Containing folder: sibling queue source for non-episode items
+  SeasonId?: string;
   SeasonName?: string;
   IndexNumber?: number;
   IndexNumberEnd?: number; // Multi-episode files ("S01E01-E02"): the last episode the file holds
