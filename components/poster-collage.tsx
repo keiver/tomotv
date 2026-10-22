@@ -1,3 +1,4 @@
+import type { ArtworkSlotShape } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
@@ -15,15 +16,30 @@ interface PosterCollageProps {
   height: number;
   /** A library card's collage waits for a playing video to let go before asking for keyframes. */
   deferWhileVideo?: boolean;
+  /** The card's shape: a poster stacks three full-width bands, a square two, so each 16:9 still keeps its width. */
+  shape?: ArtworkSlotShape;
 }
+
+/** How many full-width bands a card of this shape stacks; none keeps the top-and-bottom-row layout. */
+const BANDS: Partial<Record<ArtworkSlotShape, number>> = { portrait: 3, square: 2 };
 
 /**
  * A folder's first videos as a collage inside its card: the first one across the top half,
  * the others side by side across the bottom. One video fills the card alone.
  */
-export function PosterCollage({ items, height, deferWhileVideo }: PosterCollageProps) {
+export function PosterCollage({ items, height, deferWhileVideo, shape }: PosterCollageProps) {
   const [hero, ...rest] = items;
   if (!hero) return null;
+  const bands = shape ? BANDS[shape] : undefined;
+  if (bands) {
+    return (
+      <View style={styles.collage} pointerEvents="none">
+        {items.slice(0, bands).map((item) => (
+          <Cell key={item.Id} item={item} height={height} deferWhileVideo={deferWhileVideo} />
+        ))}
+      </View>
+    );
+  }
   return (
     <View style={styles.collage} pointerEvents="none">
       <Cell item={hero} height={height} deferWhileVideo={deferWhileVideo} />

@@ -3,7 +3,7 @@ import { CardCornerTab } from "@/components/card-corner-tab";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardStand } from "@/components/card-stand";
 import { PosterCollage } from "@/components/poster-collage";
-import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, RAISED_EDGE, slotColumns, STAND_HEIGHT, STAND_ROW_ROOM, type SlotOrientation } from "@/constants/app";
+import { artworkSlotShape, CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, RAISED_EDGE, slotColumns, STAND_HEIGHT, STAND_ROW_ROOM, type SlotOrientation } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { useCardPalette } from "@/hooks/useCardPalette";
@@ -188,7 +188,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
           {thumbnailSource ? (
             <Image source={thumbnailSource} style={styles.poster} contentFit="cover" transition={0} priority={index < 10 ? "high" : "normal"} cachePolicy="memory-disk" recyclingKey={folder.Id} />
           ) : preview.length > 0 ? (
-            <PosterCollage items={preview} height={POSTER_SIZE} deferWhileVideo />
+            <PosterCollage items={preview} height={POSTER_SIZE} deferWhileVideo shape={artworkSlotShape(cardRatio)} />
           ) : (
             <View style={styles.placeholderPoster}>
               <Ionicons name={isLiveTv ? "tv-outline" : "folder-outline"} size={IS_TV ? 90 : 56} color="rgba(255, 255, 255, 0.45)" />
