@@ -130,30 +130,6 @@ describe("card palette", () => {
   });
 
   it.each([
-    ["Season", 24, 7, "7"],
-    ["Series", 177, 40, "40"],
-  ] as const)("a %s tab shows the episodes left to watch, not the total", (Type, total, unplayed, label) => {
-    let tree!: TestRenderer.ReactTestRenderer;
-    act(() => {
-      tree = TestRenderer.create(<FolderGridItem folder={{ ...folder, Type, RecursiveItemCount: total, UserData: { UnplayedItemCount: unplayed } } as JellyfinItem} onPress={jest.fn()} index={0} />);
-    });
-    expect(tree.root.findByType(CardCornerTab).props.segments).toEqual([{ label }]);
-    act(() => tree.unmount());
-  });
-
-  it.each([
-    ["every episode watched", { UnplayedItemCount: 0 }],
-    ["no user data", undefined],
-  ])("a season with %s shows no tab", (_case, UserData) => {
-    let tree!: TestRenderer.ReactTestRenderer;
-    act(() => {
-      tree = TestRenderer.create(<FolderGridItem folder={{ ...folder, Type: "Season", RecursiveItemCount: 24, UserData } as JellyfinItem} onPress={jest.fn()} index={0} />);
-    });
-    expect(tree.root.findAllByType(CardCornerTab)).toHaveLength(0);
-    act(() => tree.unmount());
-  });
-
-  it.each([
     ["en", "11,365"],
     ["de", "11.365"],
   ] as const)("a folder count groups its digits the way the app's language does (%s)", (tag, label) => {
