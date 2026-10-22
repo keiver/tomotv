@@ -62,7 +62,9 @@ const styles = StyleSheet.create({
     // The foot sits under the card, so the lettering centres in the part above it.
     paddingBottom: TAB_RADIUS,
     paddingHorizontal: IS_TV ? 14 : 8,
+    minWidth: IS_TV ? 56 : 36,
     flexDirection: "row",
+    justifyContent: "center",
     alignItems: "center",
     gap: IS_TV ? 9 : 5,
   },
