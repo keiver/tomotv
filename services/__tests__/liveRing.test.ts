@@ -3,14 +3,20 @@
  * session is bindable only once the engine cut a segment, and whatever leaves the ring is stopped.
  */
 import { closeLiveStream, noteOpenFailed, resolveChannel } from "@/services/jellyfinApi";
-import { isHotChannel, recenterLiveRing, releaseLiveRing, retainLiveSession, ringAround, takeRingSession, takeWarmDetails, yieldLiveRing } from "@/services/liveRing";
+import { channelOnOneConnection, isHotChannel, recenterLiveRing, releaseLiveRing, retainLiveSession, ringAround, takeRingSession, takeWarmDetails, yieldLiveRing } from "@/services/liveRing";
 import { setLiveSessionPriority, setLiveWindow, startLocalRemux, stopLocalRemux } from "@/services/localRemux";
+import { originConnectionLimit } from "@keiver/tomo-engine";
 
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
 
 jest.mock("@keiver/tomo-live/src/openFailures", () => ({
   noteOpenFailed: jest.fn(),
   openRecentlyFailed: jest.fn(() => false),
+}));
+const mockPlaylistRows = new Map<string, string>();
+jest.mock("@keiver/tomo-live/src/playlistChannels", () => ({
+  ...jest.requireActual("@keiver/tomo-live/src/playlistChannels"),
+  playlistChannelById: (id: string) => (mockPlaylistRows.has(id) ? { id, originKey: mockPlaylistRows.get(id) } : null),
 }));
 jest.mock("@/services/jellyfinApi", () => ({
   resolveChannel: jest.fn((id: string) => Promise.resolve({ Id: id, Name: id, LiveStreamId: `ls-${id}`, liveStreamUrl: `https://origin/${id}.m3u8` })),
@@ -27,6 +33,7 @@ jest.mock("@keiver/tomo-engine", () => ({
   localRemuxToken: (url: string | null) => url?.split("/").at(-2) ?? null,
   setLiveWindow: jest.fn(() => Promise.resolve()),
   setLiveSessionPriority: jest.fn(() => Promise.resolve()),
+  originConnectionLimit: jest.fn(() => null),
   subscribeEngineThroughput: jest.fn((token: string, listener: () => void) => {
     mockThroughput.set(token, listener);
     return jest.fn();
@@ -209,6 +216,40 @@ describe("liveRing", () => {
     expect(stopLocalRemux).toHaveBeenCalledWith("c10-s");
     expect(closeLiveStream).toHaveBeenCalledWith("ls-c10");
     expect(retainLiveSession({ ...left, channelId: "c12", token: "c12-x" })).toBe(false);
+  });
+
+  it("starts no neighbour and keeps no channel left on a provider set to one connection", async () => {
+    (originConnectionLimit as jest.Mock).mockImplementation((key: string) => (key === "origin" ? 1 : null));
+    try {
+      recenterLiveRing(RING, "c5", true);
+      await flush();
+      expect(startLocalRemux).not.toHaveBeenCalled();
+      expect(closeLiveStream).toHaveBeenCalledWith("ls-c6");
+      expect(closeLiveStream).toHaveBeenCalledWith("ls-c4");
+      expect(isHotChannel("c6")).toBe(false);
+
+      const left = { channelId: "c5", details: { Id: "c5", Name: "c5", liveStreamUrl: "https://origin/c5.m3u8" } as never, url: "http://127.0.0.1:1/c5-s/master.m3u8", token: "c5-s" };
+      expect(retainLiveSession(left)).toBe(false);
+      expect(isHotChannel("c5")).toBe(false);
+      const elsewhere = { ...left, details: { Id: "c5", Name: "c5", liveStreamUrl: "https://other/c5.m3u8" } as never };
+      expect(retainLiveSession(elsewhere)).toBe(true);
+    } finally {
+      (originConnectionLimit as jest.Mock).mockImplementation(() => null);
+    }
+  });
+
+  it("names a channel on one connection from its playlist row's provider", () => {
+    (originConnectionLimit as jest.Mock).mockImplementation((key: string) => (key === "provider-one" ? 1 : key === "provider-two" ? 2 : null));
+    try {
+      mockPlaylistRows.set("one", "provider-one");
+      mockPlaylistRows.set("two", "provider-two");
+      expect(channelOnOneConnection("one")).toBe(true);
+      expect(channelOnOneConnection("two")).toBe(false);
+      expect(channelOnOneConnection("unlisted")).toBe(false);
+    } finally {
+      mockPlaylistRows.clear();
+      (originConnectionLimit as jest.Mock).mockImplementation(() => null);
+    }
   });
 
   it("leaves a neighbour whose engine failed cold instead of starting it again", async () => {
