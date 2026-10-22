@@ -18,7 +18,7 @@ import { COLORS } from "@/constants/colors";
 import { getRecoveryStatus, RecoveryStatus, subscribeRecoveryStatus } from "@/services/connectionRecovery";
 import { isFolder, signOut } from "@/services/jellyfinApi";
 import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
-import { isStrandedAboveLastRow, packArtworkRows, PackedRow } from "@/utils/artworkRows";
+import { isStrandedAboveLastRow, packArtworkRows, packColumnRows, PackedRow } from "@/utils/artworkRows";
 import { cleanLabel } from "@/utils/cleanLabel";
 import { logger } from "@/utils/logger";
 import { cardResumeProgress } from "@/utils/resumeProgress";
@@ -298,25 +298,40 @@ export function LibraryGrid({
   // to exactly fill the width (no trailing gap). The FlatList virtualizes ROWS — its index
   // space is rows from here on.
   const rowHeights = useMemo(() => slotRowHeights(windowWidth, windowHeight, insets.left, insets.right, IS_TV, "grid"), [windowWidth, windowHeight, insets.left, insets.right]);
+  // TV folders mixing posters with wide cards sit on fixed columns: a wide card spans two, its art cropped to fill.
+  const columnGrid = useMemo(() => {
+    if (!IS_TV || liveChannels) return false;
+    const shapes = new Set(items.map((item) => (item.Type === "Episode" ? "landscape" : itemSlotShape(item.PrimaryImageAspectRatio))));
+    return shapes.has("portrait") && shapes.size > 1;
+  }, [items, liveChannels]);
   const packedRows = useMemo(
     () =>
-      packArtworkRows(
-        items,
-        windowWidth - edgeLeft - edgeRight,
-        // itemSlotShape is the same mapping the cards render with (see cardSlotRatio) — the
-        // packer and the cards MUST agree or justified rows misalign around no-art items.
-        // A channel card is 16:9 whatever its logo's shape: its live frame is.
-        (item) => {
-          if (liveChannels) return { ratio: GRID.LIVE_RATIO, height: liveRowHeight(rowHeights.landscape, CARD_PADDING) };
-          // An episode card is landscape whatever its still's shape: a portrait still is a
-          // scraper anomaly, and honoring it shrinks the card below legibility on phones.
-          if (item.Type === "Episode") return { ratio: slotRatio("landscape"), height: rowHeights.landscape };
-          const shape = itemSlotShape(item.PrimaryImageAspectRatio);
-          return { ratio: itemSlotRatio(item.PrimaryImageAspectRatio), height: rowHeights[shape] };
-        },
-        CARD_PADDING,
-      ),
-    [items, windowWidth, edgeLeft, edgeRight, rowHeights, liveChannels],
+      columnGrid
+        ? packColumnRows(
+            items,
+            windowWidth - edgeLeft - edgeRight,
+            GRID.TV_GRID_PER_ROW.portrait,
+            (item) => (item.Type === "Episode" || itemSlotShape(item.PrimaryImageAspectRatio) === "landscape" ? 2 : 1),
+            GRID.PORTRAIT_RATIO,
+            CARD_PADDING,
+          )
+        : packArtworkRows(
+            items,
+            windowWidth - edgeLeft - edgeRight,
+            // itemSlotShape is the same mapping the cards render with (see cardSlotRatio) — the
+            // packer and the cards MUST agree or justified rows misalign around no-art items.
+            // A channel card is 16:9 whatever its logo's shape: its live frame is.
+            (item) => {
+              if (liveChannels) return { ratio: GRID.LIVE_RATIO, height: liveRowHeight(rowHeights.landscape, CARD_PADDING) };
+              // An episode card is landscape whatever its still's shape: a portrait still is a
+              // scraper anomaly, and honoring it shrinks the card below legibility on phones.
+              if (item.Type === "Episode") return { ratio: slotRatio("landscape"), height: rowHeights.landscape };
+              const shape = itemSlotShape(item.PrimaryImageAspectRatio);
+              return { ratio: itemSlotRatio(item.PrimaryImageAspectRatio), height: rowHeights[shape] };
+            },
+            CARD_PADDING,
+          ),
+    [items, windowWidth, edgeLeft, edgeRight, rowHeights, liveChannels, columnGrid],
   );
   const { viewabilityPairs, visibleChannelIds } = useLiveFrameViewport("wall", liveChannels && liveFramesEnabled, packedRows, rowChannelIds);
   const lastRowWidth = packedRows.length > 0 ? packedRows[packedRows.length - 1].width : 0;
@@ -571,6 +586,7 @@ export function LibraryGrid({
                   highlighted={isHighlighted}
                   nextFocusUp={nextFocusUpForRow}
                   nextFocusDown={nextFocusDown}
+                  cardWidth={columnGrid ? card.width : undefined}
                   cardHeight={card.cardHeight}
                   fitArtwork
                 />
@@ -617,6 +633,7 @@ export function LibraryGrid({
                 highlighted={isHighlighted}
                 nextFocusUp={nextFocusUpForRow}
                 nextFocusDown={nextFocusDown}
+                cardWidth={columnGrid ? card.width : undefined}
                 cardHeight={card.cardHeight}
                 // Episodes take the uniform landscape slot the packer allocated them above.
                 fitArtwork={item.Type !== "Episode"}
@@ -649,6 +666,7 @@ export function LibraryGrid({
       handleFocusAndLastCellRef,
       recordings,
       liveChannels,
+      columnGrid,
       visibleChannelIds,
       titleIconFor,
       recordingFor,

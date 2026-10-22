@@ -111,7 +111,8 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
 
   // The card's slot ratio (see cardSlotRatio, shared with the row packer so rendered and
   // allocated widths agree). The art always cover-fills the slot: a crop beats a letterbox.
-  const cardRatio = cardSlotRatio(fitArtwork, folder.PrimaryImageAspectRatio, slotOrientation);
+  const cardRatio =
+    cardWidth != null && cardHeight != null ? (cardWidth - 2 * CARD_PADDING) / (cardHeight - 2 * CARD_PADDING) : cardSlotRatio(fitArtwork, folder.PrimaryImageAspectRatio, slotOrientation);
 
   const folderName = cleanLabel(folder.Name);
 

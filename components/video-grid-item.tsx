@@ -238,7 +238,11 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
 
   // The card's slot ratio, shared with the row packer so rendered and allocated widths agree. The art
   // cover-fills the slot, except a live picture liveFrameBox keeps whole.
-  const cardRatio = liveCard ? GRID.LIVE_RATIO : cardSlotRatio(fitArtwork, video.PrimaryImageAspectRatio, slotOrientation);
+  const cardRatio = liveCard
+    ? GRID.LIVE_RATIO
+    : cardWidth != null && cardHeight != null
+      ? (cardWidth - 2 * CARD_PADDING) / (cardHeight - 2 * CARD_PADDING)
+      : cardSlotRatio(fitArtwork, video.PrimaryImageAspectRatio, slotOrientation);
   // The live picture's own shape, remembered per channel so a remounted card starts in place.
   const [pictureAspect, setPictureAspect] = useState(() => (liveCard ? livePictureAspect(video.Id) : undefined));
   const handleLiveFrameLoad = useCallback(

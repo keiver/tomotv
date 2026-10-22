@@ -136,6 +136,36 @@ export function packArtworkRows<T>(items: readonly T[], availableWidth: number, 
 }
 
 /**
+ * Fixed-column rows: every card is `span` whole columns wide at one shared height, so card edges line
+ * up from row to row. A card that does not fit the columns left pulls a card that does forward, from at most a row ahead.
+ */
+export function packColumnRows<T>(items: readonly T[], availableWidth: number, columns: number, spanOf: (item: T) => number, slotRatio: number, cardPadding: number): PackedRow<T>[] {
+  const width = Number.isFinite(availableWidth) && availableWidth > 0 ? availableWidth : 1;
+  const column = width / columns;
+  const cardHeight = Math.max(column - 2 * cardPadding, 1) / slotRatio + 2 * cardPadding;
+  const spanFor = (item: T) => Math.min(Math.max(Math.round(spanOf(item)), 1), columns);
+  const queue = [...items];
+  const rows: PackedRow<T>[] = [];
+  let cards: PackedCard<T>[] = [];
+  let used = 0;
+  while (queue.length > 0) {
+    const index = queue.slice(0, columns).findIndex((item) => spanFor(item) <= columns - used);
+    if (index < 0) {
+      rows.push({ cards, width: used * column });
+      cards = [];
+      used = 0;
+      continue;
+    }
+    const [item] = queue.splice(index, 1);
+    const span = spanFor(item);
+    cards.push({ item, width: span * column, cardHeight, x: used * column });
+    used += span;
+  }
+  if (cards.length > 0) rows.push({ cards, width: used * column });
+  return rows;
+}
+
+/**
  * Whether a card in the SECOND-TO-LAST row dead-ends downward: the last row can be shorter
  * (it never scales up to fill), and UIKit only moves focus to a candidate intersecting the
  * focused frame's projection, so a card starting past the last row's right edge has no
