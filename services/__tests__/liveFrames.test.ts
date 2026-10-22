@@ -46,6 +46,8 @@ jest.mock("react-native", () => {
         liveFrame: (config: unknown) => mockLiveFrame(config),
         liveFramesOnDisk: (ids: string[]) => mockOnDisk(ids),
         cancelLiveFrame: (id: string) => mockCancel(id),
+        startRemux: jest.fn(),
+        setOriginRecording: (_key: string, active: boolean) => Promise.resolve(active),
       },
     },
   };
@@ -55,6 +57,10 @@ jest.mock("@keiver/tomo-live/src/livePreview", () => ({ showLivePreview: (id: st
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
 jest.mock("@/services/localRemux", () => ({ isLocalRemuxAvailable: () => true, nativeEmits: (event: string) => event === "onLiveFrame" }));
 jest.mock("@keiver/tomo-engine", () => ({ ...jest.requireActual("@keiver/tomo-engine"), isLocalRemuxAvailable: () => true, nativeEmits: (event: string) => event === "onLiveFrame" }));
+jest.mock("@keiver/tomo-live/src/playlistChannels", () => ({
+  ...jest.requireActual("@keiver/tomo-live/src/playlistChannels"),
+  playlistChannelById: (id: string) => (id.startsWith("mh") ? { id, originKey: "held.example" } : null),
+}));
 // Built inside the factory: the module under test subscribes at import, before this file's own constants exist.
 jest.mock("@/services/liveTvPreferences", () => {
   const preferences = { filter: "all" as string, connectionLimits: {} };
@@ -109,6 +115,7 @@ import {
   subscribeLiveFrame,
 } from "@/services/liveFrames";
 import { healthFor } from "@/services/channelHealth";
+import { setOriginRecording } from "@keiver/tomo-engine";
 import { setPlaybackHold } from "@/services/playbackHold";
 import { AppState } from "react-native";
 
@@ -1109,6 +1116,18 @@ describe("live frames", () => {
     setLiveFramesActive("guide", false);
     await advance(LIVE_FRAME_REFRESH_MS * 2);
     expect(grabs()).toHaveLength(3);
+  });
+
+  it("leaves out a card whose provider a recording holds, and grabs it once the recording ends", async () => {
+    await setOriginRecording("held.example", true);
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["mh1", "m1"]);
+    await advance(0);
+    await advance(LIVE_FRAME_SPACING_MS * 3);
+    expect(grabs()).toEqual(["m1"]);
+    await setOriginRecording("held.example", false);
+    await advance(0);
+    expect(grabs()).toEqual(["m1", "mh1"]);
   });
 
   it("grabs once the app turned active before any surface wired its listener", async () => {

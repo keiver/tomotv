@@ -5,7 +5,18 @@
  * the server's disk while it lasts. Stands down while the screen is away, the app is in the
  * background or playback holds the link.
  */
-import { canReadLiveFramesOnDisk, cancelLiveFrame, engineEmitter, engineLog, isLocalRemuxAvailable, liveFrame, liveFramesOnDisk, nativeEmits } from "@keiver/tomo-engine";
+import {
+  canReadLiveFramesOnDisk,
+  cancelLiveFrame,
+  engineEmitter,
+  engineLog,
+  isLocalRemuxAvailable,
+  liveFrame,
+  liveFramesOnDisk,
+  nativeEmits,
+  originHeld,
+  subscribeOriginHolds,
+} from "@keiver/tomo-engine";
 import { AppState } from "react-native";
 import type { ChannelOrigin } from "./channelOrigin";
 import { clearChannelHealth, healthFor, noteChannelAlive, noteChannelEmpty, noteChannelGone, noteChannelOpenFailure } from "./channelHealth";
@@ -13,6 +24,7 @@ import { liveChannels } from "./config";
 import { showLivePreview, stopLivePreview } from "./livePreview";
 import { openRecentlyFailed } from "./openFailures";
 import { isPlaybackHeld, onPlaybackHoldReleased, onPlaybackHoldTaken } from "./playbackHold";
+import { playlistChannelById } from "./playlistChannels";
 
 /** A channel is asked again this soon after its picture moved. */
 export const LIVE_FRAME_REFRESH_MS = 120_000;
@@ -163,6 +175,7 @@ function wire(): void {
     }
   });
   onPlaybackHoldReleased(() => schedule(0));
+  subscribeOriginHolds(() => schedule(0));
   // A channel opening needs the whole link: the grab reading now is stopped, not waited out.
   onPlaybackHoldTaken(() => {
     stop();
@@ -360,7 +373,10 @@ function byFocus(): string[] {
 function nextDue(now: number): { channelId: string; waitMs: number } | null {
   // The focused card first: while it reads, only a card known to read another provider reads beside it; nothing
   // else does while it is stale, except while it waits out a failure.
-  const stale = focusedStale(now);
+  // A recording holding a card's one-connection provider leaves it out until the recording ends.
+  const free = (channelId: string) => !originHeld(playlistChannelById(channelId)?.originKey);
+  const focused = focusedStale(now);
+  const stale = focused && free(focused) ? focused : null;
   let held: string | undefined;
   if (stale) {
     if (waitingUntil(entry(stale)) > now) held = undefined;
@@ -369,7 +385,7 @@ function nextDue(now: number): { channelId: string; waitMs: number } | null {
   }
   const besideHeld = (channelId: string) => held === undefined || (entry(channelId).originKey !== undefined && entry(channelId).originKey !== held);
   // A card reading or due for its picture or clip; one waiting out a failure, or judged down, holds nobody.
-  const busy = (channelId: string) => !down(channelId) && needsGrab(channelId, now) && (grabbing.has(channelId) || waitingUntil(entry(channelId)) <= now);
+  const busy = (channelId: string) => free(channelId) && !down(channelId) && needsGrab(channelId, now) && (grabbing.has(channelId) || waitingUntil(entry(channelId)) <= now);
   // A card with its picture and clip whose refresh has come.
   const refreshDue = (channelId: string) => {
     const item = entry(channelId);
@@ -380,7 +396,7 @@ function nextDue(now: number): { channelId: string; waitMs: number } | null {
   const anyBusy = viewable.some(busy);
   const order = byFocus();
   const needy = order
-    .filter((channelId) => !grabbing.has(channelId) && needsGrab(channelId, now) && !entry(channelId).failure)
+    .filter((channelId) => free(channelId) && !grabbing.has(channelId) && needsGrab(channelId, now) && !entry(channelId).failure)
     .filter((channelId) => (!wholeBusy || !partlyShown.has(channelId)) && (!anyBusy || !down(channelId)) && besideHeld(channelId))
     .map((channelId) => ({ channelId, item: entry(channelId), rank: order.indexOf(channelId) }))
     .sort((a, b) => {
@@ -390,14 +406,14 @@ function nextDue(now: number): { channelId: string; waitMs: number } | null {
       return a.item.lastAt - b.item.lastAt || a.rank - b.rank;
     });
   if (needy[0]) return { channelId: needy[0].channelId, waitMs: 0 };
-  if (priority && viewable.includes(priority) && !grabbing.has(priority) && !down(priority)) {
+  if (priority && viewable.includes(priority) && !grabbing.has(priority) && !down(priority) && free(priority)) {
     const item = entry(priority);
     const readyAt = Math.max(item.lastAt + LIVE_FRAME_FOCUS_REFRESH_MS, waitingUntil(item));
     if (readyAt <= now) return { channelId: priority, waitMs: 0 };
   }
   let pick: { channelId: string; readyAt: number } | null = null;
   for (const channelId of viewable) {
-    if (grabbing.has(channelId) || (wholeBusy && partlyShown.has(channelId)) || (anyBusy && down(channelId)) || !besideHeld(channelId)) continue;
+    if (grabbing.has(channelId) || !free(channelId) || (wholeBusy && partlyShown.has(channelId)) || (anyBusy && down(channelId)) || !besideHeld(channelId)) continue;
     const item = entry(channelId);
     // A card still missing its picture or clip is due at its last try, its backoff passed; one with both waits the refresh.
     const floor = needsGrab(channelId, now) ? item.lastAt : item.lastAt + (item.intervalMs ?? LIVE_FRAME_REFRESH_MS);

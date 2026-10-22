@@ -26,6 +26,11 @@ jest.mock("@keiver/tomo-engine", () => ({
     return () => mockThroughput.delete(token);
   },
   subscribeEngineFailure: () => () => {},
+  originHeld: (key: string | null | undefined) => key === "held.example",
+}));
+jest.mock("@keiver/tomo-live/src/playlistChannels", () => ({
+  ...jest.requireActual("@keiver/tomo-live/src/playlistChannels"),
+  playlistChannelById: (id: string) => (id.startsWith("mh") ? { id, originKey: "held.example" } : null),
 }));
 
 import { showLivePreview, stopLivePreview, takeLivePreview } from "../livePreview";
@@ -58,6 +63,13 @@ describe("live preview", () => {
     mockResolveWithoutOpen.mockResolvedValue(null);
     showLivePreview("c1");
     await flush();
+    expect(mockStart).not.toHaveBeenCalled();
+  });
+
+  it("never previews a channel whose provider a recording holds", async () => {
+    showLivePreview("mh1");
+    await flush();
+    expect(mockResolveWithoutOpen).not.toHaveBeenCalled();
     expect(mockStart).not.toHaveBeenCalled();
   });
 

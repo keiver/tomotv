@@ -3,10 +3,11 @@
  * focus dwell and adopted by the player when the card is played, so the play press binds instead of opening cold.
  * The card itself keeps its recorded clip. Nothing here ever opens a server stream.
  */
-import { engineLog, localRemuxToken, setLiveSessionPriority, setLiveWindow, stopLocalRemux, subscribeEngineFailure, subscribeEngineThroughput } from "@keiver/tomo-engine";
+import { engineLog, localRemuxToken, originHeld, setLiveSessionPriority, setLiveWindow, stopLocalRemux, subscribeEngineFailure, subscribeEngineThroughput } from "@keiver/tomo-engine";
 import { AppState } from "react-native";
 import { liveChannels } from "./config";
 import type { RingSession } from "./liveRing";
+import { playlistChannelById } from "./playlistChannels";
 
 /** The session's window until a player adopts it; disk, not playback, is what it bounds. */
 const PREVIEW_WINDOW_SECONDS = 20;
@@ -43,6 +44,7 @@ function clearGrace(): void {
 
 async function start(channelId: string, mine: number): Promise<void> {
   let token: string | null = null;
+  if (originHeld(playlistChannelById(channelId)?.originKey)) return;
   try {
     const channels = liveChannels();
     const details = await channels.resolveWithoutOpen(channelId);

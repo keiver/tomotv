@@ -1,3 +1,5 @@
+import { isRecordingHoldFailure } from "@keiver/tomo-engine";
+
 /** Waits before each reopen of a dropped channel, the last one repeating for as long as it stays down. */
 export const LIVE_REOPEN_DELAYS_MS = [500, 1000, 2000, 4000, 5000];
 /** Played this long without a drop, a channel's next drop counts as its first again. */
@@ -26,8 +28,8 @@ export function liveReopenCount(previous: number, playedMsSinceLastDrop: number)
 
 /**
  * An engine failure that no reopen fixes: the engine itself gave the input up after repeated
- * permanent refusals, or the origin refused every path to the channel or carries DRM.
+ * permanent refusals, the origin refused every path to the channel or carries DRM, or a recording holds the origin.
  */
 export function isPermanentLiveFailure(message: string): boolean {
-  return message.includes("live input gone:") || message.includes("origin refused") || message.includes("DRM protected");
+  return message.includes("live input gone:") || message.includes("origin refused") || message.includes("DRM protected") || isRecordingHoldFailure(message);
 }

@@ -2,6 +2,7 @@
 
 ## 1.5.0
 
+- The frame sampler leaves out a card whose provider a recording holds (`originHeld`) and reads it once the hold ends. The focused card's preview does not start on such a provider, and `isPermanentLiveFailure` takes the engine's recording hold (`isRecordingHoldFailure`) as permanent, so a held channel is not opened again.
 - On a provider set to one connection (`originConnectionLimit` is 1), the ring resolves and starts no neighbour and keeps no channel the player left, so nothing takes the slot the next channel opens on, through the server or straight from the provider. `channelOnOneConnection(channelId)` reads that off the channel's playlist row.
 - `planLiveRecovery`, `liveReopenCount`, `isPermanentLiveFailure`, `LIVE_REOPEN_DELAYS_MS` and `LIVE_RECOVERY_RESET_MS`: a dropped channel opens again after 0.5, 1, 2, 4, then 5 s for as long as the viewer stays on it, counted from zero once it has been playing 60 s since it last started, and stops only on a failure no open fixes.
 - `LiveDropCounter` (`notePlaying()` starts the playback clock a drop is measured against) and `watchLiveSession(token, drops, { onReopening, onReopened, onEnded })`: a live session followed for its whole life, its in-session reopens and the failure that ends it, with the recovery decision.

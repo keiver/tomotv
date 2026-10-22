@@ -7,6 +7,7 @@ const failureListeners = mockFailureListeners;
 const mockStopped: string[] = [];
 jest.mock("@keiver/tomo-engine", () => ({
   LIVE_BUFFER_SECONDS: 15,
+  isRecordingHoldFailure: jest.requireActual("@keiver/tomo-engine").isRecordingHoldFailure,
   engineProgress: async () => null,
   localRemuxToken: (url: string) => /^http:\/\/127\.0\.0\.1\/([^/]+)\//.exec(url)?.[1] ?? null,
   stopLocalRemux: async (token: string) => {

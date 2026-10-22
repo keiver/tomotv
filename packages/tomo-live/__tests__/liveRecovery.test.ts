@@ -32,6 +32,11 @@ it("treats an origin that refuses the channel, DRM, and an input the engine gave
   expect(isPermanentLiveFailure("engine failed: live input gone: Server returned 404 Not Found")).toBe(true);
 });
 
+it("treats a provider held by a recording as permanent", () => {
+  expect(isPermanentLiveFailure("live origin is held by a recording")).toBe(true);
+  expect(planLiveRecovery({ attempts: 0, permanent: isPermanentLiveFailure("engine failed: live origin is held by a recording") })).toEqual({ reopen: false });
+});
+
 it("treats a lost input, a silent feed and an unreachable host as worth another open", () => {
   expect(isPermanentLiveFailure("live input lost: no data for 12s")).toBe(false);
   expect(isPermanentLiveFailure("the live input came back with other streams")).toBe(false);
