@@ -35,9 +35,24 @@ extension RemuxSession {
         let codecs = trimmed.split(separator: "\n").first { $0.hasPrefix("#EXT-X-STREAM-INF:") }
             .flatMap { LiveVariantPicker.attribute("CODECS", in: String($0.dropFirst("#EXT-X-STREAM-INF:".count))) } ?? ""
         let webVtt = !codecs.contains("stpp") || codecs.contains("wvtt")
+        let refreshed = webVtt ? subtitles.map { String($0.dropFirst("#EXT-X-MEDIA:".count)) } : []
+        let identity = { (rendition: String) in
+            ["GROUP-ID", "NAME", "LANGUAGE", "ASSOC-LANGUAGE", "FORCED", "CHARACTERISTICS"].map { LiveVariantPicker.attribute($0, in: rendition) }
+        }
         stateLock.lock()
         sourcePlaylist = opened
-        if firstRead { liveSubtitleRenditions = webVtt ? subtitles.map { String($0.dropFirst("#EXT-X-MEDIA:".count)) } : [] }
+        if firstRead {
+            liveSubtitleRenditions = refreshed
+        } else {
+            // Keep the track indices the player knows, even if the renewed master reorders its renditions.
+            // A missing rendition loses its URL until it reappears, retaining its identity for that read.
+            liveSubtitleRenditions = liveSubtitleRenditions.map { previous in
+                refreshed.first { identity($0) == identity(previous) } ?? LiveVariantPicker.removing("URI", from: previous)
+            }
+        }
+        for (position, rendition) in liveSubtitleRenditions.enumerated() {
+            liveSubtitleURIs[Self.liveTextIndexBase + position] = LiveVariantPicker.attribute("URI", in: rendition)
+        }
         stateLock.unlock()
         let lines = trimmed.split(separator: "\n").map(String.init)
         let bandwidth = lines.first { $0.hasPrefix("#EXT-X-STREAM-INF:") }.flatMap { LiveVariantPicker.attribute("BANDWIDTH", in: String($0.dropFirst("#EXT-X-STREAM-INF:".count))) } ?? "?"
@@ -56,7 +71,7 @@ extension RemuxSession {
         stateLock.unlock()
         var tracks: [RemuxSubtitle] = []
         for (position, rendition) in renditions.enumerated() {
-            guard let uri = LiveVariantPicker.attribute("URI", in: rendition) else { continue }
+            guard LiveVariantPicker.attribute("URI", in: rendition) != nil else { continue }
             let index = Self.liveTextIndexBase + position
             let language = LiveVariantPicker.attribute("LANGUAGE", in: rendition) ?? ""
             var track = RemuxSubtitle(index: index, name: LiveVariantPicker.attribute("NAME", in: rendition) ?? language, language: language, vttUrl: "", localVtt: "",
@@ -64,9 +79,6 @@ extension RemuxSession {
                                       isImage: false, isEngineText: true)
             track.isHearingImpaired = (LiveVariantPicker.attribute("CHARACTERISTICS", in: rendition) ?? "").contains("public.accessibility.transcribes-spoken-dialog")
             tracks.append(track)
-            stateLock.lock()
-            liveSubtitleURIs[index] = uri
-            stateLock.unlock()
         }
         return tracks
     }
@@ -75,10 +87,6 @@ extension RemuxSession {
     /// segment is read until it is read whole, and its cues are placed once the video has reached them.
     func followLiveSubtitles(_ tracks: [RemuxSubtitle], headers: [String: String]) {
         for track in tracks {
-            stateLock.lock()
-            let uri = liveSubtitleURIs[track.index]
-            stateLock.unlock()
-            guard let uri, let playlistURL = URL(string: uri) else { continue }
             let streamIndex = Int32(track.index)
             DispatchQueue.global(qos: .utility).async { [weak self] in
                 var read = Set<String>()
@@ -86,7 +94,10 @@ extension RemuxSession {
                 while let self, !self.isCancelled, !self.hasFailed {
                     var wait = 2.0
                     let began = Date()
-                    if self.liveAnchorSeconds() != nil,
+                    self.stateLock.lock()
+                    let uri = self.liveSubtitleURIs[track.index]
+                    self.stateLock.unlock()
+                    if let uri, let playlistURL = URL(string: uri), self.liveAnchorSeconds() != nil,
                        case .status(200..<300, let landed, let body) = EndpointProbe.request(playlistURL, headers: headers, keepBody: true, timeout: 5),
                        let playlist = body.flatMap({ String(data: $0, encoding: .utf8) }) {
                         let lines = playlist.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
