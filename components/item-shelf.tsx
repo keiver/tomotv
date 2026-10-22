@@ -82,6 +82,7 @@ export function ItemShelf({ title, fetch, refreshOnFavoriteChange = false, onIte
           fitArtwork
           slotOrientation="landscape"
           progressPercent={cardResumeProgress(item)}
+          hideAiring
           titleIcon={channelFavoriteIcon(item, isFavoriteChannel(preferences, item))}
         />
       ),

@@ -121,6 +121,7 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
           fitArtwork
           slotOrientation="landscape"
           progressPercent={cardResumeProgress(item)}
+          hideAiring
         />
       );
     },
