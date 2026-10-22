@@ -342,9 +342,8 @@ export function slotColumns(orientation: SlotOrientation, isTV: boolean, windowW
 
 // Design system values
 export const DESIGN = {
-  /** Standard border radius for cards and grid items. 32 reads right on a 10-foot
-   * TV card; on a ~180pt phone card it turns the card into a pill. */
-  BORDER_RADIUS_CARD: Platform.isTV ? 32 : 16,
+  /** Standard border radius for cards and grid items */
+  BORDER_RADIUS_CARD: Platform.isTV ? 20 : 12,
   /** Border radius for medium elements (settings rows, etc) */
   BORDER_RADIUS_MEDIUM: 12,
   /** Standard border radius for buttons */
