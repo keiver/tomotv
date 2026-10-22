@@ -92,7 +92,7 @@ export function GuideChannelColumn({
   // The wrapper is the row: exactly rowHeight, so the column never drifts off the grid's rows.
   const renderItem = useCallback(
     ({ item, index }: { item: JellyfinItem; index: number }) => (
-      <View style={[styles.row, { height: metrics.rowHeight }]} scrollSnapOffset={rowSnapOffset}>
+      <View style={[styles.row, !IS_TV && compact && styles.rowCompact, { height: metrics.rowHeight }]} scrollSnapOffset={rowSnapOffset}>
         {IS_TV ? (
           <GuideChannelCard
             ref={index === 0 ? firstCardRef : undefined}
@@ -240,6 +240,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderBottomWidth: 1,
     borderBottomColor: GRID_LINE,
+  },
+  rowCompact: {
+    borderBottomWidth: 0,
   },
   // The card keeps its full width and is clipped by the column as it narrows; it shrinks from its left edge.
   cardLayer: {
