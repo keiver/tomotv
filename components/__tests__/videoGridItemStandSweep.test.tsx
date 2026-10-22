@@ -159,7 +159,23 @@ describe("media card base", () => {
   it("shows a passed channel heart before the name on a shelf channel card", () => {
     const tree = mount(<VideoGridItem video={channel} onPress={jest.fn()} index={0} titleIcon="heart" />);
     expect(tree.root.findByType(CardStand).findAll((n) => n.props.name === "heart")).not.toHaveLength(0);
-    expect(tree.root.findAllByType(CardCornerTab)).toHaveLength(0);
+    expect(tree.root.findByType(CardCornerTab).props).toMatchObject({ segments: [{ label: t("liveTv.channel") }], tone: "plain" });
+    act(() => tree.unmount());
+  });
+
+  it("names a channel card by the channel and shows its number on the corner tab when the airing programme is hidden", () => {
+    const airing = { ...channel, ChannelNumber: "7", CurrentProgram: { Name: "News" } } as JellyfinVideoItem;
+    const tree = mount(<VideoGridItem video={airing} onPress={jest.fn()} index={0} hideAiring />);
+    expect(tree.root.findByType(CardCornerTab).props).toMatchObject({ segments: [{ label: t("liveTv.channelNumber").replace("{number}", "7") }], tone: "plain" });
+    expect(tree.root.findByType(CardStand).props.name).toBe("Channel One");
+    act(() => tree.unmount());
+  });
+
+  it("keeps NOW on a channel card titled by its airing programme", () => {
+    const airing = { ...channel, ChannelNumber: "7", CurrentProgram: { Name: "News" } } as JellyfinVideoItem;
+    const tree = mount(<VideoGridItem video={airing} onPress={jest.fn()} index={0} />);
+    expect(tree.root.findByType(CardCornerTab).props).toMatchObject({ segments: [{ label: t("liveTv.now") }], tone: "live" });
+    expect(tree.root.findByType(CardStand).props.name).toBe("News");
     act(() => tree.unmount());
   });
 

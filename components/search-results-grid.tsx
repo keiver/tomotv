@@ -146,6 +146,7 @@ export const SearchResultsGrid = React.forwardRef<SearchResultsGridHandle, Searc
                 onPress={onItemPress}
                 onLongPress={onItemLongPress}
                 index={index}
+                hideAiring
                 hasTVPreferredFocus={index === 0 && claimInitialFocus}
                 nextFocusUp={rowIndex === 0 ? nextFocusUpHandle : undefined}
                 nextFocusDown={nextFocusDown}

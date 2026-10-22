@@ -110,7 +110,7 @@ interface VideoGridItemProps {
   numColumns?: number;
   /** A mark drawn at the title's left end, where the now-playing bars sit; the placeholder face too. On a channel, inline before its name. */
   titleIcon?: keyof typeof Ionicons.glyphMap;
-  /** Channel cards: leave the airing programme off the title (the guide beside them shows it). */
+  /** Channel cards: title the card by the channel's name, never the airing programme. */
   hideAiring?: boolean;
   /** Channel cards: the latest frame of the channel; it fills the slot and the logo becomes a corner mark. */
   liveFrame?: { uri: string; cacheKey: string };
@@ -286,9 +286,12 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   const watchedPercent = hasProgress ? Math.round(Math.min(Math.max(progressPercent, 0), 1) * 100) : 0;
   const nowPlayingProgress = useNowPlayingProgress(video, nowPlayingAudio ? "audio" : nowPlayingVideo.active ? "video" : null, progressPercent, nowPlayingVideo.playing);
   const standProgress = nowPlaying ? nowPlayingProgress.fraction : hasProgress ? watchedPercent / 100 : isWatched(video) ? 1 : null;
-  // A shelf logo card has no picture to age: NOW is the guide's claim about the programme in the title; LIVE stays the picture's.
-  const channelNow = isChannel && !liveCard && !offlinePill && !recording && !liveFrame && !!airingName;
-  const artBadge = channelNow ? [{ label: t("liveTv.now") }] : isChannel ? null : badgeSegments;
+  // A logo card has no picture to age: NOW when the title names the airing programme, else the channel and its number.
+  const logoTab = isChannel && !liveCard && !offlinePill && !recording && !liveFrame;
+  const channelNow = logoTab && !!airingName;
+  const channelNumber = video.ChannelNumber?.trim();
+  const channelTab = channelNumber ? t("liveTv.channelNumber").replace("{number}", channelNumber) : t("liveTv.channel");
+  const artBadge = channelNow ? [{ label: t("liveTv.now") }] : logoTab ? [{ label: channelTab }] : isChannel ? null : badgeSegments;
   // One mark before the name: the playing bars, else a passed icon, else the favorite heart (a channel's is passed in).
   const nameIcon = leadingMark ?? (isChannel ? titleIcon : showsFavoriteHeart(video) ? "heart" : undefined);
   const metaMark = nowPlaying

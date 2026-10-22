@@ -50,6 +50,8 @@
   "liveTv.now": "NOW",
   "liveTv.rec": "REC",
   "liveTv.ch": "CH",
+  "liveTv.channel": "CHANNEL",
+  "liveTv.channelNumber": "CHANNEL {number}",
   "liveTv.seriesRules": "Series",
   "liveTv.noRecordings": "No recordings yet, or this account has no access to them.",
   "liveTv.noRecordingsHint": "A server admin can grant access in Jellyfin: Users, this account, Library Access, then turn on Recordings.",
