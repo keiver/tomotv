@@ -64,7 +64,10 @@ const EMPTY = new Uint8Array(0);
 function serveRecordings(timers: JellyfinTimer[], reads: Uint8Array[]): void {
   let current = 0;
   const cancelled = new Set<string>();
-  (fetchTimers as jest.Mock).mockImplementation(async () => [timers[Math.min(current, timers.length - 1)]]);
+  (fetchTimers as jest.Mock).mockImplementation(async () => {
+    const live = timers[Math.min(current, timers.length - 1)];
+    return [{ ...live, Status: cancelled.has(live.Id) ? "Cancelled" : "InProgress" }];
+  });
   (fetchInProgressRecording as jest.Mock).mockImplementation(async (timerId: string) => (cancelled.has(timerId) ? null : { Id: `rec-${timerId}`, ChannelId: "ch-a" }));
   (cancelTimer as jest.Mock).mockImplementation(async (timerId: string) => {
     cancelled.add(timerId);
@@ -225,6 +228,21 @@ describe("checkNewRecording", () => {
     expect(setOriginRecording).toHaveBeenCalledWith("a.example", true);
     syncRecordingHolds(NOW);
     expect(setOriginRecording).not.toHaveBeenCalledWith("a.example", false);
+  });
+
+  it("ends and lets the provider go when the timer is cancelled anywhere before its recording appears", async () => {
+    serveRecordings([timer("t1", "ch-a", 0, 60_000, "InProgress")], []);
+    (fetchInProgressRecording as jest.Mock).mockResolvedValue(null);
+    const recreate = jest.fn(async () => undefined);
+    const checked = checkNewRecording("ch-a", undefined, recreate);
+    await jest.advanceTimersByTimeAsync(500);
+    expect(recordingChecking("ch-a")).toBe(true);
+    (fetchTimers as jest.Mock).mockResolvedValue([]);
+    await jest.advanceTimersByTimeAsync(500);
+    await checked;
+    expect(recordingChecking("ch-a")).toBe(false);
+    expect(recreate).not.toHaveBeenCalled();
+    expect(setOriginRecording).toHaveBeenLastCalledWith("a.example", false);
   });
 
   it("ends without making the recording again once it is stopped on purpose", async () => {

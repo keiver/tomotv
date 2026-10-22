@@ -247,6 +247,18 @@ export async function checkNewRecording(channelId: string, programId: string | u
   await checkRecording(originKey, timer, recreate);
 }
 
+/** The recording the timer writes once it starts; null when the timer stops being live first (cancelled anywhere) or the span ends. */
+async function waitForRecording(timerId: string, endMs: number, mine: () => boolean): Promise<JellyfinItem | null> {
+  while (mine() && Date.now() < endMs) {
+    const timer = (await fetchTimers()).find((candidate) => candidate.Id === timerId);
+    if (!timer || !isActiveTimer(timer)) return null;
+    const item = timer.Status === "InProgress" ? await fetchInProgressRecording(timerId) : null;
+    if (item) return item;
+    await wait(POLL_MS);
+  }
+  return null;
+}
+
 async function readsVideo(itemId: string): Promise<boolean> {
   return (await readRecordingStart(itemId))[0] === TS_SYNC;
 }
@@ -267,8 +279,7 @@ async function checkRecording(originKey: string, timer: JellyfinTimer, recreate:
   let videoFlushes = 0;
   try {
     while (id && mine() && Date.now() < endMs) {
-      let item: JellyfinItem | null = null;
-      while (mine() && Date.now() < endMs && !(item = await fetchInProgressRecording(id))) await wait(POLL_MS);
+      const item = await waitForRecording(id, endMs, mine);
       if (!item || !mine()) return;
       if (await readsVideo(item.Id)) return;
       await cancelTimer(id);
