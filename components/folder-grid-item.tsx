@@ -146,6 +146,9 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
   // reads as 0. Library views carry no inline count: theirs streams in lazily.
   const { count: lazyCount } = useViewItemCount(folder);
   const itemCount = (folder.RecursiveItemCount || (folder.ChildCount ?? folder.RecursiveItemCount)) ?? lazyCount;
+  // A show or season counts the episodes left to watch, and drops the tab once none are.
+  const watchable = folder.Type === "Series" || folder.Type === "Season";
+  const tabCount = watchable ? folder.UserData?.UnplayedItemCount || undefined : itemCount;
   const depth = [styles.depth, focused && [styles.cardFocused, { shadowColor: palette.accent }]];
 
   return (
@@ -182,7 +185,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
       <View style={[styles.card, IS_TV ? null : depth, styles.cardOverhang]}>
         {/* TV: a solid layer behind the picture carries the depth, so the card stays clear for its glass base. */}
         {IS_TV ? <View style={[styles.depthLayer, depth, !focused && styles.depthLayerArt]} pointerEvents="none" /> : null}
-        {itemCount != null ? <CardCornerTab segments={[{ label: itemCount.toLocaleString(locale()) }]} surface={COLORS.SURFACE_SUNKEN} focused={focused} /> : null}
+        {tabCount != null ? <CardCornerTab segments={[{ label: tabCount.toLocaleString(locale()) }]} surface={COLORS.SURFACE_SUNKEN} focused={focused} /> : null}
         <View style={[styles.imageContainer, { aspectRatio: cardRatio }, styles.squareBottom]}>
           {thumbnailSource ? (
             <Image source={thumbnailSource} style={styles.poster} contentFit="cover" transition={0} priority={index < 10 ? "high" : "normal"} cachePolicy="memory-disk" recyclingKey={folder.Id} />
@@ -229,6 +232,7 @@ function arePropsEqual(prev: FolderGridItemProps, next: FolderGridItemProps): bo
     prev.folder.UserData?.IsFavorite === next.folder.UserData?.IsFavorite &&
     prev.folder.UserData?.Played === next.folder.UserData?.Played &&
     prev.folder.UserData?.PlayedPercentage === next.folder.UserData?.PlayedPercentage &&
+    prev.folder.UserData?.UnplayedItemCount === next.folder.UserData?.UnplayedItemCount &&
     prev.folder.ImageTags?.Primary === next.folder.ImageTags?.Primary &&
     prev.folder.SeriesId === next.folder.SeriesId &&
     prev.folder.SeriesPrimaryImageTag === next.folder.SeriesPrimaryImageTag &&
