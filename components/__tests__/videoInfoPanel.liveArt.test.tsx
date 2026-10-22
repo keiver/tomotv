@@ -19,6 +19,7 @@ let mockFrame: typeof frame | undefined;
 let mockClip: typeof clip | undefined;
 let mockAutoUpdate = true;
 let mockHeld = false;
+let mockHealth = "unknown";
 
 jest.mock("expo-router", () => ({ useRouter: () => ({ back: jest.fn(), push: jest.fn(), replace: jest.fn() }) }));
 jest.mock("react-native-gesture-handler", () => {
@@ -44,6 +45,7 @@ jest.mock("@/hooks/useLiveFrame", () => ({
 }));
 jest.mock("@/hooks/useLiveTvPreferences", () => ({ useLiveTvPreferences: () => ({ autoUpdate: mockAutoUpdate }) }));
 jest.mock("@/hooks/usePlaybackHeld", () => ({ usePlaybackHeld: () => mockHeld }));
+jest.mock("@/hooks/useChannelHealth", () => ({ useChannelHealth: (id: string) => (id ? mockHealth : "unknown") }));
 jest.mock("@/services/nextUp", () => ({ containerKey: () => null, dismissNextUpContainer: jest.fn() }));
 jest.mock("@/contexts/LoadingContext", () => ({ useLoadingActions: () => ({ showGlobalLoader: jest.fn(), hideGlobalLoader: jest.fn() }) }));
 jest.mock("@/components/ambient-background", () => ({ AmbientBackground: () => null }));
@@ -99,6 +101,7 @@ describe("Video info panel: a channel's live picture", () => {
     mockClip = clip;
     mockAutoUpdate = true;
     mockHeld = false;
+    mockHealth = "unknown";
   });
 
   it("plays the clip over the grabbed picture", async () => {
@@ -158,5 +161,21 @@ describe("Video info panel: a channel's live picture", () => {
     const shown = texts(await mount());
     expect(shown).toContain("CH 4");
     expect(shown.some((text) => typeof text === "string" && text.includes("Seen at"))).toBe(false);
+  });
+
+  it("says Offline beside the cloud glyph when the channel was judged down and no picture was grabbed", async () => {
+    mockFrame = undefined;
+    mockHealth = "down";
+    const tree = await mount();
+    expect(texts(tree)).toContain("Offline");
+    expect(tree.root.findAll((node) => node.props.name === "cloud-offline")).toHaveLength(1);
+  });
+
+  it("says nothing of offline over a grabbed picture or before a verdict", async () => {
+    mockHealth = "down";
+    expect(texts(await mount())).not.toContain("Offline");
+    mockFrame = undefined;
+    mockHealth = "unknown";
+    expect(texts(await mount())).not.toContain("Offline");
   });
 });

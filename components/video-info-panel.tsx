@@ -44,6 +44,7 @@ import { PosterCollage } from "@/components/poster-collage";
 import { ChannelGroupBand } from "@/components/live-tv/channel-group-band";
 import { LiveClip } from "@/components/live-tv/live-clip";
 import { useLiveClip, useLiveFrame, useLiveFrameSeenAt } from "@/hooks/useLiveFrame";
+import { useChannelHealth } from "@/hooks/useChannelHealth";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { usePlaybackHeld } from "@/hooks/usePlaybackHeld";
 import { LIVE_FRAME_TRANSITION_MS } from "@/services/liveFrames";
@@ -498,6 +499,8 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   const liveClip = useLiveClip(liveArtChannel);
   const liveSeenAt = useLiveFrameSeenAt(liveArtChannel);
   const seenLine = liveFrame && liveSeenAt > 0 ? t("liveTv.lastSeen").replace("{time}", formatClock(liveSeenAt)) : "";
+  // A frame on screen outranks any verdict, as on the guide card.
+  const channelOffline = useChannelHealth(liveArtChannel) === "down" && !liveFrame;
   const { autoUpdate } = useLiveTvPreferences();
   const playbackHeld = usePlaybackHeld();
   const clipShown = !!liveFrame && !!liveClip && active && autoUpdate && !playbackHeld;
@@ -1081,6 +1084,12 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
       </View>
       <View style={IS_TV ? styles.tvPad : styles.cardPad}>
         {!!metaLine && <Text style={[styles.metaLine, styles.metaBlock]}>{metaLine}</Text>}
+        {channelOffline && (
+          <View style={[styles.laneRow, metaLine ? styles.laneBlock : styles.metaBlock]}>
+            <Ionicons name="cloud-offline" size={IS_TV ? 24 : 15} color={COLORS.TEXT_SECONDARY} />
+            <Text style={styles.metaLine}>{t("liveTv.offline")}</Text>
+          </View>
+        )}
         {(recordingNow || recordTimer?.Status === "InProgress" || !!recordTimer?.SeriesTimerId) && (
           <View style={[styles.laneRow, styles.laneBlock]}>
             <View style={[styles.laneDot, { backgroundColor: COLORS.DESTRUCTIVE }]} />
