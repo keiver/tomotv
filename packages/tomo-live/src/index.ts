@@ -13,4 +13,5 @@ export * from "./liveSession";
 export * from "./openFailures";
 export * from "./playbackHold";
 export * from "./playlistChannels";
+export * from "./providerAccount";
 export * from "./time";

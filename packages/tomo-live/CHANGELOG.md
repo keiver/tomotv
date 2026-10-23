@@ -2,6 +2,7 @@
 
 ## 1.5.0
 
+- `providerStreamsInUse(streamUrl, headers?)`: an Xtream-style provider's own count of the streams the account holds and allows (`active_cons`, `max_connections` from its `player_api.php`), read with no stream opened; null for a stream URL that names no account or a provider without that API. `providerApiUrl(streamUrl)` builds the API address from `/live/{user}/{pass}/{id}` or `/{user}/{pass}/{id}`.
 - The frame sampler leaves out a card whose provider a recording holds (`originHeld`) and reads it once the hold ends. The focused card's preview does not start on such a provider, and `isPermanentLiveFailure` takes the engine's recording hold (`isRecordingHoldFailure`) as permanent, so a held channel is not opened again.
 - On a provider set to one connection (`originConnectionLimit` is 1), the ring resolves and starts no neighbour and keeps no channel the player left, so nothing takes the slot the next channel opens on, through the server or straight from the provider. `channelOnOneConnection(channelId)` reads that off the channel's playlist row.
 - `planLiveRecovery`, `liveReopenCount`, `isPermanentLiveFailure`, `LIVE_REOPEN_DELAYS_MS` and `LIVE_RECOVERY_RESET_MS`: a dropped channel opens again after 0.5, 1, 2, 4, then 5 s for as long as the viewer stays on it, counted from zero once it has been playing 60 s since it last started, and stops only on a failure no open fixes.
