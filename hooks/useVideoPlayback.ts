@@ -110,7 +110,7 @@ import {
 } from "./videoPlayback/errorRecovery";
 import { planLaneGates, selectLane } from "./videoPlayback/laneDecision";
 import { resolveResume } from "./videoPlayback/resume";
-import { segmentSkipTarget } from "./videoPlayback/segmentSkip";
+import { openSkipTarget, segmentSkipTarget } from "./videoPlayback/segmentSkip";
 import { chosenAudioLanguage, isFreshManifestReport, orderAudioTracks, planAudioReport, serverLaneCarriesEveryTrack } from "./videoPlayback/audioTracks";
 import {
   classifyObservedChoice,
@@ -462,6 +462,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   useEffect(() => {
     skipWindowsRef.current = skipWindows;
   }, [skipWindows]);
+  // One check per item that a start or resume inside a window plays from its end.
+  const openSkipPendingRef = useRef(true);
 
   // Track stable playback for UI (state triggers re-renders, ref is for sync checks)
   const [hasStablePlayback, setHasStablePlayback] = useState(false);
@@ -1975,7 +1977,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // edge below that is the only thing dispatching PLAYER_PLAYING.
       if (state.type !== "INITIALIZING_PLAYER" && state.type !== "READY" && state.type !== "PLAYING") return;
 
-      const skipTarget = segmentSkipTarget(skipWindowsRef.current, currentTimeRef.current, data.currentTime);
+      // In a SyncPlay group a seek would move everyone: the group plays every segment.
+      const skipTarget = syncPlayManager.isJoined() ? null : segmentSkipTarget(skipWindowsRef.current, currentTimeRef.current, data.currentTime);
       currentTimeRef.current = skipTarget ?? data.currentTime;
       if (skipTarget !== null) {
         pendingSeekTargetRef.current = skipTarget;
@@ -2043,6 +2046,19 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       }
       const nowPlaying = !paused && (playerPlayingRef.current || stepped);
       const wasPlaying = isPlayingRef.current;
+
+      // The windows are undefined until the item's markers are known; a resume seek still
+      // to land or in flight (the reporter clears the pending target once it settles) waits.
+      if (openSkipPendingRef.current && nowPlaying && skipWindowsRef.current !== undefined && seekToPositionAfterLoadRef.current === null && pendingSeekTargetRef.current === null) {
+        openSkipPendingRef.current = false;
+        const openTarget = syncPlayManager.isJoined() ? null : openSkipTarget(skipWindowsRef.current, data.currentTime);
+        if (openTarget !== null) {
+          currentTimeRef.current = openTarget;
+          pendingSeekTargetRef.current = openTarget;
+          videoRef.current?.seek(openTarget);
+          logger.info("Opened inside a segment, playing from its end", { service: "useVideoPlayback", from: Math.round(data.currentTime), to: Math.round(openTarget) });
+        }
+      }
 
       if (nowPlaying !== wasPlaying) {
         isPlayingRef.current = nowPlaying;
@@ -2945,6 +2961,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     transportRef.current = "direct";
     seekToPositionAfterLoadRef.current = null;
     pendingSeekTargetRef.current = null;
+    openSkipPendingRef.current = true;
     mediaSourceIdRef.current = null; // PlaySessionId rotates in the CREATING_STREAM effect
     wasPlayedAtStartRef.current = null; // re-captured on the new video's first metadata fetch
     selectedAudioTrackIndexRef.current = null;

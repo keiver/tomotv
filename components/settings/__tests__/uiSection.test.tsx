@@ -25,11 +25,12 @@ describe("UiSection", () => {
     ]);
   });
 
-  it("shows the poster and lyrics rows when signed in, lyrics last", () => {
+  it("shows the poster, skip and lyrics rows when signed in, lyrics last", () => {
     expect(rowTitles(true)).toEqual([
       { title: t("settings.language"), isLast: false },
       { title: t("settings.appearance"), isLast: false },
       { title: t("settings.devicePosters"), isLast: false },
+      { title: t("settings.skipAutomatically"), isLast: false },
       { title: t("detail.lyrics"), isLast: true },
     ]);
   });

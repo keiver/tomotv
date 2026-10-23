@@ -89,7 +89,7 @@ describe("Menu out of the player", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.mocked(fetchNextEpisodeAutoPlay).mockResolvedValue(true);
-    jest.mocked(fetchMediaSegments).mockResolvedValue({ intro: null, outro: null, commercials: [] });
+    jest.mocked(fetchMediaSegments).mockResolvedValue({ intro: null, outro: null, recaps: [], previews: [], commercials: [] });
   });
 
   it("pops the player and never the folder beneath it, when UIKit already popped it", async () => {

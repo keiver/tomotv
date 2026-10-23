@@ -58,8 +58,6 @@ export interface LiveTvPreferences {
   hideOffline: boolean;
   /** Phone: the guide's channel column rests collapsed to logos. */
   compactColumn: boolean;
-  /** Phone: playback seeks past a Commercial segment on reaching it. Apple TV shows a pill instead. */
-  skipCommercials: boolean;
   /** Streams a tuner playlist's provider allows this device at once, by playlist URL; a playlist left out is learned from its provider. */
   connectionLimits: Record<string, ConnectionLimit>;
 }
@@ -82,7 +80,6 @@ export const DEFAULT_LIVE_TV_PREFERENCES: LiveTvPreferences = {
   recordingMinutes: 120,
   hideOffline: false,
   compactColumn: false,
-  skipCommercials: true,
   connectionLimits: {},
 };
 
@@ -173,7 +170,6 @@ export function parseLiveTvPreferences(raw: unknown): LiveTvPreferences {
       : DEFAULT_LIVE_TV_PREFERENCES.recordingMinutes,
     hideOffline: typeof source.hideOffline === "boolean" ? source.hideOffline : DEFAULT_LIVE_TV_PREFERENCES.hideOffline,
     compactColumn: source.compactColumn === true,
-    skipCommercials: typeof source.skipCommercials === "boolean" ? source.skipCommercials : DEFAULT_LIVE_TV_PREFERENCES.skipCommercials,
     connectionLimits: parseConnectionLimits(source.connectionLimits),
   };
 }

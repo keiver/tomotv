@@ -33,8 +33,9 @@ Every feature needs a Jellyfin server. The Notes column says when a feature also
 | Up Next between episodes                                | Yes      | Yes          | Yes | A system card on Apple TV, a screen between episodes elsewhere                             |
 | Follows Jellyfin's "Play next episode automatically"    | Yes      | Yes          | Yes |                                                                                            |
 | Upcoming queue in the player panel                      | Yes      | No           | No  |                                                                                            |
-| Skip Intro and Skip Credits                             | Yes      | No           | No  | Needs the server's Media Segments                                                          |
-| Skip commercials                                        | Yes      | Yes          | Yes | A button on Apple TV; automatic elsewhere, a Channel Settings switch that is on by default |
+| Skip intros, recaps, previews and commercials for you   | Yes      | Yes          | Yes | A Skip Automatically setting per kind, commercials on by default; needs the Media Segments |
+| Skip Intro, Skip Recap, Skip Preview, Skip Commercial   | Yes      | No           | No  | A button on Apple TV for each kind not skipped automatically                               |
+| Skip Credits                                            | Yes      | No           | No  | A button on Apple TV when no Up Next card is coming                                        |
 | Chapters in the player panel, with pictures             | Yes      | No           | No  |                                                                                            |
 | Favorite from the player controls                       | Yes      | No           | No  |                                                                                            |
 | Scrubbing shows frames                                  | Yes      | Yes          | Yes | Dolby Vision frames are converted to SDR at up to 1080p. None on live channels             |

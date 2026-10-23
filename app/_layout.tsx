@@ -584,6 +584,21 @@ export default function RootLayout() {
                         }
                       />
                       <Stack.Screen
+                        name="skip-settings"
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : {
+                                headerShown: true,
+                                headerTransparent: true,
+                                headerShadowVisible: false,
+                                headerTitle: t("settings.skipAutomatically"),
+                                headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                                animation: "fade",
+                              }
+                        }
+                      />
+                      <Stack.Screen
                         name="theme-editor"
                         options={
                           Platform.isTV

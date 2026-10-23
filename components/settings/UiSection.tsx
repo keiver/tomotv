@@ -25,6 +25,7 @@ export function UiSection({ signedIn }: UiSectionProps) {
   const choice = useLanguageChoice();
   const toggleDevicePosters = useCallback(() => updateUiPreferences({ devicePosters: !devicePosters }), [devicePosters]);
   const openLyrics = useCallback(() => router.push("/lyrics-settings"), [router]);
+  const openSkip = useCallback(() => router.push("/skip-settings"), [router]);
   const openLanguage = useCallback(() => router.push("/language"), [router]);
   const openAppearance = useCallback(() => router.push("/appearance"), [router]);
   // tvOS moves focus out of a scroller only at the matching end, so the end rows pin it.
@@ -98,6 +99,14 @@ export function UiSection({ signedIn }: UiSectionProps) {
                 onFocus={IS_TV ? enter : undefined}
                 onBlur={IS_TV ? leave : undefined}
                 accessibilityState={{ checked: devicePosters }}
+              />
+              <ListRow
+                icon="play-skip-forward-outline"
+                title={t("settings.skipAutomatically")}
+                trailingIcon="chevron-forward"
+                onPress={openSkip}
+                onFocus={IS_TV ? enter : undefined}
+                onBlur={IS_TV ? leave : undefined}
               />
               <ListRow
                 icon="musical-notes-outline"

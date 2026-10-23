@@ -4,7 +4,7 @@
  * "Credits" type — Outro is the credits marker.
  *
  * Consumers: the tvOS Up Next content proposal (Outro start = when the
- * proposal appears), the tvOS skip pills, and the phone's commercial auto-skip.
+ * proposal appears), the tvOS skip pills, and the automatic skips.
  * Markers only exist on 10.10+ servers running a segments provider plugin. A
  * missing marker only changes timing/affordances, never playback, so every
  * failure path returns empty markers rather than throwing.
@@ -30,14 +30,18 @@ export interface MediaSegmentWindow {
 export interface ItemMediaSegments {
   intro: MediaSegmentWindow | null;
   outro: MediaSegmentWindow | null;
+  /** Every Recap segment, in time order. */
+  recaps: MediaSegmentWindow[];
+  /** Every Preview segment, in time order. */
+  previews: MediaSegmentWindow[];
   /** Every Commercial break, in time order. */
   commercials: MediaSegmentWindow[];
 }
 
-const NO_SEGMENTS: ItemMediaSegments = { intro: null, outro: null, commercials: [] };
+const NO_SEGMENTS: ItemMediaSegments = { intro: null, outro: null, recaps: [], previews: [], commercials: [] };
 
 /**
- * The item's first Intro and Outro segments and its Commercial breaks, in seconds.
+ * The item's first Intro and Outro segments and its Recap, Preview and Commercial windows, in seconds.
  * Empty when the server has no markers (no segments plugin, pre-10.10 → 404, network failure).
  */
 export async function fetchMediaSegments(itemId: string): Promise<ItemMediaSegments> {
@@ -50,7 +54,7 @@ export async function fetchMediaSegments(itemId: string): Promise<ItemMediaSegme
   try {
     const response = await fetchWithTimeout(
       // Repeated keys: ASP.NET binds them to the IEnumerable includeSegmentTypes param.
-      `${config.server}/MediaSegments/${itemId}?includeSegmentTypes=Intro&includeSegmentTypes=Outro&includeSegmentTypes=Commercial`,
+      `${config.server}/MediaSegments/${itemId}?includeSegmentTypes=Intro&includeSegmentTypes=Outro&includeSegmentTypes=Recap&includeSegmentTypes=Preview&includeSegmentTypes=Commercial`,
       {
         method: "GET",
         headers: {
@@ -76,15 +80,19 @@ export async function fetchMediaSegments(itemId: string): Promise<ItemMediaSegme
         endSeconds: segment.EndTicks / JELLYFIN_TIME.TICKS_PER_SECOND,
       };
     };
+    const windowsOf = (type: string): MediaSegmentWindow[] =>
+      segments
+        .filter((segment) => segment.Type === type)
+        .map(toWindow)
+        .filter((window): window is MediaSegmentWindow => window !== null)
+        .sort((a, b) => a.startSeconds - b.startSeconds);
 
     return {
       intro: toWindow(segments.find((segment) => segment.Type === "Intro")),
       outro: toWindow(segments.find((segment) => segment.Type === "Outro")),
-      commercials: segments
-        .filter((segment) => segment.Type === "Commercial")
-        .map(toWindow)
-        .filter((window): window is MediaSegmentWindow => window !== null)
-        .sort((a, b) => a.startSeconds - b.startSeconds),
+      recaps: windowsOf("Recap"),
+      previews: windowsOf("Preview"),
+      commercials: windowsOf("Commercial"),
     };
   } catch (error) {
     logger.debug("Media segments fetch failed; skip/proposal features degrade", { service: "JellyfinAPI", itemId, error: String(error) });

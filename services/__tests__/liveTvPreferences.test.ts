@@ -56,7 +56,6 @@ describe("live TV preferences", () => {
       recordingMinutes: 120,
       hideOffline: false,
       compactColumn: false,
-      skipCommercials: true,
       connectionLimits: {},
     });
     // A connection limit survives only as a listed number under a host; anything else is dropped.
@@ -89,9 +88,6 @@ describe("live TV preferences", () => {
     expect(parseLiveTvPreferences({ hideOffline: "yes" }).hideOffline).toBe(false);
     expect(parseLiveTvPreferences({ compactColumn: true }).compactColumn).toBe(true);
     expect(parseLiveTvPreferences({ compactColumn: 1 }).compactColumn).toBe(false);
-    // Commercial auto-skip defaults on; only a stored boolean turns it off.
-    expect(parseLiveTvPreferences({ skipCommercials: false }).skipCommercials).toBe(false);
-    expect(parseLiveTvPreferences({ skipCommercials: "no" }).skipCommercials).toBe(true);
   });
 
   it("reads a favorites-only document from the previous build as the Favorites filter", () => {

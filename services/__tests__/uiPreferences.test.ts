@@ -16,9 +16,20 @@ describe("uiPreferences", () => {
       findLyrics: true,
       listenForLyrics: true,
       saveLyrics: true,
+      autoSkip: { intro: false, recap: false, preview: false, commercial: true },
     });
     expect(getUiPreferences().devicePosters).toBe(true);
     expect(getUiPreferences().serverTranscoding).toBe("linkOrFile");
+  });
+
+  it("reads the automatic skips field by field, and the old live TV commercial switch when the document has none", () => {
+    const all = { intro: true, recap: true, preview: true, commercial: true };
+    expect(parseUiPreferences(JSON.stringify({ autoSkip: all })).autoSkip).toEqual(all);
+    expect(parseUiPreferences(JSON.stringify({ autoSkip: { intro: true, commercial: "no" } })).autoSkip).toEqual({ intro: true, recap: false, preview: false, commercial: true });
+    expect(parseUiPreferences(JSON.stringify({ autoSkip: "all" })).autoSkip).toEqual(DEFAULT_UI_PREFERENCES.autoSkip);
+    expect(parseUiPreferences(JSON.stringify({}), false).autoSkip).toEqual({ ...DEFAULT_UI_PREFERENCES.autoSkip, commercial: false });
+    expect(parseUiPreferences(JSON.stringify({}), true).autoSkip).toEqual(DEFAULT_UI_PREFERENCES.autoSkip);
+    expect(parseUiPreferences(JSON.stringify({ autoSkip: { commercial: true } }), false).autoSkip.commercial).toBe(true);
   });
 
   it("reads the canvas mode, and maps earlier documents: clear's first name and the folder-colour switch", () => {
