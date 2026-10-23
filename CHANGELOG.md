@@ -8,6 +8,8 @@ All notable changes to Tomo TV are documented here.
 
 - Channel Settings gains Connection limits: one row per tuner playlist, with the streams its provider allows this device at once, Auto or 1 to 5. Auto learns the limit from the provider's own refusals. A number set here reaches the engine at launch and whenever the tuner list reloads, for every host the playlist reads, so the guide preview, the channel ring and the wall clips never take the connection the playing channel needs
 - Two playlists at one provider count together, and the number is per device. A provider is its host and port, so two servers on one address never share a limit
+- On a provider that allows one stream, set or learned, a server recording comes first: while it records, Tomo reads nothing from that provider (playback, guide pictures and clips, the card preview, the channel ring). Opening one of its channels shows Limited Connections, with what is recording and until when, and Watch Recording, which plays the recording as it is written, Stop Recording and Play, which asks before it stops the recording, and Go Back. A toast warns a minute before a scheduled recording starts there, and channel swipes pass over its channels
+- On a provider that allows one stream, a recording started while Tomo was reading it is checked for video and made again until its file holds video; the provider's refusal no longer becomes the recording
 - A channel's info panel shows the channel's latest grabbed picture while it is on air, and plays its preview clip there unless auto update is off or playback holds the link. Its details line says when that picture was seen (Seen at and the time), after the channel number, or after the channel's name on a program's panel
 - On Apple TV, a Top Shelf card for an item the server has no poster for shows the keyframe Tomo made for it, in the shape of that picture, instead of the Tomo face. The app copies the keyframes of its Continue Watching items into the shared container, removes them when the items leave the row, and clears them on any server or account change
 
@@ -66,6 +68,10 @@ All notable changes to Tomo TV are documented here.
 - After a live channel's stream ended and Tomo opened it again, the audio went back to the language in Settings. It now reopens in the language that was playing
 - The iPad and Mac info card centers in the safe area, under the title-bar tabs
 - On iPad and Mac the info panel opened as a 320-point loading card and then resized to its content. The card now appears once its content is ready, at the size it keeps; until then, and when the load fails, only the loading line or the error and Retry show over the blur, with no card or close button, as on iPhone
+- On a provider that allows one stream, a channel opened right after Tomo closed another stream there showed the provider-limit error, and Retry failed until the provider let the old stream go (about 12 s with Dispatcharr). The spinner now stays and the channel opens again on each refusal until it plays
+- On a provider that allows one stream, a recording started while Tomo was reading the provider saved the provider's refusal, a 65-byte file, instead of video
+- The player's Record button kept showing Stop after the recording was stopped elsewhere, and Stop then failed
+- A video with no server poster, a recording in progress among them, paused a few seconds in when the poster Tomo made for it arrived: the new picture reloaded the stream. The player now leaves that poster for after playback
 
 ## [2.2.12]
 
