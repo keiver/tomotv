@@ -100,7 +100,7 @@ let pushed = new Set<string>();
 const pending = new Map<string, number>();
 const warned = new Set<string>();
 /** Providers whose new recording is being checked for the stream, with the run that checks it. */
-const checking = new Map<string, number>();
+const checking = new Map<string, { run: number; timer: JellyfinTimer }>();
 let checkRun = 0;
 const checkListeners = new Set<() => void>();
 let edgeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -110,8 +110,15 @@ function clearEdge(): void {
   edgeTimer = null;
 }
 
+let checkVersion = 0;
+
 function notifyChecks(): void {
+  checkVersion += 1;
   for (const listener of checkListeners) listener();
+}
+
+export function getRecordingCheckVersion(): number {
+  return checkVersion;
 }
 
 /** Tells the engine each provider a recording starts or stops holding, warns a minute ahead, and arms the next edge. */
@@ -178,12 +185,15 @@ export function watchRecordingsWhilePlaying(channelId: string): () => void {
   return () => clearInterval(timer);
 }
 
-/** The timer recording on the channel's provider now; null when none is. */
-export function heldRecording(channelId: string, nowMs = Date.now()): JellyfinTimer | null {
+/**
+ * The timer recording on the channel's provider now, the one being checked while it is made again; null when none is.
+ * A hook passes the status and check version it read, so a memoizing compiler recomputes when either moves.
+ */
+export function heldRecording(channelId: string, status = getRecordingStatus(), _checkVersion = checkVersion, nowMs = Date.now()): JellyfinTimer | null {
   const originKey = channelOrigin(channelId);
   if (!originKey) return null;
-  const { running, active } = getRecordingStatus();
-  return [...running, ...active].find((timer) => channelOrigin(timer.ChannelId) === originKey && holdsNow(timer, nowMs)) ?? null;
+  const { running, active } = status;
+  return [...running, ...active].find((timer) => channelOrigin(timer.ChannelId) === originKey && holdsNow(timer, nowMs)) ?? checking.get(originKey)?.timer ?? null;
 }
 
 /** Whether a recording holds the channel's provider, as the engine answers now. */
@@ -270,8 +280,8 @@ async function readsVideo(itemId: string): Promise<boolean> {
  */
 async function checkRecording(originKey: string, timer: JellyfinTimer, recreate: () => Promise<void>): Promise<void> {
   const run = ++checkRun;
-  const mine = () => checking.get(originKey) === run;
-  checking.set(originKey, run);
+  const mine = () => checking.get(originKey)?.run === run;
+  checking.set(originKey, { run, timer });
   notifyChecks();
   syncRecordingHolds();
   const { endMs } = recordingWindow(timer);
@@ -289,18 +299,38 @@ async function checkRecording(originKey: string, timer: JellyfinTimer, recreate:
       logger.info("Recording had no stream, made again", { service: "RecordingHold", timerId: id, videoFlushes });
       await recreate();
       if (videoFlushes >= VIDEO_FLUSHES_TO_STOP) return;
-      id = (await currentTimer(timer.ChannelId ?? "", timer.ProgramId))?.Id ?? null;
+      const next = await currentTimer(timer.ChannelId ?? "", timer.ProgramId);
+      id = next?.Id ?? null;
+      if (next && mine()) {
+        checking.set(originKey, { run, timer: next });
+        notifyChecks();
+      }
     }
   } catch (error) {
     logger.warn("Recording check failed", error, { service: "RecordingHold" });
   } finally {
+    if (mine()) await refreshRecordingStatus().catch((error) => logger.warn("Recording status read failed", error, { service: "RecordingHold" }));
     if (mine()) {
       checking.delete(originKey);
       notifyChecks();
-      await refreshRecordingStatus().catch((error) => logger.warn("Recording status read failed", error, { service: "RecordingHold" }));
       syncRecordingHolds();
     }
   }
+}
+
+/** The recording on the channel's provider once its check has found video; null when there is none to play. */
+export async function recordingWhenReady(channelId: string): Promise<JellyfinItem | null> {
+  if (recordingChecking(channelId)) {
+    await new Promise<void>((resolve) => {
+      const stop = subscribeRecordingChecks(() => {
+        if (recordingChecking(channelId)) return;
+        stop();
+        resolve();
+      });
+    });
+  }
+  const timer = heldRecording(channelId);
+  return timer ? fetchInProgressRecording(timer.Id) : null;
 }
 
 /** Ends the check on the channel's provider: its recording was stopped on purpose. */

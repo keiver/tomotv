@@ -38,9 +38,9 @@ import { JellyfinItem, JellyfinTimer, JellyfinVideoItem } from "@/types/jellyfin
 import { libraryManager } from "@/services/libraryManager";
 import { logger } from "@/utils/logger";
 import { formatErrorRef, PLAYBACK_ERROR_IDS } from "@/utils/errorIds";
-import { adjacentPlayableChannelId, admitUntilPlaying, recordingInProgress, stopRecordingAndPlay, stopRecordingCheck, watchRecordingsWhilePlaying } from "@/services/recordingHold";
+import { adjacentPlayableChannelId, admitUntilPlaying, recordingWhenReady, stopRecordingAndPlay, stopRecordingCheck, watchRecordingsWhilePlaying } from "@/services/recordingHold";
 import { writeAfterReserve } from "@/hooks/useRecordActions";
-import { useChannelHeld, useHeldRecording, useRecordingChecking } from "@/hooks/useRecordingStatus";
+import { useChannelHeld, useHeldRecording } from "@/hooks/useRecordingStatus";
 import { getRecordingStatus, recordingWindow, subscribeRecordingStatus } from "@/services/recordingStatus";
 import { formatEpisodeNumber } from "@/utils/seasonEpisode";
 import { APP_BUILD_LABEL } from "@/constants/app";
@@ -949,19 +949,27 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
       },
     ]);
   }, [holdingTimer, videoId, retry]);
-  const recordingChecking = useRecordingChecking(videoId, recordingHold);
-  const canWatchRecording = holdingTimer?.Status === "InProgress" && !recordingChecking;
+  const [openingRecording, setOpeningRecording] = useState(false);
+  const leftRef = useRef(false);
+  useEffect(
+    () => () => {
+      leftRef.current = true;
+      admitUntilPlaying(null);
+    },
+    [],
+  );
   const watchRecording = useCallback(() => {
     if (!holdingTimer) return;
-    recordingInProgress(holdingTimer)
+    setOpeningRecording(true);
+    recordingWhenReady(videoId)
       .then((item) => {
-        if (!item) return;
+        if (!item || leftRef.current) return;
         showGlobalLoader();
         router.replace({ pathname: "/player" as const, params: { videoId: item.Id, videoName: item.Name } });
       })
-      .catch((err) => logger.warn("Recording read failed", err, { service: "VideoPlayer" }));
-  }, [holdingTimer, router, showGlobalLoader]);
-  useEffect(() => () => admitUntilPlaying(null), []);
+      .catch((err) => logger.warn("Recording read failed", err, { service: "VideoPlayer" }))
+      .finally(() => setOpeningRecording(false));
+  }, [holdingTimer, videoId, router, showGlobalLoader]);
   const showErrorButtons = playbackState.type === "ERROR" && !liveOnStage && !playbackState.canRetryWithTranscode;
   useEffect(() => {
     if (!Platform.isTV || !showErrorButtons) return;
@@ -982,7 +990,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
   if (playbackState.type === "ERROR" && !liveOnStage) {
     // If we can retry with transcoding, show loading overlay instead of error
     // This prevents flashing an error message during automatic retry
-    if (playbackState.canRetryWithTranscode || stoppingRecording) {
+    if (playbackState.canRetryWithTranscode || stoppingRecording || openingRecording) {
       return (
         <View style={styles.container}>
           <PlayerLoadingOverlay live={isLiveChannel} local={playsFromDisk(videoId)} />
@@ -1003,7 +1011,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
           <Text style={styles.errorText}>{holdText}</Text>
           {playbackState.ref ? <Text style={styles.errorCode}>{`${t("player.errorCode")}: ${formatErrorRef(playbackState.ref, APP_BUILD_LABEL)}`}</Text> : null}
           <View style={[styles.buttonGroup, styles.uniformButtons]}>
-            {canWatchRecording ? (
+            {holdingTimer ? (
               <FocusableButton
                 ref={retryButtonRef}
                 onFocus={onRetryFocus}
@@ -1016,16 +1024,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
               />
             ) : null}
             {holdingTimer ? (
-              <FocusableButton
-                ref={canWatchRecording ? undefined : retryButtonRef}
-                onFocus={canWatchRecording ? onStopFocus : onRetryFocus}
-                onBlur={canWatchRecording ? onStopBlur : onRetryBlur}
-                title={t("liveTv.stopRecordingAndPlay")}
-                onPress={stopRecordingThenPlay}
-                variant={canWatchRecording ? "secondary" : "retry"}
-                style={styles.button}
-                hasTVPreferredFocus={!canWatchRecording}
-              />
+              <FocusableButton onFocus={onStopFocus} onBlur={onStopBlur} title={t("liveTv.stopRecordingAndPlay")} onPress={stopRecordingThenPlay} variant="secondary" style={styles.button} />
             ) : null}
             <FocusableButton
               ref={holdingTimer ? undefined : retryButtonRef}

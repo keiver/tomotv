@@ -44,6 +44,7 @@ import {
   nextHoldEdge,
   recordingChecking,
   recordingOrigins,
+  recordingWhenReady,
   reserveForRecording,
   resetRecordingHoldsForTests,
   stopRecordingAndPlay,
@@ -260,11 +261,42 @@ describe("checkNewRecording", () => {
   });
 });
 
+describe("the recording being checked", () => {
+  it("is the held recording while the shared reading has no timer for it, and plays once its check found video", async () => {
+    serveRecordings([timer("t1", "ch-a", 0, 60_000, "InProgress")], [VIDEO]);
+    (readRecordingStart as jest.Mock).mockReset();
+    let readVideo: (bytes: Uint8Array) => void = () => {};
+    (readRecordingStart as jest.Mock).mockImplementation(() => new Promise<Uint8Array>((resolve) => (readVideo = resolve)));
+    const checked = checkNewRecording(
+      "ch-a",
+      undefined,
+      jest.fn(async () => undefined),
+    );
+    await jest.advanceTimersByTimeAsync(0);
+    expect(heldRecording("ch-a2")?.Id).toBe("t1");
+    let ready: { Id: string } | null | undefined;
+    void recordingWhenReady("ch-a").then((item) => (ready = item));
+    await jest.advanceTimersByTimeAsync(0);
+    expect(ready).toBeUndefined();
+    mockStatus.active = [timer("t1", "ch-a", 0, 60_000, "InProgress")];
+    readVideo(VIDEO);
+    await checked;
+    await jest.advanceTimersByTimeAsync(0);
+    expect(ready).toMatchObject({ Id: "rec-t1" });
+  });
+});
+
 describe("heldRecording", () => {
   it("is the timer recording on any channel of the same provider now, never a later one", () => {
     mockStatus.active = [timer("later", "ch-a", 3_600_000, 7_200_000), timer("now", "ch-a2", -1_000, 60_000, "InProgress")];
-    expect(heldRecording("ch-a", NOW)?.Id).toBe("now");
-    expect(heldRecording("ch-b", NOW)).toBeNull();
+    expect(heldRecording("ch-a")?.Id).toBe("now");
+    expect(heldRecording("ch-b")).toBeNull();
+  });
+
+  it("is read again from the status and check a hook passes, so a cached result follows them", () => {
+    const empty = { running: [], active: [] };
+    expect(heldRecording("ch-a", empty, 0)).toBeNull();
+    expect(heldRecording("ch-a", { running: [], active: [timer("now", "ch-a", -1_000, 60_000, "InProgress")] }, 1)?.Id).toBe("now");
   });
 });
 
