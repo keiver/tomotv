@@ -95,7 +95,8 @@ final class MacKeyCommandsViewController: UIViewController {
                     discoverabilityTitle: entry.title
                 )
             }
-            commands += Self.contextCommands(for: MacKeyCommands.keyContext).map { entry in
+            let context = MacKeyCommands.keyContext
+            commands += Self.contextCommands(for: context).map { entry in
                 let command = UIKeyCommand(
                     title: entry.title,
                     action: #selector(handleKey(_:)),
@@ -104,9 +105,11 @@ final class MacKeyCommandsViewController: UIViewController {
                     propertyList: entry.key,
                     discoverabilityTitle: entry.title
                 )
-                // AVKit answers these itself from nearer the first responder when it wants
-                // them, and a presented player must keep its own transport.
-                command.wantsPriorityOverSystemBehavior = false
+                // UIKeyCommand.h: a command yields to focus and text-editing system commands
+                // unless it wants priority, and a bare arrow is a focus command. A page viewer has
+                // nothing to focus, so its arrows take priority. The seek keys stay behind AVKit,
+                // which answers them itself from nearer the first responder when it wants them.
+                command.wantsPriorityOverSystemBehavior = context == "photo"
                 return command
             }
         }
@@ -160,7 +163,7 @@ final class MacKeyCommandsViewController: UIViewController {
         NSLog("[MacKeyCommands] first responder claimed: \(claimed)")
     }
 
-    /// The first Escape leaves a text field, the second leaves the screen — the
+    /// The first Escape leaves a text field, the second leaves the screen: the
     /// macOS convention, and what keeps Escape from navigating out of Search or
     /// the login form mid-typing.
     @objc
