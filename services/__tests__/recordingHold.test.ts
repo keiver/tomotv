@@ -30,8 +30,14 @@ jest.mock("@keiver/tomo-engine", () => ({
   originHeld: jest.fn(() => false),
 }));
 jest.mock("@keiver/tomo-live", () => ({
-  playlistChannelById: (id: string) => ({ "ch-a": { originKey: "a.example" }, "ch-a2": { originKey: "a.example" }, "ch-b": { originKey: "b.example" } })[id] ?? null,
+  playlistChannelById: (id: string) =>
+    ({
+      "ch-a": { originKey: "a.example", streamUrl: "http://a.example/live/u/p/1", headers: {} },
+      "ch-a2": { originKey: "a.example", streamUrl: "http://a.example/live/u/p/2", headers: {} },
+      "ch-b": { originKey: "b.example", streamUrl: "http://b.example/live/u/p/3", headers: {} },
+    })[id] ?? null,
   subscribePlaylistChannels: jest.fn(() => () => {}),
+  providerStreamsInUse: jest.fn(async () => null),
 }));
 
 import { cancelTimer, createTimer, fetchInProgressRecording, fetchTimers, readRecordingStart } from "@/services/jellyfinApi";
@@ -53,6 +59,7 @@ import {
 } from "@/services/recordingHold";
 import { showToast } from "@/services/toast";
 import { originConnectionLimit, originConnections, setOriginRecording } from "@keiver/tomo-engine";
+import { providerStreamsInUse } from "@keiver/tomo-live";
 
 const NOW = Date.parse("2026-10-22T20:00:00Z");
 const at = (offsetMs: number) => new Date(NOW + offsetMs).toISOString();
@@ -90,6 +97,7 @@ beforeEach(() => {
   (originConnectionLimit as jest.Mock).mockReset().mockReturnValue(1);
   (fetchInProgressRecording as jest.Mock).mockReset().mockResolvedValue(null);
   (fetchTimers as jest.Mock).mockReset().mockResolvedValue([]);
+  (providerStreamsInUse as jest.Mock).mockReset().mockResolvedValue(null);
   (cancelTimer as jest.Mock).mockReset().mockResolvedValue(undefined);
   (createTimer as jest.Mock).mockReset().mockResolvedValue(undefined);
   resetRecordingHoldsForTests();
@@ -311,6 +319,46 @@ describe("adjacentPlayableChannelId", () => {
 
   it("is null when every other channel is held", () => {
     expect(adjacentPlayableChannelId([{ Id: "ch-b" }, { Id: "ch-a" }], "ch-b", 1, heldA)).toBeNull();
+  });
+});
+
+describe("waiting for the provider to free its stream", () => {
+  it("starts a recording only once the provider counts a stream free, so the recorder never opens into its refusal", async () => {
+    (providerStreamsInUse as jest.Mock).mockResolvedValueOnce({ active: 1, max: 1 }).mockResolvedValueOnce({ active: 1, max: 1 }).mockResolvedValue({ active: 0, max: 1 });
+    let done = false;
+    void reserveForRecording("ch-a").then(() => (done = true));
+    await jest.advanceTimersByTimeAsync(250);
+    expect(done).toBe(false);
+    await jest.advanceTimersByTimeAsync(500);
+    expect(done).toBe(true);
+    expect(providerStreamsInUse).toHaveBeenCalledWith("http://a.example/live/u/p/1", {});
+  });
+
+  it("makes a refused recording again only once the provider counts a stream free", async () => {
+    serveRecordings([timer("t1", "ch-a", 0, 60_000, "InProgress"), timer("t2", "ch-a", 0, 60_000, "InProgress")], [EMPTY, REFUSAL, VIDEO]);
+    let free = false;
+    (providerStreamsInUse as jest.Mock).mockImplementation(async () => ({ active: free ? 0 : 1, max: 1 }));
+    const recreate = jest.fn(async () => {
+      await (createTimer as jest.Mock)();
+    });
+    const checked = checkNewRecording("ch-a", undefined, recreate);
+    await jest.advanceTimersByTimeAsync(2_000);
+    expect(cancelTimer).toHaveBeenCalledWith("t1");
+    expect(recreate).not.toHaveBeenCalled();
+    free = true;
+    await jest.advanceTimersByTimeAsync(500);
+    await checked;
+    expect(recreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts anyway after 30 s when the provider keeps counting every stream", async () => {
+    (providerStreamsInUse as jest.Mock).mockResolvedValue({ active: 1, max: 1 });
+    let done = false;
+    void reserveForRecording("ch-a").then(() => (done = true));
+    await jest.advanceTimersByTimeAsync(29_000);
+    expect(done).toBe(false);
+    await jest.advanceTimersByTimeAsync(1_500);
+    expect(done).toBe(true);
   });
 });
 

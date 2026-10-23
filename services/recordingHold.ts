@@ -10,13 +10,15 @@ import type { JellyfinItem, JellyfinTimer } from "@/types/jellyfin";
 import { activeRecordTimer, adjacentChannelId, isActiveTimer } from "@/utils/guide";
 import { logger } from "@/utils/logger";
 import { originConnectionLimit, originConnections, originHeld, setOriginRecording, subscribeOriginHolds } from "@keiver/tomo-engine";
-import { playlistChannelById, subscribePlaylistChannels } from "@keiver/tomo-live";
+import { playlistChannelById, providerStreamsInUse, subscribePlaylistChannels } from "@keiver/tomo-live";
 
 const WARN_AHEAD_MS = 60_000;
 const PLAYING_REFRESH_MS = 60_000;
 const DRAIN_TIMEOUT_MS = 10_000;
 const PENDING_TTL_MS = 120_000;
 const POLL_MS = 250;
+/** How long a recording waits for its provider to count a slot free before it starts anyway. */
+const PROVIDER_FREE_TIMEOUT_MS = 30_000;
 /** MPEG-TS sync byte: the first byte of a recording that got the stream. */
 const TS_SYNC = 0x47;
 /** Cancels that found video, not a refusal: after this many the provider is slow to send, not refusing. */
@@ -227,10 +229,28 @@ export async function reserveForRecording(channelId: string): Promise<(() => voi
   syncRecordingHolds();
   const deadline = Date.now() + DRAIN_TIMEOUT_MS;
   while (Date.now() < deadline && ((await originConnections(originKey))?.active ?? 0) > 0) await wait(POLL_MS);
+  await waitForProviderFree(channelId, () => true);
   return () => {
     pending.delete(originKey);
     syncRecordingHolds();
   };
+}
+
+/**
+ * Resolves once the channel's provider counts a stream free, read through its account API with no stream opened, so
+ * the recorder never opens into a stream the provider still counts and saves its refusal. At once for a provider
+ * without that API.
+ */
+async function waitForProviderFree(channelId: string, stillWanted: () => boolean): Promise<void> {
+  const row = playlistChannelById(channelId);
+  if (!row) return;
+  const deadline = Date.now() + PROVIDER_FREE_TIMEOUT_MS;
+  while (stillWanted() && Date.now() < deadline) {
+    const streams = await providerStreamsInUse(row.streamUrl, row.headers);
+    if (!streams || streams.active < streams.max) return;
+    await wait(POLL_MS);
+  }
+  if (stillWanted()) logger.info("Provider still counted every stream, recording starts anyway", { service: "RecordingHold", channelId });
 }
 
 /** The live timer on a channel now, the one a write just made. */
@@ -297,6 +317,8 @@ async function checkRecording(originKey: string, timer: JellyfinTimer, recreate:
       if (!mine()) return;
       if (await readsVideo(item.Id)) videoFlushes += 1;
       logger.info("Recording had no stream, made again", { service: "RecordingHold", timerId: id, videoFlushes });
+      await waitForProviderFree(timer.ChannelId ?? "", mine);
+      if (!mine()) return;
       await recreate();
       if (videoFlushes >= VIDEO_FLUSHES_TO_STOP) return;
       const next = await currentTimer(timer.ChannelId ?? "", timer.ProgramId);
