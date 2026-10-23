@@ -38,7 +38,8 @@ jest.mock("@/services/playQueueManager", () => ({
 }));
 jest.mock("@/services/syncPlayManager", () => ({ isJoined: () => false }));
 jest.mock("@/components/image-subtitle-overlay", () => ({ ImageSubtitleOverlay: () => null }));
-jest.mock("@/hooks/useItemPoster", () => ({ useItemPoster: () => undefined }));
+const mockUseItemPoster = jest.fn((..._args: unknown[]) => undefined);
+jest.mock("@/hooks/useItemPoster", () => ({ useItemPoster: (...args: unknown[]) => mockUseItemPoster(...args) }));
 const mockHotChannels = new Set<string>();
 const mockOneConnectionChannels = new Set<string>();
 jest.mock("@/services/liveRing", () => ({ isHotChannel: (id: string) => mockHotChannels.has(id), channelOnOneConnection: (id: string) => mockOneConnectionChannels.has(id) }));
@@ -197,6 +198,10 @@ describe("PlayerHost", () => {
   it("registers its bridge and sits idle with no session", () => {
     expect(registeredBridge).not.toBeNull();
     expect(hookCalls[0]).toEqual({ videoId: "", skip: true });
+  });
+
+  it("holds back a device-made poster while a video plays, so a frame landing mid-play never rebuilds the source", () => {
+    expect(mockUseItemPoster).toHaveBeenCalledWith(null, 600, { deferWhileVideo: true });
   });
 
   it("holds the outgoing channel's player through a flip until the new one plays", async () => {

@@ -385,7 +385,7 @@ export function PlayerHost() {
   // the player item's externalMetadata (fetching imageUri as the artwork item),
   // which is what the AirPlay placeholder and info panel display. Without it those
   // surfaces show no title or image.
-  const artwork = useItemPoster(videoDetails, 600);
+  const artwork = useItemPoster(videoDetails, 600, { deferWhileVideo: true });
   const sourceMetadata = useMemo(() => {
     if (!videoDetails) return undefined;
     // Apple TV's title view: the series large with "S04E19 · Episode name" above it, a movie with its
