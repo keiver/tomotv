@@ -22,6 +22,8 @@ const FONT_SIZES = Platform.isTV ? [30, 36, 42, 48] : [16, 19, 22, 26];
 const DEFAULT_FONT_STEP = 1;
 /** Pages rendered ahead and behind the one on screen. */
 const PRERENDER_WINDOW = 2;
+/** A tap inside this fraction of the width at either edge turns the page. */
+const EDGE_TAP_FRACTION = 0.1;
 /** Darker than the photo viewer's material: book pages are white paper, and the pill has to read on them. */
 const READER_CHROME_TINT = "rgba(18, 18, 20, 0.55)";
 
@@ -371,6 +373,7 @@ export default function BookReaderScreen() {
           : []
       }
       holdChrome={relaying}
+      edgeTapFraction={EDGE_TAP_FRACTION}
       triggerLabel={t("reader.bookActions")}
       overlay={overlay}
       zoomMode="image"

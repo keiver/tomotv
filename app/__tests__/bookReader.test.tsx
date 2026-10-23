@@ -85,6 +85,14 @@ describe("book reader", () => {
     tree.unmount();
   });
 
+  it("turns the page on a tap in the outer tenth of the screen", async () => {
+    await act(async () => {
+      TestRenderer.create(<BookReaderScreen />);
+    });
+    await settle();
+    expect(mockViewerProps.edgeTapFraction).toBe(0.1);
+  });
+
   it("writes the page it lands on and marks the last page played", async () => {
     let tree!: TestRenderer.ReactTestRenderer;
     await act(async () => {
