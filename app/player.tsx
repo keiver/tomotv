@@ -897,15 +897,21 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
   // where Menu backgrounds the app. Re-claim while no error button holds focus, briefly.
   const retryButtonRef = useRef<View>(null);
   // Which error button holds focus; a blur clears only its own name, so either event order reads right.
-  const errorButtonFocusedRef = useRef<"retry" | "back" | null>(null);
+  const errorButtonFocusedRef = useRef<"retry" | "stop" | "back" | null>(null);
   const onRetryFocus = useCallback(() => {
     errorButtonFocusedRef.current = "retry";
+  }, []);
+  const onStopFocus = useCallback(() => {
+    errorButtonFocusedRef.current = "stop";
   }, []);
   const onBackFocus = useCallback(() => {
     errorButtonFocusedRef.current = "back";
   }, []);
   const onRetryBlur = useCallback(() => {
     if (errorButtonFocusedRef.current === "retry") errorButtonFocusedRef.current = null;
+  }, []);
+  const onStopBlur = useCallback(() => {
+    if (errorButtonFocusedRef.current === "stop") errorButtonFocusedRef.current = null;
   }, []);
   const onBackBlur = useCallback(() => {
     if (errorButtonFocusedRef.current === "back") errorButtonFocusedRef.current = null;
@@ -1002,8 +1008,8 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
             {holdingTimer ? (
               <FocusableButton
                 ref={canWatchRecording ? undefined : retryButtonRef}
-                onFocus={canWatchRecording ? undefined : onRetryFocus}
-                onBlur={canWatchRecording ? undefined : onRetryBlur}
+                onFocus={canWatchRecording ? onStopFocus : onRetryFocus}
+                onBlur={canWatchRecording ? onStopBlur : onRetryBlur}
                 title={t("liveTv.stopRecordingAndPlay")}
                 onPress={stopRecordingThenPlay}
                 variant={canWatchRecording ? "secondary" : "retry"}

@@ -79,6 +79,12 @@ const mockSession = {
   hostMode: "video",
 };
 jest.mock("@/contexts/PlayerSessionContext", () => ({ usePlayerSession: () => mockSession }));
+const mockHoldingTimer = { Id: "t1", Name: "News", ChannelId: "one", ChannelName: "News", Status: "InProgress", StartDate: "2026-10-22T20:00:00Z", EndDate: "2026-10-22T21:00:00Z" };
+jest.mock("@/hooks/useRecordingStatus", () => ({
+  useChannelHeld: () => () => false,
+  useHeldRecording: (_channelId: string, active: boolean) => (active ? mockHoldingTimer : null),
+  useRecordingChecking: () => false,
+}));
 
 const { FocusableButton } = jest.requireMock("@/components/FocusableButton") as { FocusableButton: React.ComponentType };
 type ButtonProps = { title: string; onFocus: () => void; onBlur: () => void };
@@ -125,6 +131,18 @@ describe("error screen focus claim", () => {
       button(renderer, "common.retry").onBlur();
     });
     expect(moved).toBe(0);
+  });
+
+  it("leaves Stop Recording and Play focused on the Limited Connections screen", async () => {
+    mockSession.playbackState = { type: "ERROR", error: "held", canRetryWithTranscode: false, ref: { id: "PB-LIVE-RECORDING" } };
+    await mount();
+    const moved = await claimsAfter(() => {
+      button(renderer, "liveTv.watchRecording").onFocus();
+      button(renderer, "liveTv.watchRecording").onBlur();
+      button(renderer, "liveTv.stopRecordingAndPlay").onFocus();
+    });
+    expect(moved).toBe(0);
+    mockSession.playbackState = { type: "ERROR", error: "boom", canRetryWithTranscode: false };
   });
 
   it("leaves Go Back alone when Retry's blur lands first", async () => {
