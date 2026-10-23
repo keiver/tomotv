@@ -3,8 +3,9 @@
 jest.mock("@/services/folderContentsCache", () => ({ patchFolderCacheItem: jest.fn() }));
 jest.mock("@/services/jellyfin/events", () => ({ notifyItemRemoved: jest.fn(), notifyResumeChange: jest.fn(), notifyRecordingsChange: jest.fn() }));
 
-import { invalidateFolderListing, invalidateItemRemoved } from "@/services/jellyfin/cacheKeys";
+import { filtersCacheKey, invalidateFolderListing, invalidateItemRemoved } from "@/services/jellyfin/cacheKeys";
 import { cachedRequest, clearRequestCache } from "@/services/requestCache";
+import { EMPTY_FILTERS } from "@/types/jellyfin";
 
 const TTL = 60_000;
 
@@ -86,5 +87,14 @@ describe("invalidateFolderListing", () => {
     invalidateFolderListing("u", null);
     expect(await isCached("views:u")).toBe(false);
     expect(await isCached("folder:u:f:0:60:none")).toBe(true);
+  });
+});
+
+describe("filtersCacheKey", () => {
+  it("names a changed sort or order and leaves the default sort out", () => {
+    expect(filtersCacheKey(EMPTY_FILTERS)).toBe("none");
+    expect(filtersCacheKey({ ...EMPTY_FILTERS, sortBy: "DateCreated" })).toBe("s=DateCreated:Ascending");
+    expect(filtersCacheKey({ ...EMPTY_FILTERS, sortOrder: "Descending" })).toBe("s=SortName:Descending");
+    expect(filtersCacheKey({ ...EMPTY_FILTERS, favorite: true, shuffle: true, sortBy: "Runtime", genres: ["b", "a"] })).toBe("fav&shuffle&s=Runtime:Ascending&g=a|b");
   });
 });

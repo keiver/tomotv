@@ -89,7 +89,8 @@ Every feature needs a Jellyfin server. The Notes column says when a feature also
 | Favorite, mark watched, clear progress                                  | Yes      | Yes          | Yes |                                                           |
 | Delete an item from the server                                          | Yes      | Yes          | Yes | Admin accounts, where the server allows it                |
 | Swipe an info panel to the next item                                    | No       | Yes          | Yes |                                                           |
-| Filters: favorite, played, unplayed, genre, artist, year                | Yes      | Yes          | Yes |                                                           |
+| Sort by name, date added, release date, year, rating or runtime         | Yes      | Yes          | Yes | Per library, saved on the account; shows and music differ |
+| Filters: favorite, played, unplayed, genre, artist, year                | Yes      | Yes          | Yes | Per library, saved on the account                         |
 | Shuffle                                                                 | Yes      | Yes          | Yes |                                                           |
 | Posters generated on the device when the server has none                | Yes      | Yes          | Yes | A setting, on by default                                  |
 
