@@ -72,7 +72,7 @@ import {
 } from "@/services/localRemux";
 import { retainLiveSession, takeRingSession, takeWarmDetails, yieldLiveRing } from "@/services/liveRing";
 import { takeLivePreview } from "@/services/livePreview";
-import { admitUntilPlaying, isAdmitting, isChannelHeld } from "@/services/recordingHold";
+import { admitOnOneConnection, admitUntilPlaying, isAdmitting, isChannelHeld } from "@/services/recordingHold";
 import { recordTimeoutVerdict, rememberedVerdict, recordVerdict } from "@/services/engineVerdicts";
 import { downloadManager } from "@/services/downloads/manager";
 import { setPlaybackProbeEnabled, probeEmit, probeFirstPlaying, probeProgress, sourceSummary } from "@/services/playbackProbe";
@@ -651,6 +651,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         return;
       }
       if (await isChannelHeld(videoId)) failWith(PLAYBACK_ERROR_IDS.LIVE_RECORDING, "live origin is held by a recording");
+      await admitOnOneConnection(videoId);
       // A ring session or a neighbour's resolve of this channel is taken rather than opened twice.
       let details = await liveChannel.open(videoId, () => requestIdRef.current === currentRequestId);
 

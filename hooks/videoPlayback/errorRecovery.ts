@@ -140,7 +140,7 @@ export function planErrorRecovery(input: ErrorRecoveryInput): ErrorRecoveryDecis
 /** Failures every open of the channel repeats: the account, a channel the server no longer has, DRM, a recording holding the provider. */
 const LIVE_PERMANENT: readonly PlaybackErrorType[] = [PlaybackErrorType.UNAUTHORIZED, PlaybackErrorType.NOT_FOUND, PlaybackErrorType.PROTECTED, PlaybackErrorType.RECORDING_HOLD];
 
-/** A channel whose provider's recording was just stopped opens again on the provider's refusal, until it plays. */
+/** A channel on a one-connection provider opens again on the provider's refusal, until it plays. */
 export function reopensUntilAdmitted(input: { reopening: boolean; errorType: PlaybackErrorType; admitting: boolean }): boolean {
   return input.admitting && !input.reopening && input.errorType === PlaybackErrorType.PROVIDER_LIMIT;
 }

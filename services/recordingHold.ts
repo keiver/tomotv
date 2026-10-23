@@ -322,6 +322,12 @@ export function admitUntilPlaying(channelId: string | null): void {
   admitting = channelId;
 }
 
+/** A channel on a one-connection provider opens again on every refusal until it plays: the slot is this device's to wait for. */
+export async function admitOnOneConnection(channelId: string): Promise<void> {
+  const originKey = channelOrigin(channelId);
+  if (originKey && (await oneConnection(originKey))) admitUntilPlaying(channelId);
+}
+
 export function isAdmitting(channelId: string): boolean {
   return admitting === channelId;
 }

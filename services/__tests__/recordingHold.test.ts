@@ -37,6 +37,7 @@ jest.mock("@keiver/tomo-live", () => ({
 import { cancelTimer, createTimer, fetchInProgressRecording, fetchTimers, readRecordingStart } from "@/services/jellyfinApi";
 import {
   adjacentPlayableChannelId,
+  admitOnOneConnection,
   checkNewRecording,
   heldRecording,
   isAdmitting,
@@ -303,6 +304,18 @@ describe("reserveForRecording", () => {
     (originConnections as jest.Mock).mockResolvedValue({ budget: 2, active: 1, held: false });
     expect(await reserveForRecording("ch-a")).toBeNull();
     expect(setOriginRecording).not.toHaveBeenCalled();
+  });
+});
+
+describe("admitOnOneConnection", () => {
+  it("opens a channel again on every refusal only when its provider is at one connection", async () => {
+    await admitOnOneConnection("ch-a");
+    expect(isAdmitting("ch-a")).toBe(true);
+    resetRecordingHoldsForTests();
+    (originConnectionLimit as jest.Mock).mockReturnValue(null);
+    (originConnections as jest.Mock).mockResolvedValue({ budget: 2, active: 0, held: false });
+    await admitOnOneConnection("ch-b");
+    expect(isAdmitting("ch-b")).toBe(false);
   });
 });
 
