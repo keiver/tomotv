@@ -41,6 +41,8 @@ jest.mock("@/services/jellyfinApi", () => ({
   fetchTimerDefaults: jest.fn(async () => ({})),
   createTimer: jest.fn(async () => {}),
   cancelTimer: jest.fn(async () => {}),
+  subscribeRecordingsChange: jest.fn(() => () => {}),
+  subscribeAuthChange: jest.fn(() => () => {}),
 }));
 const mockLoaders = { hideGlobalLoader: jest.fn(), showGlobalLoader: jest.fn() };
 jest.mock("@/contexts/LoadingContext", () => ({ useLoadingActions: () => mockLoaders }));

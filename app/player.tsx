@@ -41,7 +41,7 @@ import { formatErrorRef, PLAYBACK_ERROR_IDS } from "@/utils/errorIds";
 import { adjacentPlayableChannelId, admitUntilPlaying, recordingInProgress, stopRecordingAndPlay, stopRecordingCheck, watchRecordingsWhilePlaying } from "@/services/recordingHold";
 import { writeAfterReserve } from "@/hooks/useRecordActions";
 import { useChannelHeld, useHeldRecording, useRecordingChecking } from "@/hooks/useRecordingStatus";
-import { recordingWindow } from "@/services/recordingStatus";
+import { getRecordingStatus, recordingWindow, subscribeRecordingStatus } from "@/services/recordingStatus";
 import { formatEpisodeNumber } from "@/utils/seasonEpisode";
 import { APP_BUILD_LABEL } from "@/constants/app";
 import { Ionicons } from "@expo/vector-icons";
@@ -557,6 +557,19 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
       cancelled = true;
     };
   }, [canRecord, recordKey, currentProgramId, videoId]);
+  // One recording write at a time: AVKit can deliver a second press before the reload lands.
+  const recordBusyRef = useRef(false);
+  // A timer stopped or made again anywhere (Stop Recording and Play, the recording check, another screen) moves the button too.
+  useEffect(() => {
+    if (!canRecord || !recordKey) return;
+    const key = recordKey;
+    const programId = currentProgramId;
+    const channelId = videoId;
+    return subscribeRecordingStatus(() => {
+      if (recordBusyRef.current) return;
+      setTimerResult({ key, timer: activeRecordTimer(getRecordingStatus().active, { programId, channelId }, Date.now()) });
+    });
+  }, [canRecord, recordKey, currentProgramId, videoId]);
 
   const transportBarButtons = useMemo(() => {
     if (!Platform.isTV) return undefined;
@@ -576,9 +589,6 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     }
     return buttons.length > 0 ? buttons : undefined;
   }, [isLiveChannel, playingChannel, liveFavorite, vodFavorite, canRecord, recordKey, recordTimer]);
-
-  // One recording write at a time: AVKit can deliver a second press before the reload lands.
-  const recordBusyRef = useRef(false);
   const handleTransportBarButtonSelected = useCallback(
     (event: { id: string }) => {
       if (event.id === "record") {
