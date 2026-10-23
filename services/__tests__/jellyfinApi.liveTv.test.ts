@@ -96,6 +96,28 @@ describe("live TV client", () => {
     expect(url).not.toContain("startIndex=");
   });
 
+  it("leaves out the channels the viewer hid and shows a renamed one under its name, on the list, the lineup and an ids read alike", async () => {
+    const preferences = jest.requireActual("@/services/liveTvPreferences") as typeof import("@/services/liveTvPreferences");
+    preferences.hideChannel({ Id: "c2", Name: "Two" });
+    preferences.renameChannel({ Id: "c1", Name: "One" }, "First");
+    try {
+      const items = [
+        { Id: "c1", Name: "One", Type: "TvChannel", CurrentProgram: null },
+        { Id: "c2", Name: "Two", Type: "TvChannel", CurrentProgram: null },
+      ];
+      (global.fetch as jest.Mock).mockResolvedValue({ ok: true, json: async () => ({ Items: items, TotalRecordCount: 2 }) });
+      const page = await fetchChannels();
+      expect(page.items).toEqual([{ Id: "c1", Name: "First", SourceName: "One", Type: "TvChannel", CurrentProgram: null }]);
+      // The total still counts the hidden channel: the next page is asked for by the server's count.
+      expect(page.total).toBe(2);
+      expect((await fetchChannelOrder()).map((channel) => [channel.Id, channel.Name])).toEqual([["c1", "First"]]);
+      expect((await fetchChannelsByIds(["c2", "c1"])).map((channel) => channel.Name)).toEqual(["First"]);
+    } finally {
+      preferences.unhideChannel({ name: "Two" });
+      preferences.renameChannel({ Id: "c1", Name: "One" }, "");
+    }
+  });
+
   it("fills a channel's missing current programme from the device guide sources", async () => {
     const external = jest.requireMock("@/services/externalGuide") as { activeGuideUrls: jest.Mock; fetchExternalAiringPrograms: jest.Mock };
     external.activeGuideUrls.mockReturnValueOnce(["http://g/guide.xml"]);

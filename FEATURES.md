@@ -116,6 +116,8 @@ Every feature needs a Jellyfin server. The Notes column says when a feature also
 | Categories: News, Sports, Kids, Movies, Series                  | Yes      | Yes          | Yes |                                                |
 | Add a channel to groups from its info panel                     | Yes      | Yes          | Yes |                                                |
 | Offline channels are marked, and can be hidden                  | Yes      | Yes          | Yes |                                                |
+| Hide a channel from every list                                  | Yes      | Yes          | Yes | From its info panel; Channel Settings restores |
+| Rename a channel                                                | Yes      | Yes          | Yes | From its info panel                            |
 | Resize the guide's channel column                               | No       | Yes          | Yes |                                                |
 | Recordings and the schedule                                     | Yes      | Yes          | Yes |                                                |
 | Record a program or a series                                    | Yes      | Yes          | Yes | Accounts allowed to manage recordings          |

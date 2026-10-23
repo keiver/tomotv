@@ -24,7 +24,7 @@ import {
   type MediaSegmentWindow,
 } from "@/services/jellyfinApi";
 import { toggleFavoriteChannel } from "@/services/channelFavorites";
-import { getLiveTvPreferences, isFavoriteChannel, subscribeLiveTvPreferences } from "@/services/liveTvPreferences";
+import { channelDisplayName, getLiveTvPreferences, isFavoriteChannel, subscribeLiveTvPreferences } from "@/services/liveTvPreferences";
 import { recenterLiveRing, releaseLiveRing } from "@/services/liveRing";
 import { probeEmit } from "@/services/playbackProbe";
 import { showToast } from "@/services/toast";
@@ -1006,7 +1006,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     if (recordingHold) {
       const holdText = holdingTimer
         ? t("player.error.recordingHold")
-            .replace("{channel}", cleanLabel(holdingTimer.ChannelName ?? holdingTimer.Name))
+            .replace("{channel}", cleanLabel(channelDisplayName(getLiveTvPreferences(), { Id: holdingTimer.ChannelId, Name: holdingTimer.ChannelName ?? holdingTimer.Name })))
             .replace("{time}", formatClock(recordingWindow(holdingTimer).endMs))
         : playbackState.error;
       return (

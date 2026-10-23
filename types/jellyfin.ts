@@ -158,6 +158,8 @@ export interface JellyfinVideoItem {
   // yet, so server-side writes (favorite, record) and the server lane are unavailable.
   playlistPending?: boolean;
   ChannelNumber?: string;
+  // A channel the viewer renamed: Name is what shows, SourceName the server's own name, which lists and guides match by.
+  SourceName?: string;
   CurrentProgram?: JellyfinProgram | null;
   // A Live TV programme found by search (Type "Program"): its airing and its channel.
   StartDate?: string;

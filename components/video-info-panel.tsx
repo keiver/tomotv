@@ -46,6 +46,8 @@ import { LiveClip } from "@/components/live-tv/live-clip";
 import { useLiveClip, useLiveFrame, useLiveFrameSeenAt } from "@/hooks/useLiveFrame";
 import { useChannelHealth } from "@/hooks/useChannelHealth";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
+import { invalidateChannelListReads, withChannelEdits } from "@/services/jellyfin/channelEdits";
+import { hideChannel, renameChannel } from "@/services/liveTvPreferences";
 import { usePlaybackHeld } from "@/hooks/usePlaybackHeld";
 import { LIVE_FRAME_TRANSITION_MS } from "@/services/liveFrames";
 import { folderPosterSource, heroArtBoxed, heroArtFrame, heroBoxFrame } from "@/services/itemArtwork";
@@ -209,7 +211,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
         if (root) fetched = { ...fetched, ChildCount: undefined, RecursiveItemCount: rootCount };
         setFolderLeafId(path.length ? path[path.length - 1].id : null);
         setMediaKinds(kinds);
-        setDetails(fetched);
+        setDetails(isLiveChannel(fetched) ? withChannelEdits(fetched) : fetched);
         setDetailsAtMs(Date.now());
         setIsFavorite(!!fetched.UserData?.IsFavorite);
         setIsPlayed(!!fetched.UserData?.Played);
@@ -419,6 +421,44 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
       },
     ]);
   }, [deleting, details]);
+
+  // The channel's name on every screen; the panel shows the saved name at once.
+  const handleRenameChannel = useCallback(() => {
+    if (!details) return;
+    Alert.prompt(
+      t("liveTv.renameChannel"),
+      t("liveTv.renameChannelBody"),
+      [
+        { text: t("common.cancel"), style: "cancel" },
+        {
+          text: t("common.save"),
+          onPress: (text?: string) => {
+            renameChannel(details, text ?? "");
+            invalidateChannelListReads();
+            setDetails((current) => (current ? withChannelEdits(current) : current));
+          },
+        },
+      ],
+      "plain-text",
+      cleanLabel(details.Name),
+    );
+  }, [details]);
+
+  // A hidden channel leaves every list, so the panel that showed it closes with it.
+  const handleHideChannel = useCallback(() => {
+    if (!details) return;
+    Alert.alert(cleanLabel(details.Name), t("liveTv.hideChannelBody"), [
+      { text: t("common.cancel"), style: "cancel" },
+      {
+        text: t("liveTv.hideChannel"),
+        onPress: () => {
+          hideChannel(details);
+          invalidateChannelListReads();
+          router.back();
+        },
+      },
+    ]);
+  }, [details, router]);
 
   // Stop an in-progress recording: deleting its timer is the stop, the file stays. The flip
   // is local (`stopped`) because the item's own Status lags the timer delete server-side.
@@ -745,6 +785,12 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
     ...(showFolderCta && !folderInRow ? [{ key: "folder", icon: "folder-outline" as const, label: t("info.showInFolder"), word: t("info.word.folder"), onPress: handleShowInFolder }] : []),
     ...(shareable && folderInRow ? [{ key: "share", icon: "share-outline" as const, label: t("common.share"), word: t("info.word.share"), onPress: () => void handleShare() }] : []),
     ...(canDownloadFolder ? [{ key: "downloadAll", icon: "arrow-down" as const, label: t("info.downloadAll"), word: t("info.word.download"), onPress: handleDownloadFolder }] : []),
+    ...(liveChannel
+      ? [
+          { key: "rename", icon: "pencil-outline" as const, label: t("liveTv.renameChannel"), word: t("info.word.rename"), onPress: handleRenameChannel },
+          { key: "hide", icon: "eye-off-outline" as const, label: t("liveTv.hideChannel"), word: t("info.word.hide"), onPress: handleHideChannel },
+        ]
+      : []),
     ...(canDelete ? [{ key: "delete", icon: "trash-outline" as const, label: t("common.delete"), word: t("info.word.delete"), destructive: true, onPress: handleDelete }] : []),
   ];
 

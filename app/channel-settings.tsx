@@ -36,6 +36,7 @@ export default function ChannelSettingsScreen() {
   const newGroup = useCallback(() => promptChannelGroup(), []);
   const openGuideSources = useCallback(() => router.push("/guide-sources"), [router]);
   const openSkip = useCallback(() => router.push("/skip-settings"), [router]);
+  const openHidden = useCallback(() => router.push("/hidden-channels"), [router]);
   const openConnectionLimits = useCallback(() => router.push("/connection-limits"), [router]);
   const activeGuides = activeGuideUrls(preferences, lastKnownTunerData()?.tvgUrls ?? []).length;
   const manageGroup = useCallback(
@@ -69,6 +70,12 @@ export default function ChannelSettingsScreen() {
               isFirst
             />
             <ListRow icon="eye-off-outline" title={t("liveTv.hideOffline")} trailingIcon={preferences.hideOffline ? tick : undefined} onPress={toggleHideOffline} />
+            <ListRow
+              icon="eye-outline"
+              title={preferences.hidden.length > 0 ? t("liveTv.hiddenChannelsCount").replace("{count}", String(preferences.hidden.length)) : t("liveTv.hiddenChannels")}
+              trailingIcon="chevron-forward"
+              onPress={openHidden}
+            />
             <ListRow icon="play-skip-forward-outline" title={t("settings.skipAutomatically")} trailingIcon="chevron-forward" onPress={openSkip} />
             <ListRow
               icon="calendar-outline"

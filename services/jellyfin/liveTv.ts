@@ -12,6 +12,7 @@ import { setPlaybackStage } from "@/services/playbackStage";
 import { cachedRequest } from "@/services/requestCache";
 import { logger } from "@/utils/logger";
 import { invalidateRecordingReads } from "./cacheKeys";
+import { applyChannelEdits } from "./channelEdits";
 import * as SecureStore from "expo-secure-store";
 import { getSavedAccounts } from "./accounts";
 import { accountTokenKey, API_TIMEOUTS } from "./constants";
@@ -134,7 +135,7 @@ export async function fetchChannels(page: { startIndex?: number; limit?: number;
   );
   if (!response.ok) throwRequestError(response, `Failed to fetch channels: ${response.status}`);
   const json = await response.json();
-  return { items: await fillAiringFromGuides((json.Items ?? []) as JellyfinItem[]), total: json.TotalRecordCount };
+  return { items: applyChannelEdits(await fillAiringFromGuides((json.Items ?? []) as JellyfinItem[])), total: json.TotalRecordCount };
 }
 
 /**
@@ -160,7 +161,7 @@ export async function fetchChannelOrder(order: { sortBy?: "SortName" | "Name"; c
   );
   if (!response.ok) throwRequestError(response, `Failed to fetch channel order: ${response.status}`);
   const json = await response.json();
-  return ((json.Items ?? []) as JellyfinItem[]).map(({ Id, Name, Type }) => ({ Id, Name, Type }) as JellyfinItem);
+  return applyChannelEdits(((json.Items ?? []) as JellyfinItem[]).map(({ Id, Name, Type, ChannelNumber }) => ({ Id, Name, Type, ...(ChannelNumber ? { ChannelNumber } : {}) }) as JellyfinItem));
 }
 
 /** Category flags move only when guide data refreshes, so mounts share one read for a while; the guide's refresh drops it. */
@@ -204,11 +205,13 @@ export async function fetchChannelsByIds(ids: readonly string[]): Promise<Jellyf
   const byId = new Map<string, JellyfinItem>();
   for (const item of pages.flat()) if (item.Type === "TvChannel") byId.set(item.Id, item);
   const standIns = ids.some((id) => !byId.has(id) && playlistChannelById(id)) && (await playlistStandInsAllowed());
-  return ids.flatMap((id) => {
-    const row = byId.has(id) || !standIns ? null : playlistChannelById(id);
-    const item = byId.get(id) ?? (row ? standInItem(row) : null);
-    return item ? [item] : [];
-  });
+  return applyChannelEdits(
+    ids.flatMap((id) => {
+      const row = byId.has(id) || !standIns ? null : playlistChannelById(id);
+      const item = byId.get(id) ?? (row ? standInItem(row) : null);
+      return item ? [item] : [];
+    }),
+  );
 }
 
 /** These channels in this order, each with its art, number and the programme it airs now. */
@@ -245,10 +248,12 @@ export async function fetchListedChannels(list: readonly ChannelFavorite[]): Pro
     }),
   );
   for (const item of found) if (item) byKey.set(channelListKey(item), item);
-  return list.flatMap((entry) => {
-    const item = byKey.get(favoriteKey(entry));
-    return item ? [item] : [];
-  });
+  return applyChannelEdits(
+    list.flatMap((entry) => {
+      const item = byKey.get(favoriteKey(entry));
+      return item ? [item] : [];
+    }),
+  );
 }
 
 /**

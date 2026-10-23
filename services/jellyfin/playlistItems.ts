@@ -6,6 +6,7 @@
 import { allPlaylistChannelIds, playlistChannelById, type PlaylistChannel } from "@keiver/tomo-live";
 import { cachedRequest } from "@/services/requestCache";
 import type { JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
+import { applyChannelEdits } from "./channelEdits";
 import { API_TIMEOUTS } from "./constants";
 import { fetchWithTimeout } from "./http";
 import { originKeyOf } from "./liveInput";
@@ -116,7 +117,7 @@ export async function pendingPlaylistItemsPage(exclude: ReadonlySet<string>, lim
   }
   if (pending.length === 0 || !(await playlistStandInsAllowed())) return [];
   pending.sort((a, b) => a.name.localeCompare(b.name));
-  return pending.slice(0, limit).map(standInItem);
+  return applyChannelEdits(pending.slice(0, limit).map(standInItem));
 }
 
 /**

@@ -30,6 +30,7 @@ import { registerMultiAudioPlugin } from "@/services/multiAudioLoader";
 import { applyScreenshotSizeLockAtLaunch } from "@/services/screenshotSizeLock";
 import { videoDecodeSupport } from "@/services/localRemux";
 import { watchRecordingHolds } from "@/services/recordingHold";
+import { startShelfChannelEdits } from "@/services/topShelfChannelEdits";
 import { logger } from "@/utils/logger";
 import { t } from "@/services/i18n";
 import { LocaleBoundary } from "@/components/locale-boundary";
@@ -116,6 +117,9 @@ export default function RootLayout() {
 
   // A recording on a one-connection provider keeps this device off that provider.
   useEffect(() => watchRecordingHolds(), []);
+
+  // The Top Shelf leaves out the channels this account hid and shows its renames.
+  useEffect(() => startShelfChannelEdits(), []);
 
   // Redraws the header titles below and the hosts outside the navigator in a picked language.
   useLocale();
@@ -307,6 +311,21 @@ export default function RootLayout() {
                                 headerTitle: t("liveTv.channelSettings"),
                                 headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
                                 headerBackTitle: t("liveTv.channels"),
+                              }
+                        }
+                      />
+                      <Stack.Screen
+                        name="hidden-channels"
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : {
+                                headerShown: true,
+                                headerTransparent: true,
+                                headerShadowVisible: false,
+                                headerTitle: t("liveTv.hiddenChannels"),
+                                headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                                headerBackTitle: t("liveTv.channelSettings"),
                               }
                         }
                       />

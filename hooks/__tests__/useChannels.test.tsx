@@ -109,6 +109,29 @@ describe("useChannels", () => {
     expect(ref.current?.get().items.map((item) => item.Id)).toEqual(["c0", "p1", "c7"]);
   });
 
+  it("reads the wall again when a channel is hidden or renamed", async () => {
+    const preferences = jest.requireActual("@/services/liveTvPreferences") as typeof import("@/services/liveTvPreferences");
+    mockFetch.mockResolvedValue({ items: channels(0, 2), total: 2 });
+    const ref = React.createRef<HookRef>();
+    let renderer: TestRenderer.ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = TestRenderer.create(<Harness ref={ref} sort="number" />);
+    });
+    await settle();
+    // Earlier tests leave their walls mounted, and they read again too: at least this wall does.
+    const reads = mockFetch.mock.calls.length;
+    await act(async () => preferences.hideChannel({ Id: "c1", Name: "Channel 1" }));
+    await settle();
+    expect(mockFetch.mock.calls.length).toBeGreaterThan(reads);
+    const afterHide = mockFetch.mock.calls.length;
+    await act(async () => preferences.renameChannel({ Id: "c0", Name: "Channel 0" }, "Zero"));
+    await settle();
+    expect(mockFetch.mock.calls.length).toBeGreaterThan(afterHide);
+    preferences.unhideChannel({ name: "Channel 1" });
+    preferences.renameChannel({ Id: "c0", Name: "Channel 0" }, "");
+    act(() => renderer?.unmount());
+  });
+
   it("loads the first page in the sort's server order, then the next on loadMore until the total is reached", async () => {
     const total = CHANNEL_WALL_PAGE + 3;
     mockFetch.mockImplementation(async ({ startIndex }: { startIndex: number }) => ({ items: channels(startIndex, Math.min(CHANNEL_WALL_PAGE, total - startIndex)), total }));

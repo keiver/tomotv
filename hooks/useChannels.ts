@@ -1,6 +1,7 @@
 import { fetchCategoryChannelIds, fetchChannels, fetchChannelsByIds, fetchListedChannels, fillAiringFromGuides } from "@/services/jellyfinApi";
 import { pendingChannelsAfter } from "@/services/jellyfin/playlistItems";
 import { subscribeTunerDataRefreshed } from "@/services/jellyfin/tunerGroups";
+import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { channelSortParam, playlistGroupIds, type ChannelFavorite, type ChannelSort, type LiveTvCategory, type PlaylistEdit } from "@/services/liveTvPreferences";
 import type { JellyfinItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
@@ -48,6 +49,9 @@ export function useChannels(
   // A failed page holds isLoadingMore for a backoff, or the grid asks for it again at once.
   const pageFailuresRef = useRef(0);
   const pageBackoffRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // A channel hidden or renamed reads the list again, so the change shows without a relaunch.
+  const { hidden, renames } = useLiveTvPreferences();
+  const editsKey = JSON.stringify([hidden, renames]);
 
   const loadPage = useCallback(
     async (startIndex: number) => {
@@ -77,7 +81,8 @@ export function useChannels(
       }
       return { page, hasMore, consumed: page.length, waiting: false };
     },
-    [sort, category, categoryEdit, list, ids],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sort, category, categoryEdit, list, ids, editsKey],
   );
 
   useEffect(() => {
