@@ -25,12 +25,11 @@ Runtime configuration backed by SecureStore, with demo mode support. Users conne
 
 ### Demo Mode (Testing without setup)
 
-1. Tomo TV's own demo server (`https://tomotv.cubita.studio`), built by `scripts/demo-account/`: a shared `demo` account with no password, libraries of free-to-use content, its favorites and part-played items put back every night
+1. Tomo TV's own demo server (`https://tomotv.cubita.studio`): a shared `demo` account with no password, libraries of free-to-use content, its favorites and part-played items put back every night. The server is run outside this repo
 2. Reached from the Demo face on the Who's watching screen (shown while no account is saved), the Add Server placeholder (Go on the empty field or the demo address typed) and "Try Demo Server" on the Search tab
 3. Stores demo credentials in SecureStore with the `IS_DEMO_MODE` flag; never saved as an account
 4. Users can disconnect from demo and configure their own server anytime
 5. The link to the demo is never measured (`bitrateTest.ts`); library views, themes and track settings stay on the device in demo mode
-6. `scripts/demo-account/boxwatch.py` watches the box every 5 minutes (CPU, memory, egress rate and month to date, disk, Jellyfin plays) and pushes to ntfy on a condition, its escalation, every 6 h while it holds, and once when it clears
 
 ### Demo Server Advanced Features
 

@@ -2366,7 +2366,7 @@ Demo mode lives in `services/jellyfin/demo.ts`. Its entry points are the Demo fa
 watching screen (`components/settings/WhoIsWatchingScreen.tsx`, shown while no account is saved),
 the Add Server placeholder in `components/settings/AddServerRow.tsx` (Go on the empty field) and
 "Try Demo Server" in `app/(tabs)/search.tsx`. The server side (libraries, the `demo` user, the nightly reset, the
-login disclaimer) is `scripts/demo-account/`.
+login disclaimer) is run outside this repo.
 
 ---
 

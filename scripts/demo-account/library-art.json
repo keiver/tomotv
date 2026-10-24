@@ -1,7 +1,0 @@
-[
-  { "library": "Space", "file": "art/space.jpg" },
-  { "library": "Shows", "source": "Shows/Veguitas/Season 1/Veguitas S01E04.mp4", "frame_at": 190, "crop": { "height": 0.92, "x": 1, "y": 1 } },
-  { "library": "Music", "source": "Demo Music/Chris Zabriskie/Direct to Video/cover.jpg" },
-  { "library": "Books", "file": "art/books.jpg", "crop": { "y": 0.6 } },
-  { "library": "Photos", "file": "art/photos.jpg", "crop": { "y": 0.42 } }
-]
