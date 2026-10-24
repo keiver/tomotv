@@ -230,7 +230,16 @@ function SettingsScreen() {
             userImageUri={connectedUserId ? getUserImageUrl(connectedServerUrl, connectedUserId) : undefined}
             onSwitchServer={handleSwitchServer}>
             {connectedDemo ? (
-              <ListRow icon="information-circle-outline" title={t("settings.demoTitle")} subtitle={t("settings.demoDisclosure")} subtitleLines={0} isLast={syncPlay?.access === "None"} />
+              <ListRow
+                icon="information-circle-outline"
+                title={t("settings.demoTitle")}
+                subtitle={t("settings.demoDisclosure")}
+                subtitleLines={0}
+                trailingIcon="chevron-forward"
+                onPress={() => router.push("/demo-credits")}
+                accessibilityHint={t("settings.demoCreditsHint")}
+                isLast={syncPlay?.access === "None"}
+              />
             ) : null}
             {/* Shown unless the server has said no. Gating on a resolved access instead
                 mounted the row after /Users/Me came back, which re-rounded the card under

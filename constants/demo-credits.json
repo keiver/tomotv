@@ -1,0 +1,653 @@
+{
+  "generated": "2026-10-24T16:17:20Z",
+  "items": [
+    {
+      "library": "Space",
+      "title": "4K Video from the ISS, April 2016",
+      "by": "NASA Scientific Visualization Studio",
+      "year": 2016,
+      "licence": "Public domain",
+      "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "source": "http://svs.gsfc.nasa.gov/30771/"
+    },
+    {
+      "library": "Space",
+      "title": "Aurora from the ISS, November 2025",
+      "by": "NASA Scientific Visualization Studio",
+      "year": 2026,
+      "licence": "Public domain",
+      "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "source": "http://svs.gsfc.nasa.gov/31375/"
+    },
+    {
+      "library": "Space",
+      "title": "Black Hole Eats Star: The Longest GRB Ever Seen",
+      "by": "NASA Scientific Visualization Studio",
+      "year": 2025,
+      "licence": "Public domain",
+      "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "source": "http://svs.gsfc.nasa.gov/14916/"
+    },
+    {
+      "library": "Space",
+      "title": "Carina Nebula Webb vs Hubble",
+      "by": "NASA Scientific Visualization Studio",
+      "year": 2022,
+      "licence": "Public domain",
+      "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "source": "http://svs.gsfc.nasa.gov/31197/"
+    },
+    {
+      "library": "Space",
+      "title": "Curiosity Mars rover panoramas",
+      "by": "NASA Scientific Visualization Studio",
+      "year": 2025,
+      "licence": "Public domain",
+      "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "source": "http://svs.gsfc.nasa.gov/31343/"
+    },
+    {
+      "library": "Space",
+      "title": "GEOS Aerosols",
+      "by": "NASA Scientific Visualization Studio",
+      "year": 2025,
+      "licence": "Public domain",
+      "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "source": "http://svs.gsfc.nasa.gov/5572/"
+    },
+    {
+      "library": "Space",
+      "title": "Global Nighttime Lights Change, 2014 to 2022",
+      "by": "NASA Scientific Visualization Studio",
+      "year": 2026,
+      "licence": "Public domain",
+      "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "source": "http://svs.gsfc.nasa.gov/5634/"
+    },
+    {
+      "library": "Space",
+      "title": "NASA's Fermi Spies a Supercharged Supernova",
+      "by": "NASA Scientific Visualization Studio",
+      "year": 2026,
+      "licence": "Public domain",
+      "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "source": "http://svs.gsfc.nasa.gov/15041/"
+    },
+    {
+      "library": "Space",
+      "title": "Pillars of Creation: Hubble vs Webb",
+      "by": "NASA Scientific Visualization Studio",
+      "year": 2022,
+      "licence": "Public domain",
+      "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "source": "http://svs.gsfc.nasa.gov/31202/"
+    },
+    {
+      "library": "Space",
+      "title": "Sea Level Through a Porthole",
+      "by": "NASA Scientific Visualization Studio",
+      "year": 2026,
+      "licence": "Public domain",
+      "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "source": "http://svs.gsfc.nasa.gov/5620/"
+    },
+    {
+      "library": "Space",
+      "title": "TESS Tunes into an All-sky ‘Symphony’ of Red Giants",
+      "by": "NASA Scientific Visualization Studio",
+      "year": 2021,
+      "licence": "Public domain",
+      "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "source": "http://svs.gsfc.nasa.gov/13897/"
+    },
+    {
+      "library": "Space",
+      "title": "The Moon Passes In and Out of Earth's Magnetosphere",
+      "by": "NASA Scientific Visualization Studio",
+      "year": 2026,
+      "licence": "Public domain",
+      "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "source": "http://svs.gsfc.nasa.gov/5648/"
+    },
+    {
+      "library": "Music",
+      "title": "Danzones de La Habana, 1919-1920",
+      "by": "Orquesta Francesa de Antonio Romeu",
+      "year": 1920,
+      "licence": "Public domain (sound recordings marked public domain by the Discography of American Historical Recordings, UC Santa Barbara Library)",
+      "licenceUrl": "https://adp.library.ucsb.edu/index.php/matrix/search",
+      "source": "https://adp.library.ucsb.edu/index.php/matrix/search"
+    },
+    {
+      "library": "Music",
+      "title": "Port of Spain, 1912-1923",
+      "by": "Various Artists",
+      "year": 1923,
+      "licence": "Public domain (sound recordings marked public domain by the Discography of American Historical Recordings, UC Santa Barbara Library)",
+      "licenceUrl": "https://adp.library.ucsb.edu/index.php/matrix/search",
+      "source": "https://adp.library.ucsb.edu/index.php/matrix/search"
+    },
+    {
+      "library": "Music",
+      "title": "Trova de La Habana, 1918-1923",
+      "by": "Various Artists",
+      "year": 1923,
+      "licence": "Public domain (sound recordings marked public domain by the Discography of American Historical Recordings, UC Santa Barbara Library)",
+      "licenceUrl": "https://adp.library.ucsb.edu/index.php/matrix/search",
+      "source": "https://adp.library.ucsb.edu/index.php/matrix/search"
+    },
+    {
+      "library": "Books",
+      "title": "Dracula",
+      "by": "Bram Stoker",
+      "year": 1897,
+      "licence": "Public domain text; this edition by Standard Ebooks released under CC0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "source": "https://standardebooks.org/ebooks/bram-stoker/dracula"
+    },
+    {
+      "library": "Books",
+      "title": "Frankenstein",
+      "by": "Mary Shelley",
+      "year": 1818,
+      "licence": "Public domain text; this edition by Standard Ebooks released under CC0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "source": "https://standardebooks.org/ebooks/mary-shelley/frankenstein"
+    },
+    {
+      "library": "Books",
+      "title": "Jane Eyre",
+      "by": "Charlotte Brontë",
+      "year": 1847,
+      "licence": "Public domain text; this edition by Standard Ebooks released under CC0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "source": "https://standardebooks.org/ebooks/charlotte-bronte/jane-eyre"
+    },
+    {
+      "library": "Books",
+      "title": "Moby Dick",
+      "by": "Herman Melville",
+      "year": 1851,
+      "licence": "Public domain text; this edition by Standard Ebooks released under CC0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "source": "https://standardebooks.org/ebooks/herman-melville/moby-dick"
+    },
+    {
+      "library": "Books",
+      "title": "Pride and Prejudice",
+      "by": "Jane Austen",
+      "year": 1813,
+      "licence": "Public domain text; this edition by Standard Ebooks released under CC0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "source": "https://standardebooks.org/ebooks/jane-austen/pride-and-prejudice"
+    },
+    {
+      "library": "Books",
+      "title": "Short Fiction",
+      "by": "Edgar Allan Poe",
+      "year": null,
+      "licence": "Public domain text; this edition by Standard Ebooks released under CC0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "source": "https://standardebooks.org/ebooks/edgar-allan-poe/short-fiction"
+    },
+    {
+      "library": "Books",
+      "title": "The Adventures of Huckleberry Finn",
+      "by": "Mark Twain",
+      "year": 1884,
+      "licence": "Public domain text; this edition by Standard Ebooks released under CC0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "source": "https://standardebooks.org/ebooks/mark-twain/the-adventures-of-huckleberry-finn"
+    },
+    {
+      "library": "Books",
+      "title": "The Adventures of Sherlock Holmes",
+      "by": "Arthur Conan Doyle",
+      "year": 1892,
+      "licence": "Public domain text; this edition by Standard Ebooks released under CC0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "source": "https://standardebooks.org/ebooks/arthur-conan-doyle/the-adventures-of-sherlock-holmes"
+    },
+    {
+      "library": "Books",
+      "title": "The Great Gatsby",
+      "by": "F. Scott Fitzgerald",
+      "year": 1925,
+      "licence": "Public domain text; this edition by Standard Ebooks released under CC0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "source": "https://standardebooks.org/ebooks/f-scott-fitzgerald/the-great-gatsby"
+    },
+    {
+      "library": "Books",
+      "title": "The Picture of Dorian Gray",
+      "by": "Oscar Wilde",
+      "year": 1890,
+      "licence": "Public domain text; this edition by Standard Ebooks released under CC0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "source": "https://standardebooks.org/ebooks/oscar-wilde/the-picture-of-dorian-gray"
+    },
+    {
+      "library": "Books",
+      "title": "The Time Machine",
+      "by": "H. G. Wells",
+      "year": 1895,
+      "licence": "Public domain text; this edition by Standard Ebooks released under CC0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "source": "https://standardebooks.org/ebooks/h-g-wells/the-time-machine"
+    },
+    {
+      "library": "Books",
+      "title": "Treasure Island",
+      "by": "Robert Louis Stevenson",
+      "year": 1883,
+      "licence": "Public domain text; this edition by Standard Ebooks released under CC0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "source": "https://standardebooks.org/ebooks/robert-louis-stevenson/treasure-island"
+    },
+    {
+      "library": "Photos",
+      "title": "A Giant Filament on the Sun, SDO",
+      "by": "NASA/GSFC/SDO",
+      "year": 2015,
+      "licence": "Public domain",
+      "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "source": "https://images-assets.nasa.gov/image/GSFC_20171208_Archive_e000790/GSFC_20171208_Archive_e000790~orig.jpg"
+    },
+    {
+      "library": "Photos",
+      "title": "Aurora beneath the Space Station",
+      "by": "NASA",
+      "year": 2022,
+      "licence": "Public domain",
+      "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "source": "https://images-assets.nasa.gov/image/iss066e146457/iss066e146457~orig.jpg"
+    },
+    {
+      "library": "Photos",
+      "title": "Aurora over the Southern Ocean from the Space Station",
+      "by": "NASA",
+      "year": 2020,
+      "licence": "Public domain",
+      "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "source": "https://images-assets.nasa.gov/image/iss062e148363/iss062e148363~orig.jpg"
+    },
+    {
+      "library": "Photos",
+      "title": "Earth at Night, the Black Marble",
+      "by": "NASA Earth Observatory",
+      "year": 2016,
+      "licence": "Public domain",
+      "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "source": "https://eoimages.gsfc.nasa.gov/images/imagerecords/144000/144898/BlackMarble_2016_3km.jpg"
+    },
+    {
+      "library": "Photos",
+      "title": "Earthrise, Apollo 8",
+      "by": "NASA",
+      "year": 1968,
+      "licence": "Public domain",
+      "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "source": "https://images-assets.nasa.gov/image/as08-14-2383/as08-14-2383~orig.jpg"
+    },
+    {
+      "library": "Photos",
+      "title": "Jupiter from Juno, A New Point of View",
+      "by": "NASA/JPL-Caltech/SwRI/MSSS",
+      "year": 2017,
+      "licence": "Public domain",
+      "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "source": "https://images-assets.nasa.gov/image/PIA21778/PIA21778~orig.jpg"
+    },
+    {
+      "library": "Photos",
+      "title": "Mars from Curiosity, Gale Crater",
+      "by": "NASA/JPL-Caltech/MSSS",
+      "year": 2025,
+      "licence": "Public domain",
+      "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "source": "https://svs.gsfc.nasa.gov/vis/a030000/a031300/a031343/mars_PIA26551_zoom_and_pan.png"
+    },
+    {
+      "library": "Photos",
+      "title": "Pluto in Extended Color, New Horizons",
+      "by": "NASA/JHUAPL/SwRI",
+      "year": 2015,
+      "licence": "Public domain",
+      "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "source": "https://images-assets.nasa.gov/image/PIA19956/PIA19956~orig.jpg"
+    },
+    {
+      "library": "Photos",
+      "title": "Saturn, The Day the Earth Smiled, Cassini",
+      "by": "NASA/JPL-Caltech/SSI",
+      "year": 2013,
+      "licence": "Public domain",
+      "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "source": "https://images-assets.nasa.gov/image/PIA17172/PIA17172~orig.jpg"
+    },
+    {
+      "library": "Photos",
+      "title": "Stephan's Quintet, Webb",
+      "by": "NASA, ESA, CSA, STScI",
+      "year": 2022,
+      "licence": "CC BY 4.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "source": "https://cdn.esawebb.org/archives/images/publicationjpg/weic2208a.jpg"
+    },
+    {
+      "library": "Photos",
+      "title": "The Andromeda Galaxy, Hubble",
+      "by": "NASA, ESA, J. Dalcanton, B.F. Williams, L.C. Johnson, the PHAT team, R. Gendler",
+      "year": 2015,
+      "licence": "CC BY 4.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "source": "https://cdn.esahubble.org/archives/images/publicationjpg/heic1502a.jpg"
+    },
+    {
+      "library": "Photos",
+      "title": "The Blue Marble, Apollo 17",
+      "by": "NASA",
+      "year": 1972,
+      "licence": "Public domain",
+      "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "source": "https://upload.wikimedia.org/wikipedia/commons/9/97/The_Earth_seen_from_Apollo_17.jpg"
+    },
+    {
+      "library": "Photos",
+      "title": "The Bubble Nebula, Hubble",
+      "by": "NASA, ESA, Hubble Heritage Team",
+      "year": 2016,
+      "licence": "CC BY 4.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "source": "https://cdn.esahubble.org/archives/images/publicationjpg/heic1608a.jpg"
+    },
+    {
+      "library": "Photos",
+      "title": "The Cartwheel Galaxy, Webb",
+      "by": "NASA, ESA, CSA, STScI",
+      "year": 2022,
+      "licence": "CC BY 4.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "source": "https://cdn.esawebb.org/archives/images/publicationjpg/weic2211a.jpg"
+    },
+    {
+      "library": "Photos",
+      "title": "The Cosmic Cliffs in Carina, Webb",
+      "by": "NASA, ESA, CSA, STScI",
+      "year": 2022,
+      "licence": "CC BY 4.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "source": "https://cdn.esawebb.org/archives/images/publicationjpg/weic2205a.jpg"
+    },
+    {
+      "library": "Photos",
+      "title": "The Crab Nebula, Hubble",
+      "by": "NASA, ESA, J. Hester and A. Loll",
+      "year": 2005,
+      "licence": "CC BY 4.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "source": "https://cdn.esahubble.org/archives/images/large/heic0515a.jpg"
+    },
+    {
+      "library": "Photos",
+      "title": "The Frozen Canyons of Pluto's North Pole, New Horizons",
+      "by": "NASA/JHUAPL/SwRI",
+      "year": 2015,
+      "licence": "Public domain",
+      "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "source": "https://images-assets.nasa.gov/image/PIA20473/PIA20473~orig.jpg"
+    },
+    {
+      "library": "Photos",
+      "title": "The Horsehead Nebula in Infrared, Hubble",
+      "by": "NASA, ESA, Hubble Heritage Team",
+      "year": 2013,
+      "licence": "CC BY 4.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "source": "https://cdn.esahubble.org/archives/images/large/heic1307a.jpg"
+    },
+    {
+      "library": "Photos",
+      "title": "The Hubble eXtreme Deep Field",
+      "by": "NASA, ESA, G. Illingworth, D. Magee, P. Oesch, R. Bouwens and the HUDF09 Team",
+      "year": 2012,
+      "licence": "CC BY 4.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "source": "https://cdn.esahubble.org/archives/images/large/heic1214a.jpg"
+    },
+    {
+      "library": "Photos",
+      "title": "The Milky Way behind Dragon Endeavour",
+      "by": "NASA",
+      "year": 2024,
+      "licence": "Public domain",
+      "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+      "source": "https://images-assets.nasa.gov/image/iss071e256593/iss071e256593~orig.jpg"
+    },
+    {
+      "library": "Photos",
+      "title": "The Orion Nebula, Hubble",
+      "by": "NASA, ESA, M. Robberto and the Hubble Space Telescope Orion Treasury Project Team",
+      "year": 2006,
+      "licence": "CC BY 4.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "source": "https://cdn.esahubble.org/archives/images/publicationjpg/heic0601a.jpg"
+    },
+    {
+      "library": "Photos",
+      "title": "The Pillars of Creation, Webb",
+      "by": "NASA, ESA, CSA, STScI",
+      "year": 2022,
+      "licence": "CC BY 4.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "source": "https://cdn.esawebb.org/archives/images/publicationjpg/weic2216a.jpg"
+    },
+    {
+      "library": "Photos",
+      "title": "The Southern Ring Nebula, Webb",
+      "by": "NASA, ESA, CSA, STScI",
+      "year": 2022,
+      "licence": "CC BY 4.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "source": "https://cdn.esawebb.org/archives/images/publicationjpg/weic2207b.jpg"
+    },
+    {
+      "library": "Photos",
+      "title": "The Tarantula Nebula, Webb",
+      "by": "NASA, ESA, CSA, STScI",
+      "year": 2022,
+      "licence": "CC BY 4.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "source": "https://cdn.esawebb.org/archives/images/publicationjpg/weic2212a.jpg"
+    },
+    {
+      "library": "Photos",
+      "title": "The Whirlpool Galaxy, Hubble",
+      "by": "NASA, ESA, S. Beckwith and the Hubble Heritage Team",
+      "year": 2005,
+      "licence": "CC BY 4.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "source": "https://cdn.esahubble.org/archives/images/publicationjpg/heic0506a.jpg"
+    },
+    {
+      "library": "Shows",
+      "title": "Caminandes: Gran Dillama",
+      "by": "Blender Foundation",
+      "year": 2013,
+      "licence": "CC BY 3.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by/3.0/",
+      "source": "https://caminandes.com"
+    },
+    {
+      "library": "Shows",
+      "title": "Caminandes: Llama Drama",
+      "by": "Pablo Vazquez, Blender Foundation",
+      "year": 2013,
+      "licence": "CC BY 3.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by/3.0/",
+      "source": "https://caminandes.com"
+    },
+    {
+      "library": "Shows",
+      "title": "Caminandes: Llamigos",
+      "by": "Blender Institute",
+      "year": 2016,
+      "licence": "CC BY 4.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "source": "https://caminandes.com"
+    },
+    {
+      "library": "Shows",
+      "title": "Veguitas",
+      "by": "Cubita Studio",
+      "year": 2026,
+      "licence": "Cubita Studio production, shown with the studio's permission",
+      "licenceUrl": "https://cubita.studio",
+      "source": "https://cubita.studio"
+    },
+    {
+      "library": "Live TV",
+      "title": "Big Buck Bunny",
+      "by": "Blender Foundation",
+      "year": 2008,
+      "licence": "CC BY 3.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by/3.0/",
+      "source": "https://peach.blender.org"
+    },
+    {
+      "library": "Live TV",
+      "title": "Charlie Chaplin Festival",
+      "by": "Charlie Chaplin; Mutual Film Corporation (1917), compilation 1938",
+      "year": 1938,
+      "licence": "Public domain (four Mutual comedies of 1917, The Adventurer, The Cure, Easy Street and The Immigrant, published in the United States before 1930)",
+      "licenceUrl": "https://commons.wikimedia.org/wiki/Template:PD-US-expired",
+      "source": "https://archive.org/details/charlie_chaplin_film_fest"
+    },
+    {
+      "library": "Live TV",
+      "title": "Cosmos Laundromat: First Cycle",
+      "by": "Blender Foundation",
+      "year": 2015,
+      "licence": "CC BY-SA 4.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "source": "https://studio.blender.org/films/cosmos-laundromat/"
+    },
+    {
+      "library": "Live TV",
+      "title": "Elephants Dream",
+      "by": "Blender Foundation, Netherlands Media Art Institute",
+      "year": 2006,
+      "licence": "CC BY 2.5",
+      "licenceUrl": "https://creativecommons.org/licenses/by/2.5/",
+      "source": "https://orange.blender.org"
+    },
+    {
+      "library": "Live TV",
+      "title": "Elono",
+      "by": "Cubita Studio",
+      "year": 2026,
+      "licence": "Cubita Studio production, shown with the studio's permission",
+      "licenceUrl": "https://cubita.studio",
+      "source": "https://cubita.studio"
+    },
+    {
+      "library": "Live TV",
+      "title": "Elono Colors",
+      "by": "Cubita Studio",
+      "year": 2026,
+      "licence": "Cubita Studio production, shown with the studio's permission",
+      "licenceUrl": "https://cubita.studio",
+      "source": "https://cubita.studio"
+    },
+    {
+      "library": "Live TV",
+      "title": "His Girl Friday",
+      "by": "Howard Hawks; Columbia Pictures",
+      "year": 1940,
+      "licence": "Public domain in the United States (copyright not renewed)",
+      "licenceUrl": "https://commons.wikimedia.org/wiki/Template:PD-US-not_renewed",
+      "source": "https://commons.wikimedia.org/wiki/File:His_Girl_Friday_(1940).webm"
+    },
+    {
+      "library": "Live TV",
+      "title": "House on Haunted Hill",
+      "by": "William Castle; William Castle Productions, Allied Artists",
+      "year": 1959,
+      "licence": "Public domain in the United States (copyright not renewed)",
+      "licenceUrl": "https://commons.wikimedia.org/wiki/Template:PD-US-not_renewed",
+      "source": "https://archive.org/details/The_House_On_Haunted_Hill/"
+    },
+    {
+      "library": "Live TV",
+      "title": "Jungle Book",
+      "by": "Zoltan Korda; Alexander Korda Films, United Artists",
+      "year": 1942,
+      "licence": "Public domain in the United States (copyright not renewed)",
+      "licenceUrl": "https://commons.wikimedia.org/wiki/Template:PD-US-not_renewed",
+      "source": "https://commons.wikimedia.org/wiki/File:The_Jungle_Book_(1942).webm"
+    },
+    {
+      "library": "Live TV",
+      "title": "Sintel",
+      "by": "Blender Foundation",
+      "year": 2010,
+      "licence": "CC BY 3.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by/3.0/",
+      "source": "https://durian.blender.org"
+    },
+    {
+      "library": "Live TV",
+      "title": "Spring",
+      "by": "Blender Animation Studio",
+      "year": 2019,
+      "licence": "CC BY 4.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "source": "https://studio.blender.org/films/spring/"
+    },
+    {
+      "library": "Live TV",
+      "title": "The Daily Dweebs",
+      "by": "Blender Animation Studio",
+      "year": 2017,
+      "licence": "CC BY-SA 4.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "source": "https://studio.blender.org/films/dailydweebs/"
+    },
+    {
+      "library": "Live TV",
+      "title": "The Fast and the Furious",
+      "by": "John Ireland, Edward Sampson; Palo Alto Productions, American Releasing Corporation",
+      "year": 1954,
+      "licence": "Public domain in the United States (copyright not renewed)",
+      "licenceUrl": "https://commons.wikimedia.org/wiki/Template:PD-US-not_renewed",
+      "source": "https://commons.wikimedia.org/wiki/File:The_Fast_and_the_Furious_(1954)_by_John_Ireland.webm"
+    },
+    {
+      "library": "Live TV",
+      "title": "The General",
+      "by": "Buster Keaton, Clyde Bruckman; United Artists",
+      "year": 1926,
+      "licence": "Public domain (published in the United States before 1930, copyright term expired)",
+      "licenceUrl": "https://commons.wikimedia.org/wiki/Template:PD-US-expired",
+      "source": "https://commons.wikimedia.org/wiki/File:The_General_(1926).webm"
+    },
+    {
+      "library": "Live TV",
+      "title": "Voyage to the Planet of Prehistoric Women",
+      "by": "Peter Bogdanovich; American International Pictures",
+      "year": 1968,
+      "licence": "Public domain in the United States (copyright not renewed)",
+      "licenceUrl": "https://commons.wikimedia.org/wiki/Template:PD-US-not_renewed",
+      "source": "https://archive.org/details/VoyagetothePlanetofPrehistoricWomen"
+    },
+    {
+      "library": "Live TV",
+      "title": "Welcome to Veguitas",
+      "by": "Cubita Studio",
+      "year": 2026,
+      "licence": "Cubita Studio production, shown with the studio's permission",
+      "licenceUrl": "https://cubita.studio",
+      "source": "https://cubita.studio"
+    }
+  ]
+}

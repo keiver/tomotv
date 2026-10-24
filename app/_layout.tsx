@@ -563,6 +563,23 @@ function RootLayoutInner() {
                           }
                     }
                   />
+                  {/* The demo server's credits, pushed from the demo row on the Settings tab. */}
+                  <Stack.Screen
+                    name="demo-credits"
+                    options={
+                      Platform.isTV
+                        ? { headerShown: false, animation: "fade" }
+                        : {
+                            headerShown: true,
+                            headerTransparent: true,
+                            headerShadowVisible: false,
+                            headerTitle: t("demo.creditsTitle"),
+                            headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                            headerBackTitle: t("tab.settings"),
+                            animation: "fade",
+                          }
+                    }
+                  />
                   <Stack.Screen
                     name="diagnostics"
                     options={

@@ -46,6 +46,8 @@
     "lint:fix": "eslint . --fix && prettier --write .",
     "licenses": "node scripts/generate-licenses.mjs",
     "licenses:check": "node scripts/generate-licenses.mjs --check",
+    "demo-credits": "node scripts/generate-demo-credits.mjs",
+    "demo-credits:check": "node scripts/generate-demo-credits.mjs --check",
     "test": "jest",
     "test:playback": "node scripts/playback-regression.mjs",
     "test:playback:preflight": "node scripts/playback-regression.mjs --preflight",
