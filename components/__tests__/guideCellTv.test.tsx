@@ -22,6 +22,7 @@ function render(overrides: Partial<React.ComponentProps<typeof GuideCell>> = {})
     tree = TestRenderer.create(
       <GuideCell
         program={program}
+        channelName="Channel One"
         left={100}
         width={400}
         height={90}
@@ -63,7 +64,7 @@ describe("GuideCell on TV", () => {
     const shown = hostById(tree, "guide-cell-label")
       .findAllByType(Text)
       .map((node) => flatText(node));
-    expect(shown).toContain("Episode 9  ·  Evening News");
+    expect(shown).toContain("Channel One  ·  Episode 9  ·  Evening News");
   });
 
   it("keeps the label itself out of focus and presses on the body", () => {
@@ -81,6 +82,7 @@ describe("GuideCell on TV", () => {
       tree = TestRenderer.create(
         <GuideCell
           program={program}
+          channelName="Channel One"
           left={100}
           width={400}
           height={90}

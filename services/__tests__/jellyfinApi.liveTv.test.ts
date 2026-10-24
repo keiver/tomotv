@@ -5,7 +5,7 @@
 import {
   closeLeftoverOpens,
   closeLiveStream,
-  fetchChannelCategories,
+  fetchCategoryChannelIds,
   fetchChannelOrder,
   fetchChannels,
   fetchChannelsByIds,
@@ -15,9 +15,10 @@ import {
   resolveChannel,
   resolveChannelOrigin,
 } from "../jellyfinApi";
-import { dashProtection, drmKeyFormat, liveStreamUrlFor, topVariantUrl } from "../jellyfin/liveTv";
+import { dashProtection, drmKeyFormat, liveStreamUrlFor, remuxOf } from "../jellyfin/liveTv";
 import { recordClose, recordedOpens, recordOpen } from "../jellyfin/liveOpens";
 import { logger } from "@/utils/logger";
+import { invalidateByPrefix } from "@/services/requestCache";
 
 jest.mock("../jellyfin/liveOpens", () => {
   const opens = new Map<string, { server: string; deviceId: string }>();
@@ -139,22 +140,28 @@ describe("live TV client", () => {
     expect(url).toContain("isSports=true");
   });
 
-  it("holds a page to a category through the server's flag", async () => {
-    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 0 }) });
-    await fetchChannels({ startIndex: 0, limit: 40, category: "kids" });
+  it("reads a category's channel ids through the server's flag without programmes or images, once until the guide's reads are dropped", async () => {
+    invalidateByPrefix("guide:");
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        Items: [
+          { Id: "c2", Name: "Two", Type: "TvChannel" },
+          { Id: "c1", Name: "One", Type: "TvChannel" },
+        ],
+      }),
+    });
+    await expect(fetchCategoryChannelIds("kids", "SortName")).resolves.toEqual(["c2", "c1"]);
     const [url] = (global.fetch as jest.Mock).mock.calls[0];
     expect(url).toContain("isKids=true");
-  });
-
-  it("names the categories the server has channels for, one count query each", async () => {
-    (global.fetch as jest.Mock).mockImplementation(async (url: string) => ({
-      ok: true,
-      json: async () => ({ Items: [], TotalRecordCount: url.includes("isKids=true") || url.includes("isSeries=true") ? 1 : 0 }),
-    }));
-    await expect(fetchChannelCategories()).resolves.toEqual(["kids", "series"]);
-    const urls = (global.fetch as jest.Mock).mock.calls.map(([url]) => url as string);
-    expect(urls).toHaveLength(5);
-    for (const url of urls) expect(url).toContain("limit=0");
+    expect(url).toContain("sortBy=SortName");
+    expect(url).toContain("addCurrentProgram=false");
+    expect(url).toContain("enableImages=false");
+    await fetchCategoryChannelIds("kids", "SortName");
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    invalidateByPrefix("guide:");
+    await fetchCategoryChannelIds("kids", "SortName");
+    expect(global.fetch).toHaveBeenCalledTimes(2);
   });
 
   it("fetches channels by id in chunks of 100 with includeItemTypes, keeping the ids' order and dropping unknown ids", async () => {
@@ -251,12 +258,13 @@ describe("live TV client", () => {
     // Everything the engine copies or decodes is declared, so the server hands the raw stream over.
     for (const codec of ["h264", "hevc", "mpeg2video", "av1"]) expect(video.VideoCodec.split(",")).toContain(codec);
     for (const codec of ["mp2", "ac3", "eac3", "aac"]) expect(video.AudioCodec.split(",")).toContain(codec);
-    // The one profile the server answers with a TranscodingUrl: live HLS is TS-only on Jellyfin.
-    expect(body.DeviceProfile.TranscodingProfiles).toEqual([{ Type: "Video", Container: "ts", Protocol: "hls", VideoCodec: "h264,hevc", AudioCodec: "aac,ac3,eac3", Context: "Streaming" }]);
-    expect(channel.liveTranscodeUrl).toBeUndefined();
+    // The one profile the server answers with a TranscodingUrl (live HLS is TS-only on Jellyfin), naming every codec
+    // the engine takes, so a copy of the channel matches it and nothing is re-encoded.
+    expect(body.DeviceProfile.TranscodingProfiles).toEqual([{ Type: "Video", Container: "ts", Protocol: "hls", VideoCodec: video.VideoCodec, AudioCodec: video.AudioCodec, Context: "Streaming" }]);
+    expect(channel).not.toHaveProperty("liveTranscodeUrl");
   });
 
-  it("carries the server's transcode URL beside the engine's input", async () => {
+  it("hands the engine the server's relay and never the server's transcode beside it", async () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,
       json: async () => ({
@@ -278,7 +286,7 @@ describe("live TV client", () => {
     });
     const channel = await openChannel("c3", { Id: "c3", Name: "Three", Type: "TvChannel", Path: "" });
     expect(channel.liveStreamUrl).toBe(`${SERVER}/LiveTv/LiveStreamFiles/abc/stream.ts?ApiKey=test-api-key`);
-    expect(channel.liveTranscodeUrl).toBe(`${SERVER}/videos/c3/master.m3u8?PlaySessionId=ps-3&ApiKey=test-api-key&LiveStreamId=ls-3`);
+    expect(channel).not.toHaveProperty("liveTranscodeUrl");
   });
 
   it("reads an HLS channel from its origin with the tuner's headers, direct play or not", async () => {
@@ -291,7 +299,7 @@ describe("live TV client", () => {
             Id: "ms-2",
             Container: "hls",
             Protocol: "Http",
-            Path: "https://origin.example/live/playlist.m3u8",
+            Path: "https://origin.example/live/playlist?channel=2",
             IsInfiniteStream: true,
             SupportsDirectPlay: false,
             SupportsDirectStream: false,
@@ -302,38 +310,14 @@ describe("live TV client", () => {
         ],
       }),
     });
-    // The master, read with the tuner's headers: the engine opens its top variant alone.
-    (global.fetch as jest.Mock).mockResolvedValueOnce({
-      ok: true,
-      text: async () => "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360\nlow/index.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=3200000,RESOLUTION=1920x1080\nhigh/index.m3u8\n",
-    });
     const channel = await openChannel("c2", { Id: "c2", Name: "Two", Type: "TvChannel", Path: "" });
-    expect(channel.liveStreamUrl).toBe("https://origin.example/live/high/index.m3u8");
+    expect(channel.liveStreamUrl).toBe("https://origin.example/live/playlist?channel=2");
     expect(channel.liveHttpHeaders).toEqual({ "User-Agent": "Mozilla/5.0" });
     expect(channel.LiveStreamId).toBe("ls-2");
-    const [masterUrl, masterInit] = (global.fetch as jest.Mock).mock.calls[1];
-    expect(masterUrl).toBe("https://origin.example/live/playlist.m3u8");
-    expect(masterInit.headers).toEqual({ "User-Agent": "Mozilla/5.0" });
-  });
-
-  it("opens the whole master when its top variant cannot be read or hangs audio off a group", async () => {
-    const source = {
-      Id: "ms-2",
-      Container: "hls",
-      Protocol: "Http",
-      Path: "https://origin.example/live/playlist.m3u8",
-      IsInfiniteStream: true,
-      SupportsDirectPlay: false,
-      LiveStreamId: "ls-2",
-      MediaStreams: [],
-    };
-    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ MediaSources: [source] }) });
-    (global.fetch as jest.Mock).mockRejectedValueOnce(new Error("timed out"));
-    expect((await openChannel("c2", { Id: "c2", Name: "Two", Type: "TvChannel", Path: "" })).liveStreamUrl).toBe("https://origin.example/live/playlist.m3u8");
-
-    expect(topVariantUrl('#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a"\n#EXT-X-STREAM-INF:BANDWIDTH=1,AUDIO="a"\nv.m3u8\n', "https://o/x/m.m3u8")).toBeNull();
-    expect(topVariantUrl("#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\nseg0.ts\n", "https://o/x/m.m3u8")).toBeNull();
-    expect(topVariantUrl("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=5\nhttps://cdn/abs.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=9\n../hi.m3u8\n", "https://o/x/m.m3u8")).toBe("https://o/hi.m3u8");
+    // No extension names it a playlist, so the engine is told it is one, to trim it and check it for DRM.
+    expect(channel.livePlaylist).toBe(true);
+    // The engine reads the master itself, DRM check included: the app asks the origin nothing.
+    expect((global.fetch as jest.Mock).mock.calls.map(([url]) => String(url)).filter((url) => url.startsWith("https://origin.example"))).toEqual([]);
   });
 
   it("tells real DRM from a plain AES-128 key", () => {
@@ -382,6 +366,7 @@ describe("live TV client", () => {
     const channel = await openChannel("c5", { Id: "c5", Name: "Five", Type: "TvChannel", Path: "" });
     expect(channel.liveStreamUrl).toBe("https://origin.example/live/Manifest.mpd");
     expect(channel.liveHttpHeaders).toEqual({ "User-Agent": "Mozilla/5.0" });
+    expect(channel.livePlaylist).toBeUndefined();
     expect((global.fetch as jest.Mock).mock.calls).toHaveLength(2);
   });
 
@@ -397,28 +382,6 @@ describe("live TV client", () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true });
     await expect(openChannel("c6", { Id: "c6", Name: "Six", Type: "TvChannel", Path: "" })).rejects.toThrow("DRM protected (cenc)");
     expect(String((global.fetch as jest.Mock).mock.calls[2][0])).toBe(`${SERVER}/LiveStreams/Close?liveStreamId=ls-6`);
-  });
-
-  it("refuses a DRM channel at the open and releases the tuner, before any lane runs", async () => {
-    (global.fetch as jest.Mock).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        MediaSources: [
-          { Id: "ms-4", Container: "hls", Protocol: "Http", Path: "https://origin.example/drm/master.m3u8", IsInfiniteStream: true, SupportsDirectPlay: false, LiveStreamId: "ls-4", MediaStreams: [] },
-        ],
-      }),
-    });
-    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, url: "https://cdn.example/drm/master.m3u8", text: async () => "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=3000000\nhigh.m3u8\n" });
-    (global.fetch as jest.Mock).mockResolvedValueOnce({
-      ok: true,
-      text: async () => '#EXTM3U\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI="skd://k",KEYFORMAT="com.apple.streamingkeydelivery"\n#EXTINF:6,\ns0.ts\n',
-    });
-    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true });
-    await expect(openChannel("c4", { Id: "c4", Name: "Four", Type: "TvChannel", Path: "" })).rejects.toThrow("DRM protected (com.apple.streamingkeydelivery)");
-    const calls = (global.fetch as jest.Mock).mock.calls.map(([url]) => String(url));
-    // The variant resolved against the master's landing URL, not the shortlink it was asked for.
-    expect(calls[2]).toBe("https://cdn.example/drm/high.m3u8");
-    expect(calls[3]).toBe(`${SERVER}/LiveStreams/Close?liveStreamId=ls-4`);
   });
 
   it("resolves a manifest channel's origin for a frame grab without opening it, and no origin for a tuner channel", async () => {
@@ -447,26 +410,51 @@ describe("live TV client", () => {
     expect(calls.filter(([url]) => String(url).includes("origin.example"))).toHaveLength(0);
   });
 
-  it("opens a channel on the server's transcode alone when the engine gets nothing to read", async () => {
-    (global.fetch as jest.Mock).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ MediaSources: [{ Id: "ms-1", SupportsDirectPlay: false, SupportsTranscoding: true, TranscodingUrl: "/videos/x/master.m3u8", LiveStreamId: "ls-x" }] }),
-    });
+  it("hands the engine the server's copy of a channel it cannot read otherwise, from a second open asking for it", async () => {
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ MediaSources: [{ Id: "ms-1", Protocol: "Udp", Path: "udp://239.0.0.1:1234", SupportsDirectPlay: true, LiveStreamId: "ls-1" }] }) })
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ MediaSources: [{ Id: "ms-1", TranscodingUrl: "/videos/x/master.m3u8?LiveStreamId=ls-2&TranscodeReasons=DirectPlayError", LiveStreamId: "ls-2" }] }),
+      });
     const channel = await openChannel("c1", { Id: "c1", Name: "One", Type: "TvChannel", Path: "" });
-    expect(channel.liveStreamUrl).toBeUndefined();
-    expect(channel.liveTranscodeUrl).toBe(`${SERVER}/videos/x/master.m3u8`);
-    expect(channel.LiveStreamId).toBe("ls-x");
+    expect(channel.liveStreamUrl).toBe(`${SERVER}/videos/x/master.m3u8?LiveStreamId=ls-2&TranscodeReasons=DirectPlayError`);
+    expect(channel.LiveStreamId).toBe("ls-2");
+    const calls = (global.fetch as jest.Mock).mock.calls;
+    expect(String(calls[1][0])).toBe(`${SERVER}/LiveStreams/Close?liveStreamId=ls-1`);
+    const second = JSON.parse(calls[2][1].body);
+    expect(second.EnableDirectPlay).toBe(false);
+    expect(second.EnableDirectStream).toBe(false);
+    expect(second.EnableTranscoding).toBe(true);
   });
 
-  it("refuses a channel the server neither hands over nor transcodes, releasing its open", async () => {
-    (global.fetch as jest.Mock).mockResolvedValueOnce({
+  it("refuses a channel the server could carry only by re-encoding it, releasing both opens", async () => {
+    const noInput = { ok: true, json: async () => ({ MediaSources: [{ Id: "ms-1", SupportsDirectPlay: false, LiveStreamId: "ls-a" }] }) };
+    const reencode = {
       ok: true,
-      json: async () => ({ ErrorCode: "NoCompatibleStream", MediaSources: [{ Id: "ms-1", SupportsDirectPlay: false, SupportsTranscoding: false, LiveStreamId: "ls-dead" }] }),
-    });
-    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true });
-    await expect(openChannel("c1", { Id: "c1", Name: "One", Type: "TvChannel", Path: "" })).rejects.toThrow("did not open One (NoCompatibleStream)");
+      json: async () => ({
+        ErrorCode: "NoCompatibleStream",
+        MediaSources: [{ Id: "ms-1", TranscodingUrl: "/videos/x/master.m3u8?TranscodeReasons=VideoCodecNotSupported,DirectPlayError", LiveStreamId: "ls-b" }],
+      }),
+    };
+    (global.fetch as jest.Mock).mockImplementation(async (url: string) =>
+      String(url).includes("/LiveStreams/Close") ? { ok: true } : (global.fetch as jest.Mock).mock.calls.length === 1 ? noInput : reencode,
+    );
+    await expect(openChannel("c1", { Id: "c1", Name: "One", Type: "TvChannel", Path: "" })).rejects.toThrow("only by re-encoding it (NoCompatibleStream)");
     for (let hop = 0; hop < 5; hop++) await Promise.resolve();
-    expect((global.fetch as jest.Mock).mock.calls.map(([url]) => String(url))).toContain(`${SERVER}/LiveStreams/Close?liveStreamId=ls-dead`);
+    const urls = (global.fetch as jest.Mock).mock.calls.map(([url]) => String(url));
+    expect(urls).toContain(`${SERVER}/LiveStreams/Close?liveStreamId=ls-a`);
+    expect(urls).toContain(`${SERVER}/LiveStreams/Close?liveStreamId=ls-b`);
+  });
+
+  it("takes the server's HLS only as a copy: no reason or DirectPlayError alone", () => {
+    expect(remuxOf(SERVER, "/videos/x/master.m3u8?LiveStreamId=1")).toBe(`${SERVER}/videos/x/master.m3u8?LiveStreamId=1`);
+    expect(remuxOf(SERVER, "/videos/x/master.m3u8?TranscodeReasons=DirectPlayError&a=1")).toBe(`${SERVER}/videos/x/master.m3u8?TranscodeReasons=DirectPlayError&a=1`);
+    expect(remuxOf(SERVER, "/videos/x/master.m3u8?TranscodeReasons=ContainerNotSupported%2CDirectPlayError")).toBeNull();
+    expect(remuxOf(SERVER, "/videos/x/master.m3u8?TranscodeReasons=VideoCodecNotSupported,DirectPlayError")).toBeNull();
+    expect(remuxOf(SERVER, "/videos/x/master.m3u8?TranscodeReasons=AudioCodecNotSupported")).toBeNull();
+    expect(remuxOf(SERVER, undefined)).toBeNull();
   });
 
   describe("Pluto channels", () => {
@@ -520,11 +508,12 @@ describe("live TV client", () => {
 
     const channel = await resolveChannel("c7", { Id: "c7", Name: "Seven", Type: "TvChannel", Path: "" });
 
-    expect(channel.liveStreamUrl).toBe("https://origin.example/live/high/index.m3u8");
+    expect(channel.liveStreamUrl).toBe("https://origin.example/live/master.m3u8");
     expect(channel.liveHttpHeaders).toEqual({ "User-Agent": "Tuner" });
+    expect(channel.livePlaylist).toBe(true);
     expect(channel.PlaySessionId).toBe("ps-get");
     expect(channel.LiveStreamId).toBeUndefined();
-    expect(channel.liveTranscodeUrl).toBeUndefined();
+    expect(channel).not.toHaveProperty("liveTranscodeUrl");
     const calls = (global.fetch as jest.Mock).mock.calls;
     expect(calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
     expect(calls[0][0]).toBe(`${SERVER}/Items/c7/PlaybackInfo?UserId=test-user-id`);
@@ -575,37 +564,7 @@ describe("live TV client", () => {
     expect(channel.LiveStreamId).toBe("ls-8");
   });
 
-  it("opens a resolved channel for the server's transcode alone, dropping the origin it carried", async () => {
-    (global.fetch as jest.Mock).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        PlaySessionId: "ps-9",
-        MediaSources: [
-          {
-            Id: "ms-9",
-            Container: "hls",
-            Protocol: "Http",
-            Path: "https://origin.example/live/master.m3u8",
-            SupportsTranscoding: true,
-            TranscodingUrl: "/videos/c9/master.m3u8?LiveStreamId=ls-9",
-            LiveStreamId: "ls-9",
-            MediaStreams: [],
-          },
-        ],
-      }),
-    });
-    const resolved = { Id: "c9", Name: "Nine", Type: "TvChannel", Path: "", liveStreamUrl: "https://origin.example/live/high/index.m3u8", liveHttpHeaders: { "User-Agent": "Tuner" } };
-
-    const channel = await openChannel("c9", resolved, { serverOnly: true });
-
-    expect((global.fetch as jest.Mock).mock.calls).toHaveLength(1);
-    expect(channel.liveStreamUrl).toBeUndefined();
-    expect(channel.liveHttpHeaders).toBeUndefined();
-    expect(channel.liveTranscodeUrl).toBe(`${SERVER}/videos/c9/master.m3u8?LiveStreamId=ls-9`);
-    expect(channel.PlaySessionId).toBe("ps-9");
-  });
-
-  it("asks the server to transcode a direct-playable TS channel when it opens for the server lane", async () => {
+  it("reads the server's relay even when the server turned direct play off for the tuner", async () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,
       json: async () => ({
@@ -620,29 +579,19 @@ describe("live TV client", () => {
             SupportsTranscoding: true,
             TranscodingUrl: "/videos/c11/master.m3u8?LiveStreamId=ls-11",
             LiveStreamId: "ls-11",
-            MediaStreams: [
-              { Type: "Video", Codec: "h264" },
-              { Type: "Audio", Codec: "aac" },
-            ],
+            MediaStreams: [],
           },
         ],
       }),
     });
 
-    const channel = await openChannel("c11", { Id: "c11", Name: "Eleven", Type: "TvChannel", Path: "" }, { serverOnly: true });
+    const channel = await openChannel("c11", { Id: "c11", Name: "Eleven", Type: "TvChannel", Path: "" });
 
-    const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
-    expect(body.EnableDirectPlay).toBe(false);
-    expect(body.EnableDirectStream).toBe(false);
-    expect(body.EnableTranscoding).toBe(true);
-    expect(channel.liveTranscodeUrl).toBe(`${SERVER}/videos/c11/master.m3u8?LiveStreamId=ls-11`);
-    expect(channel.liveStreamUrl).toBeUndefined();
-    // Auto: the server's own clamps govern the live transcode, as before.
-    expect(body.MaxStreamingBitrate).toBe(200_000_000);
-    expect(body.DeviceProfile.MaxStreamingBitrate).toBe(200_000_000);
+    expect(channel.liveStreamUrl).toBe(`${SERVER}/LiveTv/LiveStreamFiles/abc/stream.ts?ApiKey=test-api-key`);
+    expect((global.fetch as jest.Mock).mock.calls).toHaveLength(1);
   });
 
-  it("caps the server-only open at a fixed Streaming Quality pick, and leaves the engine-lane open uncapped", async () => {
+  it("opens every channel uncapped whatever the Streaming Quality pick: the server never re-encodes one", async () => {
     const answer = () => ({
       ok: true,
       json: async () => ({
@@ -669,29 +618,16 @@ describe("live TV client", () => {
       app_video_quality: "3",
     };
     mockSecureStore.getItemAsync.mockImplementation((key: string) => Promise.resolve(baseConfig[key] || null));
-    (global.fetch as jest.Mock).mockResolvedValueOnce(answer()).mockResolvedValueOnce(answer());
-
-    await openChannel("c12", { Id: "c12", Name: "Twelve", Type: "TvChannel", Path: "" }, { serverOnly: true });
-    const serverOnly = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
-    expect(serverOnly.MaxStreamingBitrate).toBe(8_000_000);
-    expect(serverOnly.DeviceProfile.MaxStreamingBitrate).toBe(8_000_000);
-    expect(serverOnly.DeviceProfile.MaxStaticBitrate).toBe(8_000_000);
+    (global.fetch as jest.Mock).mockResolvedValueOnce(answer());
 
     await openChannel("c12", { Id: "c12", Name: "Twelve", Type: "TvChannel", Path: "" });
-    const engineLane = JSON.parse((global.fetch as jest.Mock).mock.calls[1][1].body);
-    expect(engineLane.MaxStreamingBitrate).toBe(200_000_000);
-    expect(engineLane.DeviceProfile.MaxStreamingBitrate).toBe(200_000_000);
+    const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
+    expect(body.MaxStreamingBitrate).toBe(200_000_000);
+    expect(body.DeviceProfile.MaxStreamingBitrate).toBe(200_000_000);
+    expect(body.DeviceProfile.MaxStaticBitrate).toBe(200_000_000);
   });
 
-  it("leaves a channel whose server open failed out of the server lane", async () => {
-    (global.fetch as jest.Mock).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ ErrorCode: "NoCompatibleStream", MediaSources: [{ Id: "ms-10", SupportsDirectPlay: false, SupportsTranscoding: false }] }),
-    });
-    await expect(openChannel("c10", { Id: "c10", Name: "Ten", Type: "TvChannel", Path: "" }, { serverOnly: true })).rejects.toThrow("did not open Ten");
-  });
-
-  it("caps the fallback's server open at the normal budget and leaves a first open the extended one", async () => {
+  it("gives an open the extended budget: the server probes the origin first", async () => {
     jest.useFakeTimers();
     try {
       (global.fetch as jest.Mock).mockImplementation(
@@ -708,14 +644,10 @@ describe("live TV client", () => {
         return state;
       };
 
-      const fallback = watch(openChannel("c9", channel, { quiet: true, serverOnly: true }));
       const first = watch(openChannel("c9", channel, { quiet: true }));
-      await jest.advanceTimersByTimeAsync(14_999);
-      expect(fallback.settled).toBe(false);
-      await jest.advanceTimersByTimeAsync(1);
-      expect(fallback).toEqual({ settled: true, error: "AbortError" });
+      await jest.advanceTimersByTimeAsync(29_999);
       expect(first.settled).toBe(false);
-      await jest.advanceTimersByTimeAsync(15_000);
+      await jest.advanceTimersByTimeAsync(1);
       expect(first).toEqual({ settled: true, error: "AbortError" });
     } finally {
       jest.useRealTimers();

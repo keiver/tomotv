@@ -12,10 +12,24 @@ beforeEach(() => clearChannelHealth());
 
 describe("channelHealth", () => {
   it("needs two definitive refusals before a down verdict", () => {
-    noteChannelOpenFailure("a", "open: Server returned 403 Forbidden (access denied)");
+    noteChannelOpenFailure("a", "open: Server returned 404 Not Found");
     expect(healthFor("a")).toBe("unknown");
-    noteChannelOpenFailure("a", "open: Server returned 403 Forbidden (access denied)");
+    noteChannelOpenFailure("a", "open: Server returned 404 Not Found");
     expect(healthFor("a")).toBe("down");
+  });
+
+  it("a provider's connection cap or a busy server never counts as death", () => {
+    for (const refusal of [
+      "open: Server returned 429 Too Many Requests",
+      "open: Server returned 403 Forbidden (access denied)",
+      "open: Server returned 401 Unauthorized",
+      "open: Server returned 5XX Server Error reply",
+      "open: Server returned 503 Service Unavailable",
+    ]) {
+      noteChannelOpenFailure("a", refusal);
+      noteChannelOpenFailure("a", refusal);
+    }
+    expect(healthFor("a")).toBe("unknown");
   });
 
   it("needs two empty sources before a down verdict", () => {
@@ -36,6 +50,13 @@ describe("channelHealth", () => {
     noteChannelOpenFailure("a", "open: Connection timed out");
     noteChannelOpenFailure("a", undefined);
     expect(healthFor("a")).toBe("unknown");
+  });
+
+  it("an origin ending an open it admitted counts, whatever its words, twice for a down verdict", () => {
+    noteChannelOpenFailure("a", "open: End of file", true);
+    expect(healthFor("a")).toBe("unknown");
+    noteChannelOpenFailure("a", undefined, true);
+    expect(healthFor("a")).toBe("down");
   });
 
   it("a burst redeems a down channel and notifies", () => {

@@ -9,19 +9,24 @@
  * - Creates the "TopShelf" app_extension target. xcode's addTarget also creates the
  *   .appex product, the embed Copy Files phase on the app target, and the target
  *   dependency — only the Sources phase and build settings are added here.
+ * - Puts the app in the extension's App Group and adds the TopShelfReload module to the app target.
  *
  * tvOS-only: skipped entirely unless EXPO_TV=1 (iOS builds get no extension).
  *
  * Created: August 3, 2026
  */
 
-const { withDangerousMod, withXcodeProject } = require("@expo/config-plugins");
+const { withDangerousMod, withEntitlementsPlist, withXcodeProject } = require("@expo/config-plugins");
 const fs = require("fs");
 const path = require("path");
 
 const TARGET_NAME = "TopShelf";
 const BUNDLE_ID = "dev.keiver.tomotv.TopShelf";
 const EXTENSION_FILES = ["ContentProvider.swift", "TopShelf-Info.plist", "TopShelf.entitlements", "TopShelfPlaceholder.png"];
+const APP_GROUP = "group.dev.keiver.tomotv";
+// The app-side module that tells tvOS the shelf changed (services/topShelfFrames.ts).
+const RELOAD_DIR = "TopShelfReload";
+const RELOAD_FILES = ["TopShelfReload.swift", "TopShelfReload.m"];
 
 function isTVBuild() {
   return process.env.EXPO_TV === "1";
@@ -57,9 +62,28 @@ function withTopShelfExtension(config) {
         console.log(`[TopShelf] ✓ Copied ${fileName}`);
       });
 
+      const reloadDest = path.join(projectRoot, "ios", RELOAD_DIR);
+      fs.mkdirSync(reloadDest, { recursive: true });
+      RELOAD_FILES.forEach((fileName) => {
+        const sourcePath = path.join(projectRoot, "native", "ios", RELOAD_DIR, fileName);
+        if (!fs.existsSync(sourcePath)) {
+          throw new Error(`[TopShelf] Missing ${fileName} in native/ios/${RELOAD_DIR}`);
+        }
+        fs.copyFileSync(sourcePath, path.join(reloadDest, fileName));
+        console.log(`[TopShelf] ✓ Copied ${fileName}`);
+      });
+
       return config;
     },
   ]);
+
+  // The app writes keyframes into the group container the extension reads.
+  config = withEntitlementsPlist(config, (config) => {
+    if (!isTVBuild()) return config;
+    const groups = config.modResults["com.apple.security.application-groups"] || [];
+    if (!groups.includes(APP_GROUP)) config.modResults["com.apple.security.application-groups"] = [...groups, APP_GROUP];
+    return config;
+  });
 
   // Step 2: Create the extension target and wire its build phases/settings
   config = withXcodeProject(config, (config) => {
@@ -72,6 +96,15 @@ function withTopShelfExtension(config) {
     console.log("\n" + "=".repeat(80));
     console.log("[TopShelf] Configuring Top Shelf extension target");
     console.log("=".repeat(80));
+
+    // Named target: without one, addSourceFile picks the first Sources phase, which can be the extension's.
+    const appTargetUuid = xcodeProject.getFirstTarget().uuid;
+    const fileReferences = Object.values(xcodeProject.pbxFileReferenceSection());
+    RELOAD_FILES.forEach((fileName) => {
+      if (fileReferences.some((file) => file.path && file.path.includes(fileName))) return;
+      xcodeProject.addSourceFile(`${RELOAD_DIR}/${fileName}`, { target: appTargetUuid }, xcodeProject.getFirstProject().firstProject.mainGroup);
+      console.log(`[TopShelf] ✓ Added ${fileName} to the app target`);
+    });
 
     // Idempotency: prebuild --clean regenerates the project, but guard anyway.
     // addTarget stores the name quoted, so check both spellings.

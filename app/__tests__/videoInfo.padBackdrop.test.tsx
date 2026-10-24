@@ -113,6 +113,19 @@ describe("Video info on iPad", () => {
     expect(mockBack).toHaveBeenCalled();
   });
 
+  it("keeps the centred card still under a drag", async () => {
+    const tree = await mountPanel();
+    expect(tree.root.findAllByType(require("@/components/card-drag").CardDragView)).toHaveLength(0);
+  });
+
+  it("hides the content still being measured without setting its opacity to zero", async () => {
+    const tree = await mountPanel();
+    const scroll = tree.root.findAll((node) => typeof node.props.onContentSizeChange === "function" && node.props.pointerEvents === "none")[0];
+    const style = require("react-native").StyleSheet.flatten(scroll.props.style);
+    expect(style.opacity).not.toBe(0);
+    expect(style.transform).toEqual([{ translateY: expect.any(Number) }]);
+  });
+
   it("takes the backdrop with it when the route leaves", async () => {
     const tree = await mountPanel();
     await act(async () => {

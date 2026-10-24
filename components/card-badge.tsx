@@ -1,7 +1,6 @@
-import { glassTint } from "@/components/glass-button";
-import { GlassSurface } from "@/components/glass-surface";
 import { COLORS } from "@/constants/colors";
 import { useCardPalette } from "@/hooks/useCardPalette";
+import { isLowContrast } from "@/services/cardTheme";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import { ActivityIndicator, Platform, StyleSheet, Text, View } from "react-native";
@@ -10,8 +9,6 @@ const IS_TV = Platform.isTV;
 const ICON_SIZE = IS_TV ? 19 : 12;
 const BADGE_HEIGHT = IS_TV ? 40 : 26;
 const COMPACT_BADGE_HEIGHT = 20;
-/** Resting glass: near-black, so the accent number holds over any artwork. */
-export const BADGE_GLASS_TINT = "rgba(8, 8, 10, 0.6)";
 
 /** Inset every card's corner overlays sit at, shared so the pill and the chips line up. */
 export const CARD_BADGE_INSET = IS_TV ? 16 : 10;
@@ -40,7 +37,7 @@ interface CardBadgeProps {
   segments?: BadgeSegment[];
   /** Value still resolving: a spinner takes the labels' place, icons stay. */
   loading?: boolean;
-  /** Focused card: the glass takes the accent and the ink turns white. */
+  /** Focused card: the pill takes the accent, lettered in the ink. */
   focused?: boolean;
   /** "live": solid red in both states, the broadcast mark on a channel card. */
   tone?: "gold" | "live";
@@ -49,7 +46,7 @@ interface CardBadgeProps {
 }
 
 /**
- * Glass card pill: what a folder holds, which disc and track a song is, which episode. The card
+ * Card pill: what a folder holds, which disc and track a song is, which episode. The card
  * that renders it owns its position.
  */
 export function CardBadge({ segments, loading, focused, tone = "gold", compact = false }: CardBadgeProps) {
@@ -57,7 +54,8 @@ export function CardBadge({ segments, loading, focused, tone = "gold", compact =
   const small = compact && !IS_TV;
   const thin = live;
   const palette = useCardPalette();
-  const ink = live || focused ? COLORS.TEXT_PRIMARY : palette.accent;
+  // Lettered like the corner tab: the accent, white when the accent is too dark to read, the ink on the accent.
+  const ink = live ? COLORS.TEXT_PRIMARY : focused ? palette.ink : isLowContrast(palette.accent) ? COLORS.TEXT_PRIMARY : palette.accent;
   const height = thin ? SLIM_BADGE_HEIGHT : small ? COMPACT_BADGE_HEIGHT : BADGE_HEIGHT;
   const sizing = [styles.badge, small && styles.badgeCompact, thin && styles.badgeSlim];
 
@@ -78,24 +76,14 @@ export function CardBadge({ segments, loading, focused, tone = "gold", compact =
     </>
   );
 
-  // Solid red: the 1st-gen Apple TV 4K draws UIGlassEffect without its tint, which greys the live mark.
-  if (live) {
-    return (
-      <View style={[sizing, styles.badgeLive]} pointerEvents="none">
-        {content}
-      </View>
-    );
-  }
-
   return (
-    <GlassSurface style={sizing} radius={height / 2} tintColor={focused ? glassTint(palette.accent, true) : BADGE_GLASS_TINT} pointerEvents="none">
+    <View style={[sizing, live ? styles.badgeLive : { borderRadius: height / 2, backgroundColor: focused ? palette.accent : COLORS.SURFACE_SUNKEN }]} pointerEvents="none">
       {content}
-    </GlassSurface>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  // No radius here: a style radius competes with GlassSurface's own `radius`.
   badge: {
     minWidth: BADGE_HEIGHT,
     height: BADGE_HEIGHT,

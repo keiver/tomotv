@@ -4,6 +4,7 @@ import { ArtworkSlotShape, itemSlotShape } from "@/constants/app";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { fetchResumeItems, subscribeResumeChange } from "@/services/jellyfinApi";
 import { byLastPlayed, containerKey, resolveNextUp } from "@/services/nextUp";
+import { syncShelfFrames } from "@/services/topShelfFrames";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useFocusEffect, useIsFocused, useRouter } from "expo-router";
@@ -152,6 +153,7 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
           logger.debug("CW row fetch", { service: "ContinueWatching", count: resumeItems.length });
         }
         if (superseded() || resumeItems === null) return;
+        if (IS_TV) void syncShelfFrames(resumeItems);
 
         const merged: ResumeItem[] = resumeItems.map((video) => ({
           video,

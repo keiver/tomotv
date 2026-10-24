@@ -698,10 +698,10 @@ index 339932f..89d81b6 100644
  
 diff --git a/node_modules/react-native-video/ios/Video/Features/RCTUpNextInfoViewController.swift b/node_modules/react-native-video/ios/Video/Features/RCTUpNextInfoViewController.swift
 new file mode 100644
-index 0000000..9257be6
+index 0000000..cfe5ca1
 --- /dev/null
 +++ b/node_modules/react-native-video/ios/Video/Features/RCTUpNextInfoViewController.swift
-@@ -0,0 +1,405 @@
+@@ -0,0 +1,506 @@
 +//
 +//  RCTUpNextInfoViewController.swift
 +//
@@ -858,21 +858,29 @@ index 0000000..9257be6
 +
 +        private func loadImage(uri: String, size: CGSize, logo: Bool, into cell: RCTUpNextInfoCell) {
 +            guard !uri.isEmpty, let url = URL(string: uri) else { return }
++            // On glass the logo is its own layer over the tile, so it is kept whole, not baked into a card.
++            let glassLogo = logo && UpNextArtwork.usesGlass
 +            // Keyed by geometry too: the same poster is a different bitmap at another card size.
-+            let cacheKey = "\(uri)@\(Int(size.width))x\(Int(size.height))\(logo ? "#logo" : "")" as NSString
++            let cacheKey = "\(uri)@\(Int(size.width))x\(Int(size.height))\(glassLogo ? "#glass-logo" : logo ? "#logo" : "")" as NSString
 +            if let cached = Self.imageCache.object(forKey: cacheKey) {
-+                cell.setArtwork(cached)
++                if glassLogo { cell.setLogo(cached) } else { cell.setArtwork(cached) }
 +                return
 +            }
 +            URLSession.shared.dataTask(with: url) { [weak cell] data, _, _ in
 +                // Still on URLSession's queue: decode and round here, hand the
 +                // finished card to main.
-+                guard let data, !data.isEmpty, let image = UIImage(data: data),
-+                      let card = logo ? UpNextArtwork.logoCard(from: image, size: size) : UpNextArtwork.card(from: image, size: size) else { return }
-+                Self.imageCache.setObject(card, forKey: cacheKey)
++                guard let data, !data.isEmpty, let image = UIImage(data: data) else { return }
++                let finished: UIImage?
++                if glassLogo {
++                    finished = image.preparingForDisplay() ?? image
++                } else {
++                    finished = logo ? UpNextArtwork.logoCard(from: image, size: size) : UpNextArtwork.card(from: image, size: size)
++                }
++                guard let finished else { return }
++                Self.imageCache.setObject(finished, forKey: cacheKey)
 +                DispatchQueue.main.async {
 +                    guard let cell, cell.representedUri == uri else { return }
-+                    cell.setArtwork(card)
++                    if glassLogo { cell.setLogo(finished) } else { cell.setArtwork(finished) }
 +                }
 +            }.resume()
 +        }
@@ -931,17 +939,52 @@ index 0000000..9257be6
 +
 +        /// The station tile: a dark surface with a hairline, the logo fitted inside it. Logos come
 +        /// as transparent PNGs, so drawn straight over the video they read as loose shapes.
-+        private static let tileFill = UIColor(red: 124 / 255, green: 124 / 255, blue: 128 / 255, alpha: 1)
++        private static let tileFill = UIColor(white: 0.06, alpha: 0.55)
 +        private static let tileLine = UIColor(white: 1, alpha: 0.18)
++        /// The soft light behind a logo, so a dark wordmark still reads on the dark tile.
++        static let logoGlow = UIColor(white: 1, alpha: 0.55)
++        /// The Info tab artwork's size and corner radius.
++        private static let artworkSize = CGSize(width: 640, height: 360)
++        private static let artworkCornerRadius: CGFloat = 20
 +
-+        static func logoTile(size: CGSize, draw: ((CGRect) -> Void)? = nil) -> UIImage {
-+            render(size: size) { _ in
++        /// tvOS 26 and later draw the Channels tab's tile as glass instead of the baked fill.
++        static var usesGlass: Bool {
++            #if compiler(>=6.2)
++                if #available(tvOS 26.0, *) { return true }
++            #endif
++            return false
++        }
++
++        /// The glass tint: the card colour the app's corner tab uses, at the same alpha.
++        static let glassTint = UIColor(red: 44 / 255, green: 44 / 255, blue: 46 / 255, alpha: 0.3)
++
++        /// Under the glass: the tile's shape, which the focus lift and shadow are built from.
++        private static var glassShapes: [CGFloat: UIImage] = [:]
++
++        static func glassShape(for size: CGSize) -> UIImage {
++            if let cached = glassShapes[size.width] { return cached }
++            let drawn = render(size: size) { _ in
++                UIColor(white: 0, alpha: 0.2).setFill()
++                UIBezierPath(rect: CGRect(origin: .zero, size: size)).fill()
++            }
++            glassShapes[size.width] = drawn
++            return drawn
++        }
++
++        static let logoGlyph: UIImage? = UIImage(systemName: "tv", withConfiguration: UIImage.SymbolConfiguration(pointSize: 48, weight: .regular))?
++            .withTintColor(UIColor(white: 1, alpha: 0.45), renderingMode: .alwaysOriginal)
++
++        static func logoTile(size: CGSize, outline: Bool = true, radius: CGFloat = cornerRadius, draw: ((CGRect) -> Void)? = nil) -> UIImage {
++            render(size: size, radius: radius) { _ in
 +                tileFill.setFill()
 +                UIBezierPath(rect: CGRect(origin: .zero, size: size)).fill()
-+                let line = UIBezierPath(roundedRect: CGRect(origin: .zero, size: size).insetBy(dx: 0.5, dy: 0.5), cornerRadius: cornerRadius)
-+                line.lineWidth = 1
-+                tileLine.setStroke()
-+                line.stroke()
++                if outline {
++                    // Half a pixel in, with the radius half a pixel smaller, so the line runs parallel to the clip at the corners.
++                    let line = UIBezierPath(roundedRect: CGRect(origin: .zero, size: size).insetBy(dx: 0.5, dy: 0.5), cornerRadius: radius - 0.5)
++                    line.lineWidth = 1
++                    tileLine.setStroke()
++                    line.stroke()
++                }
 +                draw?(CGRect(origin: .zero, size: size).insetBy(dx: size.width * 0.16, dy: size.height * 0.2))
 +            }
 +        }
@@ -965,15 +1008,16 @@ index 0000000..9257be6
 +        /// player item's metadata. Main thread: the renderer format reads the screen.
 +        static func logoArtwork(pngData: Data) -> Data? {
 +            guard let image = UIImage(data: pngData) else { return nil }
-+            return logoCard(from: image, size: CGSize(width: 640, height: 360))?.pngData()
++            return logoCard(from: image, size: artworkSize, outline: false, radius: artworkCornerRadius)?.pngData()
 +        }
 +
-+        /// The logo fitted inside the tile's inset, centred, never cropped.
-+        static func logoCard(from image: UIImage, size: CGSize) -> UIImage? {
++        /// The logo fitted inside the tile's inset, centred, never cropped, on a soft white glow.
++        static func logoCard(from image: UIImage, size: CGSize, outline: Bool = true, radius: CGFloat = cornerRadius) -> UIImage? {
 +            guard image.size.width > 0, image.size.height > 0 else { return nil }
-+            return logoTile(size: size) { inset in
++            return logoTile(size: size, outline: outline, radius: radius) { inset in
 +                let scale = min(inset.width / image.size.width, inset.height / image.size.height)
 +                let drawn = CGSize(width: image.size.width * scale, height: image.size.height * scale)
++                UIGraphicsGetCurrentContext()?.setShadow(offset: .zero, blur: size.height * 0.05, color: logoGlow.cgColor)
 +                image.draw(in: CGRect(x: inset.midX - drawn.width / 2, y: inset.midY - drawn.height / 2, width: drawn.width, height: drawn.height))
 +            }
 +        }
@@ -1002,9 +1046,9 @@ index 0000000..9257be6
 +            return format
 +        }()
 +
-+        private static func render(size: CGSize, _ body: @escaping (UIGraphicsImageRendererContext) -> Void) -> UIImage {
++        private static func render(size: CGSize, radius: CGFloat = cornerRadius, _ body: @escaping (UIGraphicsImageRendererContext) -> Void) -> UIImage {
 +            UIGraphicsImageRenderer(size: size, format: format).image { context in
-+                UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: cornerRadius).addClip()
++                UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: radius).addClip()
 +                body(context)
 +            }
 +        }
@@ -1074,6 +1118,47 @@ index 0000000..9257be6
 +        required init?(coder _: NSCoder) { fatalError("init(coder:) is not supported") }
 +
 +        private var isLogo = false
++        private var glassView: UIVisualEffectView?
++        private let logoView = UIImageView()
++
++        /// The glass tile and its logo, in the image's overlay, which floats with the image under focus (UIImageView.h).
++        private func installGlass() -> UIVisualEffectView? {
++            if let glassView { return glassView }
++            #if compiler(>=6.2)
++                if #available(tvOS 26.0, *) {
++                    let glass = UIGlassEffect(style: .regular)
++                    glass.tintColor = UpNextArtwork.glassTint
++                    let view = UIVisualEffectView(effect: glass)
++                    view.cornerConfiguration = .corners(radius: .fixed(UpNextArtwork.cornerRadius))
++                    view.translatesAutoresizingMaskIntoConstraints = false
++                    let overlay = imageView.overlayContentView
++                    overlay.addSubview(view)
++                    logoView.contentMode = .scaleAspectFit
++                    logoView.translatesAutoresizingMaskIntoConstraints = false
++                    logoView.layer.shadowColor = UpNextArtwork.logoGlow.cgColor
++                    logoView.layer.shadowOpacity = 1
++                    logoView.layer.shadowRadius = 6
++                    logoView.layer.shadowOffset = .zero
++                    view.contentView.addSubview(logoView)
++                    NSLayoutConstraint.activate([
++                        view.topAnchor.constraint(equalTo: overlay.topAnchor),
++                        view.bottomAnchor.constraint(equalTo: overlay.bottomAnchor),
++                        view.leadingAnchor.constraint(equalTo: overlay.leadingAnchor),
++                        view.trailingAnchor.constraint(equalTo: overlay.trailingAnchor),
++                        // The baked tile's inset: 16% each side, 20% top and bottom.
++                        logoView.centerXAnchor.constraint(equalTo: view.contentView.centerXAnchor),
++                        logoView.centerYAnchor.constraint(equalTo: view.contentView.centerYAnchor),
++                        logoView.widthAnchor.constraint(equalTo: view.contentView.widthAnchor, multiplier: 0.68),
++                        logoView.heightAnchor.constraint(equalTo: view.contentView.heightAnchor, multiplier: 0.6),
++                    ])
++                    glassView = view
++                    return view
++                }
++            #endif
++            return nil
++        }
++
++        private var showsGlass: Bool { isLogo && glassView?.isHidden == false }
 +
 +        func configure(title: String, subtitle: String, imageUri: String, artworkSize size: CGSize, logo: Bool) {
 +            titleLabel.text = title
@@ -1083,7 +1168,14 @@ index 0000000..9257be6
 +            isLogo = logo
 +            artworkWidth.constant = size.width
 +            artworkHeight.constant = size.height
-+            imageView.image = logo ? UpNextArtwork.logoPlaceholder(for: size) : UpNextArtwork.placeholder(for: size)
++            if logo, UpNextArtwork.usesGlass, let glass = installGlass() {
++                glass.isHidden = false
++                imageView.image = UpNextArtwork.glassShape(for: size)
++                logoView.image = UpNextArtwork.logoGlyph
++            } else {
++                glassView?.isHidden = true
++                imageView.image = logo ? UpNextArtwork.logoPlaceholder(for: size) : UpNextArtwork.placeholder(for: size)
++            }
 +            // A station tile sits raised over the video; a poster card keeps the flat look.
 +            let layer = imageView.layer
 +            layer.shadowColor = UIColor.black.cgColor
@@ -1097,12 +1189,21 @@ index 0000000..9257be6
 +            imageView.image = image
 +        }
 +
++        func setLogo(_ image: UIImage) {
++            logoView.image = image
++        }
++
 +        override func prepareForReuse() {
 +            super.prepareForReuse()
 +            representedUri = nil
 +            // Never nil: an imageless card has nothing for the focus effect to
 +            // lift, so it would sit frozen while its neighbours animate.
-+            imageView.image = isLogo ? UpNextArtwork.logoPlaceholder(for: artworkSize) : UpNextArtwork.placeholder(for: artworkSize)
++            if showsGlass {
++                imageView.image = UpNextArtwork.glassShape(for: artworkSize)
++                logoView.image = UpNextArtwork.logoGlyph
++            } else {
++                imageView.image = isLogo ? UpNextArtwork.logoPlaceholder(for: artworkSize) : UpNextArtwork.placeholder(for: artworkSize)
++            }
 +        }
 +    }
 +
@@ -1303,7 +1404,7 @@ index 7927c37..04d4e01 100644
          if let newPlayer = players.allObjects.first(where: {
              $0.rate != 0
 diff --git a/node_modules/react-native-video/ios/Video/RCTVideo.swift b/node_modules/react-native-video/ios/Video/RCTVideo.swift
-index 5f2f5f6..682d4af 100644
+index 5f2f5f6..84b21d1 100644
 --- a/node_modules/react-native-video/ios/Video/RCTVideo.swift
 +++ b/node_modules/react-native-video/ios/Video/RCTVideo.swift
 @@ -16,6 +16,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
@@ -1317,7 +1418,7 @@ index 5f2f5f6..682d4af 100644
      private var _videoURL: NSURL?
  
      /* Required to publish events */
-@@ -132,6 +136,399 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -132,6 +136,407 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
      @objc var onTextTracks: RCTDirectEventBlock?
      @objc var onAudioTracks: RCTDirectEventBlock?
      @objc var onTextTrackDataChanged: RCTDirectEventBlock?
@@ -1346,10 +1447,18 @@ index 5f2f5f6..682d4af 100644
 +                item.nextContentProposal = nil
 +                return
 +            }
-+            let startSeconds = dict["startTimeSeconds"] as? Double
-+            let transition = startSeconds.map { CMTime(seconds: $0, preferredTimescale: 600) } ?? .indefinite
 +            let autoAccept = dict["autoAcceptSeconds"] as? Double
 +            panel?.configure(for: item, automaticAcceptanceInterval: autoAccept)
++            // No credits marker: a beat before the item's own end, a time playback passes. Not
++            // .indefinite, which AVKit never reached on device: the card never came and the queue
++            // stalled. The duration is known once the item is ready; handleReadyToPlay applies again.
++            let itemEnd = item.duration.isNumeric ? CMTimeGetSeconds(item.duration) : 0
++            let endLead = 1.0
++            guard let startSeconds = dict["startTimeSeconds"] as? Double ?? (itemEnd > endLead ? itemEnd - endLead : nil) else {
++                item.nextContentProposal = nil
++                return
++            }
++            let transition = CMTime(seconds: startSeconds, preferredTimescale: 600)
 +
 +            func apply(image: UIImage?) {
 +                let proposal = AVContentProposal(contentTimeForTransition: transition, title: title, previewImage: image)
@@ -1717,7 +1826,7 @@ index 5f2f5f6..682d4af 100644
  
      @objc
      func _onPictureInPictureEnter() {
-@@ -334,6 +731,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -334,6 +739,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                  for subview in playerViewController.contentOverlayView?.subviews ?? [] {
                      subview.frame = UIScreen.main.bounds
                  }
@@ -1728,7 +1837,7 @@ index 5f2f5f6..682d4af 100644
              }
          }
      }
-@@ -559,6 +960,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -559,6 +968,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          _player?.pause()
          _playerItem = playerItem
          _playerObserver.playerItem = _playerItem
@@ -1746,7 +1855,7 @@ index 5f2f5f6..682d4af 100644
          setPreferredForwardBufferDuration(_preferredForwardBufferDuration)
          setPlaybackRange(playerItem, withCropStart: _source?.cropStart, withCropEnd: _source?.cropEnd)
          setFilter(_filterName)
-@@ -682,7 +1094,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -682,7 +1102,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                      DebugLog("An error occurred: \(error.localizedDescription)")
  
                      if let self {
@@ -1755,7 +1864,7 @@ index 5f2f5f6..682d4af 100644
                          self.isSetSourceOngoing = false
                          self.applyNextSource()
  
-@@ -727,6 +1139,12 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -727,6 +1147,12 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
      }
  
      func playerItemPropegateMetadata(_ playerItem: AVPlayerItem!) async -> AVPlayerItem {
@@ -1768,7 +1877,7 @@ index 5f2f5f6..682d4af 100644
          var mapping: [AVMetadataIdentifier: Any] = [:]
  
          if let title = _source?.customMetadata?.title {
-@@ -745,9 +1163,27 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -745,9 +1171,27 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
              mapping[.commonIdentifierDescription] = description
          }
  
@@ -1797,7 +1906,7 @@ index 5f2f5f6..682d4af 100644
          }
  
          if #available(iOS 12.2, *), !mapping.isEmpty {
-@@ -756,7 +1192,11 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -756,7 +1200,11 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
  
          #if os(tvOS)
              if let chapters = _chapters {
@@ -1809,7 +1918,7 @@ index 5f2f5f6..682d4af 100644
              }
          #endif
  
-@@ -834,6 +1274,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -834,6 +1282,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
              } else {
                  _playerObserver.setRestoreUserInterfaceForPIPStopCompletionHandler(restore)
              }
@@ -1825,7 +1934,7 @@ index 5f2f5f6..682d4af 100644
          #endif
      }
  
-@@ -1080,6 +1529,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1080,6 +1537,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
  
      func setChapters(_ chapters: [Chapter]?) {
          _chapters = chapters
@@ -1840,7 +1949,7 @@ index 5f2f5f6..682d4af 100644
      }
  
      @objc
-@@ -1112,6 +1569,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1112,6 +1577,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                          self._playerViewController?.removeFromParent()
                      }
  
@@ -1851,7 +1960,7 @@ index 5f2f5f6..682d4af 100644
                      viewController.present(playerViewController, animated: true, completion: { [weak self] in
                          guard let self else { return }
                          // In fullscreen we must display controls
-@@ -1130,6 +1591,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1130,6 +1599,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                              for subview in self._playerViewController?.contentOverlayView?.subviews ?? [] {
                                  subview.frame = UIScreen.main.bounds
                              }
@@ -1862,7 +1971,7 @@ index 5f2f5f6..682d4af 100644
                          }
  
                          self.onVideoFullscreenPlayerDidPresent?(["target": self.reactTag as Any])
-@@ -1193,6 +1658,21 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1193,6 +1666,21 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          }
  
          _playerObserver.playerViewController = _playerViewController
@@ -1884,7 +1993,7 @@ index 5f2f5f6..682d4af 100644
      }
  
      func createPlayerViewController(player: AVPlayer) -> RCTVideoPlayerViewController {
-@@ -1200,6 +1680,23 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1200,6 +1688,23 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          viewController.showsPlaybackControls = self._controls
          #if !os(tvOS)
              viewController.updatesNowPlayingInfoCenter = false
@@ -1908,7 +2017,7 @@ index 5f2f5f6..682d4af 100644
          #endif
          viewController.rctDelegate = self
          viewController.preferredOrientation = _fullscreenOrientation
-@@ -1382,23 +1879,60 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1382,23 +1887,60 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
  
      // MARK: - React View Management
  
@@ -1979,7 +2088,7 @@ index 5f2f5f6..682d4af 100644
      }
  
      override func layoutSubviews() {
-@@ -1416,6 +1950,11 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1416,6 +1958,11 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                  subview.frame = bounds
              }
  
@@ -1991,7 +2100,7 @@ index 5f2f5f6..682d4af 100644
              // ensure preferredContentSize is set when in fullscreen
              if _fullscreenPlayerPresented {
                  _playerViewController.preferredContentSize = CGSize(width: UIScreen.main.bounds.width, height: UIScreen.main.bounds.height)
-@@ -1431,6 +1970,20 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1431,6 +1978,20 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
      // MARK: - Lifecycle
  
      override func removeFromSuperview() {
@@ -2012,7 +2121,7 @@ index 5f2f5f6..682d4af 100644
          self._player?.replaceCurrentItem(with: nil)
          if let player = _player {
              player.pause()
-@@ -1455,6 +2008,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1455,6 +2016,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.removePlayerLayer()
  
          if let _playerViewController {
@@ -2030,9 +2139,18 @@ index 5f2f5f6..682d4af 100644
              _playerViewController.view.removeFromSuperview()
              _playerViewController.removeFromParent()
              _playerViewController.rctDelegate = nil
-@@ -1566,7 +2130,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1565,8 +2137,23 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+                 self._startPosition = -1
              }
  
++            #if os(tvOS)
++                // TomoTV patch: a proposal with no credits marker is timed off the item's duration,
++                // which is known from here.
++                if self._contentProposal != nil, self._contentProposal?["startTimeSeconds"] == nil {
++                    self.applyContentProposal()
++                }
++            #endif
++
              if onVideoLoad != nil, self._videoLoadStarted {
 -                var duration = Float(CMTimeGetSeconds(_playerItem.asset.duration))
 +                // TomoTV patch: a synchronous asset.duration read blocks the main actor.
@@ -2046,7 +2164,7 @@ index 5f2f5f6..682d4af 100644
  
                  if duration.isNaN || duration == 0 {
                      // This is a safety check for live video.
-@@ -1616,10 +2187,18 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1616,10 +2203,18 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
              self._videoLoadStarted = false
              self._playerObserver.attachPlayerEventListeners()
              self.applyModifiers()
@@ -2065,7 +2183,7 @@ index 5f2f5f6..682d4af 100644
          if let player = _player {
              NowPlayingInfoCenterManager.shared.removePlayer(player: player)
          }
-@@ -1637,6 +2216,8 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1637,6 +2232,8 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                      "domain": (_playerItem.error as NSError?)?.domain ?? "",
                  ],
                  "target": reactTag as Any,
@@ -2074,7 +2192,7 @@ index 5f2f5f6..682d4af 100644
              ]
          )
      }
-@@ -1742,6 +2323,39 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1742,6 +2339,39 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.onVideoFullscreenPlayerDidDismiss?(["target": self.reactTag as Any])
      }
  
@@ -2114,7 +2232,7 @@ index 5f2f5f6..682d4af 100644
      @objc
      func handleDidFailToFinishPlaying(notification: NSNotification!) {
          guard onVideoError != nil else { return }
-@@ -2062,7 +2676,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -2062,7 +2692,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                      DebugLog("An error occurred: \(error.localizedDescription)")
  
                      if let self {

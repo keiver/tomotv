@@ -153,22 +153,15 @@ describe("nextLinkCap", () => {
 });
 
 describe("keptForReason", () => {
-  const base = { belowRealtime: true, live: false, liveHasServerRung: false, tierDeclared: false, readBound: false };
+  const base = { belowRealtime: true, live: false, tierDeclared: false, readBound: false };
 
   it("keeps nothing when the segment made realtime", () => {
     expect(keptForReason({ ...base, belowRealtime: false, tierDeclared: true })).toBeNull();
   });
 
-  it("keeps a live channel that has no server rung to fall to", () => {
+  it("keeps a live channel below realtime whatever slowed it: the feed or the device", () => {
     expect(keptForReason({ ...base, live: true })).toBe("live");
-  });
-
-  it("hands a live channel over once the server offers a transcode", () => {
-    expect(keptForReason({ ...base, live: true, liveHasServerRung: true })).toBeNull();
-  });
-
-  it("keeps a live channel whose segment waited on the feed: a live input arrives at 1x", () => {
-    expect(keptForReason({ ...base, live: true, liveHasServerRung: true, readBound: true })).toBe("live");
+    expect(keptForReason({ ...base, live: true, readBound: true })).toBe("live");
   });
 
   it("keeps a session carrying a declared tier: its primary is never the startup gate", () => {
@@ -187,7 +180,7 @@ describe("keptForReason", () => {
     expect(keptForReason({ ...base, serverTranscodingAllowed: false })).toBe("noServer");
     expect(keptForReason({ ...base, serverTranscodingAllowed: true })).toBeNull();
     expect(keptForReason({ ...base, belowRealtime: false, serverTranscodingAllowed: false })).toBeNull();
-    expect(keptForReason({ ...base, live: true, liveHasServerRung: true, serverTranscodingAllowed: false })).toBeNull();
+    expect(keptForReason({ ...base, live: true, serverTranscodingAllowed: false })).toBe("live");
   });
 });
 

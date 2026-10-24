@@ -18,10 +18,10 @@ export const LINK_CLIMB_MARGIN = 1.2;
 export const PLAYER_BUFFER_REPORT_MS = 1000;
 /** What AVPlayer buffers ahead to reach the first frame on the rung lane, where its own threshold costs a server encode per segment. */
 export const SLIPSTREAM_FORWARD_BUFFER_SECONDS = 12;
-/** Segments ahead a read-bound live start buffers before the player binds; runway against origin jitter. */
-export const LIVE_START_BUFFER_SEGMENTS = 2;
-/** Longest the live start gate holds the spinner for that runway. */
-export const LIVE_START_BUFFER_CAP_MS = 8_000;
+/** Seconds of live output the engine builds before the player's first playlist answers: the cushion an origin's pause drains. */
+export const LIVE_BUFFER_SECONDS = 15;
+/** Live segment target; a copied segment runs to the next keyframe. */
+export const LIVE_SEGMENT_SECONDS = 2;
 /** Bytes AVPlayer may hold ahead once playing: automatic held 52s of a 110 Mb/s copy and the 3 GB TV killed the app. */
 export const FORWARD_BUFFER_BYTES = 200_000_000;
 /** AVPlayer's automatic depth (measured 50-55s on T105); a budget reaching it leaves automatic in place. */

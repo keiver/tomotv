@@ -49,6 +49,30 @@ final class LivePlaylistTests: XCTestCase {
         XCTAssertTrue(out.contains("#EXT-X-MAP:URI=\"init.mp4\"\n"))
     }
 
+    func testTheFirstAnswerWaitsAtMostTwentySecondsPastTheStartBufferCountedFromTheSessionStart() {
+        XCTAssertEqual(RemuxSession.liveFirstAnswerWait(bufferSeconds: 15, elapsed: 0), 35)
+        XCTAssertEqual(RemuxSession.liveFirstAnswerWait(bufferSeconds: 15, elapsed: 30), 5)
+        XCTAssertEqual(RemuxSession.liveFirstAnswerWait(bufferSeconds: 15, elapsed: 40), 0)
+    }
+
+    func testAStartOffsetPutsThePlayerThatFarBehindTheNewestSegment() {
+        let out = RemuxSession.renderLivePlaylist(
+            prefix: "", target: 7, firstRetained: 0, segments: [0, 1, 2], durations: [0: 5, 1: 5, 2: 5.5],
+            generationStarts: [0: 0], dates: [:], fallbackDuration: 6, startOffset: 15.5)
+        XCTAssertTrue(out.contains("#EXT-X-START:TIME-OFFSET=-15.500,PRECISE=NO\n"), out)
+        XCTAssertLessThan(out.range(of: "#EXT-X-START")!.lowerBound, out.range(of: "#EXTINF")!.lowerBound)
+    }
+
+    func testTheStartOffsetIsFixedByTheFirstPlaylistAndCoversWhatItListed() throws {
+        let s = try RemuxSession(config: makeConfig(durationSeconds: 0, isLive: true, liveSegmentSeconds: 2))
+        defer { s.stop() }
+        s.stateLock.lock()
+        defer { s.stateLock.unlock() }
+        XCTAssertNil(s.liveStartOffsetLocked(segments: [], durations: [:]), "no offset before anything is listed")
+        XCTAssertEqual(s.liveStartOffsetLocked(segments: [0, 1, 2], durations: [0: 5, 1: 5, 2: 5]), 15)
+        XCTAssertEqual(s.liveStartOffsetLocked(segments: [0, 1, 2, 3], durations: [0: 5, 1: 5, 2: 5, 3: 5]), 15, "a later playlist keeps the first one's offset")
+    }
+
     func testWindowSetsMediaSequenceAndListsOnlyRetainedSegments() {
         let out = render(firstRetained: 40, segments: [40, 41, 42])
         XCTAssertTrue(out.contains("#EXT-X-MEDIA-SEQUENCE:40\n"))

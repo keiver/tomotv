@@ -8,7 +8,7 @@ import type { JellyfinItem } from "@/types/jellyfin";
 import { useIsFocused } from "expo-router";
 import React, { forwardRef, memo, useCallback, type ComponentProps, type ElementRef } from "react";
 
-type GuideChannelCardProps = Omit<ComponentProps<typeof VideoGridItem>, "video" | "liveFrame" | "liveClip" | "clipActive" | "liveMark" | "slotOrientation" | "offline"> & {
+type GuideChannelCardProps = Omit<ComponentProps<typeof VideoGridItem>, "video" | "liveFrame" | "liveClip" | "clipActive" | "liveMark" | "slotOrientation" | "offline" | "liveCard"> & {
   channel: JellyfinItem;
   /** The clip plays while the card is in view and playback is not holding the link. */
   playsClipInView?: boolean;
@@ -57,6 +57,7 @@ const GuideChannelCardComponent = forwardRef<ElementRef<typeof VideoGridItem>, G
       clipActive={clipActive}
       liveMark={autoUpdate}
       offline={offline}
+      liveCard
       {...cardProps}
     />
   );

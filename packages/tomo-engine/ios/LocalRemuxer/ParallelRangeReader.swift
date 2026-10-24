@@ -51,6 +51,14 @@ final class ParallelRangeReader: NSObject {
     private var cursor: Int64 = 0
     private var failed = false
     private var closed = false
+    private var receivedBody = false
+    /// A chunk request received a successful body, even if the demuxer later refused its bytes.
+    /// The capability probe and error-response bodies do not establish a provider connection.
+    var servedBody: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return receivedBody
+    }
     /// Slow start: one chunk in flight until reads drain one, so a slow link's
     /// opening probe is never starved by prefetch it does not need yet.
     private var window = 1
@@ -264,6 +272,9 @@ extension ParallelRangeReader: URLSessionDataDelegate {
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         lock.lock()
         if let index = taskChunk[dataTask.taskIdentifier], !closed {
+            if !data.isEmpty, let status = (dataTask.response as? HTTPURLResponse)?.statusCode, (200 ..< 300).contains(status) {
+                receivedBody = true
+            }
             bodies[index]?.append(data)
             lastActivity = Date()
         }

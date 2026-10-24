@@ -3,13 +3,17 @@
 
   relay.py <dir>   per channel in lineup.json: feed on tcp 127.0.0.1:<port+100>, readers on http://127.0.0.1:<port>/live.ts
 Test knobs (the demo leaves them unset): RELAY_HOST, RELAY_MAX_READERS with RELAY_CAP_MODE refuse|kick (a provider's
-connection cap across every channel), and GET /stats for the readers counted so far.
+connection cap across every channel), RELAY_CAP_STATUS (the refusal's status line, "403 Forbidden" unless set),
+RELAY_RELEASE_LAG_MS (a closed reader keeps counting this long), RELAY_HOLD_MS (an admitted reader is sent nothing
+this long, then closed: a provider whose channel never starts; RELAY_HOLD_HEADERS=1 sends the 200 first), and GET
+/stats for the readers counted so far.
 
 HDHomeRun face (the rig's tuner emulation, off unless RELAY_HDHR_PORT is set): one port answering /discover.json,
 /lineup.json and /auto/v<number> the way a Connect Quatro does, with each channel's lineup labels (videoCodec,
 audioCodec, hd) copied verbatim, a reader joining at the live edge like a tuner, and 503 past RELAY_MAX_READERS.
 RELAY_ADVERTISE is the base URL the tuner's clients reach it at. RELAY_PACE=<fraction>:<seconds> feeds each reader
-at that fraction of the channel's live rate for its first seconds, then at full rate. RELAY_VIDEO_DELAY=<seconds>
+at that fraction of the channel's live rate for its first seconds, then at full rate, in slices of RELAY_PACE_SLICE
+packets (350 unless set). RELAY_VIDEO_DELAY=<seconds>
 withholds the channel's video PID (lineup `videoPid`) from each new reader for that long, a tuner whose picture
 lags its lock: Jellyfin 12.1 then probes a video stream with no dimensions and keeps its lineup placeholders.
 """
@@ -30,10 +34,15 @@ JOIN_BEHIND = 16000 * PACKET
 FEED_OFFSET = 100
 MAX_READERS = int(os.environ.get("RELAY_MAX_READERS", "0"))
 CAP_MODE = os.environ.get("RELAY_CAP_MODE", "refuse")
+# The status line a refused reader gets, and how long a closed reader still counts (a provider freeing its slot late).
+CAP_STATUS = os.environ.get("RELAY_CAP_STATUS", "403 Forbidden")
+RELEASE_LAG = float(os.environ.get("RELAY_RELEASE_LAG_MS", "0")) / 1000
+HOLD = float(os.environ.get("RELAY_HOLD_MS", "0")) / 1000
+HOLD_HEADERS = os.environ.get("RELAY_HOLD_HEADERS", "0") == "1"
 HDHR_PORT = int(os.environ.get("RELAY_HDHR_PORT", "0"))
 ADVERTISE = os.environ.get("RELAY_ADVERTISE", f"http://{HOST}:{HDHR_PORT}").rstrip("/")
 # A paced reader gets its bytes in slices this size; a full-rate one gets whatever the ring holds.
-PACE_SLICE = 350 * PACKET
+PACE_SLICE = int(os.environ.get("RELAY_PACE_SLICE", "350")) * PACKET
 RATE_WINDOW = 5.0
 
 
@@ -84,6 +93,12 @@ class Readers:
             return True
 
     def leave(self, conn):
+        if RELEASE_LAG:
+            threading.Timer(RELEASE_LAG, self._drop, args=(conn,)).start()
+            return
+        self._drop(conn)
+
+    def _drop(self, conn):
         with self.lock:
             self.active = [entry for entry in self.active if entry[0] is not conn]
             self._count()
@@ -293,6 +308,11 @@ def serve_reader(channel, conn, behind, refusal, tuner=False):
             respond(conn, *refusal)
             return
         admitted = True
+        if HOLD:
+            if HOLD_HEADERS:
+                conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: video/mp2t\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n")
+            time.sleep(HOLD)
+            return
         conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: video/mp2t\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n")
         channel.stream(conn, behind, tuner)
     except OSError:
@@ -316,7 +336,7 @@ def channel_reader(channel, conn):
     except OSError:
         conn.close()
         return
-    serve_reader(channel, conn, JOIN_BEHIND, ("403 Forbidden", "text/plain", "max connections reached\n"))
+    serve_reader(channel, conn, JOIN_BEHIND, (CAP_STATUS, "text/plain", "max connections reached\n"))
 
 
 def serve_channel(channel):
@@ -403,7 +423,7 @@ class HdHomeRunFace:
 def main(directory):
     with open(os.path.join(directory, "lineup.json")) as f:
         lineup = json.load(f)
-    channels = [Channel(entry) for entry in lineup["channels"]]
+    channels = [Channel(entry) for entry in lineup["channels"] if "port" in entry]
     for channel in channels:
         # Bound before the reader port, so a reader-port answer means a feed can connect.
         threading.Thread(target=channel.feed, args=(channel.listen_for_feed(),), daemon=True).start()

@@ -258,7 +258,7 @@ describe("useItemDownload", () => {
     expect(manager.enqueue).toHaveBeenCalledWith(expect.objectContaining({ Id: "a" }), { convert: RUNG, audioIndex: 2, burnSubtitleIndex: 3 });
   });
 
-  it("drops a size that would not fit and keeps the ones that do", async () => {
+  it("greys a size that would not fit and keeps the ones that do", async () => {
     mockRungs.mockReturnValue([RUNG]);
     (fetchVideoDetails as jest.Mock).mockResolvedValue({ Id: "a", Name: "Bloom", MediaSources: [{ Id: "s", Size: 200 * 1024 * 1024 * 1024 }] });
     mockEstimate.mockReturnValue(1024);
@@ -266,8 +266,35 @@ describe("useItemDownload", () => {
     await act(async () => {
       await result.current?.toggle?.();
     });
-    const buttons = (Alert.alert as jest.Mock).mock.calls.at(-1)?.[2] as { text: string }[];
-    expect(buttons.map((button) => button.text)).toEqual(["1080p · 1024 B", "Cancel"]);
+    const buttons = (Alert.alert as jest.Mock).mock.calls.at(-1)?.[2] as { text: string; disabled?: boolean }[];
+    expect(buttons.map((button) => [button.text, !!button.disabled])).toEqual([
+      ["Original · 214748364800 B", true],
+      ["1080p · 1024 B", false],
+      ["Cancel", false],
+    ]);
+  });
+
+  // The original does not fit and transcoding is off: the sheet still lists every size, all greyed.
+  it("shows every size greyed when the original does not fit and the smaller sizes need transcoding that is off", async () => {
+    (serverTranscodeBlock as jest.Mock).mockReturnValue("device");
+    mockRungs.mockReturnValue([RUNG]);
+    (fetchVideoDetails as jest.Mock).mockResolvedValue({ Id: "a", Name: "Bloom", MediaSources: [{ Id: "s", Size: 200 * 1024 * 1024 * 1024 }] });
+    mockEstimate.mockReturnValue(1024);
+    const result = mount(ITEM);
+    await act(async () => {
+      await result.current?.toggle?.();
+    });
+    const [title, body, buttons] = (Alert.alert as jest.Mock).mock.calls.at(-1) ?? [];
+    expect(title).toBe("Bloom");
+    expect(body).toContain("which is off");
+    expect(buttons.map((button: { text: string; disabled?: boolean }) => [button.text, !!button.disabled])).toEqual([
+      ["Original · 214748364800 B", true],
+      ["1080p · 1024 B", true],
+      ["Transcoding Settings", false],
+      ["Cancel", false],
+    ]);
+    await confirm("Original · 214748364800 B");
+    expect(manager.enqueue).not.toHaveBeenCalled();
   });
 
   it("queues nothing when the confirmation is declined", async () => {
@@ -300,7 +327,7 @@ describe("useItemDownload", () => {
   });
 
   // Server transcoding off in Settings: the smaller sizes stay listed, greyed, and the sheet says why.
-  it("greys the smaller sizes and names the setting when transcoding is off on this device", async () => {
+  it("greys the smaller sizes and offers the setting when transcoding is off on this device", async () => {
     (serverTranscodeBlock as jest.Mock).mockReturnValue("device");
     mockRungs.mockReturnValue([RUNG]);
     mockEstimate.mockReturnValue(4000);
@@ -309,14 +336,31 @@ describe("useItemDownload", () => {
       await result.current?.toggle?.();
     });
     const [, body, buttons] = (Alert.alert as jest.Mock).mock.calls.at(-1) ?? [];
-    expect(body).toContain("off in Settings");
+    expect(body).toContain("which is off");
     expect(buttons.map((button: { text: string; disabled?: boolean }) => [button.text, !!button.disabled])).toEqual([
       ["Original · 10 B", false],
       ["1080p · 4000 B", true],
+      ["Transcoding Settings", false],
       ["Cancel", false],
     ]);
     await confirm("1080p · 4000 B");
     expect(manager.enqueue).not.toHaveBeenCalled();
+    await confirm("Transcoding Settings");
+    expect(mockBack).toHaveBeenCalled();
+    expect(mockPush).toHaveBeenCalledWith("/transcoding");
+    expect(manager.enqueue).not.toHaveBeenCalled();
+  });
+
+  it("offers no settings button when the server account is what blocks transcoding", async () => {
+    (serverTranscodeBlock as jest.Mock).mockReturnValue("account");
+    mockRungs.mockReturnValue([RUNG]);
+    mockEstimate.mockReturnValue(4000);
+    const result = mount(ITEM);
+    await act(async () => {
+      await result.current?.toggle?.();
+    });
+    const buttons = (Alert.alert as jest.Mock).mock.calls.at(-1)?.[2] as { text: string }[];
+    expect(buttons.map((button) => button.text)).toEqual(["Original · 10 B", "1080p · 4000 B", "Cancel"]);
   });
 
   it("offers nothing for a file that needs a server this device will not ask", async () => {
@@ -332,7 +376,7 @@ describe("useItemDownload", () => {
     expect(mockPush).not.toHaveBeenCalled();
   });
 
-  it("refuses a conversion the estimate says will not fit, before offering it", async () => {
+  it("greys a conversion the estimate says will not fit", async () => {
     (predictPlaybackLane as jest.Mock).mockResolvedValue({ lane: "server", smallFeedFirst: false });
     mockRungs.mockReturnValue([RUNG]);
     mockEstimate.mockReturnValue(200 * 1024 * 1024 * 1024);
@@ -340,7 +384,12 @@ describe("useItemDownload", () => {
     await act(async () => {
       await result.current?.toggle?.();
     });
-    expect((Alert.alert as jest.Mock).mock.calls.at(-1)?.[0]).toBe("Not enough space");
+    const buttons = (Alert.alert as jest.Mock).mock.calls.at(-1)?.[2] as { text: string; disabled?: boolean }[];
+    expect(buttons.map((button) => [button.text, !!button.disabled])).toEqual([
+      ["1080p · 214748364800 B", true],
+      ["Cancel", false],
+    ]);
+    await confirm("1080p · 214748364800 B");
     expect(manager.enqueue).not.toHaveBeenCalled();
   });
 

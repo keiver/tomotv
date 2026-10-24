@@ -224,7 +224,7 @@ class MacKeyCommands: RCTEventEmitter {
 
     /// The live emitter, or nil while nothing is subscribed. Weak because React
     /// owns the instance's life, and cleared on stopObserving so a key press can
-    /// never reach a torn-down bridge.
+    /// never reach a torn-down React instance.
     private static weak var listener: MacKeyCommands?
 
     /// Both ways this app reaches a desktop: the iOS binary run by macOS, and a

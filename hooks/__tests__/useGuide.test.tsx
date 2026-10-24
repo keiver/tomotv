@@ -11,6 +11,7 @@ import { dayStartMs, GUIDE_DAYS, GUIDE_SPAN_MINUTES, guideDays, guideWindowStart
 import { noteChannelAlive, noteChannelOpenFailure } from "@/services/channelHealth";
 
 jest.mock("@/services/jellyfinApi", () => ({
+  fetchCategoryChannelIds: jest.fn(),
   fetchChannels: jest.fn(),
   fetchChannelsByIds: jest.fn(),
   fetchGuideHorizon: jest.fn(async () => null),
@@ -64,6 +65,7 @@ let mockPreferences = {
   favorites: [] as { id?: string; number?: string; name: string }[],
   groups: [] as { id: string; name: string; channels: { number?: string; name: string }[] }[],
   playlistEdits: {},
+  categoryEdits: {} as Record<string, { added: string[]; removed: string[] }>,
   hideOffline: false,
 };
 jest.mock("@/hooks/useLiveTvPreferences", () => ({ useLiveTvPreferences: () => mockPreferences }));
@@ -120,7 +122,7 @@ describe("useGuide", () => {
     jest.clearAllMocks();
     clearRequestCache();
     jest.spyOn(Date, "now").mockReturnValue(CLOCK);
-    mockPreferences = { version: 1, autoUpdate: true, filter: "all", sort: "number", favorites: [], groups: [], playlistEdits: {}, hideOffline: false };
+    mockPreferences = { version: 1, autoUpdate: true, filter: "all", sort: "number", favorites: [], groups: [], playlistEdits: {}, categoryEdits: {}, hideOffline: false };
     (fetchTimers as jest.Mock).mockResolvedValue([]);
     mockPending.mockResolvedValue({ pending: [], hasMore: false, waiting: false });
   });
@@ -200,13 +202,17 @@ describe("useGuide", () => {
     expect(ref.current!.get().timersByProgramId.size).toBe(0);
   });
 
-  it("held to a category, asks the server for that flag and keeps every row it returns", async () => {
-    mockPreferences = { ...mockPreferences, filter: "category:kids" };
-    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(7)], total: 1 });
+  it("held to a category, reads its ids in the sort's order with the viewer's edits: a removed channel gone, an added one last", async () => {
+    mockPreferences = { ...mockPreferences, filter: "category:kids", categoryEdits: { kids: { added: ["c9"], removed: ["c5"] } } };
+    const { fetchCategoryChannelIds, fetchChannelsByIds } = jest.requireMock("@/services/jellyfinApi") as { fetchCategoryChannelIds: jest.Mock; fetchChannelsByIds: jest.Mock };
+    fetchCategoryChannelIds.mockResolvedValue(["c5", "c7"]);
+    fetchChannelsByIds.mockImplementation(async (slice: string[]) => slice.map((id) => ({ Id: id, Name: id, Type: "TvChannel", Path: "" })));
     (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
     const ref = await mount();
-    expect((fetchChannels as jest.Mock).mock.calls[0][0]).toEqual({ startIndex: 0, limit: GUIDE_CHANNEL_PAGE, sortBy: "SortName", category: "kids" });
-    expect(ref.current!.get().rows.map((row) => row.channel.Id)).toEqual(["c7"]);
+    await settle();
+    expect(fetchCategoryChannelIds).toHaveBeenCalledWith("kids", "SortName");
+    expect(fetchChannels).not.toHaveBeenCalled();
+    expect(ref.current!.get().rows.map((row) => row.channel.Id)).toEqual(["c7", "c9"]);
   });
 
   it("held to a group, fetches the group's channels", async () => {
@@ -865,7 +871,7 @@ describe("useGuide minute tick", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     clearRequestCache();
-    mockPreferences = { version: 1, autoUpdate: true, filter: "all", sort: "number", favorites: [], groups: [], playlistEdits: {}, hideOffline: false };
+    mockPreferences = { version: 1, autoUpdate: true, filter: "all", sort: "number", favorites: [], groups: [], playlistEdits: {}, categoryEdits: {}, hideOffline: false };
     (fetchTimers as jest.Mock).mockResolvedValue([]);
     (fetchChannels as jest.Mock).mockResolvedValue({ items: [], total: 0 });
     (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);

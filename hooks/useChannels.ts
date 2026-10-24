@@ -1,7 +1,7 @@
-import { fetchChannels, fetchChannelsByIds, fetchListedChannels } from "@/services/jellyfinApi";
+import { fetchCategoryChannelIds, fetchChannels, fetchChannelsByIds, fetchListedChannels, fillAiringFromGuides } from "@/services/jellyfinApi";
 import { pendingChannelsAfter } from "@/services/jellyfin/playlistItems";
 import { subscribeTunerDataRefreshed } from "@/services/jellyfin/tunerGroups";
-import { channelSortParam, type ChannelFavorite, type ChannelSort, type LiveTvCategory } from "@/services/liveTvPreferences";
+import { channelSortParam, playlistGroupIds, type ChannelFavorite, type ChannelSort, type LiveTvCategory, type PlaylistEdit } from "@/services/liveTvPreferences";
 import type { JellyfinItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -20,15 +20,16 @@ export interface ChannelsState {
 }
 
 /**
- * The channel list a page at a time in the server's order for the sort, held to a category when given.
- * A list (favorites, a group) comes in one fetch of its entries; playlist ids page in their order,
- * and "loading" waits for them. Any change starts over.
+ * The channel list a page at a time in the server's order for the sort.
+ * A list (favorites, a group) comes in one fetch of its entries; playlist ids and a category's edited ids
+ * page in their order, and "loading" waits for them. Any change starts over.
  */
 export function useChannels(
   sort: ChannelSort,
   category: LiveTvCategory | null = null,
   list: readonly ChannelFavorite[] | null = null,
   ids: readonly string[] | "loading" | null = null,
+  categoryEdit?: PlaylistEdit,
 ): ChannelsState {
   const [items, setItems] = useState<JellyfinItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -50,32 +51,33 @@ export function useChannels(
 
   const loadPage = useCallback(
     async (startIndex: number) => {
-      if (Array.isArray(ids)) {
+      const pageIds = Array.isArray(ids) ? ids : category ? playlistGroupIds(await fetchCategoryChannelIds(category, channelSortParam(sort)), categoryEdit) : null;
+      if (pageIds) {
         // Slices whose ids the server does not know come back empty; keep going until items or the end.
         let consumed = 0;
         let page: JellyfinItem[] = [];
-        while (page.length === 0 && startIndex + consumed < ids.length) {
-          const slice = ids.slice(startIndex + consumed, startIndex + consumed + CHANNEL_WALL_PAGE);
+        while (page.length === 0 && startIndex + consumed < pageIds.length) {
+          const slice = pageIds.slice(startIndex + consumed, startIndex + consumed + CHANNEL_WALL_PAGE);
           page = await fetchChannelsByIds(slice);
           consumed += slice.length;
         }
-        return { page, hasMore: startIndex + consumed < ids.length, consumed, waiting: false };
+        return { page: await fillAiringFromGuides(page), hasMore: startIndex + consumed < pageIds.length, consumed, waiting: false };
       }
       if (list) {
         const page = startIndex === 0 ? await fetchListedChannels(list) : [];
         return { page, hasMore: false, consumed: page.length, waiting: false };
       }
-      const { items: page, total } = await fetchChannels({ startIndex, limit: CHANNEL_WALL_PAGE, sortBy: channelSortParam(sort), ...(category ? { category } : {}) });
+      const { items: page, total } = await fetchChannels({ startIndex, limit: CHANNEL_WALL_PAGE, sortBy: channelSortParam(sort) });
       const loaded = startIndex + page.length;
       const hasMore = total !== undefined ? loaded < total : page.length >= CHANNEL_WALL_PAGE;
-      if (!hasMore && !category) {
+      if (!hasMore) {
         // The server catalog is done: channels only the tuner playlists carry yet follow, a page at a time.
         const tail = await pendingChannelsAfter(page, itemsRef.current, CHANNEL_WALL_PAGE);
         return { page: [...page, ...tail.pending], hasMore: tail.hasMore, consumed: page.length + tail.pending.length, waiting: tail.waiting };
       }
       return { page, hasMore, consumed: page.length, waiting: false };
     },
-    [sort, category, list, ids],
+    [sort, category, categoryEdit, list, ids],
   );
 
   useEffect(() => {

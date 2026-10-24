@@ -22,6 +22,9 @@ jest.mock("@/components/settings/RollingFieldRow", () => ({
   },
 }));
 
+let mockCategoryIds: Record<string, string[]> = {};
+jest.mock("@/hooks/useCategoryChannelIds", () => ({ useCategoryChannelIds: () => mockCategoryIds }));
+
 const channel = { Id: "c1", Name: "One", ChannelNumber: "7" };
 const row = (tree: TestRenderer.ReactTestRenderer, title: string) => tree.root.findByProps({ testID: `row:${title}` });
 const checked = (tree: TestRenderer.ReactTestRenderer, title: string) => row(tree, title).props.accessibilityState.checked;
@@ -38,7 +41,19 @@ const listCap = (tree: TestRenderer.ReactTestRenderer) => tree.root.findByProps(
 
 describe("ChannelGroupSection", () => {
   beforeEach(() => {
-    act(() => updateLiveTvPreferences({ groups: [], favorites: [] }));
+    act(() => updateLiveTvPreferences({ groups: [], favorites: [], categoryEdits: {} }));
+    mockCategoryIds = {};
+  });
+
+  it("lists the server's categories and toggles the channel in and out of one in place", () => {
+    mockCategoryIds = { kids: ["c9"] };
+    const tree = mount();
+    expect(checked(tree, "Kids")).toBe(false);
+    act(() => row(tree, "Kids").props.onPress());
+    expect(checked(tree, "Kids")).toBe(true);
+    expect(getLiveTvPreferences().categoryEdits.kids).toEqual({ added: ["c1"], removed: [] });
+    act(() => row(tree, "Kids").props.onPress());
+    expect(checked(tree, "Kids")).toBe(false);
   });
 
   it("toggles the channel's favorite in place", () => {

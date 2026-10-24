@@ -26,6 +26,13 @@ export class EngineInputMissingError extends IdentifiedError {
   }
 }
 
+/** A channel's provider answered the engine's read with a 429; the server reads the same account. */
+export class LiveProviderFullError extends IdentifiedError {
+  constructor(message: string) {
+    super(PLAYBACK_ERROR_IDS.LIVE_LIMIT, message);
+  }
+}
+
 export interface PreflightGate {
   /** Hand the gate an outcome. False once the gate is closed. */
   settle: (outcome: PreflightOutcome) => boolean;
@@ -140,8 +147,6 @@ export function linkAffordsChapterFrames(bps: number | null, sourceBps: number):
 export interface KeptForInput {
   belowRealtime: boolean;
   live: boolean;
-  /** A live channel the server offers a transcode for has somewhere else to go. */
-  liveHasServerRung: boolean;
   /** A Slipstream rung is declared, so the primary is never the startup gate. */
   tierDeclared: boolean;
   /** The segment was slow because the input arrived slowly, not because the device is slow. */
@@ -155,8 +160,9 @@ export interface KeptForInput {
  */
 export function keptForReason(input: KeptForInput): "tier" | "live" | "link" | "noServer" | null {
   if (!input.belowRealtime) return null;
-  // A live feed arrives at 1x, so a read-bound segment timed the broadcast, not the device.
-  if (input.live) return input.liveHasServerRung && !input.readBound ? null : "live";
+  // A live channel stays on the engine whatever timed it: the broadcast's own pace, or a device
+  // that waits and buffers, since nothing else may play a channel.
+  if (input.live) return "live";
   if (input.tierDeclared) return "tier";
   if (input.readBound) return "link";
   if (input.serverTranscodingAllowed === false) return "noServer";

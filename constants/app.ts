@@ -72,10 +72,10 @@ export const CONTROL_HEIGHT = Platform.isTV ? 82 : 56;
 export const GRID = {
   /** Portrait poster slot (width / height). */
   PORTRAIT_RATIO: 2 / 3,
-  /** Landscape card frame (width / height). Wider art (16:9 thumbnails) center-crops to this
-   * with cover, trimming the left/right edges, so a raised row height widens landscape cards
-   * less than a true 16:9 slot and posters get the reclaimed height. */
-  LANDSCAPE_RATIO: 3 / 2,
+  /** Landscape card frame (width / height): 16:9, so a thumbnail or episode still shows whole above the card's base. */
+  LANDSCAPE_RATIO: 16 / 9,
+  /** Live channel card frame: the broadcast's own 16:9, so crop-to-fill cuts nothing off an HD picture. */
+  LIVE_RATIO: 16 / 9,
   /** Columns for a portrait grid (TV / narrow phone / wide phone-family screens). */
   COLUMNS_PORTRAIT: { tv: 6, phone: 3, phoneWide: 5 },
   /** Columns for a landscape grid — wider cards, fewer columns. */
@@ -106,6 +106,8 @@ export const GRID = {
   /** tvOS row-height factor over the landscape anchor. Sized so two shelves fill the screen
    * with the third peeking, signalling the screen scrolls. */
   CARD_ROW_SCALE_TV: 1.12,
+  /** tvOS grid cards per row by shape: a grid justifies each row to the width, so its card size is this count. */
+  TV_GRID_PER_ROW: { portrait: 7, square: 5, landscape: 4 },
   /** Minimum horizontal screen padding around library grids (TV / phone). See
    * gridEdgePadding — this is a floor, not an addition to the safe-area inset. */
   SIDE_PADDING: { tv: 80, phone: 20 },
@@ -135,7 +137,7 @@ export const SHELF_SPACING = {
   // it sits at the bottom. iPadOS puts the bar at the TOP, so a tablet clears far less.
   phone: { headingSize: 13, headingLine: 16, headingGap: 7, rowGap: 10, chrome: 180 },
   tablet: { headingSize: 16, headingLine: 20, headingGap: 14, rowGap: 22, chrome: 147 },
-  tv: { headingSize: 26, headingLine: 30, headingGap: 14, rowGap: 30, chrome: 250 },
+  tv: { headingSize: 26, headingLine: 30, headingGap: 8, rowGap: 36, chrome: 250 },
 } as const;
 
 export type ShelfSpacing = (typeof SHELF_SPACING)[keyof typeof SHELF_SPACING];
@@ -147,9 +149,17 @@ export function shelfSpacing(isTV: boolean, windowWidth: number, windowHeight: n
   return shortSide >= GRID.PHONE_WIDE_MIN_WIDTH ? SHELF_SPACING.tablet : SHELF_SPACING.phone;
 }
 
+/** The base under a card's art that names it. */
+export const STAND_HEIGHT = Platform.isTV ? 34 : 24;
+/**
+ * The extra room a media card row keeps for its base. On TV the base overhangs into the 40pt of card padding and
+ * row padding already under the art, so TV rows keep their spacing.
+ */
+export const STAND_ROW_ROOM = Platform.isTV ? 0 : STAND_HEIGHT;
+
 /** Vertical space a shelf spends on anything that is not its cards. */
 export function shelfHeadingBlock(spacing: ShelfSpacing): number {
-  return spacing.headingLine + spacing.headingGap + spacing.rowGap;
+  return spacing.headingLine + spacing.headingGap + spacing.rowGap + STAND_ROW_ROOM;
 }
 
 export type SlotOrientation = "portrait" | "landscape";
@@ -235,11 +245,26 @@ export interface SlotRowHeights {
   landscape: number;
 }
 
+/** A 16:9 live card's row height, as wide as a landscape card so a row holds as many. */
+export function liveRowHeight(landscapeHeight: number, padding: number): number {
+  return ((landscapeHeight - 2 * padding) * GRID.LANDSCAPE_RATIO) / GRID.LIVE_RATIO + 2 * padding;
+}
+
 export function slotRowHeights(windowWidth: number, windowHeight: number, insetLeft: number, insetRight: number, isTV: boolean, surface: "shelf" | "grid" = "shelf"): SlotRowHeights {
   const usable = windowWidth - gridEdgePadding(insetLeft, isTV) - gridEdgePadding(insetRight, isTV);
   const padding = slotCardPadding(isTV);
   if (isTV) {
-    const landscapeAnchor = (usable / 4 - 2 * padding) / GRID.LANDSCAPE_RATIO + 2 * padding;
+    // The height at which `count` cards of a shape exactly fill the row.
+    const filling = (count: number, ratio: number) => (usable / count - 2 * padding) / ratio + 2 * padding;
+    if (surface === "grid") {
+      const per = GRID.TV_GRID_PER_ROW;
+      return {
+        portrait: Math.round(filling(per.portrait, GRID.PORTRAIT_RATIO)),
+        square: Math.round(filling(per.square, 1)),
+        landscape: Math.round(filling(per.landscape, GRID.LANDSCAPE_RATIO)),
+      };
+    }
+    const landscapeAnchor = filling(4, GRID.LANDSCAPE_RATIO);
     const height = Math.round(landscapeAnchor * GRID.CARD_ROW_SCALE_TV);
     return { portrait: height, square: height, landscape: height };
   }
@@ -297,9 +322,11 @@ function shelfFillScale(rows: SlotRowHeights, usable: number, padding: number, w
   // left a whole card's worth of screen unclaimed.
   const units = GRID.SHELVES_PER_SCREEN - 1 + rows.landscape / tallest;
   const target = (content - GRID.SHELVES_PER_SCREEN * shelfHeadingBlock(spacing)) / units;
-  // A row renders every card at its tallest shape, so the wide card is what the ceiling binds.
+  // A row renders every card at its tallest shape, so the wide card is what the ceiling binds. On a tablet it
+  // binds below the density size too; a phone keeps its declared counts.
   const ceiling = (GRID.MAX_CARD_WIDTH_SHARE * usable - 2 * padding) / GRID.LANDSCAPE_RATIO + 2 * padding;
-  return Math.min(Math.max(1, target / tallest), Math.max(1, ceiling / tallest));
+  const tablet = Math.min(windowWidth, windowHeight) >= GRID.PHONE_WIDE_MIN_WIDTH;
+  return Math.min(Math.max(1, target / tallest), tablet ? ceiling / tallest : Math.max(1, ceiling / tallest));
 }
 
 /**
@@ -315,9 +342,8 @@ export function slotColumns(orientation: SlotOrientation, isTV: boolean, windowW
 
 // Design system values
 export const DESIGN = {
-  /** Standard border radius for cards and grid items. 32 reads right on a 10-foot
-   * TV card; on a ~180pt phone card it turns the card into a pill. */
-  BORDER_RADIUS_CARD: Platform.isTV ? 32 : 16,
+  /** Standard border radius for cards and grid items */
+  BORDER_RADIUS_CARD: Platform.isTV ? 20 : 12,
   /** Border radius for medium elements (settings rows, etc) */
   BORDER_RADIUS_MEDIUM: 12,
   /** Standard border radius for buttons */

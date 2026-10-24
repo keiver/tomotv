@@ -78,18 +78,28 @@ final class FrameGrabber {
     private(set) var sourceEmpty = false
     /// The live input stopped delivering packets before cancellation, rather than a sampling limit.
     private(set) var liveReadEnded = false
-    /// Off for a live read opened beside another on an origin whose limit is unknown: a kick then ends the read.
+    /// Off for a live read: a drop ends it and the card fights again, and an origin that admits an open and then ends
+    /// it unserved is not asked again (FFmpeg would re-open and re-wait it three times).
     var reconnects = true
     /// Bytes the last live grab read through the container's own I/O: the whole pull for a raw stream, the playlist alone for HLS.
     private(set) var bytesRead: Int64 = 0
     /// Why the source would not open, for the live grab's log line.
     private(set) var openFailure: String?
+    /// FFmpeg's code for an open that failed, for the broker's reading of an HTTP refusal.
+    private(set) var openError: Int32?
     /// What was opened: the variant picked off a multivariant playlist, else the input itself.
     private(set) var openedUrl: String?
     /// The last live grab's clip, for its log line: how it was made, wall time and packets written.
     private(set) var clipMode = "none"
     private(set) var clipMs: Double = 0
     private(set) var clipPackets = 0
+    /// What ended the clip's read: "span", "read ended", "encoder failed", "wall", "cancelled" or "no encoder".
+    private(set) var clipEnd = "none"
+    /// Runs on the grab's thread once the source opened: the origin admitted this read.
+    var onOpened: (() -> Void)?
+    /// Runs on the grab's thread at a live source's first byte, before its container is probed: the origin serves it.
+    var onServed: (() -> Void)?
+    private var readEvidence: SourceReadEvidence?
     /// A card-sized preview: every clip is encoded down to this, so the cards that loop it decode little.
     private static let clipMaxBitrate: Int64 = 1_000_000
     private static let clipMaxHeight: Int32 = 360
@@ -97,6 +107,9 @@ final class FrameGrabber {
     /// A clip holding less than this share of its span is not written: a read cut short by the watchdog,
     /// a cancel or a timestamp wrap would loop a fraction of a second on the card.
     private static let clipMinShare = 0.6
+    /// The clip has its span and this much more from its first keyframe, whatever the deadline has left: an open,
+    /// probe and keyframe wait measured 10 to 18 s left the clip under 5 s, and a whole clip takes under 7 s at p90.
+    static let clipGrace: TimeInterval = 3
     /// The simulator has no hardware decoder; asking for one there fails every clip with -12906 before falling back.
     #if targetEnvironment(simulator)
     private static let clipHardwareDecode = false
@@ -195,9 +208,11 @@ final class FrameGrabber {
         clipMode = "none"
         clipMs = 0
         clipPackets = 0
+        clipEnd = "none"
         return queue.sync {
             liveReadEnded = false
             guard !isCancelled, open() else { return .none }
+            onOpened?()
             let started = Date()
             let first = decode(target: .firstKeyframe, nearestFromStart: false, batch: 1, started: started).first
             guard let first else {
@@ -220,7 +235,9 @@ final class FrameGrabber {
             var resume: Int64?
             if clipSpan > 0 {
                 let clipStarted = Date()
-                resume = recordClip(first, to: clipFile, span: clipSpan, interval: interval, keys: count - 1, wall: wall, started: started, emitKey: emitKey)
+                // The clip keeps its span and a grace from here: a keyframe that landed late never costs it.
+                let clipWall = max(wall, clipStarted.timeIntervalSince(started) + clipSpan + Self.clipGrace)
+                resume = recordClip(first, to: clipFile, span: clipSpan, interval: interval, keys: count - 1, wall: clipWall, started: started, emitKey: emitKey)
                 if resume != nil { clip = clipFile }
                 clipMs = Date().timeIntervalSince(clipStarted) * 1000
             }
@@ -256,7 +273,10 @@ final class FrameGrabber {
         let transcoder = VideoTranscoder(inputStream: inStream, keyframeInterval: span, maxBitrate: Self.clipMaxBitrate,
                                          maxHeight: Self.clipMaxHeight, maxFrameRate: Self.clipFrameRate,
                                          hardwareDecode: Self.clipHardwareDecode, quiet: true)
-        guard transcoder != nil || copyable else { return nil }
+        guard transcoder != nil || copyable else {
+            clipEnd = "no encoder"
+            return nil
+        }
         clipMode = transcoder == nil ? "copy" : "transcode"
 
         // Written under a name the disk seed never serves, and renamed once whole: a grab killed mid-write leaves no clip.
@@ -305,12 +325,20 @@ final class FrameGrabber {
         var keysLeft = keys
         var written = 0
         var lastPts: Int64 = 0
+        var lastDts: Int64?
+        var frameTicks: Int64 = 0
         func write(_ packet: UnsafeMutablePointer<AVPacket>) {
             guard let copy = av_packet_clone(packet) else { return }
             var owned: UnsafeMutablePointer<AVPacket>? = copy
             defer { av_packet_free(&owned) }
             copy.pointee.stream_index = 0
             let pts = copy.pointee.pts
+            // The muxer lengthens each sample to the next one's dts and the last by the packet's own duration, which
+            // neither the encoder nor a TS demux sets: a last sample of no length reads as an endless frame rate.
+            let dts = copy.pointee.dts != SWIFT_AV_NOPTS_VALUE ? copy.pointee.dts : pts
+            if let last = lastDts, dts > last { frameTicks = frameTicks > 0 ? min(frameTicks, dts - last) : dts - last }
+            if dts != SWIFT_AV_NOPTS_VALUE { lastDts = dts }
+            if copy.pointee.duration <= 0 { copy.pointee.duration = frameTicks }
             av_packet_rescale_ts(copy, packetTb, outTb)
             if av_interleaved_write_frame(output, copy) >= 0 {
                 written += 1
@@ -320,7 +348,10 @@ final class FrameGrabber {
         /// Onto the clip's own timeline from zero, then copied or transcoded; false once past the span.
         func take(_ packet: UnsafeMutablePointer<AVPacket>) -> Bool {
             let dts = packet.pointee.dts != SWIFT_AV_NOPTS_VALUE ? packet.pointee.dts : packet.pointee.pts
-            guard dts - decodeOrigin < spanTicks else { return false }
+            guard dts - decodeOrigin < spanTicks else {
+                clipEnd = "span"
+                return false
+            }
             guard let shifted = av_packet_clone(packet) else { return true }
             var owned: UnsafeMutablePointer<AVPacket>? = shifted
             defer { av_packet_free(&owned) }
@@ -331,14 +362,19 @@ final class FrameGrabber {
                 return true
             }
             transcoder.process(packet: shifted) { write($0) }
+            if transcoder.failed { clipEnd = "encoder failed" }
             return !transcoder.failed
         }
         guard take(keyPacket) else { return nil }
         guard let pkt = av_packet_alloc() else { return nil }
         var freeing: UnsafeMutablePointer<AVPacket>? = pkt
         defer { av_packet_free(&freeing) }
+        clipEnd = "wall"
         readLoop: while Date().timeIntervalSince(started) < wall, !isCancelled {
-            if readPacket(input, pkt) < 0 { break }
+            if readPacket(input, pkt) < 0 {
+                clipEnd = "read ended"
+                break
+            }
             defer { av_packet_unref(pkt) }
             guard pkt.pointee.stream_index == videoIndex, pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE else { continue }
             // Leading pictures of an open GOP reference the GOP before the read; nothing after them does.
@@ -350,10 +386,14 @@ final class FrameGrabber {
             }
             if !take(pkt) { break readLoop }
         }
+        if isCancelled { clipEnd = "cancelled" }
         if let transcoder {
             // The encoder and a deinterlacer's lookahead hold frames until the end is signalled.
             transcoder.process(packet: nil) { write($0) }
-            guard !transcoder.failed else { return nil }
+            guard !transcoder.failed else {
+                clipEnd = "encoder failed"
+                return nil
+            }
         }
         guard lastPts >= minTicks, av_write_trailer(output) >= 0 else { return nil }
         avio_closep(&output.pointee.pb)
@@ -485,6 +525,11 @@ final class FrameGrabber {
         guard ctx != nil else { return false }
         let interrupt = AVIOInterruptCB(callback: Self.interruptCallback, opaque: Unmanaged.passUnretained(self).toOpaque())
         ctx!.pointee.interrupt_callback = interrupt
+        if live {
+            let evidence = SourceReadEvidence { [weak self] in self?.onServed?() }
+            readEvidence = evidence
+            evidence.install(on: ctx!)
+        }
 
         var opts = httpOptions()
         if live {
@@ -502,6 +547,7 @@ final class FrameGrabber {
         // copied, or one the server cannot read, fails here on every retry; a timed-out read is tried again.
         guard ret >= 0, let opened = ctx else {
             openFailure = "open: \(grabErr(ret))"
+            openError = ret
             if ret == -ETIMEDOUT { openFailed = false }
             return false
         }
@@ -568,6 +614,7 @@ final class FrameGrabber {
         let ret = avio_open2(&pb, inputUrl, AVIO_FLAG_READ, &cb, &opts)
         av_dict_free(&opts)
         guard ret >= 0, let reader = pb else { return inputUrl }
+        readEvidence?.observeFirstByte(reader)
         var text = Data()
         var chunk = [UInt8](repeating: 0, count: 64 * 1024)
         while text.count < 1024 * 1024 {

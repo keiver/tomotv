@@ -27,7 +27,7 @@ final class MemoryTests: XCTestCase {
         }
     }
 
-    /// The URL path (loader, session, bridge-style completion) frees each cycle's store on close.
+    /// The URL path (loader, session, completion as the native module calls it) frees each cycle's store on close.
     func testRepeatedGuideUrlLoadsRetainNothing() throws {
         let data = try Fixture.realGuide()
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("guide-cycle-\(UUID().uuidString).xml.gz")

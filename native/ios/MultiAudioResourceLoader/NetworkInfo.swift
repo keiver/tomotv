@@ -128,7 +128,7 @@ private final class PortScanner {
     }
 }
 
-/// React Native bridge exposing the active interface's IPv4 configuration.
+/// React Native module exposing the active interface's IPv4 configuration.
 @objc(NetworkInfo)
 class NetworkInfo: NSObject {
 

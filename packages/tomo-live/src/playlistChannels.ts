@@ -94,10 +94,10 @@ const listeners = new Set<() => void>();
 /** Bumped by reset, so a load that outlived a sign-out writes nothing back. */
 let generation = 0;
 
-/** The provider host of a stream URL, the key its connection budget hangs on. */
+/** The provider's host and port, the key its connection budget hangs on: two servers on one address never share it. */
 export function playlistOriginKey(url: string): string {
-  const match = /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/]*@)?(\[[^\]]+\]|[^/:?#]+)/i.exec(url);
-  return match ? match[1].toLowerCase() : url;
+  const match = /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/]*@)?(\[[^\]]+\]|[^/:?#]+)(:\d+)?/i.exec(url);
+  return match ? match[1].toLowerCase() + (match[2] ?? "") : url;
 }
 
 /** An entry's catchup attributes, each one falling back to the header's; null when neither declares any. */
@@ -319,6 +319,30 @@ export function playlistTvgUrlSources(): Record<string, string[]> {
 /** Every source's status by key. */
 export function playlistSourceStatuses(): Readonly<Record<string, PlaylistSourceStatus>> {
   return statuses;
+}
+
+export interface PlaylistOrigin {
+  /** The provider's host and port, the key its connection budget hangs on. */
+  originKey: string;
+  channels: number;
+  /** The sources listing channels at this host. */
+  sources: string[];
+}
+
+/** Every provider host across the sources in first-seen order, with how many channels read it. */
+export function playlistOrigins(): PlaylistOrigin[] {
+  const origins = new Map<string, PlaylistOrigin>();
+  for (const record of records.values()) {
+    for (const row of record.rows) {
+      const origin = origins.get(row.originKey);
+      if (!origin) origins.set(row.originKey, { originKey: row.originKey, channels: 1, sources: [record.source.key] });
+      else {
+        origin.channels += 1;
+        if (!origin.sources.includes(record.source.key)) origin.sources.push(record.source.key);
+      }
+    }
+  }
+  return Array.from(origins.values());
 }
 
 export function subscribePlaylistChannels(listener: () => void): () => void {

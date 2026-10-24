@@ -148,6 +148,7 @@ jest.mock("@/services/localRemux", () => ({
     return jest.fn();
   }),
   engineInputMissing: jest.requireActual("@/services/localRemux").engineInputMissing,
+  engineInputOverLimit: jest.requireActual("@/services/localRemux").engineInputOverLimit,
   engineProgress: jest.fn(() => Promise.resolve(mockProgress())),
   readBound: jest.requireActual("@/services/localRemux").readBound,
   READ_BOUND_SHARE: jest.requireActual("@/services/localRemux").READ_BOUND_SHARE,
@@ -228,7 +229,10 @@ jest.mock("@/services/subtitlePreference", () => ({
 }));
 
 jest.mock("@/services/jellyfin/bitrateTest", () => ({ rememberedBitrate: jest.fn(() => Promise.resolve(null)) }));
-jest.mock("@/services/jellyfin/session", () => ({ getQualitySettings: jest.fn(() => Promise.resolve({ mode: "auto", index: 5, label: "Original" })) }));
+jest.mock("@/services/jellyfin/session", () => ({
+  getQualitySettings: jest.fn(() => Promise.resolve({ mode: "auto", index: 5, label: "Original" })),
+  getCachedConfig: jest.fn(() => ({ server: "", apiKey: "", userId: "", deviceId: "" })),
+}));
 
 const mockDetails = fetchVideoDetails as jest.Mock;
 const mockNeedsTranscoding = needsTranscoding as jest.Mock;
@@ -1377,12 +1381,11 @@ describe("useVideoPlayback (mounted)", () => {
         PlaySessionId: "ps-1",
         LiveStreamId: "ls-1",
         liveStreamUrl: "https://origin/live/high.m3u8",
-        liveTranscodeUrl: SERVER_MASTER,
         ...overrides,
       });
     }
     /** A channel resolved from its origin: nothing opened on the server. */
-    const originChannel = () => liveChannel({ LiveStreamId: undefined, liveTranscodeUrl: undefined });
+    const originChannel = () => liveChannel({ LiveStreamId: undefined });
     beforeEach(() => {
       (isLiveSource as jest.Mock).mockReturnValue(true);
       mockNeedsTranscoding.mockReturnValue(true);
@@ -1399,66 +1402,52 @@ describe("useVideoPlayback (mounted)", () => {
       expect(closeLiveStream).not.toHaveBeenCalled();
     });
 
-    it("opens an origin channel on the server only when the engine cannot play it", async () => {
+    it("reopens a channel the engine could not start, never opening it on the server", async () => {
       mockDetails.mockResolvedValue(originChannel());
-      (openChannel as jest.Mock).mockResolvedValue(liveChannel({ liveStreamUrl: undefined }));
       mockPreflight = () => null;
       mockFailure = () => ({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", message: "open_input: Input/output error" });
 
       const { ref } = await mount({ videoId: "video-1" });
 
-      expect(openChannel).toHaveBeenCalledTimes(1);
-      expect(openChannel).toHaveBeenCalledWith("video-1", expect.objectContaining({ Id: "video-1" }), { serverOnly: true });
-      expect(ref.current!.get().sourceUri).toBe(SERVER_MASTER);
-      expect(closeLiveStream).not.toHaveBeenCalled();
+      expect(openChannel).not.toHaveBeenCalled();
+      expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: true });
+      expect(mockProbeEmit).not.toHaveBeenCalledWith("fallback", expect.anything());
     });
 
-    it("releases the engine's open when the channel moves to the server, so the server counts one consumer", async () => {
-      mockDetails.mockResolvedValue(liveChannel({ liveTranscodeUrl: undefined }));
-      (openChannel as jest.Mock).mockResolvedValue(liveChannel({ liveStreamUrl: undefined, LiveStreamId: "ls-2" }));
+    it("releases the channel's open when its engine start fails, before opening it again", async () => {
+      mockDetails.mockResolvedValue(liveChannel());
       mockPreflight = () => null;
       mockFailure = () => ({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", message: "open_input: Input/output error" });
 
       const { ref } = await mount({ videoId: "video-1" });
 
-      expect(ref.current!.get().sourceUri).toBe(SERVER_MASTER);
       expect(closeLiveStream).toHaveBeenCalledWith("ls-1");
-      expect(closeLiveStream).not.toHaveBeenCalledWith("ls-2");
+      expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: true });
     });
 
-    it("says this device's setting kept the server off when a channel fails on the engine", async () => {
+    it("reopens a channel on the engine whatever the server transcoding setting says", async () => {
       updateUiPreferences({ serverTranscoding: "never" });
       try {
         mockPreflight = () => null;
         mockFailure = () => ({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", message: "open_input: Input/output error" });
         const { ref } = await mount({ videoId: "video-1" });
         expect(openChannel).not.toHaveBeenCalled();
-        expect(ref.current!.get().sourceUri).toBeNull();
-        expect(ref.current!.get().state).toMatchObject({ type: "ERROR", serverOff: { by: "device", needed: false }, ref: { id: "PB-ENGINE-FAILED", lane: "ENG" } });
+        expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: true, ref: { id: "PB-ENGINE-FAILED", lane: "ENG" } });
       } finally {
         updateUiPreferences({ serverTranscoding: "linkOrFile" });
       }
     });
 
-    it("plays a channel on the server lane as a live session", async () => {
-      mockDetails.mockResolvedValue(liveChannel({ liveTranscodeUrl: undefined }));
-      (openChannel as jest.Mock).mockResolvedValue(liveChannel({ liveStreamUrl: undefined, LiveStreamId: "ls-2" }));
-      mockPreflight = () => null;
-      mockFailure = () => ({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", message: "open_input: Input/output error" });
-
+    it("plays a channel as a live session on the engine", async () => {
+      mockDetails.mockResolvedValue(originChannel());
       const { ref } = await mount({ videoId: "video-1" });
-
-      expect(ref.current!.get().sourceUri).toBe(SERVER_MASTER);
+      expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/s/abc/master.m3u8");
       expect(mockReporterArgs.current?.isLiveRef?.current).toBe(true);
     });
 
-    it("fails a server-lane channel frozen past the stall deadline and closes its report session", async () => {
+    it("reopens a channel frozen past the stall deadline, keeping its report session", async () => {
       mockDetails.mockResolvedValue(originChannel());
-      (openChannel as jest.Mock).mockResolvedValue(liveChannel({ liveStreamUrl: undefined }));
-      mockPreflight = () => null;
-      mockFailure = () => ({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", message: "open_input: Input/output error" });
       const { ref } = await mount({ videoId: "video-1" });
-      expect(ref.current!.get().sourceUri).toBe(SERVER_MASTER);
 
       jest.useFakeTimers();
       try {
@@ -1470,14 +1459,13 @@ describe("useVideoPlayback (mounted)", () => {
           jest.advanceTimersByTime(LIVE_STALL_DEADLINE_MS - 1_000);
         });
         expect(ref.current!.get().state.type).not.toBe("ERROR");
-        expect(mockResetSession).not.toHaveBeenCalled();
 
         await act(async () => {
           jest.advanceTimersByTime(1_100);
           for (let hop = 0; hop < 10; hop++) await Promise.resolve();
         });
-        expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: false });
-        expect(mockResetSession).toHaveBeenCalledTimes(1);
+        expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: true });
+        expect(mockResetSession).not.toHaveBeenCalled();
       } finally {
         jest.useRealTimers();
       }
@@ -1485,9 +1473,6 @@ describe("useVideoPlayback (mounted)", () => {
 
     it("keeps a live channel whose playhead moves again inside the stall deadline", async () => {
       mockDetails.mockResolvedValue(originChannel());
-      (openChannel as jest.Mock).mockResolvedValue(liveChannel({ liveStreamUrl: undefined }));
-      mockPreflight = () => null;
-      mockFailure = () => ({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", message: "open_input: Input/output error" });
       const { ref } = await mount({ videoId: "video-1" });
 
       jest.useFakeTimers();
@@ -1505,51 +1490,47 @@ describe("useVideoPlayback (mounted)", () => {
       }
     });
 
-    it("moves an origin channel to the server after its second drop, opening it only then", async () => {
+    it("reopens an origin channel on the engine after every drop, never opening it on the server", async () => {
       mockDetails.mockResolvedValue(originChannel());
-      (openChannel as jest.Mock).mockResolvedValue(liveChannel({ liveStreamUrl: undefined }));
       const { ref } = await mount({ videoId: "video-1" });
-      const dropAndRetry = async () => {
+      const dropAndRetry = async (waitMs: number) => {
         await act(async () => {
           ref.current!.get().videoCallbacks.onError({ error: { errorString: "dropped", code: -12885 } } as never);
           await new Promise((resolve) => setImmediate(resolve));
         });
         await act(async () => {
-          await new Promise((resolve) => setTimeout(resolve, 600));
+          await new Promise((resolve) => setTimeout(resolve, waitMs));
           for (let hop = 0; hop < 10; hop++) await Promise.resolve();
         });
       };
 
-      await dropAndRetry();
+      await dropAndRetry(600);
+      expect(mockStartLocalRemux).toHaveBeenCalledTimes(2);
+      await dropAndRetry(1_100);
+      expect(mockStartLocalRemux).toHaveBeenCalledTimes(3);
       expect(openChannel).not.toHaveBeenCalled();
       expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/s/abc/master.m3u8");
-
-      await dropAndRetry();
-      expect(openChannel).toHaveBeenCalledWith("video-1", expect.objectContaining({ Id: "video-1" }), { serverOnly: true });
-      expect(ref.current!.get().sourceUri).toBe(SERVER_MASTER);
     });
 
-    it("fails a warming ring session that already ended at once, instead of waiting out the pre-flight", async () => {
+    it("fails a warming ring session that already ended at once, and opens the channel again", async () => {
       // Ended before the pre-flight subscribed: no segment and no failure report will ever arrive.
       mockPreflight = () => null;
       mockProgress = () => ({ alive: false, bytesRead: 0, readSeconds: 0, elapsedSeconds: 1 });
       mockTakeHot.mockImplementationOnce(() => ({ channelId: "video-1", details: originChannel(), url: "http://127.0.0.1:9999/s/warm/master.m3u8", token: "token-warm", ready: false }));
       const { ref } = await mount({ videoId: "video-1" });
 
-      expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: false });
-      expect(openChannel).toHaveBeenCalledWith("video-1", expect.objectContaining({ Id: "video-1" }), { serverOnly: true });
-      expect(noteOpenFailed).toHaveBeenCalledWith("video-1");
+      expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: true });
+      expect(openChannel).not.toHaveBeenCalled();
     });
 
-    it("fails a cold start whose session already ended the same way", async () => {
+    it("fails a cold start whose session already ended the same way, and opens the channel again", async () => {
       mockPreflight = () => null;
       mockProgress = () => ({ alive: false, bytesRead: 0, readSeconds: 0, elapsedSeconds: 1 });
       mockDetails.mockResolvedValue(originChannel());
       const { ref } = await mount({ videoId: "video-1" });
 
       expect(mockStartLocalRemux).toHaveBeenCalledTimes(1);
-      expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: false });
-      expect(noteOpenFailed).toHaveBeenCalledWith("video-1");
+      expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: true });
     });
 
     it("binds a ready ring session without asking the engine whether it lives", async () => {
@@ -1657,25 +1638,24 @@ describe("useVideoPlayback (mounted)", () => {
         channelId: "video-1",
         details: expect.objectContaining({ LiveStreamId: "ls-1" }),
         url: "http://127.0.0.1:9999/s/abc/master.m3u8",
-        token: "token:http://127.0.0.1:9999/s/abc/master.m3u8",
+        token: "abc",
       });
-      expect(mockStopLocalRemux).not.toHaveBeenCalledWith("token:http://127.0.0.1:9999/s/abc/master.m3u8");
+      expect(mockStopLocalRemux).not.toHaveBeenCalledWith("abc");
       expect(closeLiveStream).not.toHaveBeenCalled();
     });
 
-    it("takes the server's transcode when the engine cannot open the channel, keeping the live stream open", async () => {
+    it("builds no server URL when the engine cannot open the channel", async () => {
       mockPreflight = () => null;
       mockFailure = () => ({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", message: "open_input: Input/output error" });
 
       const { ref } = await mount({ videoId: "video-1" });
 
-      expect(ref.current!.get().sourceUri).toBe(SERVER_MASTER);
+      expect(ref.current!.get().sourceUri).not.toBe(SERVER_MASTER);
       expect(mockTranscodeUrl).not.toHaveBeenCalled();
-      expect(closeLiveStream).not.toHaveBeenCalled();
-      expect(mockProbeEmit).toHaveBeenCalledWith("fallback", { from: "localRemux", to: "transcode", reason: "engine failed: open_input: Input/output error" });
+      expect(mockProbeEmit).toHaveBeenCalledWith("error", { mode: "localRemux", message: "engine failed: open_input: Input/output error", willRetry: true });
     });
 
-    it("takes the server's transcode when segment 0 runs below realtime, with no verdict", async () => {
+    it("keeps the engine when segment 0 runs below realtime, with no verdict", async () => {
       mockPreflight = () => ({
         token: "token:http://127.0.0.1:9999/s/abc/master.m3u8",
         generation: 0,
@@ -1689,13 +1669,13 @@ describe("useVideoPlayback (mounted)", () => {
 
       const { ref } = await mount({ videoId: "video-1" });
 
-      expect(ref.current!.get().sourceUri).toBe(SERVER_MASTER);
+      expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/s/abc/master.m3u8");
       expect(mockRecordVerdict).not.toHaveBeenCalled();
-      expect(mockStopLocalRemux).toHaveBeenCalledWith("token:http://127.0.0.1:9999/s/abc/master.m3u8");
+      expect(mockStopLocalRemux).not.toHaveBeenCalled();
     });
 
     it("keeps a below-realtime engine when the server offers no transcode", async () => {
-      mockDetails.mockResolvedValue(liveChannel({ liveTranscodeUrl: undefined }));
+      mockDetails.mockResolvedValue(liveChannel());
       mockPreflight = () => ({
         token: "token:http://127.0.0.1:9999/s/abc/master.m3u8",
         generation: 0,
@@ -1713,10 +1693,10 @@ describe("useVideoPlayback (mounted)", () => {
       expect(mockProbeEmit).not.toHaveBeenCalledWith("fallback", expect.anything());
     });
 
-    it("ends in the error when the engine fails and the server offers no transcode", async () => {
-      mockDetails.mockResolvedValue(liveChannel({ liveTranscodeUrl: undefined }));
+    it("ends in the error when the engine reports the channel gone for good", async () => {
+      mockDetails.mockResolvedValue(liveChannel());
       mockPreflight = () => null;
-      mockFailure = () => ({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", message: "open_input: Input/output error" });
+      mockFailure = () => ({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", message: "live input gone: Server returned 404 Not Found" });
 
       const { ref } = await mount({ videoId: "video-1" });
 
@@ -1724,14 +1704,45 @@ describe("useVideoPlayback (mounted)", () => {
       expect(closeLiveStream).toHaveBeenCalledWith("ls-1");
     });
 
-    it("starts on the server when the open gave the engine nothing to read", async () => {
-      mockDetails.mockResolvedValue(liveChannel({ liveStreamUrl: undefined }));
+    it("says the provider's streams are in use when the channel's open gets a 429, without opening it on the server", async () => {
+      mockDetails.mockResolvedValue(originChannel());
+      mockPreflight = () => null;
+      mockFailure = () => ({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", message: "open_input: Server returned 429 Too Many Requests" });
 
       const { ref } = await mount({ videoId: "video-1" });
 
-      expect(ref.current!.get().sourceUri).toBe(SERVER_MASTER);
+      expect(ref.current!.get().state).toEqual({
+        type: "ERROR",
+        error: "Your live TV provider limits how many streams can play at once, and another device is using them",
+        canRetryWithTranscode: false,
+        ref: { id: "PB-LIVE-LIMIT", lane: "ENG" },
+      });
+      expect(openChannel).not.toHaveBeenCalled();
+      expect(noteOpenFailed).not.toHaveBeenCalled();
+      expect(mockProbeEmit).not.toHaveBeenCalledWith("fallback", expect.anything());
+    });
+
+    it("says the same on a server-lane channel whose 429 would come back through the server", async () => {
+      mockPreflight = () => null;
+      mockFailure = () => ({ token: "token:http://127.0.0.1:9999/s/abc/master.m3u8", message: "open_input: Server returned 429 Too Many Requests" });
+
+      const { ref } = await mount({ videoId: "video-1" });
+
+      expect(ref.current!.get().state).toMatchObject({ type: "ERROR", ref: { id: "PB-LIVE-LIMIT", lane: "ENG" } });
+      expect(ref.current!.get().sourceUri).not.toBe(SERVER_MASTER);
+      expect(closeLiveStream).toHaveBeenCalledWith("ls-1");
+    });
+
+    it("refuses a channel whose open gave the engine nothing to read, never starting it on the server", async () => {
+      mockDetails.mockResolvedValue(liveChannel({ liveStreamUrl: undefined }));
+      mockCanRemux.mockResolvedValue(false);
+
+      const { ref } = await mount({ videoId: "video-1" });
+
+      expect(ref.current!.get().sourceUri).toBeNull();
       expect(mockStartLocalRemux).not.toHaveBeenCalled();
-      expect(mockProbeEmit).toHaveBeenCalledWith("fallback", { from: "localRemux", to: "transcode", reason: "the open gave the engine nothing to read" });
+      expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: false });
+      expect(mockProbeEmit).not.toHaveBeenCalledWith("fallback", expect.anything());
     });
 
     it("treats a stream the player has not opened in 45s as dropped", async () => {
@@ -1754,13 +1765,13 @@ describe("useVideoPlayback (mounted)", () => {
           jest.advanceTimersByTime(1_500);
         });
         expect(ref.current!.get().state).toMatchObject({ type: "ERROR", error: "Playback stalled while waiting for the server", canRetryWithTranscode: true });
-        expect(mockStopLocalRemux).toHaveBeenCalledWith("token:http://127.0.0.1:9999/s/abc/master.m3u8");
+        expect(mockStopLocalRemux).toHaveBeenCalledWith("abc");
       } finally {
         jest.useRealTimers();
       }
     });
 
-    it("reopens on the engine after one drop, moves to the server after the second, and errors on the server's", async () => {
+    it("reopens on the engine after each drop, waiting longer each time, and never moves to the server", async () => {
       const { ref } = await mount({ videoId: "video-1" });
       expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/s/abc/master.m3u8");
 
@@ -1770,28 +1781,26 @@ describe("useVideoPlayback (mounted)", () => {
           await new Promise((resolve) => setImmediate(resolve));
         });
       };
-      const reopen = async () => {
+      const wait = async (ms: number) => {
         await act(async () => {
-          await new Promise((resolve) => setTimeout(resolve, 600));
+          await new Promise((resolve) => setTimeout(resolve, ms));
           for (let hop = 0; hop < 10; hop++) await Promise.resolve();
         });
       };
 
       await drop();
       expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: true });
-      await reopen();
+      await wait(600);
       expect(mockStartLocalRemux).toHaveBeenCalledTimes(2);
+
+      await drop();
+      await wait(600);
+      // The second drop waits a second, not half of one.
+      expect(mockStartLocalRemux).toHaveBeenCalledTimes(2);
+      await wait(500);
+      expect(mockStartLocalRemux).toHaveBeenCalledTimes(3);
       expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/s/abc/master.m3u8");
-
-      await drop();
-      expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: true });
-      await reopen();
-      expect(mockStartLocalRemux).toHaveBeenCalledTimes(2);
-      expect(ref.current!.get().sourceUri).toBe(SERVER_MASTER);
-      expect(mockProbeEmit).toHaveBeenCalledWith("fallback", { from: "localRemux", to: "transcode", reason: "engine spent on this channel" });
-
-      await drop();
-      expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: false });
+      expect(mockProbeEmit).not.toHaveBeenCalledWith("fallback", expect.anything());
     });
 
     it("ignores a native failure that names a source the player moved on from", async () => {
@@ -1824,7 +1833,7 @@ describe("useVideoPlayback (mounted)", () => {
     });
 
     it("closes the open of a ring session that lands after a flip, along with its engine", async () => {
-      mockDetails.mockImplementation(async (id: string) => liveChannel({ Id: id, LiveStreamId: `ls-${id}`, liveTranscodeUrl: undefined }));
+      mockDetails.mockImplementation(async (id: string) => liveChannel({ Id: id, LiveStreamId: `ls-${id}` }));
       let handSession!: (session: unknown) => void;
       mockTakeHot.mockImplementationOnce(() => new Promise((resolve) => (handSession = resolve)));
       const { ref, renderer } = await mount({ videoId: "video-1" });
@@ -1849,7 +1858,7 @@ describe("useVideoPlayback (mounted)", () => {
     });
 
     it("ignores the previous channel's failed open after a flip", async () => {
-      mockDetails.mockImplementation(async (id: string) => liveChannel({ Id: id, LiveStreamId: `ls-${id}`, liveTranscodeUrl: undefined }));
+      mockDetails.mockImplementation(async (id: string) => liveChannel({ Id: id, LiveStreamId: `ls-${id}` }));
       let rejectFirst!: (error: Error) => void;
       mockStartLocalRemux.mockImplementationOnce(() => new Promise<string>((_resolve, reject) => (rejectFirst = reject)));
       const { ref, renderer } = await mount({ videoId: "video-1" });
@@ -3345,6 +3354,82 @@ describe("useVideoPlayback (mounted)", () => {
         await drop(ref);
         expect(mockStartLocalRemux).toHaveBeenCalledTimes(2);
         expect(ref.current!.get().paused).toBe(false);
+      });
+
+      it("reopens in the audio language the player was playing", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        await playToStable(ref);
+        await act(async () => {
+          callbacks(ref).onAudioTracks({
+            audioTracks: [
+              { index: 0, language: "en", selected: false },
+              { index: 1, language: "es", selected: true },
+            ],
+          } as never);
+        });
+        await drop(ref);
+        expect(mockStartLocalRemux.mock.calls[0][3]).not.toHaveProperty("audioLanguage");
+        expect(mockStartLocalRemux.mock.calls[1][3]).toMatchObject({ audioLanguage: "es" });
+      });
+
+      it("binds the reopened channel's new session with no second pass through the metadata step", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        await playToStable(ref);
+        await drop(ref);
+        expect(mockProbeEmit.mock.calls.filter(([event]) => event === "mode")).toHaveLength(1);
+        expect(mockDetails).toHaveBeenCalledTimes(2);
+        expect(ref.current!.get().sourceUri).toBe("http://127.0.0.1:9999/s/abc/master.m3u8");
+      });
+
+      it("hands a viewer's retry of a failed channel to the controller, which waits and opens it again", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        await playToStable(ref);
+        await act(async () => {
+          callbacks(ref).onError({ error: { errorString: "channel is DRM protected (com.apple.streamingkeydelivery)" } } as never);
+          jest.advanceTimersByTime(1);
+        });
+        expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: false });
+
+        mockDetails.mockRejectedValueOnce(new Error("The server did not open video-1"));
+        await act(async () => {
+          ref.current!.get().retry();
+          for (let hop = 0; hop < 30; hop++) await Promise.resolve();
+        });
+        await act(async () => {
+          jest.advanceTimersByTime(1);
+        });
+        expect(mockDetails).toHaveBeenCalledTimes(2);
+        expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: true });
+
+        await act(async () => {
+          jest.advanceTimersByTime(500);
+          for (let hop = 0; hop < 30; hop++) await Promise.resolve();
+        });
+        expect(mockDetails).toHaveBeenCalledTimes(3);
+        expect(mockStartLocalRemux).toHaveBeenCalledTimes(2);
+        for (let round = 0; round < 5 && ref.current!.get().state.type !== "INITIALIZING_PLAYER"; round++) {
+          await act(async () => {
+            jest.advanceTimersByTime(20);
+            for (let hop = 0; hop < 10; hop++) await Promise.resolve();
+          });
+        }
+        expect(ref.current!.get().state).toMatchObject({ type: "INITIALIZING_PLAYER" });
+        expect(mockProbeEmit.mock.calls.filter(([event]) => event === "mode")).toHaveLength(1);
+      });
+
+      it("stops reopening a channel the engine found DRM protected", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        await playToStable(ref);
+        await act(async () => {
+          callbacks(ref).onError({ error: { errorString: "channel is DRM protected (com.apple.streamingkeydelivery)" } } as never);
+          jest.advanceTimersByTime(1);
+        });
+        await act(async () => {
+          jest.advanceTimersByTime(10_000);
+          for (let hop = 0; hop < 30; hop++) await Promise.resolve();
+        });
+        expect(mockStartLocalRemux).toHaveBeenCalledTimes(1);
+        expect(ref.current!.get().state).toMatchObject({ type: "ERROR", canRetryWithTranscode: false });
       });
 
       it("reopens paused when the viewer paused before the drop", async () => {

@@ -406,6 +406,14 @@ export async function clearContentCaches(context: string): Promise<void> {
     });
   }
 
+  // The Top Shelf's copies of those keyframes go with them.
+  try {
+    const { clearShelfFrames } = await import("@/services/topShelfFrames");
+    await clearShelfFrames();
+  } catch (shelfError) {
+    logger.warn(`Failed to clear the Top Shelf frames ${context}`, shelfError, { service: "JellyfinAPI" });
+  }
+
   // What the engine measured about files on the server being left, and the only reset a viewer
   // can reach for a measurement the link was slow for.
   try {

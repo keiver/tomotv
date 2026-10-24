@@ -6,7 +6,7 @@ import React, { forwardRef, useState, type ComponentProps } from "react";
 import { StyleSheet, View, type NativeSyntheticEvent, type TargetedEvent, type ViewStyle } from "react-native";
 
 const PILL_HEIGHT = 52;
-const CAPSULE_PADDING = 6;
+export const CAPSULE_PADDING = 6;
 
 // The accent at a low alpha so the glass still refracts; focus deepens it.
 export const glassTint = (accent: string, focused = false) => withAlpha(accent, focused ? 0.4 : 0.067);

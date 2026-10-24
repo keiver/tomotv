@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /**
- * Selects a build for the editable App Store version of app.json's version, all three platforms.
+ * Selects a build for the editable App Store version of app.json's version, every platform not held by a review.
  *
  * Usage:
- *   node scripts/appstore-attach-build.mjs <buildNumber>
+ *   node scripts/appstore-attach-build.mjs <buildNumber> [--platform MAC_OS]
  */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { attachBuild, PLATFORMS } from "./appstore/platforms.mjs";
+import { attachBuild, listingPlatforms } from "./appstore/platforms.mjs";
 
 import { ascEnv, client } from "./appstore/asc.mjs";
 
@@ -29,7 +29,8 @@ async function main() {
   const app = (await api.get(`/v1/apps?filter[bundleId]=${BUNDLE_ID}`)).data[0];
   if (!app) fail(`No app with bundle id ${BUNDLE_ID} on this account`);
 
-  for (const platform of PLATFORMS) {
+  const platformArg = process.argv.indexOf("--platform");
+  for (const { platform } of await listingPlatforms(api, app.id, version, platformArg > 0 ? process.argv[platformArg + 1] : null)) {
     await attachBuild(api, app.id, platform, version, buildNumber);
     console.log(`  ${platform} ${version}: build ${buildNumber} selected`);
   }

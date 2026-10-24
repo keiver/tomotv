@@ -11,6 +11,7 @@ import { clearFolderContentsCache } from "@/services/folderContentsCache";
 import { addFavoriteIds, clearFavoriteIdsCache } from "@/services/favoritesCache";
 import { clearPlayedCache, markPlayed } from "@/services/playedCache";
 import { EMPTY_FILTERS, JellyfinItem, LibraryFilters } from "@/types/jellyfin";
+import { folderWatchedProgress } from "@/utils/resumeProgress";
 
 import {
   fetchFavoriteIds,
@@ -18,6 +19,7 @@ import {
   fetchPlaylistContents,
   fetchUserViews,
   fetchVideoDetails,
+  invalidateFolderReads,
   subscribeItemRemoved,
   subscribeItemRemoving,
   subscribePlayedChange,
@@ -37,6 +39,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   fetchPlaylistContents: jest.fn(),
   fetchFavoriteIds: jest.fn(() => Promise.resolve(new Set<string>())),
   fetchVideoDetails: jest.fn(() => Promise.resolve(null)),
+  invalidateFolderReads: jest.fn(),
   isLiveChannel: jest.fn((item: { Type?: string } | null | undefined) => item?.Type === "TvChannel"),
   subscribeFavoriteChange: jest.fn(() => jest.fn()),
   subscribeItemRemoved: jest.fn(() => jest.fn()),
@@ -307,18 +310,153 @@ describe("useFolderContents", () => {
 
       expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["a"]);
     });
+
+    const seasonEpisodes = (played: boolean): JellyfinItem[] =>
+      ["e1", "e2"].map((id) => ({ Id: id, Name: id, Type: "Episode", SeasonId: "season-1", SeriesId: "series-1", UserData: { Played: played } }) as JellyfinItem);
+
+    it("uses a season's fresh aggregate after an episode reverses a series mark", async () => {
+      const season = { Id: "season-1", Name: "Season 1", Type: "Season", SeriesId: "series-1", UserData: { Played: false, PlayedPercentage: 50 } } as JellyfinItem;
+      mockFolder.mockResolvedValue({ items: [season], total: 1 });
+      const ref = await mount("series-1");
+
+      await act(async () => {
+        markPlayed("series-1", true);
+        lastPlayedListener()("series-1", true);
+      });
+      expect(folderWatchedProgress(ref.current!.get().items[0])).toBe(1);
+
+      await act(async () => {
+        markPlayed("e1", false);
+        lastPlayedListener()("e1", false);
+        // The normal background read must apply even when the aggregate returns to its original value.
+        const calls = (useAppStateRefresh as jest.Mock).mock.calls;
+        calls[calls.length - 1][0]();
+      });
+
+      expect(ref.current!.get().items[0].UserData?.Played).toBe(false);
+      expect(folderWatchedProgress(ref.current!.get().items[0])).toBe(0.5);
+    });
+
+    it.each(["Season", "Series"])("uses fresh %s totals after an episode reverses its own folder mark", async (Type) => {
+      markPlayed("container-1", true);
+      markPlayed("e1", false);
+      mockFolder.mockResolvedValue({ items: [{ Id: "container-1", Name: "Container", Type, UserData: { Played: false, PlayedPercentage: 50 } }], total: 1 });
+
+      const ref = await mount("parent-1");
+
+      expect(folderWatchedProgress(ref.current!.get().items[0])).toBe(0.5);
+    });
+
+    it("clears a season's watched fill immediately when its series is marked unwatched", async () => {
+      mockFolder.mockResolvedValue({ items: [{ Id: "season-1", Name: "Season 1", Type: "Season", SeriesId: "series-1", UserData: { Played: true, PlayedPercentage: 100 } }], total: 1 });
+      const ref = await mount("series-1");
+
+      await act(async () => {
+        markPlayed("series-1", false);
+        lastPlayedListener()("series-1", false);
+      });
+
+      expect(ref.current!.get().items[0].UserData?.Played).toBe(false);
+      expect(folderWatchedProgress(ref.current!.get().items[0])).toBeUndefined();
+    });
+
+    it("an episode marked watched earlier shows the server's unwatched state after its season is marked unwatched", async () => {
+      markPlayed("e1", true);
+      markPlayed("season-1", false);
+      mockFolder.mockResolvedValue({ items: seasonEpisodes(false), total: 2 });
+
+      const ref = await mount("season-1");
+
+      expect(ref.current!.get().items.map((i) => i.UserData?.Played)).toEqual([false, false]);
+    });
+
+    it("repaints every episode of a mounted season when the season is marked unwatched", async () => {
+      markPlayed("e1", true);
+      mockFolder.mockResolvedValue({ items: seasonEpisodes(false), total: 2 });
+      const ref = await mount("season-1");
+      expect(ref.current!.get().items[0].UserData?.Played).toBe(true);
+
+      await act(async () => {
+        markPlayed("season-1", false);
+        lastPlayedListener()("season-1", false);
+      });
+
+      expect(ref.current!.get().items.map((i) => i.UserData?.Played)).toEqual([false, false]);
+    });
+
+    it("drops every episode of a season marked unwatched from a played-filtered view", async () => {
+      mockFolder.mockResolvedValue({ items: [...seasonEpisodes(true), ...items("other")], total: 3 });
+      const ref = React.createRef<HookRef>();
+      await act(async () => {
+        TestRenderer.create(<Harness ref={ref} folderId="folder-1" filters={{ ...EMPTY_FILTERS, played: true }} />);
+      });
+
+      await act(async () => {
+        markPlayed("season-1", false);
+        lastPlayedListener()("season-1", false);
+      });
+
+      expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["other"]);
+    });
   });
 
   describe("caching", () => {
-    it("serves the first page from cache within the TTL (no second fetch)", async () => {
+    /** Mounts a revisit and records every render's ids, so the first frame and the last can be told apart. */
+    async function revisit(folderId = "folder-1") {
+      const frames: { ids: string[]; items: JellyfinItem[]; error: string | null }[] = [];
+      function Probe() {
+        const state = useFolderContents(folderId);
+        frames.push({ ids: state.items.map((i) => i.Id), items: state.items, error: state.error });
+        return null;
+      }
+      await act(async () => {
+        TestRenderer.create(<Probe />);
+      });
+      return frames;
+    }
+
+    it("paints the cached first page on a revisit and reads the server behind it, past the request cache", async () => {
       mockFolder.mockResolvedValue({ items: items("a"), total: 1 });
       await mount("folder-1");
       expect(mockFolder).toHaveBeenCalledTimes(1);
 
       (Date.now as jest.Mock).mockReturnValue(NOW + 60_000); // +1 min, within the 5 min TTL
       const ref = await mount("folder-1");
-      expect(mockFolder).toHaveBeenCalledTimes(1);
+      expect(mockFolder).toHaveBeenCalledTimes(2);
+      expect(invalidateFolderReads).toHaveBeenLastCalledWith("folder-1");
       expect(ref.current!.get().items[0].Id).toBe("a");
+    });
+
+    it("swaps in what the server added behind the cached paint", async () => {
+      mockFolder.mockResolvedValueOnce({ items: items("a"), total: 1 }).mockResolvedValueOnce({ items: items("a", "b"), total: 2 });
+      await mount("folder-1");
+      (Date.now as jest.Mock).mockReturnValue(NOW + 60_000);
+
+      const frames = await revisit();
+
+      expect(frames[0].ids).toEqual(["a"]);
+      expect(frames.at(-1)!.ids).toEqual(["a", "b"]);
+    });
+
+    it("keeps the painted list untouched when the server read matches it", async () => {
+      mockFolder.mockResolvedValue({ items: items("a", "b"), total: 2 });
+      await mount("folder-1");
+      (Date.now as jest.Mock).mockReturnValue(NOW + 60_000);
+
+      const frames = await revisit();
+
+      expect(mockFolder).toHaveBeenCalledTimes(2);
+      expect(frames.at(-1)!.items).toBe(frames[0].items);
+    });
+
+    it("keeps the painted list, with no error, when the read behind it fails", async () => {
+      mockFolder.mockResolvedValueOnce({ items: items("a"), total: 1 }).mockRejectedValueOnce(new Error("offline"));
+      await mount("folder-1");
+      (Date.now as jest.Mock).mockReturnValue(NOW + 60_000);
+
+      const frames = await revisit();
+
+      expect(frames.at(-1)).toMatchObject({ ids: ["a"], error: null });
     });
 
     it("refetches once the cache entry is older than the TTL", async () => {
@@ -483,9 +621,17 @@ describe("useFolderContents", () => {
           void ref.current!.get().loadMore();
         });
         expect(mockFolder).toHaveBeenNthCalledWith(4, "folder-1", { limit: 60, startIndex: 2 });
-        const again = await mount("folder-1");
-        expect(mockFolder).toHaveBeenCalledTimes(4);
-        expect(again.current!.get().items.map((i) => i.Id)).toEqual(["b", "c"]);
+        mockFolder.mockResolvedValueOnce({ items: items("b", "c"), total: 3 });
+        const firstFrame: string[][] = [];
+        function Probe() {
+          firstFrame.push(useFolderContents("folder-1").items.map((i) => i.Id));
+          return null;
+        }
+        await act(async () => {
+          TestRenderer.create(<Probe />);
+        });
+        expect(mockFolder).toHaveBeenCalledTimes(5);
+        expect(firstFrame[0]).toEqual(["b", "c"]);
       });
 
       it("a refresh that lands while a delete is in flight waits for it to settle", async () => {
@@ -589,16 +735,17 @@ describe("useFolderContents", () => {
       expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["a", "b", "c", "d", "e", "f"]);
     });
 
-    it("refuses a cached seed that lacks the target and walks on from it", async () => {
+    it("refuses a cached seed that lacks the target and walks from a fresh first page", async () => {
       mockFolder.mockResolvedValueOnce({ items: items("a", "b"), total: 4 });
       await mount("folder-1"); // caches page one only
       (Date.now as jest.Mock).mockReturnValue(NOW + 60_000);
-      mockFolder.mockResolvedValueOnce({ items: items("c", "d"), total: 4 });
+      mockFolder.mockResolvedValueOnce({ items: items("a", "b"), total: 4 }).mockResolvedValueOnce({ items: items("c", "d"), total: 4 });
 
       const renders = await mountFocused("d");
 
       expect(renders[0]).toEqual({ isLoading: true, ids: [] });
-      expect(mockFolder).toHaveBeenCalledTimes(2);
+      expect(mockFolder).toHaveBeenCalledTimes(3);
+      expect(mockFolder).toHaveBeenNthCalledWith(2, "folder-1", { limit: 60, startIndex: 0 });
       expect(mockFolder).toHaveBeenLastCalledWith("folder-1", { limit: 60, startIndex: 2 });
       expect(renders[renders.length - 1].ids).toEqual(["a", "b", "c", "d"]);
     });
@@ -615,6 +762,80 @@ describe("useFolderContents", () => {
       mockFolder.mockImplementation((_id: string, { startIndex }: { startIndex: number }) => Promise.resolve({ items: items(`p${startIndex}`), total: 1000 }));
       await mountFocused("missing");
       expect(mockFolder).toHaveBeenCalledTimes(10);
+    });
+  });
+
+  describe("reading past watched episodes (a season's binge pick)", () => {
+    beforeEach(() => mockFolder.mockReset());
+    afterEach(() => mockFolder.mockReset());
+
+    const episodes = (played: boolean, ...ids: string[]): JellyfinItem[] =>
+      ids.map((id) => ({ Id: id, Name: id, Type: "Episode", SeasonId: "season-1", UserData: { Played: played } }) as JellyfinItem);
+
+    async function mountSeason(readPastWatched: boolean) {
+      const renders: { isLoading: boolean; ids: string[] }[] = [];
+      function Probe() {
+        const state = useFolderContents("season-1", undefined, undefined, undefined, readPastWatched);
+        renders.push({ isLoading: state.isLoading, ids: state.items.map((i) => i.Id) });
+        return null;
+      }
+      await act(async () => {
+        TestRenderer.create(<Probe />);
+      });
+      return renders;
+    }
+
+    it("reads on while the last loaded episode is watched, then paints once", async () => {
+      mockFolder
+        .mockResolvedValueOnce({ items: episodes(true, "e1", "e2"), total: 6 })
+        .mockResolvedValueOnce({ items: [...episodes(true, "e3"), ...episodes(false, "e4")], total: 6 })
+        .mockResolvedValueOnce({ items: episodes(false, "e5", "e6"), total: 6 });
+
+      const renders = await mountSeason(true);
+
+      expect(mockFolder).toHaveBeenCalledTimes(2);
+      expect(mockFolder).toHaveBeenNthCalledWith(2, "season-1", { limit: 60, startIndex: 2 });
+      const painted = renders.filter((r) => r.ids.length > 0);
+      expect(painted[0].ids).toEqual(["e1", "e2", "e3", "e4"]);
+      expect(painted.every((r) => !r.isLoading)).toBe(true);
+    });
+
+    it("reads one page when its last episode is unwatched", async () => {
+      mockFolder.mockResolvedValueOnce({ items: [...episodes(true, "e1"), ...episodes(false, "e2")], total: 4 });
+
+      await mountSeason(true);
+
+      expect(mockFolder).toHaveBeenCalledTimes(1);
+    });
+
+    it("reads one page when not asked to read past watched episodes", async () => {
+      mockFolder.mockResolvedValueOnce({ items: episodes(true, "e1", "e2"), total: 4 });
+
+      await mountSeason(false);
+
+      expect(mockFolder).toHaveBeenCalledTimes(1);
+    });
+
+    it("counts an episode marked unwatched this session as unwatched", async () => {
+      markPlayed("e2", false);
+      mockFolder.mockResolvedValueOnce({ items: episodes(true, "e1", "e2"), total: 4 });
+
+      await mountSeason(true);
+
+      expect(mockFolder).toHaveBeenCalledTimes(1);
+    });
+
+    it("refuses a cached seed whose last episode is watched and reads on from a fresh first page", async () => {
+      mockFolder.mockResolvedValueOnce({ items: episodes(true, "e1", "e2"), total: 4 });
+      await mount("season-1"); // caches page one only
+      (Date.now as jest.Mock).mockReturnValue(NOW + 60_000);
+      mockFolder.mockResolvedValueOnce({ items: episodes(true, "e1", "e2"), total: 4 }).mockResolvedValueOnce({ items: episodes(false, "e3", "e4"), total: 4 });
+
+      const renders = await mountSeason(true);
+
+      expect(renders[0]).toEqual({ isLoading: true, ids: [] });
+      expect(mockFolder).toHaveBeenLastCalledWith("season-1", { limit: 60, startIndex: 2 });
+      expect(renders[renders.length - 1].ids).toEqual(["e1", "e2", "e3", "e4"]);
     });
   });
 
@@ -791,7 +1012,7 @@ describe("useFolderContents", () => {
         TestRenderer.create(<Probe />);
       });
 
-      expect(mockFolder).toHaveBeenCalledTimes(1);
+      expect(mockFolder).toHaveBeenCalledTimes(2);
       expect(firstFrame[0]).toEqual(["e1", "e2"]);
     });
 
@@ -851,9 +1072,18 @@ describe("useFolderContents", () => {
       await mountWithFilters("folder-1", { ...EMPTY_FILTERS, favorite: true }); // must not read the cache
       expect(mockFolder).toHaveBeenCalledTimes(2);
 
-      const ref = await mount("folder-1"); // unfiltered again, within TTL — original cache survives
-      expect(mockFolder).toHaveBeenCalledTimes(2);
-      expect(ref.current!.get().items[0].Id).toBe("plain");
+      // Unfiltered again, within TTL: the first frame is the original entry.
+      mockFolder.mockResolvedValue({ items: items("plain"), total: 1 });
+      const firstFrame: string[][] = [];
+      function Probe() {
+        firstFrame.push(useFolderContents("folder-1").items.map((i) => i.Id));
+        return null;
+      }
+      await act(async () => {
+        TestRenderer.create(<Probe />);
+      });
+      expect(mockFolder).toHaveBeenCalledTimes(3);
+      expect(firstFrame[0]).toEqual(["plain"]);
     });
 
     it("drops repeated ids across shuffled pages (SortBy=Random reshuffles per request)", async () => {
@@ -880,6 +1110,73 @@ describe("useFolderContents", () => {
 
       expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["a", "b"]);
       expect(ref.current!.get().hasMoreResults).toBe(false);
+    });
+  });
+
+  describe("foreground revalidation", () => {
+    async function foreground() {
+      const calls = (useAppStateRefresh as jest.Mock).mock.calls;
+      await act(async () => calls[calls.length - 1][0]());
+    }
+
+    it("finishes initial loading when a newer foreground read returns the same empty listing", async () => {
+      let resolveInitial!: (value: { items: JellyfinItem[]; total?: number }) => void;
+      mockFolder.mockImplementationOnce(() => new Promise((resolve) => (resolveInitial = resolve)));
+      const ref = await mount("folder-1");
+      expect(ref.current!.get().isLoading).toBe(true);
+
+      mockFolder.mockResolvedValueOnce({ items: [], total: undefined });
+      await foreground();
+      expect(ref.current!.get()).toMatchObject({ items: [], isLoading: false, error: null });
+
+      await act(async () => resolveInitial({ items: items("stale"), total: 1 }));
+      expect(ref.current!.get().items).toEqual([]);
+    });
+
+    it("reports an initial error when a newer foreground read fails", async () => {
+      let resolveInitial!: (value: { items: JellyfinItem[]; total?: number }) => void;
+      mockFolder.mockImplementationOnce(() => new Promise((resolve) => (resolveInitial = resolve)));
+      const ref = await mount("folder-1");
+
+      mockFolder.mockRejectedValueOnce(new Error("offline"));
+      await foreground();
+      expect(ref.current!.get().isLoading).toBe(false);
+      expect(ref.current!.get().error).not.toBeNull();
+
+      await act(async () => resolveInitial({ items: items("stale"), total: 1 }));
+      expect(ref.current!.get().items).toEqual([]);
+      expect(ref.current!.get().error).not.toBeNull();
+    });
+
+    it.each([{ loaded: [] }, { loaded: items("a") }])("preserves an already loaded listing on a failed foreground read: $loaded", async ({ loaded }) => {
+      mockFolder.mockResolvedValueOnce({ items: loaded, total: loaded.length });
+      const ref = await mount("folder-1");
+      const shown = ref.current!.get().items;
+
+      mockFolder.mockRejectedValueOnce(new Error("offline"));
+      await foreground();
+      expect(ref.current!.get().items).toBe(shown);
+      expect(ref.current!.get().isLoading).toBe(false);
+      expect(ref.current!.get().error).toBeNull();
+    });
+
+    it("does not treat a list cleared by an error as usable during overlapping retries", async () => {
+      mockFolder.mockResolvedValueOnce({ items: items("a"), total: 1 });
+      const ref = await mount("folder-1");
+      mockFolder.mockRejectedValueOnce(new Error("offline"));
+      await act(async () => ref.current!.get().refresh());
+      expect(ref.current!.get().items).toEqual([]);
+
+      let resolveRetry!: (value: { items: JellyfinItem[]; total?: number }) => void;
+      mockFolder.mockImplementationOnce(() => new Promise((resolve) => (resolveRetry = resolve)));
+      await act(async () => ref.current!.get().refresh());
+      expect(ref.current!.get().isLoading).toBe(true);
+      mockFolder.mockRejectedValueOnce(new Error("still offline"));
+      await foreground();
+      expect(ref.current!.get().isLoading).toBe(false);
+      expect(ref.current!.get().error).not.toBeNull();
+      await act(async () => resolveRetry({ items: items("stale"), total: 1 }));
+      expect(ref.current!.get().items).toEqual([]);
     });
   });
 
@@ -960,6 +1257,73 @@ describe("useFolderContents", () => {
       await mountHidden();
       await act(async () => latestCall(subscribeAuthChange as jest.Mock)());
       expect(mockFolder).toHaveBeenCalledTimes(1);
+    });
+
+    describe("shown again", () => {
+      async function mountShown(filters?: LibraryFilters) {
+        focused.mockReturnValue(true);
+        const ref = React.createRef<HookRef>();
+        let tree!: TestRenderer.ReactTestRenderer;
+        await act(async () => {
+          tree = TestRenderer.create(<Harness ref={ref} folderId="folder-1" filters={filters} />);
+        });
+        const showAgain = async () => {
+          focused.mockReturnValue(false);
+          await act(async () => tree.update(<Harness ref={ref} folderId="folder-1" filters={filters} />));
+          focused.mockReturnValue(true);
+          await act(async () => tree.update(<Harness ref={ref} folderId="folder-1" filters={filters} />));
+        };
+        return { ref, showAgain, tree };
+      }
+      const range = (from: number, count: number) => Array.from({ length: count }, (_, i) => `i${from + i}`);
+
+      it("reads every loaded item again in one request, and the next page starts after them", async () => {
+        mockFolder.mockReset();
+        mockFolder
+          .mockResolvedValueOnce({ items: items(...range(0, 60)), total: 130 })
+          .mockResolvedValueOnce({ items: items(...range(60, 60)), total: 130 })
+          .mockResolvedValueOnce({ items: items("added", ...range(0, 119)), total: 131 })
+          .mockResolvedValueOnce({ items: items(...range(119, 11)), total: 131 });
+        const { ref, showAgain } = await mountShown();
+        await act(async () => {
+          ref.current!.get().loadMore();
+        });
+
+        await showAgain();
+
+        expect(mockFolder).toHaveBeenNthCalledWith(3, "folder-1", { limit: 120, startIndex: 0 });
+        expect(invalidateFolderReads).toHaveBeenLastCalledWith("folder-1");
+        expect(ref.current!.get().items).toHaveLength(120);
+        expect(ref.current!.get().items[0].Id).toBe("added");
+        await act(async () => {
+          ref.current!.get().loadMore();
+        });
+        expect(mockFolder).toHaveBeenNthCalledWith(4, "folder-1", { limit: 60, startIndex: 120 });
+      });
+
+      it("leaves a shuffled view alone", async () => {
+        const { showAgain } = await mountShown({ ...EMPTY_FILTERS, shuffle: true });
+        mockFolder.mockClear();
+        await showAgain();
+        expect(mockFolder).not.toHaveBeenCalled();
+      });
+
+      it("waits for playback to let go of the link, then reads", async () => {
+        const { setPlaybackHold } = require("@/services/playbackHold") as { setPlaybackHold: (owner: string, active: boolean) => void };
+        const { showAgain, tree } = await mountShown();
+        mockFolder.mockClear();
+        try {
+          setPlaybackHold("video", true);
+          await showAgain();
+          expect(mockFolder).not.toHaveBeenCalled();
+
+          await act(async () => setPlaybackHold("video", false));
+          expect(mockFolder).toHaveBeenCalledTimes(1);
+        } finally {
+          setPlaybackHold("video", false);
+          tree.unmount();
+        }
+      });
     });
   });
 });

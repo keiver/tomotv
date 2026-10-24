@@ -354,6 +354,37 @@ final class AudioTranscoder {
         }
     }
 
+    /// Carries the track on with silence to `to` (output seconds), for a source track that ends
+    /// before the picture. Samples already queued go out first; a transcoder rebuilt past the
+    /// track's end, which has had no packet to seed its clock, starts the silence at `from`.
+    func padSilence(from: Double, to: Double, emit: (UnsafeMutablePointer<AVPacket>) -> Void) {
+        guard let fifo, let encoder else { return }
+        let rate = Double(encoder.pointee.sample_rate)
+        if !clockSeeded {
+            samplesEncoded = Int64(from * rate)
+            clockSeeded = true
+        }
+        var missing = Int64(to * rate) - (samplesEncoded + Int64(av_audio_fifo_size(fifo)))
+        guard missing > 0 else { return }
+        let channels = encoder.pointee.ch_layout.nb_channels
+        let chunk = Int32(min(missing, Int64(encoder.pointee.sample_rate)))
+        var silence: UnsafeMutablePointer<UnsafeMutablePointer<UInt8>?>? = nil
+        guard av_samples_alloc_array_and_samples(&silence, nil, channels, chunk, encoder.pointee.sample_fmt, 0) >= 0,
+              let buffer = silence else { return }
+        defer {
+            av_freep(&buffer[0])
+            var freeing: UnsafeMutableRawPointer? = UnsafeMutableRawPointer(buffer)
+            av_freep(&freeing)
+        }
+        av_samples_set_silence(buffer, 0, chunk, channels, encoder.pointee.sample_fmt)
+        while missing > 0 {
+            let take = Int32(min(missing, Int64(chunk)))
+            _ = av_audio_fifo_write(fifo, UnsafeMutableRawPointer(buffer).assumingMemoryBound(to: UnsafeMutableRawPointer?.self), take)
+            missing -= Int64(take)
+            drainFIFO(flush: false, emit: emit)
+        }
+    }
+
     /// Pull full-size frames out of the FIFO and encode them. `flush` also
     /// takes a final short frame.
     private func drainFIFO(flush: Bool, emit: (UnsafeMutablePointer<AVPacket>) -> Void) {

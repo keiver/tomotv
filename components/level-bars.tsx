@@ -1,7 +1,8 @@
 import { useCardPalette } from "@/hooks/useCardPalette";
-import React, { useEffect } from "react";
-import { View } from "react-native";
-import Animated, { cancelAnimation, Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withSequence, withTiming } from "react-native-reanimated";
+import { swingStops } from "@/utils/swingStops";
+import React, { useEffect, useMemo } from "react";
+import { Animated, Easing, useAnimatedValue, View } from "react-native";
+import { useReducedMotion } from "react-native-reanimated";
 
 const BAR = 2;
 const GAP = 2;
@@ -15,6 +16,7 @@ const LOW = 0.25;
 const PAUSED = 0.3;
 /** Reduced motion while playing: still, but staggered, so it still reads as music. */
 const STILL = [0.5, 0.9, 0.65];
+const SETTLE_MS = 220;
 
 interface BarProps {
   index: number;
@@ -26,38 +28,39 @@ interface BarProps {
 
 /** A mirrored pair standing on the centre line, both arms carrying the same level. */
 function Bar({ index, half, playing, color }: BarProps) {
-  const level = useSharedValue(PAUSED);
   const reducedMotion = useReducedMotion();
+  const swinging = playing && !reducedMotion;
+  // phase loops 0 to 1 on the native driver; mix blends the swing (1) with the resting level (0).
+  const phase = useAnimatedValue(0);
+  const mix = useAnimatedValue(0);
+  const rest = useAnimatedValue(PAUSED);
+  const level = useMemo(() => Animated.add(Animated.multiply(phase.interpolate(swingStops(LOW, PEAKS[index])), mix), Animated.multiply(rest, Animated.subtract(1, mix))), [phase, mix, rest, index]);
 
   useEffect(() => {
-    cancelAnimation(level);
-    if (!playing) {
-      level.set(withTiming(PAUSED, { duration: 220 }));
-      return;
+    const settle = { duration: SETTLE_MS, useNativeDriver: true };
+    if (!swinging) {
+      const toRest = Animated.parallel([Animated.timing(mix, { ...settle, toValue: 0 }), Animated.timing(rest, { ...settle, toValue: playing ? STILL[index] : PAUSED })]);
+      toRest.start();
+      return () => toRest.stop();
     }
-    if (reducedMotion) {
-      level.set(withTiming(STILL[index], { duration: 220 }));
-      return;
-    }
-    const swing = { duration: PERIODS[index] / 2, easing: Easing.inOut(Easing.quad) };
-    level.set(withRepeat(withSequence(withTiming(PEAKS[index], swing), withTiming(LOW, swing)), -1, false));
-    return () => cancelAnimation(level);
-  }, [playing, reducedMotion, index, level]);
+    const loop = Animated.loop(Animated.timing(phase, { toValue: 1, duration: PERIODS[index], easing: Easing.linear, useNativeDriver: true }));
+    const toSwing = Animated.timing(mix, { ...settle, toValue: 1 });
+    phase.setValue(0);
+    loop.start();
+    toSwing.start();
+    return () => {
+      toSwing.stop();
+      loop.stop();
+    };
+  }, [swinging, playing, index, phase, mix, rest]);
 
-  // One style per view: an animated style belongs to the view it is passed to.
-  const up = useAnimatedStyle(() => ({ height: level.get() * half }));
-  const down = useAnimatedStyle(() => ({ height: level.get() * half }));
-
+  const scale = { transform: [{ scaleY: level }] };
   return (
     <View style={{ width: BAR }}>
       {/* Rounded at the outer end only, so a pair at full reach reads as one capsule rather
           than two bars pinched together where they meet. */}
-      <View style={{ height: half, justifyContent: "flex-end" }}>
-        <Animated.View style={[{ width: BAR, borderTopLeftRadius: BAR / 2, borderTopRightRadius: BAR / 2, backgroundColor: color }, up]} />
-      </View>
-      <View style={{ height: half }}>
-        <Animated.View style={[{ width: BAR, borderBottomLeftRadius: BAR / 2, borderBottomRightRadius: BAR / 2, backgroundColor: color }, down]} />
-      </View>
+      <Animated.View style={[{ width: BAR, height: half, borderTopLeftRadius: BAR / 2, borderTopRightRadius: BAR / 2, backgroundColor: color, transformOrigin: "bottom" }, scale]} />
+      <Animated.View style={[{ width: BAR, height: half, borderBottomLeftRadius: BAR / 2, borderBottomRightRadius: BAR / 2, backgroundColor: color, transformOrigin: "top" }, scale]} />
     </View>
   );
 }

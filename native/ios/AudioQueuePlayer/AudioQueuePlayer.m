@@ -2,7 +2,7 @@
 //  AudioQueuePlayer.m
 //  TomoTV
 //
-//  Objective-C bridge exposing the AudioQueuePlayer Swift module to React Native.
+//  Objective-C export of the AudioQueuePlayer Swift module to React Native.
 //
 
 #import <React/RCTBridgeModule.h>

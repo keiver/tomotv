@@ -238,7 +238,7 @@ describe("measurement", () => {
   });
 
   it("remembers nothing when the probe throws", async () => {
-    mockMeasure.mockRejectedValueOnce(new Error("bridge"));
+    mockMeasure.mockRejectedValueOnce(new Error("native call failed"));
 
     await expect(measureServerBitrate()).resolves.toBeNull();
     expect(mockSetItem).not.toHaveBeenCalled();

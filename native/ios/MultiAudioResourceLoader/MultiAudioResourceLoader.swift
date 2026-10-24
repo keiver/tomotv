@@ -125,7 +125,7 @@ class MultiAudioResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate 
     ///
     /// `apiKey` is accepted and ignored: it is already carried in `baseUrl`'s
     /// query, which is where buildManifestUrl reads it from. The parameter stays
-    /// so the bridge signature and its JS call site do not have to change.
+    /// so the native method signature and its JS call site do not have to change.
     func configure(baseUrl: String, apiKey: String, itemId: String, audioTracks: [[String: Any]]) -> String {
         let configId = UUID().uuidString
         configLock.lock()
@@ -415,9 +415,9 @@ class MultiAudioResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate 
     }
 }
 
-// MARK: - React Native Bridge
+// MARK: - React Native Module
 
-/// React Native bridge module that exposes MultiAudioResourceLoaderDelegate to JavaScript
+/// React Native module that exposes MultiAudioResourceLoaderDelegate to JavaScript
 @objc(MultiAudioResourceLoader)
 class MultiAudioResourceLoader: NSObject {
 

@@ -72,7 +72,7 @@ export default function ChannelGroupsScreen() {
       <PadSheet onClose={() => router.back()} fit="center">
         <ScrollView style={styles.padScroll} contentContainerStyle={styles.padContent} keyboardShouldPersistTaps="handled">
           <View style={styles.padTitle}>
-            <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.groups")}</Text>
+            <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.groupsHeader")}</Text>
           </View>
           {channel ? <ChannelGroupSection channel={channel} /> : <View style={[settingsStyles.section, styles.card]}>{choiceRows}</View>}
         </ScrollView>
@@ -89,7 +89,7 @@ export default function ChannelGroupsScreen() {
           {/* Phone reads the title off the native bar. */}
           {IS_TV ? (
             <View style={settingsStyles.sectionHeader} onLayout={(event) => setTitleHeight(event.nativeEvent.layout.height)}>
-              <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.groups")}</Text>
+              <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.groupsHeader")}</Text>
             </View>
           ) : null}
           {channel ? (

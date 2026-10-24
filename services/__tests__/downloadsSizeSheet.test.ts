@@ -19,7 +19,7 @@ describe("sizeChoice", () => {
 
 describe("blockedSizesNote", () => {
   it("names who turned transcoding off, and says nothing when nobody did", () => {
-    expect(blockedSizesNote("device")).toContain("off in Settings");
+    expect(blockedSizesNote("device")).toContain("which is off");
     expect(blockedSizesNote("account")).toContain("server account");
     expect(blockedSizesNote(null)).toBeNull();
   });

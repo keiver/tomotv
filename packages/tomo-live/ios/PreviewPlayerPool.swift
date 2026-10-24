@@ -20,7 +20,7 @@ final class PreviewPlayerPool {
   private static let ceiling = 12
   #else
   /// Decoder busy (-11839) is reported at 16 players on iPhone; a Mac ran 48 card-sized 1080p clips in realtime.
-  private static let ceiling = ProcessInfo.processInfo.isiOSAppOnMac ? 48 : 16
+  private static let ceiling = ProcessInfo.processInfo.isMacCatalystApp ? 48 : 16
   #endif
   /// Idle players are for the next card of a scroll; past this with no card playing, the screen is away and they go.
   private static let idleLinger: TimeInterval = 5

@@ -34,15 +34,18 @@ interface HudActionProps {
   titled?: boolean;
   /** Rounds the bottom-left corner to the card's it sits in; the focus ring follows. */
   bottomLeftRadius?: number;
+  /** Rounds the top-left corner, for a cell opening a pill; the focus ring follows. */
+  topLeftRadius?: number;
   /** TV: the node Up lands on when nothing sits straight above the cell. */
   nextFocusUp?: number;
+  hasTVPreferredFocus?: boolean;
 }
 
 /** One frosted-black cell of the band's corner, square-cornered and band-tall; focus draws the cells' accent ring. */
-export function HudAction({ icon, label, onPress, disabled, forwardedRef, titled, bottomLeftRadius, nextFocusUp }: HudActionProps) {
+export function HudAction({ icon, label, onPress, disabled, forwardedRef, titled, bottomLeftRadius, topLeftRadius, nextFocusUp, hasTVPreferredFocus }: HudActionProps) {
   const [focused, setFocused] = useState(false);
   const { accent } = useCardPalette();
-  const rounded = bottomLeftRadius !== undefined && { borderBottomLeftRadius: bottomLeftRadius };
+  const rounded = (bottomLeftRadius !== undefined || topLeftRadius !== undefined) && { borderBottomLeftRadius: bottomLeftRadius, borderTopLeftRadius: topLeftRadius };
   return (
     <View style={[styles.tile, rounded, rounded && styles.tileClip]}>
       <Pressable
@@ -52,6 +55,7 @@ export function HudAction({ icon, label, onPress, disabled, forwardedRef, titled
         onBlur={() => setFocused(false)}
         isTVSelectable
         nextFocusUp={nextFocusUp}
+        hasTVPreferredFocus={hasTVPreferredFocus}
         accessibilityRole="button"
         accessibilityLabel={label}
         accessibilityState={{ disabled: disabled === true }}
@@ -83,15 +87,18 @@ interface GuideCornerActionsProps {
   recording?: boolean;
   /** The first cell's node, the guide cells' fallback Up target. */
   onFirstRef?: (node: View | null) => void;
+  /** TV: the Channels cell claims focus as the screen opens. */
+  claimFocus?: boolean;
 }
 
 /** Channels, Recordings, Schedule and the guide refresh: equal frosted cells spanning the band's corner. */
-export function GuideCornerActions({ filtered, onChannels, onRecordings, onSchedule, onRefreshGuide, refreshing, recording, onFirstRef }: GuideCornerActionsProps) {
+export function GuideCornerActions({ filtered, onChannels, onRecordings, onSchedule, onRefreshGuide, refreshing, recording, onFirstRef, claimFocus }: GuideCornerActionsProps) {
   const { accent } = useCardPalette();
   return (
     <View style={styles.row}>
       <HudAction
         forwardedRef={onFirstRef}
+        hasTVPreferredFocus={claimFocus}
         label={t("liveTv.channels")}
         onPress={onChannels}
         icon={<SfSymbolIcon name={filtered ? "line.3.horizontal.decrease.circle.fill" : "square.grid.2x2"} size={ICON} color={accent} weight={WEIGHT} />}

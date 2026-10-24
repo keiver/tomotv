@@ -29,6 +29,7 @@ import { PlayQueueProvider } from "@/contexts/PlayQueueContext";
 import { registerMultiAudioPlugin } from "@/services/multiAudioLoader";
 import { applyScreenshotSizeLockAtLaunch } from "@/services/screenshotSizeLock";
 import { videoDecodeSupport } from "@/services/localRemux";
+import { watchRecordingHolds } from "@/services/recordingHold";
 import { logger } from "@/utils/logger";
 import { t } from "@/services/i18n";
 import { LocaleBoundary } from "@/components/locale-boundary";
@@ -70,7 +71,7 @@ const IMAGE_MEMORY_CACHE_BYTES = 64 * 1024 * 1024;
 if (Platform.OS === "ios") Image.configureCache({ maxMemoryCost: IMAGE_MEMORY_CACHE_BYTES });
 
 // Without a theme, expo-router's NavigationContainer falls back to the LIGHT DefaultTheme, whose
-// colors.background (rgb(242,242,242)) paints the surfaces behind/between screens — visible as a
+// colors.background (rgb(242,242,242)) paints the surfaces behind/between screens, visible as a
 // white sheet under the top screen during the iOS interactive back-swipe (expo/expo#42545,
 // react-native-screens#3758). Match it to the app canvas so nothing light can peek through.
 // `primary` is the app's tint: on iOS every native-stack header takes it for the back
@@ -113,6 +114,9 @@ export default function RootLayout() {
     applyScreenshotSizeLockAtLaunch();
   }, []);
 
+  // A recording on a one-connection provider keeps this device off that provider.
+  useEffect(() => watchRecordingHolds(), []);
+
   // Redraws the header titles below and the hosts outside the navigator in a picked language.
   useLocale();
   const { accent } = useCardPalette();
@@ -147,7 +151,7 @@ export default function RootLayout() {
   // tvOS expo-router's getInitialURL is exactly that value (expo-router/build/link/linking.js:61-67
   // -> Linking.getLinkingURL()), and expo-router never calls clearInitialURL. A Metro reload
   // replaces the JS context but not the process, so the fresh JS asks for the initial URL and gets
-  // the same deep link back — remounting /player on that videoId at every reload, hours later, an
+  // the same deep link back, remounting /player on that videoId at every reload, hours later, an
   // item the current server may not even have. Clearing it here costs nothing: expo-router reads
   // the initial URL synchronously while building its store (global-state/useStore.js:56-61), long
   // before this effect runs, so the launching link still routes. Links that arrive later are
@@ -166,11 +170,11 @@ export default function RootLayout() {
               {/* The video player is mounted OUTSIDE the navigator, below, and driven through this
                   provider. It has to be: popping /player unmounts <Video>, and RCTVideo's teardown
                   nils the AVPlayer, which takes any Picture in Picture window down with it. Apple
-                  says the same thing — the object that owns playback "must not be part of your view
+                  says the same thing: the object that owns playback "must not be part of your view
                   hierarchy" if it is to survive PiP (WWDC20, Master Picture in Picture on tvOS). */}
               <PlayerSessionProvider>
                 {/* Library filter selections live here (not in the (library) stack) so the Filters
-                  route can be a ROOT screen that covers the tabs — a route inside (tabs) leaves the
+                  route can be a ROOT screen that covers the tabs: a route inside (tabs) leaves the
                   native tab bar on screen to steal focus on tvOS. Both share this one provider. */}
                 <LibraryFiltersProvider>
                   <ThemeProvider value={navigationTheme}>
@@ -179,7 +183,7 @@ export default function RootLayout() {
                       {/* Folder browsing is a ROOT route, not nested in (tabs): a route inside the tabs
                       leaves the native tab bar on screen, and on tvOS the focus engine hands it focus
                       the moment a programmatic pop tears out the focused card (RNSScreenStack rebuilds
-                      the stack animated:NO). Covering the tabs — the same reason Filters lives here —
+                      the stack animated:NO). Covering the tabs, the same reason Filters lives here,
                       removes that focus sink. TV hides the header (the grid draws its own bar); phone
                       keeps the native UINavigationBar the folder screen configures. */}
                       <Stack.Screen
@@ -203,7 +207,7 @@ export default function RootLayout() {
                       {/* Regular push, NOT a fullScreenModal: UIModalPresentationFullScreen takes the RN
                       root view out of the window, so every native view below it sees window == nil and
                       back again. expo-tvos-search tears its UIHostingController out of the VC hierarchy
-                      on that signal, and SwiftUI's .searchable never re-registers — the Search tab comes
+                      on that signal, and SwiftUI's .searchable never re-registers: the Search tab comes
                       back with no search field and no way to focus one. A root push covers the tabs just
                       the same (see filters/photo-viewer) and never leaves the window. */}
                       <Stack.Screen
@@ -248,24 +252,15 @@ export default function RootLayout() {
                           animation: "fade",
                         }}
                       />
-                      {/* Video Info panel. iPhone: native page sheet (presentation "modal") — slides
-                      up, swipe-to-dismiss, and UIKit owns the layout in every orientation. NOT a
-                      formSheet: react-native-screens blanks formSheet content on any detent relayout
-                      (expand or rotation — RNS #2522/#2770); the page sheet has no detent math to
-                      break. The presenting view stays in the window, so the fullScreenModal search
-                      lesson above doesn't apply. tvOS: regular push styled as a floating card
-                      (stack rules: no modals, Menu pops natively off the CTAs). iPad: transparent
-                      modal, because a sheet there is readable-width and UIKit exposes no control
-                      over what shows beside it, the screen draws its own blurred backdrop, which
-                      only works while the presenting view stays in the window. */}
+                      {/* Video Info panel. tvOS: regular push styled as a floating card (stack rules: no
+                      modals, Menu pops natively off the CTAs). iPhone, iPad and Mac: transparent modal, the
+                      screen drawing its own blurred backdrop and a card sized to its content over the presenting view. */}
                       <Stack.Screen
                         name="video-info"
                         options={
                           Platform.isTV
                             ? { headerShown: false, animation: "fade" }
-                            : Platform.OS === "ios" && Platform.isPad
-                              ? { headerShown: false, presentation: "transparentModal", animation: "fade", contentStyle: { backgroundColor: "transparent" } }
-                              : { headerShown: false, presentation: "modal" }
+                            : { headerShown: false, presentation: "transparentModal", animation: "fade", contentStyle: { backgroundColor: "transparent" } }
                         }
                       />
                       {/* The guide's Recordings, Channels and Schedule: TV crossfades like video-info, phone
@@ -346,6 +341,36 @@ export default function RootLayout() {
                         }
                       />
                       <Stack.Screen
+                        name="connection-limits"
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : {
+                                headerShown: true,
+                                headerTransparent: true,
+                                headerShadowVisible: false,
+                                headerTitle: t("liveTv.connectionLimits"),
+                                headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                                headerBackTitle: t("liveTv.channelSettings"),
+                              }
+                        }
+                      />
+                      <Stack.Screen
+                        name="connection-limit"
+                        options={
+                          Platform.isTV
+                            ? { headerShown: false, animation: "fade" }
+                            : {
+                                headerShown: true,
+                                headerTransparent: true,
+                                headerShadowVisible: false,
+                                headerTitle: t("liveTv.connectionLimits"),
+                                headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                                headerBackTitle: t("liveTv.connectionLimits"),
+                              }
+                        }
+                      />
+                      <Stack.Screen
                         name="guide-channels"
                         options={
                           Platform.isTV
@@ -379,21 +404,6 @@ export default function RootLayout() {
                         }
                       />
                       <Stack.Screen
-                        name="channel-group"
-                        options={
-                          Platform.isTV
-                            ? { headerShown: false, animation: "fade" }
-                            : {
-                                headerShown: true,
-                                headerTransparent: true,
-                                headerShadowVisible: false,
-                                headerTitle: t("liveTv.groupName"),
-                                headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
-                                headerBackTitle: t("common.cancel"),
-                              }
-                        }
-                      />
-                      <Stack.Screen
                         name="schedule"
                         options={
                           Platform.isTV
@@ -423,7 +433,7 @@ export default function RootLayout() {
                       />
                       {/* The login steps, one root route each so Menu walks back through them.
                       Root, not inside a tab, for the same reason as filters: the native tab bar
-                      stays on screen there and swallows the Menu press — which is exactly how
+                      stays on screen there and swallows the Menu press, which is exactly how
                       these steps used to quit the app. Regular push, never a modal.
 
                       They are ROOT screens rather than a nested app/connect stack because iOS

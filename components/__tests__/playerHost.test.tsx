@@ -22,6 +22,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   hasPoster: jest.fn(() => false),
   subscribeAuthChange: jest.fn(() => () => {}),
   fetchNextEpisodeAutoPlay: jest.fn(async () => mockAutoPlay.enabled),
+  isLiveChannel: (item: { Type?: string } | null) => item?.Type === "TvChannel",
 }));
 const mockQueue = { queue: [] as { Id: string; Name: string }[], currentIndex: -1 };
 jest.mock("@/services/playQueueManager", () => ({
@@ -37,9 +38,11 @@ jest.mock("@/services/playQueueManager", () => ({
 }));
 jest.mock("@/services/syncPlayManager", () => ({ isJoined: () => false }));
 jest.mock("@/components/image-subtitle-overlay", () => ({ ImageSubtitleOverlay: () => null }));
-jest.mock("@/hooks/useItemPoster", () => ({ useItemPoster: () => undefined }));
+const mockUseItemPoster = jest.fn((..._args: unknown[]) => undefined);
+jest.mock("@/hooks/useItemPoster", () => ({ useItemPoster: (...args: unknown[]) => mockUseItemPoster(...args) }));
 const mockHotChannels = new Set<string>();
-jest.mock("@/services/liveRing", () => ({ isHotChannel: (id: string) => mockHotChannels.has(id) }));
+const mockOneConnectionChannels = new Set<string>();
+jest.mock("@/services/liveRing", () => ({ isHotChannel: (id: string) => mockHotChannels.has(id), channelOnOneConnection: (id: string) => mockOneConnectionChannels.has(id) }));
 jest.mock("@/components/dismiss-pan", () => {
   const { View } = require("react-native");
   return { DismissPan: ({ children, ...rest }: { children?: React.ReactNode }) => <View {...rest}>{children}</View> };
@@ -84,7 +87,7 @@ let stateType: string | null = null;
 /** Whether a reported ERROR still has a rung left. */
 let canRetry = false;
 /** The item details the hook has fetched. */
-let details: { Id: string; Name: string } | null = null;
+let details: { Id: string; Name: string; Type?: string } | null = null;
 const hookCalls: { videoId: string; skip?: boolean }[] = [];
 /** Stable across renders, so a test can assert the bridge never reached it. */
 const hookPause = jest.fn();
@@ -176,9 +179,29 @@ describe("PlayerHost", () => {
     await act(async () => renderer.unmount());
   });
 
+  it.each([
+    ["a channel opened without the live flag", { Id: "ch-9", Name: "MLB", Type: "TvChannel" }, false, true],
+    ["a live session", { Id: "ch-9", Name: "MLB", Type: "TvChannel" }, true, true],
+    ["a movie", { Id: "movie-1", Name: "Film", Type: "Movie" }, false, undefined],
+  ])("marks the artwork as a logo for %s", async (_name, item, isLive, logo) => {
+    details = item;
+    await act(async () => {
+      bridge().requestSession({ videoId: item.Id, sessionKey: "k1", isLive });
+    });
+    sourceUri = "http://stream/1";
+    await act(async () => {
+      renderer.update(<PlayerHost />);
+    });
+    expect(renderer.root.findByType(Video).props.source.metadata.logo).toBe(logo);
+  });
+
   it("registers its bridge and sits idle with no session", () => {
     expect(registeredBridge).not.toBeNull();
     expect(hookCalls[0]).toEqual({ videoId: "", skip: true });
+  });
+
+  it("holds back a device-made poster while a video plays, so a frame landing mid-play never rebuilds the source", () => {
+    expect(mockUseItemPoster).toHaveBeenCalledWith(null, 600, { deferWhileVideo: true });
   });
 
   it("holds the outgoing channel's player through a flip until the new one plays", async () => {
@@ -242,6 +265,66 @@ describe("PlayerHost", () => {
       expect(hookCalls.some((call) => call.videoId === "ch-2" && !call.skip)).toBe(false);
     } finally {
       jest.useRealTimers();
+    }
+  });
+
+  it("waits 3 s after the last swipe before opening a channel whose provider allows one connection", async () => {
+    mockOneConnectionChannels.add("ch-2");
+    mockOneConnectionChannels.add("ch-3");
+    jest.useFakeTimers();
+    try {
+      await act(async () => {
+        bridge().requestSession({ videoId: "ch-1", sessionKey: "k1", isLive: true });
+      });
+      sourceUri = "http://stream/ch1";
+      await act(async () => {
+        renderer.update(<PlayerHost />);
+      });
+      await act(async () => {
+        bridge().switchLiveChannel({ videoId: "ch-2" });
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(2_000);
+      });
+      await act(async () => {
+        bridge().switchLiveChannel({ videoId: "ch-3" });
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(2_999);
+      });
+      expect(requestedVideoId()).toBeNull();
+      await act(async () => {
+        jest.advanceTimersByTime(1);
+      });
+      expect(requestedVideoId()).toBe("ch-3");
+      expect(hookCalls.some((call) => call.videoId === "ch-2" && !call.skip)).toBe(false);
+    } finally {
+      jest.useRealTimers();
+      mockOneConnectionChannels.clear();
+    }
+  });
+
+  it("opens a channel picked from the panel after the short wait, whatever its provider allows", async () => {
+    mockOneConnectionChannels.add("ch-2");
+    jest.useFakeTimers();
+    try {
+      await act(async () => {
+        bridge().requestSession({ videoId: "ch-1", sessionKey: "k1", isLive: true });
+      });
+      sourceUri = "http://stream/ch1";
+      await act(async () => {
+        renderer.update(<PlayerHost />);
+      });
+      await act(async () => {
+        bridge().switchLiveChannel({ videoId: "ch-2", picked: true });
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(500);
+      });
+      expect(requestedVideoId()).toBe("ch-2");
+    } finally {
+      jest.useRealTimers();
+      mockOneConnectionChannels.clear();
     }
   });
 

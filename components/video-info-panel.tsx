@@ -1,5 +1,6 @@
 import { AmbientBackground } from "@/components/ambient-background";
-import { padFitWidth } from "@/components/pad-sheet";
+import { CardDragScroll } from "@/components/card-drag";
+import { PAD_CARD_RADIUS, padFitWidth } from "@/components/pad-sheet";
 import { SiblingPagerGesture } from "@/components/sibling-pager";
 
 import { FocusableButton } from "@/components/FocusableButton";
@@ -41,17 +42,24 @@ import { useCardPalette } from "@/hooks/useCardPalette";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { PosterCollage } from "@/components/poster-collage";
 import { ChannelGroupBand } from "@/components/live-tv/channel-group-band";
-import { ChannelGroupSection } from "@/components/live-tv/channel-group-section";
+import { LiveClip } from "@/components/live-tv/live-clip";
+import { useLiveClip, useLiveFrame, useLiveFrameSeenAt } from "@/hooks/useLiveFrame";
+import { useChannelHealth } from "@/hooks/useChannelHealth";
+import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
+import { usePlaybackHeld } from "@/hooks/usePlaybackHeld";
+import { LIVE_FRAME_TRANSITION_MS } from "@/services/liveFrames";
 import { folderPosterSource, heroArtBoxed, heroArtFrame, heroBoxFrame } from "@/services/itemArtwork";
 import { useFolderDownload } from "@/hooks/useFolderDownload";
 import { useItemDownload } from "@/hooks/useItemDownload";
 import { downloadsSupported } from "@/services/downloads/paths";
 import { useIsAdministrator } from "@/hooks/useIsAdministrator";
 import { useShowInFolder } from "@/hooks/useShowInFolder";
-import { CATEGORY_LABELS } from "@/hooks/useChannelFilterChoices";
+import { CATEGORY_LABELS } from "@/utils/channelGroups";
 import { useLiveTvManagement } from "@/hooks/useLiveTvManagement";
 import { useRecordActions } from "@/hooks/useRecordActions";
-import { EXTERNAL_GUIDE_PREFIX, formatClockRange, formatDayLabel, isAiring, programCategory, programTimes } from "@/utils/guide";
+import { useChannelHeld, useHeldRecording, useRecordingChecking } from "@/hooks/useRecordingStatus";
+import { recordingInProgress } from "@/services/recordingHold";
+import { EXTERNAL_GUIDE_PREFIX, formatClock, formatClockRange, formatDayLabel, isAiring, programCategory, programTimes } from "@/utils/guide";
 import { readGuideProgram } from "@/utils/programInfo";
 import { PlaybackLane, predictPlaybackLane } from "@/services/localRemux";
 import { JellyfinItem, JellyfinMediaStream, JellyfinProgram } from "@/types/jellyfin";
@@ -67,7 +75,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image, type ImageRef } from "expo-image";
 
 import { useRouter } from "expo-router";
-import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Alert, findNodeHandle, Platform, ScrollView, StyleSheet, Text, TVFocusGuideView, useWindowDimensions, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 
@@ -76,8 +84,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { t } from "@/services/i18n";
 
 const IS_TV = Platform.isTV;
-// iPad presents the panel over the app rather than as a page sheet: UIKit hands out no control
-// over what shows either side of a sheet, so the screen has to own its own backdrop.
+// iPad and Mac centre the panel's card and stack its CTAs content-sized; iPhone's card sits on the bottom edge.
 const IS_PAD = !IS_TV && Platform.OS === "ios" && Platform.isPad;
 // Added to the artwork hero's height, pushing the title and everything under it down.
 const HERO_GROW = 35;
@@ -85,14 +92,14 @@ const HERO_GROW = 35;
 const TV_CONTENT_RISE = 120;
 // The brand face's box, shared by boxed art: clear of the hero's sides, the fade and on TV the risen title.
 const HERO_BOX = { side: IS_TV ? 80 : 44, top: IS_TV ? 40 : 12, bottom: IS_TV ? 48 + TV_CONTENT_RISE : 20 };
-// The fade's one colour, the surface under the hero (TV card SURFACE, phone sheet BACKGROUND), so it never dips darker than the card.
+// The fade's one colour, the surface under the hero (TV card SURFACE, touch card BACKGROUND), so it never dips darker than the card.
 const HERO_FADE_RGB = IS_TV ? "rgba(44, 44, 46, " : "rgba(20, 20, 20, ";
 
 /**
  * Video Info panel: everything the server knows about one item, plus its
  * actions: play CTAs (a container plays what it holds), show in folder, and
  * the favorite / watched / remove-progress links a leaf carries. Opened by long
- * press on any card; tap-to-play stays the primary gesture. Presented as a form sheet on iPhone and as a floating card
+ * press on any card; tap-to-play stays the primary gesture. Presented as a card sized to its content on iPhone, iPad and Mac, and as a floating card
  * over the item's backdrop on tvOS (root push; stack rule: no custom Menu
  * handlers, the CTAs hold focus so Menu pops natively).
  */
@@ -109,10 +116,12 @@ export interface VideoInfoPanelProps {
   active?: boolean;
   /** The panel has painted its details. */
   onReady?: (item: JellyfinItem) => void;
+  /** Touch: the panel has its final height, or failed, so its card can show; the host draws the loading state until then. */
+  onSettled?: () => void;
 }
 
 export function VideoInfoPanel(params: VideoInfoPanelProps) {
-  const { active = true, onReady } = params;
+  const { active = true, onReady, onSettled } = params;
   const guideProgram = useMemo(() => readGuideProgram(params.guideProgram, params.videoId), [params.guideProgram, params.videoId]);
   const router = useRouter();
   const palette = useCardPalette();
@@ -131,9 +140,9 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   // Measured hero width → explicit clamped height. aspectRatio + maxHeight must never
   // meet on the hero: when Yoga clamps the height it re-derives the WIDTH from the
   // ratio, and the artwork covers only part of the header.
-  // Seeded, not zero: the hero spans the sheet on phone and the fixed card on TV and iPad, so
-  // the first paint already has the final height and onLayout only refines it.
-  const [heroWidth, setHeroWidth] = useState(IS_TV ? Math.min(1100, windowWidth * 0.86) : IS_PAD ? padFitWidth(windowWidth, insets.left + insets.right, "center") : windowWidth);
+  // Seeded, not zero: the hero spans the card, so the first paint already has the final height
+  // and onLayout only refines it.
+  const [heroWidth, setHeroWidth] = useState(IS_TV ? Math.min(1100, windowWidth * 0.86) : padFitWidth(windowWidth, insets.left + insets.right, IS_PAD ? "center" : "bottom"));
   // The last hero load's answer: its image, or null when it failed and the brand face stands in.
   const [heroLoad, setHeroLoad] = useState<{ uri: string; ref: ImageRef | null }>({ uri: "", ref: null });
   // Seeded heroWidth paints frame one; this says the measured one has landed, and the fade
@@ -459,6 +468,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   // The Resume label's own condition: a long press on it starts over.
   const startOver = !photo && !book && !inGroup && !!details?.UserData?.PlaybackPositionTicks;
   const isContainer = details ? isFolder(details) : false;
+  const watchableFolder = details?.Type === "Series" || details?.Type === "Season";
   // Audio, video or any mix of the two. Gated on what the container actually holds, so a
   // photo album never offers to download a set the downloads screen could not play.
   const canDownloadFolder = isContainer && downloadsSupported() && !!mediaKinds && (mediaKinds.video || mediaKinds.audio);
@@ -485,13 +495,38 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   const programAiring = !!liveProgram && detailsAtMs > 0 && isAiring(liveProgram, detailsAtMs);
   const programEnded = !!liveProgram && detailsAtMs > 0 && programTimes(liveProgram).endMs <= detailsAtMs;
   const watchable = !!liveChannelId && (liveChannel || programAiring);
-  const handleWatch = useCallback(() => {
+  // While the channel airs, its last grabbed picture and preview clip outrank its art.
+  const liveArtChannel = watchable ? liveChannelId : "";
+  const liveFrame = useLiveFrame(liveArtChannel);
+  const liveClip = useLiveClip(liveArtChannel);
+  const liveSeenAt = useLiveFrameSeenAt(liveArtChannel);
+  const seenLine = liveFrame && liveSeenAt > 0 ? t("liveTv.lastSeen").replace("{time}", formatClock(liveSeenAt)) : "";
+  // A frame on screen outranks any verdict, as on the guide card.
+  const channelOffline = useChannelHealth(liveArtChannel) === "down" && !liveFrame;
+  const { autoUpdate } = useLiveTvPreferences();
+  const playbackHeld = usePlaybackHeld();
+  const clipShown = !!liveFrame && !!liveClip && active && autoUpdate && !playbackHeld;
+  // At one connection a recording holds the provider: Watch plays the recording instead, once it has the stream.
+  const channelHeld = useChannelHeld();
+  const providerHeld = watchable && channelHeld(liveChannelId);
+  const holdingTimer = useHeldRecording(liveChannelId, providerHeld);
+  const recordingChecking = useRecordingChecking(liveChannelId, providerHeld);
+  const watchesRecording = providerHeld && holdingTimer?.Status === "InProgress" && !recordingChecking;
+  const handleWatch = useCallback(async () => {
     if (!liveChannelId) return;
+    let destination = { pathname: "/player" as const, params: { videoId: liveChannelId, videoName: liveChannelName, live: "1" } as Record<string, string> };
+    if (watchesRecording && holdingTimer) {
+      const item = await recordingInProgress(holdingTimer).catch((err) => {
+        logger.warn("Recording read failed", err, { service: "VideoInfo" });
+        return null;
+      });
+      if (!item) return;
+      destination = { pathname: "/player" as const, params: { videoId: item.Id, videoName: item.Name } };
+    }
     showGlobalLoader();
-    const destination = { pathname: "/player" as const, params: { videoId: liveChannelId, videoName: liveChannelName, live: "1" } };
     if (IS_TV) router.push(destination);
     else router.replace(destination);
-  }, [liveChannelId, liveChannelName, router, showGlobalLoader]);
+  }, [liveChannelId, liveChannelName, router, showGlobalLoader, watchesRecording, holdingTimer]);
   const groupChannel = useMemo(
     () => (liveChannel && details ? { Id: details.Id, Name: details.Name, ChannelNumber: details.ChannelNumber, playlistPending: details.playlistPending } : null),
     [liveChannel, details],
@@ -536,6 +571,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
     : liveProgram && liveTimes
       ? joinMeta([
           liveChannelName,
+          seenLine,
           liveSlot
             ? `${formatDayLabel(liveTimes.startMs, detailsAtMs, { today: t("liveTv.today"), tomorrow: t("liveTv.tomorrow") })} ${t("liveTv.timeRange").replace("{start}", liveSlot.start).replace("{end}", liveSlot.end)}`
             : "",
@@ -547,6 +583,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
         ? formatPixelSize(details.Width, details.Height)
         : joinMeta([
             formatChannelNumber(details),
+            seenLine,
             genresLine,
             year,
             // A book's RunTimeTicks is its page count in the server's ticks encoding, not a duration.
@@ -640,9 +677,8 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   const footScrim = {
     experimental_backgroundImage: `linear-gradient(to bottom, ${HERO_FADE_RGB}0) ${footPct * 0.2}%, ${HERO_FADE_RGB}0.45) ${footPct * 0.55}%, ${HERO_FADE_RGB}0.85) ${footPct * 0.8}%, ${HERO_FADE_RGB}1) ${footPct}%)`,
   };
-  // The phone wrap's gutters carry the safe area, which is 59pt a side in landscape. A width
-  // that assumes the portrait 20+20 overruns the panel and drags the mark off its axis.
-  const logoWidth = Math.max(0, heroWidth - (IS_TV ? 0 : 40 + insets.left + insets.right));
+  // Touch: the card's width less the wrap's 20pt gutters; the card already clears the safe area.
+  const logoWidth = Math.max(0, heroWidth - (IS_TV ? 0 : 40));
   const heroCropStyle = heroArt
     ? {
         position: "absolute" as const,
@@ -656,9 +692,17 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   const liveSettled = !live || !liveChannelId || pendingChannel || (externalProgram && !timedProgram) || canManage === false || (canManage === true && recording.settled);
   const heroSettled = heroSource ? heroAspect != null || heroFailed : previewSettled;
   const ready = !!details && heroSettled && liveSettled;
-  useEffect(() => {
-    if (ready && details) onReady?.(details);
-  }, [ready, details, onReady]);
+  // Touch lays the content out unseen first: the card shows once the hero and the scroll content have measured,
+  // at the height it keeps, never growing in front of the viewer.
+  const [contentSized, setContentSized] = useState(false);
+  const shown = ready && (IS_TV || (heroMeasured && contentSized));
+  // Before paint, so the route's card appears in the same frame as the content.
+  useLayoutEffect(() => {
+    if (shown && details) onReady?.(details);
+  }, [shown, details, onReady]);
+  useLayoutEffect(() => {
+    if (shown || failed) onSettled?.();
+  }, [shown, failed, onSettled]);
 
   // The artwork is transparent until its crop frame is final, so the first painted frame
   // already sits where it belongs and the fade stands in for the shift. Honors Reduce Motion.
@@ -689,11 +733,19 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   const folderInRow = showFolderCta && (!isContainer || folderCtas.length < 2);
   const seriesSet = !!recording.seriesTimerId;
   const extras: InfoExtraAction[] = [
-    ...(isContainer ? folderCtas.slice(2).map((cta) => ({ key: cta.kind, icon: cta.icon, label: cta.title, onPress: () => handlePlayFolder(cta.kind) })) : []),
-    ...(showFolderCta && !folderInRow ? [{ key: "folder", icon: "folder-outline" as const, label: t("info.showInFolder"), onPress: handleShowInFolder }] : []),
-    ...(shareable && folderInRow ? [{ key: "share", icon: "share-outline" as const, label: t("common.share"), onPress: () => void handleShare() }] : []),
-    ...(canDownloadFolder ? [{ key: "downloadAll", icon: "arrow-down" as const, label: t("info.downloadAll"), onPress: handleDownloadFolder }] : []),
-    ...(canDelete ? [{ key: "delete", icon: "trash-outline" as const, label: t("common.delete"), destructive: true, onPress: handleDelete }] : []),
+    ...(isContainer
+      ? folderCtas.slice(2).map((cta) => ({
+          key: cta.kind,
+          icon: cta.icon,
+          label: cta.title,
+          word: cta.kind === "video" ? t("info.word.videos") : cta.kind === "audio" ? (musical ? t("info.word.music") : t("info.word.audio")) : t("info.word.slideshow"),
+          onPress: () => handlePlayFolder(cta.kind),
+        }))
+      : []),
+    ...(showFolderCta && !folderInRow ? [{ key: "folder", icon: "folder-outline" as const, label: t("info.showInFolder"), word: t("info.word.folder"), onPress: handleShowInFolder }] : []),
+    ...(shareable && folderInRow ? [{ key: "share", icon: "share-outline" as const, label: t("common.share"), word: t("info.word.share"), onPress: () => void handleShare() }] : []),
+    ...(canDownloadFolder ? [{ key: "downloadAll", icon: "arrow-down" as const, label: t("info.downloadAll"), word: t("info.word.download"), onPress: handleDownloadFolder }] : []),
+    ...(canDelete ? [{ key: "delete", icon: "trash-outline" as const, label: t("common.delete"), word: t("info.word.delete"), destructive: true, onPress: handleDelete }] : []),
   ];
 
   const recordShown = recordTimer !== undefined && (!!recordTimer || !programEnded);
@@ -712,12 +764,12 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
       {watchable && (
         <FocusableButton
           ref={leadCtaRef}
-          title={t("liveTv.watch")}
+          title={watchesRecording ? t("liveTv.watchRecording") : t("liveTv.watch")}
           variant="primary"
           hasTVPreferredFocus
           style={pairButton}
           icon={<Ionicons name="play" size={IS_TV ? 34 : 22} color={palette.onAccent} />}
-          onPress={handleWatch}
+          onPress={() => void handleWatch()}
         />
       )}
       {!recordShown ? null : recordTimer ? (
@@ -858,7 +910,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
           sweep is a MediaTypes flatten, which no folder is in, and a favorited library is
           absent even from the unfiltered recursive query (measured, 10.11.11). Its "Watched"
           is not a flag either: Folder.MarkPlayed sweeps every descendant and resets each
-          resume position, which no card here could state. */}
+          resume position, so only a series or season offers it, whose card fill states it. */}
       {!isContainer && !photo && !live ? (
         <View style={styles.actionRow}>
           <InfoActionRow
@@ -877,20 +929,11 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
           />
         </View>
       ) : (
-        extras.length > 0 && (
+        (watchableFolder || extras.length > 0) && (
           <View style={styles.actionRow}>
-            <InfoActionRow extras={extras} />
+            <InfoActionRow isPlayed={isPlayed} onToggleWatched={watchableFolder ? toggleWatched : undefined} extras={extras} />
           </View>
         )
-      )}
-
-      {!IS_TV && groupChannel && (
-        <>
-          <View style={[settingsStyles.sectionHeader, styles.groupsHeader]}>
-            <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.groups")}</Text>
-          </View>
-          <ChannelGroupSection channel={groupChannel} visibleRows={3} />
-        </>
       )}
 
       {/* A channel carries no description or streams worth a section; its groups say the rest. */}
@@ -967,7 +1010,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   ) : null;
 
   const body = failed ? (
-    <View style={[styles.stateWrap, IS_PAD && styles.padState]}>
+    <View style={[styles.stateWrap, !IS_TV && styles.padState]}>
       <Text style={styles.errorText}>{t("info.couldNotLoadDetails").replace("{title}", title || t("common.thisItem"))}</Text>
       <FocusableButton
         title={t("common.retry")}
@@ -981,19 +1024,22 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
     </View>
   ) : !ready ? (
     // The spinner is a focus stop on purpose: presenting a screen with nothing focusable on it
-    // leaves focus outside the panel until the fetch resolves and a CTA claims it.
-    <View style={[styles.stateWrap, IS_PAD && styles.padState]}>
-      <InfoFocusRow hasTVPreferredFocus unhighlighted>
-        <LoadingRow label={t("info.loadingDetails").replace("{title}", title || t("common.thisItem"))} />
-      </InfoFocusRow>
-    </View>
+    // leaves focus outside the panel until the fetch resolves and a CTA claims it. Touch's first load
+    // shows the host's centred spinner instead; a retry inside the shown card keeps this one.
+    IS_TV || attempt > 0 ? (
+      <View style={[styles.stateWrap, !IS_TV && styles.padState]}>
+        <InfoFocusRow hasTVPreferredFocus unhighlighted>
+          <LoadingRow label={t("info.loadingDetails").replace("{title}", title || t("common.thisItem"))} />
+        </InfoFocusRow>
+      </View>
+    ) : null
   ) : (
-    <ScrollView
-      style={IS_PAD ? styles.padScroll : styles.scroll}
-      // A channel's New group field: the panel scrolls it clear of the keyboard.
-      keyboardShouldPersistTaps="handled"
-      automaticallyAdjustKeyboardInsets
-      contentContainerStyle={IS_TV ? [styles.footedContent, !groupChannel && styles.tvContentPad] : { paddingBottom: IS_PAD ? 28 : insets.bottom + 28 }}
+    <CardDragScroll
+      active={active}
+      pointerEvents={shown ? "auto" : "none"}
+      onContentSizeChange={() => setContentSized(true)}
+      style={[IS_TV ? styles.scroll : styles.padScroll, !shown && styles.unseen]}
+      contentContainerStyle={IS_TV ? [styles.footedContent, !groupChannel && styles.tvContentPad] : groupChannel ? styles.footedContent : styles.cardContentPad}
       showsVerticalScrollIndicator={false}>
       {/* Artwork heading on both platforms, whole; the scrim fades it into
           the panel. Artless items keep the same hero with the brand face
@@ -1004,7 +1050,20 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
           setHeroWidth(event.nativeEvent.layout.width);
           setHeroMeasured(true);
         }}>
-        {heroRef && heroArt ? (
+        {liveFrame ? (
+          <View pointerEvents="none" style={[styles.liveArt, { height: heroArtArea }]}>
+            <Image
+              source={liveFrame}
+              style={StyleSheet.absoluteFill}
+              contentFit="cover"
+              transition={LIVE_FRAME_TRANSITION_MS}
+              cachePolicy="none"
+              accessible
+              accessibilityLabel={t("a11y.artwork").replace("{title}", title)}
+            />
+            {clipShown && liveClip ? <LiveClip clip={liveClip} /> : null}
+          </View>
+        ) : heroRef && heroArt ? (
           heroBoxed ? null : (
             <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, heroFadeStyle]}>
               <Image key={heroUri} source={heroRef} style={heroCropStyle} contentFit="cover" transition={0} accessible accessibilityLabel={t("a11y.artwork").replace("{title}", title)} />
@@ -1026,7 +1085,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
         )}
         <View style={[StyleSheet.absoluteFill, styles.heroScrim, footScrim]} />
         {/* Above the fade: a box has edges of its own to show. */}
-        {heroRef && heroArt && heroBoxed ? (
+        {!liveFrame && heroRef && heroArt && heroBoxed ? (
           <Animated.View pointerEvents="none" style={[heroCropStyle, heroFadeStyle]}>
             <Image key={heroUri} source={heroRef} style={StyleSheet.absoluteFill} contentFit="contain" transition={0} accessible accessibilityLabel={t("a11y.artwork").replace("{title}", title)} />
           </Animated.View>
@@ -1037,7 +1096,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
           sits under every focusable. */}
       {IS_TV && <View pointerEvents="none" style={styles.heroEdge} />}
       {/* Title sits below the hero; on TV it and the CTAs ride up onto its foot (heroRise). */}
-      <View style={[styles.heroTitleWrap, logoUri ? styles.heroLogoBelow : styles.heroTitleBelow, !IS_TV && { paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right }]}>
+      <View style={[styles.heroTitleWrap, logoUri ? styles.heroLogoBelow : styles.heroTitleBelow, !IS_TV && styles.cardPad]}>
         {logoUri ? (
           <Image source={{ uri: logoUri }} style={[styles.heroLogo, { width: logoWidth }]} contentFit="contain" transition={200} accessible accessibilityLabel={title} />
         ) : (
@@ -1047,8 +1106,14 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
         )}
         {!!contextLine && <Text style={styles.heroContext}>{contextLine}</Text>}
       </View>
-      <View style={IS_TV ? styles.tvPad : { paddingLeft: 20 + insets.left, paddingRight: 20 + insets.right }}>
+      <View style={IS_TV ? styles.tvPad : styles.cardPad}>
         {!!metaLine && <Text style={[styles.metaLine, styles.metaBlock]}>{metaLine}</Text>}
+        {channelOffline && (
+          <View style={[styles.laneRow, metaLine ? styles.laneBlock : styles.metaBlock]}>
+            <Ionicons name="cloud-offline" size={IS_TV ? 24 : 15} color={COLORS.TEXT_SECONDARY} />
+            <Text style={styles.metaLine}>{t("liveTv.offline")}</Text>
+          </View>
+        )}
         {(recordingNow || recordTimer?.Status === "InProgress" || !!recordTimer?.SeriesTimerId) && (
           <View style={[styles.laneRow, styles.laneBlock]}>
             <View style={[styles.laneDot, { backgroundColor: COLORS.DESTRUCTIVE }]} />
@@ -1057,25 +1122,23 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
         )}
         {sections}
       </View>
-      {/* TV: the guide's groups bar in the card's footer. Touch platforms list them inline (sections). */}
-      {IS_TV && details && groupChannel && (
+      {/* The guide's groups bar in the card's footer. */}
+      {details && groupChannel && (
         <>
           {/* Pushes the footer to the card's foot when the content is short. */}
           <View style={styles.footerGap} />
           <SectionFooter focusable>
             <View style={styles.groupFooter}>
-              <ChannelGroupBand channel={groupChannel} nextFocusUp={leadCtaHandle} />
+              <ChannelGroupBand channel={groupChannel} nextFocusUp={leadCtaHandle} cornerRadius={IS_TV ? undefined : PAD_CARD_RADIUS} />
             </View>
           </SectionFooter>
         </>
       )}
-    </ScrollView>
+    </CardDragScroll>
   );
 
   // The route owns the touch chrome (backdrop, card frame, close button): it stays put while the pages slide.
-  if (IS_PAD) return body;
-
-  if (!IS_TV) return <View style={styles.sheetRoot}>{body}</View>;
+  if (!IS_TV) return body;
 
   return (
     <TVFocusGuideView style={styles.flex} trapFocusUp autoFocus>
@@ -1092,11 +1155,6 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
 const styles = StyleSheet.create({
   flex: {
     flex: 1,
-  },
-  // iPhone page sheet: the sheet itself is the card, content fills it edge to edge.
-  sheetRoot: {
-    flex: 1,
-    backgroundColor: COLORS.BACKGROUND,
   },
   tvRoot: {
     flex: 1,
@@ -1125,9 +1183,16 @@ const styles = StyleSheet.create({
   scroll: {
     flex: 1,
   },
-  // iPad's card fits its content: flexGrow 0 keeps the scroll content-sized until the card's max height.
+  // The touch card fits its content: flexGrow 0 keeps the scroll content-sized until the card's max height.
   padScroll: {
     flexGrow: 0,
+  },
+  // Hidden by the card's clip, never by opacity: the action circles are glass.
+  unseen: {
+    transform: [{ translateY: 10000 }],
+  },
+  cardContentPad: {
+    paddingBottom: 28,
   },
   // The fitted card has no height of its own; this keeps loading and error from collapsing it.
   padState: {
@@ -1149,6 +1214,13 @@ const styles = StyleSheet.create({
   // Bottom stop matches the surface under the hero: the section bg on TV, the sheet on phone.
   heroScrim: {
     experimental_backgroundImage: `linear-gradient(to bottom, ${HERO_FADE_RGB}0) 15%, ${HERO_FADE_RGB}0.3) 50%, ${HERO_FADE_RGB}0.7) 80%, ${HERO_FADE_RGB}1) 100%)`,
+  },
+  // The art area itself, which the fade covers by its foot; the clip fills it as the picture does.
+  liveArt: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
   },
   heroEdge: {
     position: "absolute",
@@ -1209,9 +1281,12 @@ const styles = StyleSheet.create({
     height: IS_TV ? 190 : 84,
     marginHorizontal: IS_TV ? -48 : 0,
   },
-  // Interior padding for everything below the hero on TV; phone uses inset-aware inline padding.
+  // Interior padding for everything below the hero, on TV and inside the touch card.
   tvPad: {
     paddingHorizontal: 48,
+  },
+  cardPad: {
+    paddingHorizontal: 20,
   },
   metaBlock: {
     marginTop: IS_TV ? 18 : 12,
@@ -1274,11 +1349,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 16,
   },
-  // 12 + the header's 10 top padding: the 22 settings leaves between sections.
-  groupsHeader: {
-    marginTop: 12,
-  },
-  // TV content grows to the card so the re-painted rim (heroEdge) ends at its foot, where a channel's groups footer sits.
+  // Content grows to the card so a channel's groups footer sits at its foot (and on TV the re-painted rim, heroEdge, ends there).
   footedContent: {
     flexGrow: 1,
   },

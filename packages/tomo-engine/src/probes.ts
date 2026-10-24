@@ -162,9 +162,16 @@ export interface LiveFrameResult {
   unchanged?: boolean;
   missing?: boolean;
   cancelled?: boolean;
-  /** `empty`: the source opened and listed no streams. */
-  reason?: "open" | "frame" | "empty";
+  /** The original input delivered a body; a successful server fallback alone never sets this. */
+  originServed?: boolean;
+  /**
+   * `empty`: the source opened and listed no streams. `refused`: the provider turned the open away, retries included.
+   * `busy` (with `cancelled`): no connection was spare on the provider, nothing was asked of it.
+   */
+  reason?: "open" | "frame" | "empty" | "refused" | "busy";
   failure?: string | null;
+  /** With `open`: the origin itself ended an open it had admitted (closed it, or served no stream), the channel's own answer. */
+  ended?: boolean;
 }
 
 export function canGrabLiveFrames(): boolean {

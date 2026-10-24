@@ -188,6 +188,11 @@ private final class Exchange: NSObject, URLSessionDataDelegate {
 
     func urlSession(_: URLSession, task _: URLSessionTask, didCompleteWithError error: Error?) {
         if let response {
+            // A 2xx body the transfer broke off is not the answer: its caller would take the part for the whole.
+            if keepBody, error != nil, (200..<300).contains(response.statusCode) {
+                done.signal()
+                return
+            }
             answer = .status(response.statusCode, finalURL: response.url, body: keepBody ? body : nil)
         } else if let urlError = error as? URLError, EndpointProbe.refusalCodes.contains(urlError.code) {
             answer = .refused(urlError.localizedDescription)

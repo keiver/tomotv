@@ -3,7 +3,7 @@
 //  TomoTV
 //
 //  Created on January 23, 2026.
-//  React Native bridge for MultiAudioResourceLoader Swift module
+//  React Native export of the MultiAudioResourceLoader Swift module
 //
 
 #import <React/RCTBridgeModule.h>

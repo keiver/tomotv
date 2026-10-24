@@ -89,8 +89,8 @@ export interface PlayerSessionSnapshot {
 export interface PlayerHostBridge {
   /** Play this item, adopt it if already playing, or switch to it. */
   requestSession: (request: PlayerSessionRequest) => void;
-  /** Swap the playing live channel in place, keeping the player. */
-  switchLiveChannel: (target: { videoId: string; videoName?: string }) => void;
+  /** Swap the playing live channel in place, keeping the player. `picked`: chosen from a list, not swiped to. */
+  switchLiveChannel: (target: { videoId: string; videoName?: string; picked?: boolean }) => void;
   /** Named by what it played: an advance overlaps two screens for a commit. */
   releaseRoute: (owner: PlayerSessionOwner) => void;
   stopSession: () => void;
@@ -217,7 +217,7 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
     pendingRef.current = {};
     bridgeRef.current?.stopSession();
   }, []);
-  const switchLiveChannel = useCallback((target: { videoId: string; videoName?: string }) => withHost("switchLiveChannel", (bridge) => bridge.switchLiveChannel(target)), [withHost]);
+  const switchLiveChannel = useCallback((target: { videoId: string; videoName?: string; picked?: boolean }) => withHost("switchLiveChannel", (bridge) => bridge.switchLiveChannel(target)), [withHost]);
   const pause = useCallback(() => withHost("pause", (bridge) => bridge.pause()), [withHost]);
   const retry = useCallback(() => withHost("retry", (bridge) => bridge.retry()), [withHost]);
   const seekBy = useCallback((offsetSeconds: number) => withHost("seekBy", (bridge) => bridge.seekBy(offsetSeconds)), [withHost]);

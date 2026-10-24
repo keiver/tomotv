@@ -155,10 +155,26 @@ describe("useFolderDownload", () => {
     const [, body, buttons] = (await run()) as [string, string, { text: string; disabled?: boolean }[]];
     expect(body).toContain("your server account doesn't allow");
     expect(buttons.filter((button) => button.disabled).map((button) => button.text.split(" ")[0])).toEqual(["1080p", "720p", "480p"]);
+    expect(buttons.map((button) => button.text)).not.toContain("Transcoding Settings");
     await confirm("720p");
     expect(manager.enqueue).not.toHaveBeenCalled();
     await confirm("Original");
     expect(manager.enqueue).toHaveBeenCalledWith(expect.objectContaining({ Id: "e" }), { group: { id: "folder-1", name: "Veckatimest" } });
+  });
+
+  it("offers the transcoding setting when this device turned transcoding off, and opens it", async () => {
+    (serverTranscodeBlock as jest.Mock).mockReturnValue("device");
+    (fetchRecursiveDownloadables as jest.Mock).mockResolvedValue([episode("e", 18 * GB)]);
+    const [, body, buttons] = (await run()) as [string, string, { text: string; disabled?: boolean }[]];
+    expect(body).toContain("which is off");
+    expect(buttons.slice(-2).map((button) => [button.text, !!button.disabled])).toEqual([
+      ["Transcoding Settings", false],
+      ["Cancel", false],
+    ]);
+    await confirm("Transcoding Settings");
+    expect(mockBack).toHaveBeenCalled();
+    expect(mockPush).toHaveBeenCalledWith("/transcoding");
+    expect(manager.enqueue).not.toHaveBeenCalled();
   });
 
   it("queues every item once the confirmation is accepted", async () => {
@@ -189,20 +205,24 @@ describe("useFolderDownload", () => {
     expect(mockPush).not.toHaveBeenCalled();
   });
 
-  it("refuses a set that would not fit, rather than starting and failing partway", async () => {
+  it("greys a set that would not fit, rather than starting and failing partway", async () => {
     (Paths as { availableDiskSpace: number }).availableDiskSpace = 2 * GB;
-    const [title, body] = (await run()) as [string, string];
+    const [title, , buttons] = (await run()) as [string, string, { text: string; disabled?: boolean }[]];
 
-    expect(title).toBe("Not enough space");
-    expect(body).toContain("3.00 GB");
+    expect(title).toBe("Veckatimest");
+    expect(buttons.map((button) => [button.text, !!button.disabled])).toEqual([
+      ["Original · 3.00 GB", true],
+      ["Cancel", false],
+    ]);
+    await confirm();
     expect(manager.enqueue).not.toHaveBeenCalled();
   });
 
   it("counts the headroom the manager keeps, not just the raw free space", async () => {
     // Exactly the total free, so it fits on paper and not once the reserve is honoured.
     (Paths as { availableDiskSpace: number }).availableDiskSpace = 3 * GB;
-    const [title] = (await run()) as [string];
-    expect(title).toBe("Not enough space");
+    const [, , buttons] = (await run()) as [string, string, { text: string; disabled?: boolean }[]];
+    expect(buttons[0]).toMatchObject({ text: "Original · 3.00 GB", disabled: true });
   });
 
   it("offers only what is missing when part of the folder is already held", async () => {

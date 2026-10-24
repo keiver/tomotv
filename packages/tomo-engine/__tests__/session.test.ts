@@ -14,6 +14,7 @@ jest.mock("react-native", () => ({
 jest.mock("../src/events", () => ({
   attributeSession: jest.fn(),
   forgetSession: jest.fn(),
+  watchEngineFailure: jest.fn(),
   watchEngineLink: jest.fn(),
   watchEnginePlan: jest.fn(),
   watchEngineStage: jest.fn(),
@@ -27,19 +28,26 @@ import {
   describedSessionConfig,
   engineProgress,
   inputSubtitleRenditions,
+  isConnectionBudgetFailure,
+  isRecordingHoldFailure,
+  liveSessionConfig,
   liveSubtitleRenditions,
   localRemuxToken,
+  originConnectionLimit,
   originConnections,
+  originHeld,
   reportPlayerBuffer,
   setLiveSessionPriority,
   setLiveWindow,
   setOriginConnectionBudget,
+  setOriginRecording,
   startFrameProvider,
   startPlaylistShim,
   startSession,
   stopFrameProvider,
   stopLocalRemux,
   stopPlaylistShim,
+  subscribeOriginHolds,
 } from "../src/session";
 import { fittedIFrameSize, iframeStreamInf } from "../src/tags";
 
@@ -131,6 +139,16 @@ describe("live session controls", () => {
   });
 });
 
+describe("isConnectionBudgetFailure", () => {
+  it("names the broker's own endings and no other", () => {
+    expect(isConnectionBudgetFailure("no connection left on the live origin")).toBe(true);
+    expect(isConnectionBudgetFailure("no connection left on the origin")).toBe(true);
+    expect(isConnectionBudgetFailure("live input yielded its connection to a higher-priority read")).toBe(true);
+    expect(isConnectionBudgetFailure("open_input: Server returned 404 Not Found")).toBe(false);
+    expect(isConnectionBudgetFailure("")).toBe(false);
+  });
+});
+
 describe("reportPlayerBuffer", () => {
   it("resolves the floor the engine answers", async () => {
     mockRemuxer!.setPlayerBuffer = jest.fn().mockResolvedValue(4_000_000);
@@ -202,6 +220,49 @@ describe("liveSubtitleRenditions", () => {
   });
 });
 
+describe("liveSessionConfig", () => {
+  it("names the channel's URL and nothing about its streams, with a 15s start buffer", () => {
+    const live = liveSessionConfig({ inputUrl: "https://origin/master.m3u8", itemId: "ch1" });
+    expect(live).toMatchObject({ inputUrl: "https://origin/master.m3u8", itemId: "ch1", isLive: true, describesInput: true, liveBufferSeconds: 15, liveSegmentSeconds: 2 });
+    expect(live.audioTracks).toEqual([]);
+    expect(live.tiers).toEqual([]);
+    for (const key of ["httpHeaders", "liveOriginKey", "livePriority", "liveAudioLanguage", "livePlaylist", "fallbackInputUrl", "liveWindowSeconds", "probeOrigin"]) {
+      expect(key in live).toBe(false);
+    }
+  });
+
+  it("carries how to reach the channel and which tracks to take", () => {
+    const live = liveSessionConfig({
+      inputUrl: "http://provider:8080/live/1.ts",
+      itemId: "ch1",
+      httpHeaders: { "User-Agent": "x" },
+      originKey: "provider:8080",
+      priority: "ring",
+      bufferSeconds: 20,
+      audioLanguage: "spa",
+      windowSeconds: 120,
+      fallbackInputUrl: "http://server/LiveTv/LiveStreamFiles/abc/stream.ts",
+      checkOrigin: true,
+      playlist: true,
+    });
+    expect(live).toMatchObject({
+      probeOrigin: true,
+      livePlaylist: true,
+      httpHeaders: { "User-Agent": "x" },
+      liveOriginKey: "provider:8080",
+      livePriority: "ring",
+      liveBufferSeconds: 20,
+      liveAudioLanguage: "spa",
+      liveWindowSeconds: 120,
+      fallbackInputUrl: "http://server/LiveTv/LiveStreamFiles/abc/stream.ts",
+    });
+  });
+
+  it("answers the player on its first segment when asked for no buffer", () => {
+    expect(liveSessionConfig({ inputUrl: "u", itemId: "i", bufferSeconds: 0 }).liveBufferSeconds).toBe(0);
+  });
+});
+
 describe("describedSessionConfig", () => {
   it("names the input and nothing about its streams", () => {
     const described = describedSessionConfig({ inputUrl: "http://origin/file.mkv", itemId: "item1" });
@@ -258,6 +319,29 @@ describe("setOriginConnectionBudget", () => {
   });
 });
 
+describe("originConnectionLimit", () => {
+  it("is the limit the engine last took for the provider, and null once forgotten or never set", async () => {
+    mockRemuxer!.setOriginBudget = jest.fn().mockResolvedValue(undefined);
+    expect(originConnectionLimit("provider-b")).toBeNull();
+    await setOriginConnectionBudget("provider-b", 1);
+    expect(originConnectionLimit("provider-b")).toBe(1);
+    await setOriginConnectionBudget("provider-b", 3);
+    expect(originConnectionLimit("provider-b")).toBe(3);
+    await setOriginConnectionBudget("provider-b", 0);
+    expect(originConnectionLimit("provider-b")).toBeNull();
+    expect(originConnectionLimit("")).toBeNull();
+    expect(originConnectionLimit(undefined)).toBeNull();
+  });
+
+  it("keeps the last limit when the engine refuses a new one", async () => {
+    mockRemuxer!.setOriginBudget = jest.fn().mockResolvedValue(undefined);
+    await setOriginConnectionBudget("provider-c", 1);
+    mockRemuxer!.setOriginBudget = jest.fn().mockRejectedValue(new Error("x"));
+    await setOriginConnectionBudget("provider-c", 2);
+    expect(originConnectionLimit("provider-c")).toBe(1);
+  });
+});
+
 describe("originConnections", () => {
   it("is null without the method, an empty key or a usable answer", async () => {
     await expect(originConnections("provider-a")).resolves.toBeNull();
@@ -270,9 +354,49 @@ describe("originConnections", () => {
 
   it("reads the limit in force and the connections held, null while no limit is known", async () => {
     mockRemuxer!.originBudget = jest.fn().mockResolvedValue({ budget: 2, active: 1 });
-    await expect(originConnections("provider-a")).resolves.toEqual({ budget: 2, active: 1 });
+    await expect(originConnections("provider-a")).resolves.toEqual({ budget: 2, active: 1, held: false });
     mockRemuxer!.originBudget.mockResolvedValue({ budget: null, active: 0 });
-    await expect(originConnections("provider-a")).resolves.toEqual({ budget: null, active: 0 });
+    await expect(originConnections("provider-a")).resolves.toEqual({ budget: null, active: 0, held: false });
+  });
+
+  it("reads whether a recording holds the provider and remembers it", async () => {
+    mockRemuxer!.originBudget = jest.fn().mockResolvedValue({ budget: 1, active: 0, held: true });
+    await expect(originConnections("provider-read")).resolves.toEqual({ budget: 1, active: 0, held: true });
+    expect(originHeld("provider-read")).toBe(true);
+    mockRemuxer!.originBudget.mockResolvedValue({ budget: 1, active: 0, held: false });
+    await originConnections("provider-read");
+    expect(originHeld("provider-read")).toBe(false);
+  });
+});
+
+describe("setOriginRecording", () => {
+  it("tells the engine and remembers whether the provider is held, telling listeners only on a change", async () => {
+    const listener = jest.fn();
+    const stop = subscribeOriginHolds(listener);
+    mockRemuxer!.setOriginRecording = jest.fn().mockResolvedValue(true);
+    await expect(setOriginRecording("provider-r", true)).resolves.toBe(true);
+    expect(mockRemuxer!.setOriginRecording).toHaveBeenCalledWith("provider-r", true);
+    expect(originHeld("provider-r")).toBe(true);
+    await setOriginRecording("provider-r", true);
+    expect(listener).toHaveBeenCalledTimes(1);
+    mockRemuxer!.setOriginRecording.mockResolvedValue(false);
+    await expect(setOriginRecording("provider-r", false)).resolves.toBe(false);
+    expect(originHeld("provider-r")).toBe(false);
+    expect(listener).toHaveBeenCalledTimes(2);
+    stop();
+  });
+
+  it("is false without the method, an empty key, or when the call fails", async () => {
+    await expect(setOriginRecording("provider-x", true)).resolves.toBe(false);
+    mockRemuxer!.setOriginRecording = jest.fn().mockRejectedValue(new Error("x"));
+    await expect(setOriginRecording("", true)).resolves.toBe(false);
+    await expect(setOriginRecording("provider-x", true)).resolves.toBe(false);
+    expect(originHeld("provider-x")).toBe(false);
+  });
+
+  it("names a session a recording ended or refused", () => {
+    expect(isRecordingHoldFailure("live origin is held by a recording")).toBe(true);
+    expect(isRecordingHoldFailure("live input yielded its connection to a higher-priority read")).toBe(false);
   });
 });
 

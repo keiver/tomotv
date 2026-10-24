@@ -60,7 +60,6 @@ export function invalidateItemRemoved(userId: string, itemId: string): void {
   invalidateByPrefix(`folder:${userId}:`);
   invalidateByPrefix(`playlist:${userId}:`);
   invalidateByPrefix(`filtered:${userId}:`);
-  invalidateByPrefix(`latest:${userId}:`);
   invalidateByPrefix(`recursive:${userId}:`);
   invalidateByPrefix(`recursivesized:${userId}:`);
   invalidateByPrefix(`recursivephotos:${userId}:`);
@@ -87,10 +86,21 @@ export function invalidateRecordingReads(userId: string, recordingItemId?: strin
   invalidateByPrefix("recordingFolders:");
   invalidateByPrefix(`folder:${userId}:`);
   invalidateByPrefix(`filtered:${userId}:`);
-  invalidateByPrefix(`latest:${userId}:`);
   invalidateByPrefix(`items:${userId}:`);
   invalidateByPrefix(`recursive:${userId}:`);
   notifyRecordingsChange();
+}
+
+/** Evict one listing's cached pages so its next read reaches the server; a null folder is the libraries root. */
+export function invalidateFolderListing(userId: string, folderId: string | null): void {
+  if (!userId) return;
+  if (!folderId) {
+    invalidateByPrefix(`views:${userId}`);
+    return;
+  }
+  invalidateByPrefix(`folder:${userId}:${folderId}:`);
+  invalidateByPrefix(`playlist:${userId}:${folderId}:`);
+  invalidateByPrefix(`viewLeaves:${userId}:${folderId}:`);
 }
 
 /**

@@ -9,10 +9,12 @@ interface DurationChipsProps<V extends number> {
   options: readonly { value: V; label: string }[];
   selected: V;
   onSelect: (value: V) => void;
+  /** TV: the chosen pill takes focus when the screen opens; off when a row above should. */
+  focusSelected?: boolean;
 }
 
 /** One row of glass duration pills inside a section card; the chosen one wears the focus tint and the settings tick. */
-export function DurationChips<V extends number>({ options, selected, onSelect }: DurationChipsProps<V>) {
+export function DurationChips<V extends number>({ options, selected, onSelect, focusSelected = false }: DurationChipsProps<V>) {
   return (
     <View style={styles.row} collapsable={false}>
       {options.map((option) => {
@@ -24,6 +26,7 @@ export function DurationChips<V extends number>({ options, selected, onSelect }:
             selected={isSelected}
             icon={isSelected ? <Ionicons name="checkmark" size={IS_TV ? 26 : 15} color={COLORS.SUCCESS} /> : undefined}
             accessibilityState={{ selected: isSelected }}
+            hasTVPreferredFocus={focusSelected && isSelected}
             onPress={() => onSelect(option.value)}
             style={IS_TV ? undefined : styles.phonePill}
             textStyle={IS_TV ? undefined : styles.phoneText}

@@ -5,36 +5,54 @@ import XCTest
 
 /// Answers the tier's server URLs in-process; URLSession.shared consults registered protocols.
 final class TierServerStub: URLProtocol {
-    static let lock = NSLock()
-    static var routes: [String: (status: Int, body: Data)] = [:]
+    // A session still loading from an earlier test reads these on URLSession's threads: every access takes the lock.
+    private static let lock = NSLock()
+    private static var storedRoutes: [String: (status: Int, body: Data)] = [:]
+    private static var storedTransportErrors: Set<String> = []
+    private static var storedHits: [String] = []
+    private static var storedRequests: [String] = []
+    private static var storedHoldSegments: DispatchSemaphore?
+
+    private static func locked<T>(_ body: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
+    }
+
+    static var routes: [String: (status: Int, body: Data)] {
+        get { locked { storedRoutes } }
+        set { locked { storedRoutes = newValue } }
+    }
     /// Paths answered with a transport error instead of a status, the shape of a dead link.
-    static var transportErrors: Set<String> = []
-    static var hits: [String] = []
+    static var transportErrors: Set<String> {
+        get { locked { storedTransportErrors } }
+        set { locked { storedTransportErrors = newValue } }
+    }
+    static var hits: [String] { locked { storedHits } }
     /// Full request URLs, for a query a test needs to tell sessions apart (a kill's playSessionId).
-    static var requests: [String] = []
+    static var requests: [String] { locked { storedRequests } }
     /// Segment responses wait on this while set, so a test can serve the master first.
-    static var holdSegments: DispatchSemaphore?
+    static var holdSegments: DispatchSemaphore? {
+        get { locked { storedHoldSegments } }
+        set { locked { storedHoldSegments = newValue } }
+    }
 
     static func reset() {
-        lock.lock()
-        routes = [:]
-        transportErrors = []
-        hits = []
-        requests = []
-        holdSegments = nil
-        lock.unlock()
+        locked {
+            storedRoutes = [:]
+            storedTransportErrors = []
+            storedHits = []
+            storedRequests = []
+            storedHoldSegments = nil
+        }
     }
 
     static func hitCount(_ path: String) -> Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return hits.filter { $0 == path }.count
+        hits.filter { $0 == path }.count
     }
 
     static func requestCount(containing fragment: String) -> Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return requests.filter { $0.contains(fragment) }.count
+        requests.filter { $0.contains(fragment) }.count
     }
 
     static func sawHit(_ path: String, within seconds: Double = 5) -> Bool {
@@ -51,13 +69,12 @@ final class TierServerStub: URLProtocol {
 
     override func startLoading() {
         let path = request.url?.path ?? ""
-        Self.lock.lock()
-        Self.hits.append(path)
-        Self.requests.append(request.url?.absoluteString ?? "")
-        let route = Self.routes[path]
-        let dead = Self.transportErrors.contains(path)
-        let hold = path.hasSuffix(".ts") ? Self.holdSegments : nil
-        Self.lock.unlock()
+        let url = request.url?.absoluteString ?? ""
+        let (route, dead, hold) = Self.locked {
+            Self.storedHits.append(path)
+            Self.storedRequests.append(url)
+            return (Self.storedRoutes[path], Self.storedTransportErrors.contains(path), path.hasSuffix(".ts") ? Self.storedHoldSegments : nil)
+        }
         hold?.wait()
         if dead {
             client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
@@ -835,9 +852,7 @@ final class TierProbeTests: XCTestCase {
 
     private func holdSegments() -> DispatchSemaphore {
         let hold = DispatchSemaphore(value: 0)
-        TierServerStub.lock.lock()
         TierServerStub.holdSegments = hold
-        TierServerStub.lock.unlock()
         return hold
     }
 
@@ -1076,9 +1091,7 @@ final class TierProbeTests: XCTestCase {
         _ = s.masterPlaylist()
         resolve(s.audioLoSegmentResponse(position: 0, n: 1))
         XCTAssertTrue(TierServerStub.sawHit("/Audio/x/a-init.mp4"))
-        TierServerStub.lock.lock()
         let order = TierServerStub.hits
-        TierServerStub.lock.unlock()
         let segment = try XCTUnwrap(order.firstIndex { $0 == "/Audio/x/a-seg0.mp4" || $0 == "/Audio/x/a-seg1.mp4" })
         let header = try XCTUnwrap(order.firstIndex(of: "/Audio/x/a-init.mp4"))
         XCTAssertLessThan(segment, header, "the first segment request goes out before the header's")

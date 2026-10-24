@@ -93,7 +93,8 @@ describe("plutoStreamUrl", () => {
     expect(mock.mock.calls.filter(([url]) => url === START)).toHaveLength(1);
     expect(body(mock, 0)).toMatchObject({ operationName: "PtvStart", variables: { params: { deviceId: "", ptvAppName: "web" } } });
     const streamingCall = mock.mock.calls.find(([url]) => url === STREAMING)!;
-    expect(streamingCall[1]).toMatchObject({ method: "POST", credentials: "omit", headers: { Cookie: "CBS_COM=abc123", "apollo-require-preflight": "true" } });
+    // Pluto answers streamingUrl only to a plain library agent; the app's own CFNetwork agent gets an internal error.
+    expect(streamingCall[1]).toMatchObject({ method: "POST", credentials: "omit", headers: { Cookie: "CBS_COM=abc123", "apollo-require-preflight": "true", "User-Agent": "okhttp/4.9.0" } });
     expect(JSON.parse(String(streamingCall[1].body)).variables.params).toEqual({ appVersion: "", contentId: ID, contentType: "channel", drm: "", drmLevel: "", streamType: "stitcher" });
   });
 

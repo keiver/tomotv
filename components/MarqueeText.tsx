@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { LayoutChangeEvent, Platform, StyleSheet, Text, TextStyle, View } from "react-native";
-import Animated, { Easing, cancelAnimation, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withRepeat, withSequence, withTiming } from "react-native-reanimated";
+import { Animated, Easing, LayoutChangeEvent, Platform, StyleSheet, Text, TextStyle, useAnimatedValue, View } from "react-native";
+import { useReducedMotion } from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
+/** Scroll there and back this many times, then rest on the ellipsized title. */
+export const MARQUEE_PLAYS = 4;
 
 interface MarqueeTextProps {
   children: string;
@@ -13,8 +15,8 @@ interface MarqueeTextProps {
 
 /**
  * Single-line title that scrolls on TV while its card is focused and the text overflows.
- * At rest it is one Text: the measuring pair, the shared value and the animated style mount
- * only for the focused card, so a shelf of resting cards carries none of them.
+ * At rest it is one Text: the measuring pair and the animated value mount only for the
+ * focused card, so a shelf of resting cards carries none of them.
  */
 export function MarqueeText({ children, active, style, speed = 60 }: MarqueeTextProps) {
   if (!IS_TV || !active) {
@@ -31,15 +33,16 @@ export function MarqueeText({ children, active, style, speed = 60 }: MarqueeText
   );
 }
 
-/** The focused card's title: measures its overflow, then scrolls left, pauses, and scrolls back. */
+/** The focused card's title: measures its overflow, then scrolls left, pauses, and scrolls back, MARQUEE_PLAYS times. */
 function ScrollingText({ children, style, speed }: { children: string; style?: TextStyle; speed: number }) {
   const [containerWidth, setContainerWidth] = useState(0);
   const [textWidth, setTextWidth] = useState(0);
-  const translateX = useSharedValue(0);
+  const [playedTitle, setPlayedTitle] = useState<string | null>(null);
+  const translateX = useAnimatedValue(0);
   const reducedMotion = useReducedMotion();
 
   const overflows = textWidth > containerWidth && containerWidth > 0;
-  const scrolls = overflows && !reducedMotion;
+  const scrolls = overflows && !reducedMotion && playedTitle !== children;
 
   const onContainerLayout = useCallback((e: LayoutChangeEvent) => {
     setContainerWidth(e.nativeEvent.layout.width);
@@ -50,28 +53,23 @@ function ScrollingText({ children, style, speed }: { children: string; style?: T
   }, []);
 
   useEffect(() => {
-    if (!scrolls) {
-      cancelAnimation(translateX);
-      translateX.value = withTiming(0, { duration: 150 });
-      return;
-    }
-
+    if (!scrolls) return;
     const overflow = textWidth - containerWidth;
     const scrollMs = (overflow / speed) * 1000;
-
-    translateX.value = withRepeat(
-      withSequence(withDelay(300, withTiming(-overflow, { duration: scrollMs, easing: Easing.linear })), withDelay(800, withTiming(0, { duration: scrollMs, easing: Easing.linear }))),
-      -1,
-    );
-
+    // Native driver: frames go through synchronouslyUpdateViewOnUIThread, not a shadow-tree commit.
+    const pass = Animated.sequence([
+      Animated.timing(translateX, { toValue: -overflow, duration: scrollMs, delay: 300, easing: Easing.linear, useNativeDriver: true }),
+      Animated.timing(translateX, { toValue: 0, duration: scrollMs, delay: 800, easing: Easing.linear, useNativeDriver: true }),
+    ]);
+    const loop = Animated.loop(pass, { iterations: MARQUEE_PLAYS });
+    loop.start(({ finished }) => {
+      if (finished) setPlayedTitle(children);
+    });
     return () => {
-      cancelAnimation(translateX);
+      loop.stop();
+      translateX.setValue(0);
     };
-  }, [scrolls, textWidth, containerWidth, speed, translateX]);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: translateX.value }],
-  }));
+  }, [scrolls, textWidth, containerWidth, speed, translateX, children]);
 
   // Strip width from the passed style so the inner text can expand
   // to its natural width for accurate overflow measurement.
@@ -83,7 +81,7 @@ function ScrollingText({ children, style, speed }: { children: string; style?: T
 
   return (
     <View style={styles.container} onLayout={onContainerLayout}>
-      {/* Hidden measurement text — unconstrained width for accurate overflow
+      {/* Hidden measurement text, unconstrained width for accurate overflow
           detection. Hidden from assistive tech too: it duplicates the visible
           text and would otherwise be read twice. */}
       <View style={styles.measure} pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
@@ -92,8 +90,8 @@ function ScrollingText({ children, style, speed }: { children: string; style?: T
         </Text>
       </View>
 
-      {/* With Reduce Motion on, never scroll: keep single-line ellipsized text */}
-      <Animated.View style={[styles.slider, animatedStyle, scrolls ? { width: textWidth } : undefined]}>
+      {/* With Reduce Motion on, or once the plays are spent, never scroll: single-line ellipsized text */}
+      <Animated.View style={[styles.slider, { transform: [{ translateX }] }, scrolls ? { width: textWidth } : undefined]}>
         <Text style={innerTextStyle} numberOfLines={scrolls ? undefined : 1}>
           {children}
         </Text>

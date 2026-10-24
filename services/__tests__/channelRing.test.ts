@@ -47,4 +47,18 @@ describe("fetchChannelRing", () => {
     expect(fetchListedChannels).not.toHaveBeenCalled();
     expect(fetchTunerGroups).not.toHaveBeenCalled();
   });
+
+  it("walks a category as the viewer edited it: a removed channel left out, an added one read by id and put last", async () => {
+    (fetchChannelOrder as jest.Mock).mockResolvedValueOnce([
+      { Id: "k1", Name: "One" },
+      { Id: "k2", Name: "Two" },
+    ]);
+    (fetchChannelsByIds as jest.Mock).mockResolvedValueOnce([{ Id: "v3", Name: "Village" }]);
+    const ring = await fetchChannelRing(prefs({ filter: "category:kids", categoryEdits: { kids: { added: ["v3"], removed: ["k1"] } } }));
+    expect(ring).toEqual([
+      { Id: "k2", Name: "Two" },
+      { Id: "v3", Name: "Village" },
+    ]);
+    expect(fetchChannelsByIds).toHaveBeenCalledWith(["v3"]);
+  });
 });

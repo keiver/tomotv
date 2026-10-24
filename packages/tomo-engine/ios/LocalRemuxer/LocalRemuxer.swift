@@ -84,7 +84,7 @@ class LocalRemuxer: RCTEventEmitter {
 
     // RCTEventEmitter.h carries no nullability audit, so the imported Swift
     // signature is the implicitly-unwrapped [String]!.
-    override func supportedEvents() -> [String]! { ["onEnginePlan", "onEngineThroughput", "onEngineTier", "onEngineFailed", "onEngineStage", "onEngineSubtitleRequest", "onEngineLink", "onLiveFrame"] }
+    override func supportedEvents() -> [String]! { ["onEnginePlan", "onEngineThroughput", "onEngineTier", "onEngineFailed", "onEngineStage", "onEngineSubtitleRequest", "onEngineLink", "onEngineLive", "onLiveFrame"] }
 
     override func startObserving() {
         Self.lock.lock()
@@ -167,6 +167,14 @@ class LocalRemuxer: RCTEventEmitter {
         if listening { sendEvent(withName: "onEngineFailed", body: failure) }
     }
 
+    /// A live input lost and reopening in its session, or reopened, sent only while JS listens.
+    private func publish(live: [String: Any]) {
+        Self.lock.lock()
+        let listening = Self.hasListeners
+        Self.lock.unlock()
+        if listening { sendEvent(withName: "onEngineLive", body: live) }
+    }
+
     /// A startup step the session finished, sent only while JS listens.
     private func publish(stage: [String: Any]) {
         Self.lock.lock()
@@ -227,7 +235,7 @@ class LocalRemuxer: RCTEventEmitter {
         return current.route(parts[1])
     }
 
-    // MARK: - Bridge API
+    // MARK: - JS API
 
     /// Start a remux session. Config keys:
     ///   inputUrl: String           : Jellyfin /stream?Static=true URL
@@ -258,6 +266,9 @@ class LocalRemuxer: RCTEventEmitter {
     ///                                provider key it opens as many as the budget spares, never fewer than one
     ///   fallbackInputUrl: String?  : the channel through the server, opened once when the input itself will not open
     ///   livePriority: String?      : "playback" (default), "ring" or "preview"; a higher one takes a full budget's slot from a lower
+    ///   liveAudioLanguage: String? : live: the audio track made the default, by language; the source's default when absent
+    ///   livePlaylist: Bool?        : live: the input is an HLS playlist whatever its URL's extension
+    ///   liveBufferSeconds: Double? : live: seconds of output the media playlists wait for, the player's start buffer
     ///   describesInput: Bool?      : the open input names its own range, size, rate and bit rate, and the audio tracks,
     ///                                subtitles and durationSeconds the config leaves empty; the master waits for it
     ///
@@ -396,6 +407,9 @@ class LocalRemuxer: RCTEventEmitter {
                 inputConnections: (config["inputConnections"] as? Int) ?? 0,
                 fallbackInputUrl: config["fallbackInputUrl"] as? String,
                 livePriority: LiveConnectionBroker.Priority(name: (config["livePriority"] as? String) ?? "playback"),
+                liveAudioLanguage: (config["liveAudioLanguage"] as? String) ?? "",
+                livePlaylist: (config["livePlaylist"] as? Bool) ?? false,
+                liveBufferSeconds: (config["liveBufferSeconds"] as? Double) ?? 0,
                 primaryVideoCodecs: (config["primaryVideoCodecs"] as? String) ?? "",
                 primaryVideoBandwidth: (config["primaryVideoBandwidth"] as? Int) ?? 0,
                 sourceBandwidth: (config["sourceBandwidth"] as? Int) ?? 0,
@@ -413,6 +427,8 @@ class LocalRemuxer: RCTEventEmitter {
             session.onStage = { [weak self] stage in self?.publish(stage: stage) }
             session.onLink = { [weak self] link in self?.publish(link: link) }
             session.onSubtitleRequest = { [weak self] request in self?.publish(subtitleRequest: request) }
+            session.onLive = { [weak self] live in self?.publish(live: live) }
+            session.loopbackBase = "http://127.0.0.1:\(port)/\(session.token)"
             session.start()
             Self.sessions[session.token] = session
             Self.sessionOrder.append(session.token)
@@ -644,7 +660,9 @@ class LocalRemuxer: RCTEventEmitter {
 
     /// A live channel's burst now. Config: channelId, inputUrl, httpHeaders, deadline, span, interval, clipSpan (seconds),
     /// count, shownPts, shownUri. Each burst frame is announced as `onLiveFrame` while the burst is read.
-    /// Resolves `{uris, clip, pts}`, `{unchanged, missing}` when shownPts is still the live edge, `{cancelled}`, else `reason`: `open`, `frame`, or `empty` (opened, no streams).
+    /// Resolves `{uris, clip, pts}`, `{unchanged, missing}` when shownPts is still the live edge, `{cancelled}`, else `reason`: `open`, `frame`,
+    /// `empty` (opened, no streams) or `refused` (the provider turned the open away, retries included); `{cancelled, reason: "busy"}` when
+    /// no connection was spare on the provider and nothing was asked of it.
     @objc func liveFrame(
         _ config: NSDictionary,
         resolver resolve: @escaping RCTPromiseResolveBlock,
@@ -663,25 +681,36 @@ class LocalRemuxer: RCTEventEmitter {
         let clipSpan = max(0, (config["clipSpan"] as? Double) ?? 0)
         let shownPts = (config["shownPts"] as? NSNumber)?.int64Value
         let shownFile = (config["shownUri"] as? String).flatMap(URL.init(string:))
+        var originServed = false
         Self.liveFrames.request(channelId: channelId, inputUrl: inputUrl, headers: headers, deadline: deadline,
                                 span: span, interval: interval, count: count, clipSpan: clipSpan,
                                 originKey: config["originKey"] as? String, priority: LiveConnectionBroker.Priority(name: config["priority"] as? String),
                                 fallbackUrl: config["fallbackUrl"] as? String,
                                 shownPts: shownPts, shownFile: shownFile,
+                                onOriginServed: { originServed = true },
                                 frame: { [weak self] url, index in
                                     self?.publish(liveFrame: ["channelId": channelId, "uri": url.absoluteString, "index": index])
                                 }) { outcome in
+            func finish(_ payload: [String: Any]) {
+                var answer = payload
+                answer["originServed"] = originServed
+                resolve(answer)
+            }
             switch outcome {
             case .frames(let urls, let clip, let pts):
                 let shown: Any = pts.map { NSNumber(value: $0) } ?? NSNull()
                 let clipUri: Any = clip?.absoluteString ?? NSNull()
-                resolve(["uris": urls.map(\.absoluteString), "clip": clipUri, "cancelled": false, "pts": shown])
-            case .unchanged(let onDisk): resolve(["uris": [], "cancelled": false, "unchanged": true, "missing": !onDisk])
-            case .none(let opened, let failure):
+                finish(["uris": urls.map(\.absoluteString), "clip": clipUri, "cancelled": false, "pts": shown])
+            case .unchanged(let onDisk): finish(["uris": [], "cancelled": false, "unchanged": true, "missing": !onDisk])
+            case .none(let opened, let failure, let ended):
                 let failed: NSObject = failure.map { $0 as NSString } ?? NSNull()
-                resolve(["uris": [], "cancelled": false, "reason": opened ? "frame" : "open", "failure": failed])
-            case .empty: resolve(["uris": [], "cancelled": false, "reason": "empty"])
-            case .cancelled: resolve(["uris": [], "cancelled": true])
+                finish(["uris": [], "cancelled": false, "reason": opened ? "frame" : "open", "failure": failed, "ended": ended])
+            case .empty: finish(["uris": [], "cancelled": false, "reason": "empty"])
+            case .refused(let failure):
+                let failed: NSObject = failure.map { $0 as NSString } ?? NSNull()
+                finish(["uris": [], "cancelled": false, "reason": "refused", "failure": failed])
+            case .busy: finish(["uris": [], "cancelled": true, "reason": "busy"])
+            case .cancelled: finish(["uris": [], "cancelled": true])
             }
         }
     }
@@ -851,14 +880,25 @@ class LocalRemuxer: RCTEventEmitter {
     }
 
     /// The limit in force for a provider, set or learned from its refusals, and the connections held on it now:
-    /// `{budget, active}`, budget null while nothing has set or shown one.
+    /// `{budget, active, held}`, budget null while nothing has set or shown one.
     @objc func originBudget(
         _ key: NSString,
         resolver resolve: @escaping RCTPromiseResolveBlock,
         rejecter _: @escaping RCTPromiseRejectBlock
     ) {
         let budget: Any = LiveConnectionBroker.shared.budget(for: key as String).map { $0 as Any } ?? NSNull()
-        resolve(["budget": budget, "active": LiveConnectionBroker.shared.activeCount(for: key as String)])
+        resolve(["budget": budget, "active": LiveConnectionBroker.shared.activeCount(for: key as String), "held": LiveConnectionBroker.shared.isHeld(key as String)])
+    }
+
+    /// Whether a server recording reads the provider now; resolves whether that holds its only connection.
+    @objc func setOriginRecording(
+        _ key: NSString,
+        active: Bool,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter _: @escaping RCTPromiseRejectBlock
+    ) {
+        LiveConnectionBroker.shared.setRecording(active, for: key as String)
+        resolve(LiveConnectionBroker.shared.isHeld(key as String))
     }
 
     /// AVPlayer's buffer past the playhead. Resolves the variant-cap floor the copy needs (0 = none).
@@ -1007,7 +1047,7 @@ class LocalRemuxer: RCTEventEmitter {
         resolve(nil)
     }
 
-    /// What this device decodes (DeviceDecode). Off the bridge thread: the first
+    /// What this device decodes (DeviceDecode). Off the module's method queue: the first
     /// answer opens VideoToolbox sessions.
     @objc func videoDecodeSupport(
         _ resolve: @escaping RCTPromiseResolveBlock,

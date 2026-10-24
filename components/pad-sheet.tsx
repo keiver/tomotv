@@ -16,6 +16,8 @@ const FIT_MAX_WIDTH = { center: 640, bottom: 600 } as const;
 /** iPad's centred card stops short of the screen's edges; a longer panel scrolls inside it. */
 const FIT_MAX_HEIGHT = { center: 900, bottom: Infinity } as const;
 const FIT_MARGIN = 8;
+/** The fitted card's corner radius. */
+export const PAD_CARD_RADIUS = 28;
 /** A Mac window is short and its title-bar tabs sit on the content's top edge: the card keeps a window-proportional gap. */
 const MAC_WINDOW_SHARE = 0.85;
 
@@ -30,6 +32,11 @@ export function padFitWidth(windowWidth: number, insetsX: number, fit: "center" 
 export function padFitMaxHeight(windowHeight: number, insetTop: number, insetBottom: number, fit: "center" | "bottom", isMac: boolean = IS_MAC): number {
   const inWindow = windowHeight - insetTop - Math.max(insetBottom, FIT_MARGIN) - FIT_MARGIN * 2;
   return Math.min(isMac && fit === "center" ? Math.round(windowHeight * MAC_WINDOW_SHARE) : inWindow, inWindow, FIT_MAX_HEIGHT[fit]);
+}
+
+/** The centred card centres in the safe area, under the Mac title-bar tabs; the bottom card clears the home indicator. */
+export function padFitMargins(insetTop: number, insetBottom: number, fit: "center" | "bottom"): { marginTop: number; marginBottom: number } {
+  return fit === "center" ? { marginTop: insetTop, marginBottom: insetBottom } : { marginTop: 0, marginBottom: Math.max(insetBottom, FIT_MARGIN) };
 }
 
 interface PadSheetProps {
@@ -68,8 +75,8 @@ export function PadSheetBackdrop({ onClose, fit, children }: Omit<PadSheetProps,
   );
 }
 
-/** The card itself, with its close button. */
-export function PadSheetFrame({ onClose, closeHint, fit, children }: PadSheetProps) {
+/** The card itself, with its close button. Bare, it draws neither around its children: a panel still loading has no size of its own yet. */
+export function PadSheetFrame({ onClose, closeHint, fit, bare = false, children }: PadSheetProps & { bare?: boolean }) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const frame = fit
@@ -78,14 +85,14 @@ export function PadSheetFrame({ onClose, closeHint, fit, children }: PadSheetPro
         {
           width: padFitWidth(width, insets.left + insets.right, fit),
           maxHeight: padFitMaxHeight(height, insets.top, insets.bottom, fit),
-          marginBottom: fit === "bottom" ? Math.max(insets.bottom, FIT_MARGIN) : 0,
+          ...padFitMargins(insets.top, insets.bottom, fit),
         },
       ]
     : [styles.sheet, { width: padSheetWidth(width), marginTop: insets.top + 8 }];
   return (
-    <View style={frame}>
+    <View style={[frame, bare && styles.bare]}>
       {children}
-      <CloseOverlayButton onPress={onClose} style={styles.close} accessibilityHint={closeHint} />
+      {bare ? null : <CloseOverlayButton onPress={onClose} style={styles.close} accessibilityHint={closeHint} />}
     </View>
   );
 }
@@ -114,9 +121,12 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.BACKGROUND,
   },
   fitted: {
-    borderRadius: 28,
+    borderRadius: PAD_CARD_RADIUS,
     overflow: "hidden",
     backgroundColor: COLORS.BACKGROUND,
+  },
+  bare: {
+    backgroundColor: "transparent",
   },
   close: {
     position: "absolute",

@@ -79,6 +79,9 @@ jest.mock("react-native-reanimated", () => {
     ...Animated,
     useSharedValue,
     useAnimatedStyle: (fn) => fn(),
+    useAnimatedRef: () => React.useRef(null),
+    useAnimatedScrollHandler: () => undefined,
+    scrollTo: () => {},
     useReducedMotion: () => false,
     runOnJS:
       (fn) =>

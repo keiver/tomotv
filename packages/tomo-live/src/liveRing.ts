@@ -1,7 +1,18 @@
-import { engineLog, localRemuxToken, setLiveSessionPriority, setLiveWindow, stopLocalRemux, subscribeEngineFailure, subscribeEngineThroughput } from "@keiver/tomo-engine";
+import {
+  engineLog,
+  isConnectionBudgetFailure,
+  localRemuxToken,
+  originConnectionLimit,
+  setLiveSessionPriority,
+  setLiveWindow,
+  stopLocalRemux,
+  subscribeEngineFailure,
+  subscribeEngineThroughput,
+} from "@keiver/tomo-engine";
 import { AppState } from "react-native";
 import { liveChannels } from "./config";
 import { noteOpenFailed, openRecentlyFailed } from "./openFailures";
+import { playlistChannelById } from "./playlistChannels";
 
 /**
  * The channels around the one on screen, hot in the engine so a flip binds a ready session
@@ -106,6 +117,11 @@ export function ringAround(ring: readonly string[], centerId: string, radius: nu
   return ids;
 }
 
+/** Whether the channel's provider, read off its playlist row, is set to one connection: a read beside the playing channel can only take its slot. */
+export function channelOnOneConnection(channelId: string): boolean {
+  return originConnectionLimit(playlistChannelById(channelId)?.originKey) === 1;
+}
+
 function coldOnly(channelId: string): boolean {
   const until = coldUntil.get(channelId);
   if (until === undefined) return false;
@@ -130,6 +146,11 @@ function watch(entry: HotEntry): void {
     if (hot.get(entry.channelId) !== entry) return;
     hot.delete(entry.channelId);
     release(entry);
+    // The provider's budget, not the channel, ended it: it heats again the next time a connection is spare.
+    if (isConnectionBudgetFailure(failure.message)) {
+      engineLog().info("Live ring: neighbour gave its connection up", { service: "LiveRing", channel: liveChannels().name(entry.details), message: failure.message });
+      return;
+    }
     coldUntil.set(entry.channelId, Date.now() + COLD_ONLY_MS);
     engineLog().info("Live ring: neighbour's engine failed, left cold", { service: "LiveRing", channel: liveChannels().name(entry.details), message: failure.message });
   });
@@ -235,7 +256,7 @@ export function recenterLiveRing(ring: readonly string[], centerId: string, play
   trim();
   if (playing && surfing()) {
     for (const id of wanted) {
-      if (!hot.has(id) && !starting.has(id) && !openRecentlyFailed(id)) void heat(id);
+      if (!hot.has(id) && !starting.has(id) && !openRecentlyFailed(id) && !channelOnOneConnection(id)) void heat(id);
     }
   }
 }
@@ -272,7 +293,7 @@ export function takeRingSession<Item = unknown>(channelId: string): Promise<Ring
 
 /** Keeps a channel the player left mid-surf, still cutting segments, so flipping back is instant. False: stop it. */
 export function retainLiveSession<Item = unknown>(channel: HotChannel<Item>): boolean {
-  if (!active || !surfing() || hot.has(channel.channelId)) return false;
+  if (!active || !surfing() || hot.has(channel.channelId) || channelOnOneConnection(channel.channelId)) return false;
   const entry: HotEntry = { ...channel, segmentsCut: READY_SEGMENTS, ready: true, unsubscribe: () => {} };
   watch(entry);
   hot.set(channel.channelId, entry);

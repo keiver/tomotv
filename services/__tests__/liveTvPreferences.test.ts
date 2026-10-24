@@ -14,11 +14,13 @@ import {
   isChannelInPlaylistGroup,
   isFavoriteChannel,
   playlistGroupIds,
+  toggleChannelInCategory,
   toggleChannelInPlaylistGroup,
   LIVE_TV_PREFERENCES_KEY,
   addGuideUrl,
   normalizeGuideUrl,
   removeGuideUrl,
+  setConnectionLimit,
   setGuideSourceEnabled,
   parseLiveTvPreferences,
   renameGroup,
@@ -48,13 +50,21 @@ describe("live TV preferences", () => {
       favorites: [{ number: "9.1", name: "KQED" }, { name: "Al Jazeera English" }],
       groups: [],
       playlistEdits: {},
+      categoryEdits: {},
       guideUrls: [],
       guideSourcesOff: [],
       recordingMinutes: 120,
       hideOffline: false,
       compactColumn: false,
       skipCommercials: true,
+      connectionLimits: {},
     });
+    // A connection limit survives only as a listed number under a host; anything else is dropped.
+    expect(parseLiveTvPreferences({ connectionLimits: { "iptv.example": 1, "two.example": 5, "six.example": 6, "text.example": "2", "": 1 } }).connectionLimits).toEqual({
+      "iptv.example": 1,
+      "two.example": 5,
+    });
+    expect(parseLiveTvPreferences({ connectionLimits: [1] }).connectionLimits).toEqual({});
     // A favorite listed while its channel was pending keeps that mark across a restart; nothing else rides an entry.
     expect(
       parseLiveTvPreferences({
@@ -205,6 +215,26 @@ describe("live TV preferences", () => {
     expect(getLiveTvPreferences().playlistEdits.Movies).toEqual({ added: [], removed: [] });
     expect(playlistGroupIds(tuner, getLiveTvPreferences().playlistEdits.Movies)).toBe(tuner);
   });
+
+  it("adds a channel to a category and takes a server channel out, undoing each edit on a second press", () => {
+    updateLiveTvPreferences({ categoryEdits: {} });
+    const server = ["k1", "k2"];
+    toggleChannelInCategory("kids", server, "v3");
+    toggleChannelInCategory("kids", server, "k1");
+    const edit = getLiveTvPreferences().categoryEdits.kids;
+    expect(edit).toEqual({ added: ["v3"], removed: ["k1"] });
+    expect(playlistGroupIds(server, edit)).toEqual(["k2", "v3"]);
+    expect(parseLiveTvPreferences(JSON.parse(Settings.get(LIVE_TV_PREFERENCES_KEY))).categoryEdits.kids).toEqual(edit);
+
+    toggleChannelInCategory("kids", server, "v3");
+    toggleChannelInCategory("kids", server, "k1");
+    expect(getLiveTvPreferences().categoryEdits.kids).toEqual({ added: [], removed: [] });
+  });
+
+  it("reads category edits only for the server's categories", () => {
+    const edits = parseLiveTvPreferences({ categoryEdits: { kids: { added: ["a"], removed: [] }, weather: { added: ["b"], removed: [] } } }).categoryEdits;
+    expect(edits).toEqual({ kids: { added: ["a"], removed: [] } });
+  });
 });
 
 describe("normalizeGuideUrl", () => {
@@ -240,6 +270,15 @@ describe("guide URL list", () => {
     setGuideSourceEnabled("http://declared/x.xml", true);
     removeGuideUrl("http://lan/b.xml");
     expect(getLiveTvPreferences()).toMatchObject({ guideUrls: [], guideSourcesOff: [] });
+  });
+
+  it("sets a provider's connection limit and Auto removes it", () => {
+    setConnectionLimit("iptv.example", 1);
+    setConnectionLimit("other.example", 3);
+    expect(getLiveTvPreferences().connectionLimits).toEqual({ "iptv.example": 1, "other.example": 3 });
+    setConnectionLimit("iptv.example", 2);
+    setConnectionLimit("other.example", 0);
+    expect(getLiveTvPreferences().connectionLimits).toEqual({ "iptv.example": 2 });
   });
 });
 
@@ -290,6 +329,16 @@ describe("favorites and groups per user", () => {
     expect(relaunched.preferences.getLiveTvPreferences().favorites).toEqual([]);
     relaunched.signIn("a");
     expect(relaunched.preferences.getLiveTvPreferences().groups.map((group) => group.id)).toEqual(["g"]);
+  });
+
+  it("keeps each user's category edits apart", () => {
+    const { preferences, signIn } = load();
+    signIn("a");
+    preferences.toggleChannelInCategory("kids", ["k1"], "v3");
+    signIn("b");
+    expect(preferences.getLiveTvPreferences().categoryEdits).toEqual({});
+    signIn("a");
+    expect(preferences.getLiveTvPreferences().categoryEdits).toEqual({ kids: { added: ["v3"], removed: [] } });
   });
 
   it("shares the sort, the guides and the recording length across users", () => {

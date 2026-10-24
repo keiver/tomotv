@@ -67,37 +67,49 @@ extension RemuxSession {
     // MARK: - FFmpeg pipeline
 
     /// Open and probe errors no retry fixes: no demuxer, protocol or decoder, and the HTTP 4xx a
-    /// server answers for good. FFERRTAG(0xF8, a, b, c), since the macros do not import.
-    static let permanentInputErrors: Set<Int32> = Set(["DEM", "PRO", "DEC", "400", "401", "403", "404", "4XX"].map { tag in
-        let bytes = Array(tag.utf8)
-        return -(0xF8 | Int32(bytes[0]) << 8 | Int32(bytes[1]) << 16 | Int32(bytes[2]) << 24)
-    })
+    /// server answers for good.
+    static let permanentInputErrors: Set<Int32> = errorTags(["DEM", "PRO", "DEC", "400", "401", "403", "404", "4XX"])
 
     static func isPermanentInputError(_ code: Int32) -> Bool { permanentInputErrors.contains(code) }
 
-    /// A live input that dropped may have been kicked by its origin for another read this device just opened.
-    func noteLiveInputLost() {
-        stateLock.lock()
-        // A drop on the server's copy says nothing of the origin the lease counts.
-        let lease = inputIsFallback ? nil : inputLease
-        stateLock.unlock()
-        if let lease { LiveConnectionBroker.shared.noteLost(lease) }
+    /// FFERRTAG(0xF8, a, b, c) for each tag, since the macros do not import.
+    private static func errorTags(_ tags: [String]) -> Set<Int32> {
+        Set(tags.map { tag in
+            let bytes = Array(tag.utf8)
+            return -(0xF8 | Int32(bytes[0]) << 8 | Int32(bytes[1]) << 16 | Int32(bytes[2]) << 24)
+        })
     }
 
-    /// The HTTP answers a provider gives a connection over its cap (401, 403, and 429/458 as 4XX).
-    static let refusalErrors: Set<Int32> = Set(["401", "403", "4XX"].map { tag in
-        let bytes = Array(tag.utf8)
-        return -(0xF8 | Int32(bytes[0]) << 8 | Int32(bytes[1]) << 16 | Int32(bytes[2]) << 24)
-    })
+    /// A live input that dropped may have been kicked by its origin for another read this device just opened.
+    /// Whether the session ends instead of reopening: a read below playback its origin kicked, or the server's copy.
+    func noteLiveInputLost() -> Bool {
+        stateLock.lock()
+        // A drop on the server's copy says nothing of the origin the lease counts.
+        let fallback = inputIsFallback
+        let lease = fallback ? nil : inputLease
+        stateLock.unlock()
+        guard let lease else { return fallback }
+        return LiveConnectionBroker.shared.noteLost(lease) && lease.priority < .playback
+    }
+
+    /// The 4xx a provider gives a connection over its cap (429 has its own tag; 458 and the rest are 4XX): teaches its limit.
+    static let limitErrors: Set<Int32> = errorTags(["401", "403", "429", "4XX"])
+    /// Any HTTP answer but a 404 to an open: the reads below make room and the open retries. A 5xx teaches no
+    /// number, since an origin answers 503 both for a full account and for a channel restarting.
+    static let httpOpenErrors: Set<Int32> = errorTags(["400", "401", "403", "429", "4XX", "5XX"])
 
     /// Interrupt callback: aborts blocking network I/O when the session dies. It runs on the pipeline
     /// thread inside the open, the probe and every read, so it is also where the bytes the input has
-    /// pulled before the read loop get published (`progress()` runs on the bridge queue and may not
+    /// pulled before the read loop get published (`progress()` runs on the module's method queue and may not
     /// touch the input context itself).
     static let interruptCallback: @convention(c) (UnsafeMutableRawPointer?) -> Int32 = { opaque in
         guard let opaque else { return 0 }
         let session = Unmanaged<RemuxSession>.fromOpaque(opaque).takeUnretainedValue()
         session.publishInputBytes()
+        if let deadline = session.liveReadDeadline, Date() > deadline {
+            session.liveReadStalled = true
+            return 1
+        }
         return session.isCancelled || session.hasFailed ? 1 : 0
     }
 
@@ -319,6 +331,34 @@ extension RemuxSession {
         partialOpens <= partialOpenLookback
     }
 
+    /// Streams that end closer together than this end together: a frame or an AAC packet apart.
+    static let trackEndSlack = 0.25
+    /// The grid moves to the picture's end only this far short of the runtime. Further than that, the
+    /// container's track length is the suspect, not the runtime.
+    static let pictureEndReach = 60.0
+    /// A track that stopped is padded at a cut only this far past its end, so packets still in
+    /// flight behind the picture land first.
+    static let silenceLead = 1.0
+
+    /// Where a track ends on the source timeline, from a container that records it per track: MP4
+    /// and MOV track durations, Matroska's DURATION tag. Other containers only estimate it: nil.
+    static func trackEndSeconds(_ stream: UnsafeMutablePointer<AVStream>, format: String) -> Double? {
+        let timeBase = av_q2d(stream.pointee.time_base)
+        let start = stream.pointee.start_time == SWIFT_AV_NOPTS_VALUE ? 0 : Double(stream.pointee.start_time) * timeBase
+        if format.hasPrefix("mov,mp4") {
+            guard stream.pointee.duration > 0, stream.pointee.duration != SWIFT_AV_NOPTS_VALUE else { return nil }
+            return start + Double(stream.pointee.duration) * timeBase
+        }
+        if format.hasPrefix("matroska") {
+            // "HH:MM:SS.nnnnnnnnn", the track's length.
+            guard let tag = av_dict_get(stream.pointee.metadata, "DURATION", nil, 0) else { return nil }
+            let fields = String(cString: tag.pointee.value).split(separator: ":")
+            guard fields.count == 3, let h = Double(fields[0]), let m = Double(fields[1]), let s = Double(fields[2]) else { return nil }
+            return start + h * 3600 + m * 60 + s
+        }
+        return nil
+    }
+
     /// A source that will not open or cannot be planned, before any master has named the copy: a
     /// session whose rungs can carry it alone lets the source go instead of dying.
     func failStartup(_ message: String, retryable: Bool = false) {
@@ -328,6 +368,16 @@ extension RemuxSession {
         }
         guard releaseSource(because: message, unusable: true) else { return fail(message) }
         onStage?(["token": token, "stage": "source_released", "elapsed": Date().timeIntervalSince(startedAt)])
+    }
+
+    /// The live timing step that splices: past the longest segment cut, never under one segment.
+    static func liveGapLimitUs(longestCut: Double, segmentSeconds: Double) -> Int64 {
+        Int64(max(longestCut, segmentSeconds) * Double(SWIFT_AV_TIME_BASE))
+    }
+
+    /// The longest live cut after one more: a cut that carried a timing step of a second or more is a hole, not counted.
+    static func longestLiveCut(_ longest: Double, cut: Double, largestStepUs: Int64) -> Double {
+        largestStepUs < 1_000_000 ? max(longest, cut) : longest
     }
 
     func fail(_ message: String) {
@@ -380,6 +430,23 @@ extension RemuxSession {
         /// the writer drops such a file instead of completing it. Under the session lock.
         var writing = Set<Int>()
         var prunedWhileWriting = Set<Int>()
+        /// Segments cut while this rendition was fed but held none of its samples: its stream had
+        /// ended (or paused) there. Nothing will ever fill them, so a request is answered with a stand-in
+        /// (segmentURL). Under the session lock.
+        var empty = Set<Int>()
+        /// The last segment a packet of this rendition was dropped from because the rendition already
+        /// held it: a cut there that finds no data (the held copy pruned meanwhile) is not an empty
+        /// span. Pipeline thread only.
+        var heldIn = -1
+        /// Segments that answer for empty ones (standInURL). The prune keeps them: audio that ends
+        /// minutes before the picture is asked for long after its last segment left the window.
+        /// Under the session lock.
+        var standIns = Set<Int>()
+        /// Where this generation's written audio ends, output seconds; and whether silence carries the
+        /// track on past its end (padSilence), after which no late packet of it is written, since the
+        /// muxer takes no sample behind one already written. Pipeline thread only.
+        var audioEndSeconds: Double?
+        var silenced = false
         /// First DTS written per output stream since the last muxer rebuild,
         /// in that stream's time base. The mov muxer normalizes every track's
         /// timeline to its first packet, so a generation restarted at 60s
@@ -829,6 +896,7 @@ extension RemuxSession {
             "recovering": recovering,
             "hasPlayableSupplier": !cancelled && !failed && (sourceReady || serverAvailable),
             "sourceRetryAfterSeconds": sourceState == .retryWait ? max(0, sourceRetryAt.timeIntervalSinceNow) : 0,
+            "bufferedSeconds": liveBufferedSecondsLocked(),
         ]
     }
 
@@ -1183,6 +1251,47 @@ extension RemuxSession {
         }
     }
 
+    /// The options every open of the pipeline's input takes, the first and a live reopen alike.
+    func inputOpenOptions(headers: [String: String], reconnects: Bool) -> OpaquePointer? {
+        var openOpts: OpaquePointer? = nil
+        av_dict_set(&openOpts, "reconnect", reconnects ? "1" : "0", 0)
+        av_dict_set(&openOpts, "reconnect_streamed", reconnects ? "1" : "0", 0)
+        av_dict_set(&openOpts, "reconnect_delay_max", "5", 0)
+        // A silently wedged read (TCP stall with no RST) otherwise blocks
+        // av_read_frame forever: the interrupt callback only fires on session
+        // cancel, `failed` never gets set, and every segment request starves
+        // out its 20s deadline with the producer looking alive. A bounded wait per I/O
+        // operation turns the stall into an error the reconnect options above
+        // can retry, or a clean fail() the player recovers from.
+        av_dict_set(&openOpts, "rw_timeout", config.isLive ? "15000000" : fileSourceReadTimeoutMicros, 0)
+        // Pinned, not inherited: FFmpeg's default flips to 1 at avformat 63 and
+        // tvOS has no trust store to verify against until we ship a CA file.
+        av_dict_set(&openOpts, "tls_verify", "0", 0)
+        for (name, value) in headers {
+            if name.caseInsensitiveCompare("User-Agent") == .orderedSame {
+                av_dict_set(&openOpts, "user_agent", value, 0)
+            } else {
+                av_dict_set(&openOpts, "headers", "\(name): \(value)\r\n", AV_DICT_APPEND)
+            }
+        }
+        // FAST channels serve segments from extension-less URLs (measured on amagi.tv);
+        // the HLS demuxer refuses those unless told not to be picky.
+        if config.isLive {
+            av_dict_set(&openOpts, "extension_picky", "0", 0)
+            av_dict_set(&openOpts, "seg_max_retry", "0", 0)
+            av_dict_set(&openOpts, "live_start_index", "-6", 0)
+        }
+        return openOpts
+    }
+
+    /// Input stream signatures (type and codec) a reopened live input must repeat, in index order.
+    static func streamLayout(_ ctx: UnsafeMutablePointer<AVFormatContext>, indices: [Int32]) -> [String] {
+        indices.map { index in
+            guard index < ctx.pointee.nb_streams, let par = ctx.pointee.streams[Int(index)]?.pointee.codecpar else { return "missing" }
+            return "\(par.pointee.codec_type.rawValue):\(par.pointee.codec_id.rawValue)"
+        }
+    }
+
     func archiveReadSpanLocked() {
         if let from = readSpanFrom { readSpans.append((from: from, upTo: readSpanUpTo)) }
         readSpanFrom = nil
@@ -1230,7 +1339,9 @@ extension RemuxSession {
         var lease: LiveConnectionBroker.Lease?
         // A file's ranged connections past its first, one lease each; they go back with the input.
         var rangedLeases: [LiveConnectionBroker.Lease] = []
-        let originKey = config.liveOriginKey ?? URL(string: config.inputUrl)?.host ?? "-"
+        let originRead = SourceReadEvidence()
+        var rangedServedBody = false
+        let originKey = config.liveOriginKey ?? LiveConnectionBroker.key(forURL: config.inputUrl)
         // A file read over ranged connections: remote, and not a playlist the demuxer reads itself.
         let rangedInput: URL? = config.isLive ? nil : URL(string: config.inputUrl).flatMap { remote in
             (remote.scheme == "http" || remote.scheme == "https") && !remote.path.hasSuffix(".m3u8") && !remote.path.hasSuffix(".mpd") ? remote : nil
@@ -1239,8 +1350,11 @@ extension RemuxSession {
         if config.isLive || config.liveOriginKey != nil {
             let key = originKey
             let subject = config.isLive ? "live input" : "input"
-            let yielded: () -> Void = { [weak self] in self?.fail("\(subject) yielded its connection to a higher-priority read") }
+            let yielded: () -> Void = { [weak self] in
+                self?.fail(LiveConnectionBroker.shared.isHeld(key) ? LiveConnectionBroker.heldMessage : "\(subject) yielded its connection to a higher-priority read")
+            }
             guard let held = LiveConnectionBroker.shared.acquire(key: key, priority: config.livePriority, timeout: 10, onRevoke: yielded) else {
+                if LiveConnectionBroker.shared.isHeld(key) { return fail(LiveConnectionBroker.heldMessage) }
                 return fail(config.isLive ? "no connection left on the live origin" : "no connection left on the origin")
             }
             lease = held
@@ -1261,11 +1375,13 @@ extension RemuxSession {
             inputIsFallback = false
             stateLock.unlock()
             rangedLeases.forEach { $0.release() }
-            lease?.release()
+            // A rejected open (or only a served fallback) leaves no origin connection behind to count.
+            lease?.release(counted: originRead.served || rangedServedBody)
         }
         var inputCtx: UnsafeMutablePointer<AVFormatContext>?
         var ret: Int32 = 0
         var attempt = 0
+        var firstRefusalAt: Date?
         var inputUrl = config.inputUrl
         var inputHeaders = config.httpHeaders
 
@@ -1309,6 +1425,7 @@ extension RemuxSession {
                     avio_context_free(&freeingIO)
                     box.release()
                     reader.close()
+                    rangedServedBody = rangedServedBody || reader.servedBody
                     NSLog("[LocalRemuxer] Parallel input open failed (%@), using one connection", averr(ret))
                 }
             } else {
@@ -1316,52 +1433,29 @@ extension RemuxSession {
                 avformat_free_context(ctx)
                 box.release()
                 reader.close()
+                rangedServedBody = rangedServedBody || reader.servedBody
             }
         }
         openRanged(connections: inputConnections)
 
         if parallelBox == nil {
-        // One connection reads the input from here: the leases its ranged ones would have held go back.
-        rangedLeases.forEach { $0.release() }
+        // Unused reservations are no recent close; only a body the origin served can still count there.
+        rangedLeases.forEach { $0.release(counted: rangedServedBody) }
         rangedLeases = []
+        let trimmedSource = trimmedLiveSource(config.inputUrl, headers: config.httpHeaders)
+        if hasFailed { return }
+        if trimmedSource != nil { originRead.ignoredPrefix = loopbackBase }
         while true {
             inputCtx = avformat_alloc_context()
             guard inputCtx != nil else { return fail("avformat_alloc_context") }
+            if lease != nil, inputUrl == config.inputUrl { originRead.install(on: inputCtx!) }
             inputCtx!.pointee.interrupt_callback = AVIOInterruptCB(callback: Self.interruptCallback, opaque: opaque)
             stateLock.lock()
             pulledBase = pulledBytes
             stateLock.unlock()
             openingInput = inputCtx
 
-            var openOpts: OpaquePointer? = nil
-            let reconnects = lease.map { !LiveConnectionBroker.shared.sharesUnknownOrigin($0) } ?? true
-            av_dict_set(&openOpts, "reconnect", reconnects ? "1" : "0", 0)
-            av_dict_set(&openOpts, "reconnect_streamed", reconnects ? "1" : "0", 0)
-            av_dict_set(&openOpts, "reconnect_delay_max", "5", 0)
-            // A silently wedged read (TCP stall with no RST) otherwise blocks
-            // av_read_frame forever: the interrupt callback only fires on session
-            // cancel, `failed` never gets set, and every segment request starves
-            // out its 20s deadline with the producer looking alive. A bounded wait per I/O
-            // operation turns the stall into an error the reconnect options above
-            // can retry, or a clean fail() the player recovers from.
-            av_dict_set(&openOpts, "rw_timeout", config.isLive ? "15000000" : fileSourceReadTimeoutMicros, 0)
-            // Pinned, not inherited: FFmpeg's default flips to 1 at avformat 63 and
-            // tvOS has no trust store to verify against until we ship a CA file.
-            av_dict_set(&openOpts, "tls_verify", "0", 0)
-            for (name, value) in inputHeaders {
-                if name.caseInsensitiveCompare("User-Agent") == .orderedSame {
-                    av_dict_set(&openOpts, "user_agent", value, 0)
-                } else {
-                    av_dict_set(&openOpts, "headers", "\(name): \(value)\r\n", AV_DICT_APPEND)
-                }
-            }
-            // FAST channels serve segments from extension-less URLs (measured on amagi.tv);
-            // the HLS demuxer refuses those unless told not to be picky. A segment whose
-            // open fails gets three retries before it is skipped (the default skips at once).
-            if config.isLive {
-                av_dict_set(&openOpts, "extension_picky", "0", 0)
-                av_dict_set(&openOpts, "seg_max_retry", "3", 0)
-            }
+            var openOpts = inputOpenOptions(headers: inputHeaders, reconnects: lease.map { !LiveConnectionBroker.shared.sharesUnknownOrigin($0) } ?? true)
             // An origin refusing its segments answers in milliseconds while the open sits on it (measured:
             // CBC held a session 49s). The check runs beside the open, so a live origin costs no startup.
             if config.isLive && config.probeOrigin && attempt == 0 && inputUrl == config.inputUrl {
@@ -1373,17 +1467,26 @@ extension RemuxSession {
                     self?.fail(refusal)
                 }
             }
-            ret = avformat_open_input(&inputCtx, inputUrl, nil, &openOpts)
+            ret = avformat_open_input(&inputCtx, inputUrl == config.inputUrl ? trimmedSource ?? inputUrl : inputUrl, nil, &openOpts)
             av_dict_free(&openOpts)
             // A failed open freed the context itself.
             if ret < 0 { openingInput = nil }
             // Only a read on a provider's budget retries its open: a live input, or a file that names its provider.
-            if ret >= 0 || lease == nil || isCancelled { break }
-            // A refusal by the origin while this device holds other connections to it shows its limit: the reads below
-            // this one yield. Just after a yield it is the origin still counting the closed one. Either way, retry.
-            if Self.refusalErrors.contains(ret), attempt < 4, inputUrl == config.inputUrl, let held = lease,
-               LiveConnectionBroker.shared.noteRefusal(of: held) || LiveConnectionBroker.shared.recentlyYielded(key: originKey, within: 15) {
-                Thread.sleep(forTimeInterval: 0.5 * pow(2, Double(attempt)))
+            if ret >= 0 || lease == nil || isCancelled || hasFailed { break }
+            // A refusal by the origin while this device holds other connections to it: the reads below this one
+            // yield, and a 4xx shows its limit unless a read on the origin just closed (it is still counting that
+            // one, so no number). Four tries, then one a second while the origin is within its close window.
+            var retry = false
+            if Self.httpOpenErrors.contains(ret), inputUrl == config.inputUrl, let held = lease {
+                if firstRefusalAt == nil { firstRefusalAt = Date() }
+                let closing = LiveConnectionBroker.shared.recentlyClosed(key: originKey, within: 15)
+                let room = LiveConnectionBroker.shared.noteRefusal(of: held, learn: Self.limitErrors.contains(ret) && !closing)
+                retry = attempt < 4 ? room || closing : closing && Date().timeIntervalSince(firstRefusalAt!) < 15
+            }
+            // The refusal can end this read itself: a preview left no slot spare beside it.
+            if hasFailed { break }
+            if retry {
+                Thread.sleep(forTimeInterval: attempt < 4 ? 0.5 * pow(2, Double(attempt)) : 1)
                 attempt += 1
                 // A file goes back to the reader on the one connection its lease covers.
                 openRanged(connections: 1)
@@ -1403,14 +1506,19 @@ extension RemuxSession {
             break
         }
         }
-        guard ret >= 0, let input = inputCtx else {
+        guard ret >= 0, let opened = inputCtx else {
             return failStartup("open_input: \(averr(ret))", retryable: !Self.isPermanentInputError(ret))
         }
+        // A live input is replaced in place when it is lost (reopenLiveInput); nothing to close while the next one opens.
+        var input = opened
+        var inputOpen = true
         mark("open_input")
+        // The origin admitted this read; the server's copy says nothing of the origin's room.
+        if let held = lease, inputUrl == config.inputUrl { LiveConnectionBroker.shared.noteOpened(held) }
         defer {
             openingInput = nil
-            var closing: UnsafeMutablePointer<AVFormatContext>? = input
-            avformat_close_input(&closing)
+            var closing: UnsafeMutablePointer<AVFormatContext>? = inputOpen ? input : nil
+            if closing != nil { avformat_close_input(&closing) }
             // CUSTOM_IO: the pb and its reader are ours to free, after the demuxer is gone.
             if let avio = parallelAvio {
                 av_free(avio.pointee.buffer)
@@ -1418,7 +1526,9 @@ extension RemuxSession {
                 avio_context_free(&freeing)
             }
             if let box = parallelBox {
-                box.takeUnretainedValue().reader.close()
+                let reader = box.takeUnretainedValue().reader
+                reader.close()
+                rangedServedBody = rangedServedBody || reader.servedBody
                 box.release()
             }
         }
@@ -1527,6 +1637,21 @@ extension RemuxSession {
                 let best = av_find_best_stream(input, AVMEDIA_TYPE_AUDIO, -1, videoIn, nil, 0)
                 if best >= 0 { audioIndices = [best] }
             }
+            // The first track is the master's default: the rendition a trimmed master marked DEFAULT=YES.
+            let defaults = audioIndices.filter { (input.pointee.streams[Int($0)]?.pointee.disposition ?? 0) & AV_DISPOSITION_DEFAULT != 0 }
+            if config.isLive, defaults.count == 1, let first = defaults.first {
+                audioIndices = [first] + audioIndices.filter { $0 != first }
+            }
+            // An input opened with no trimmed master (raw TS) puts the asked language first itself, never a described track.
+            let wanted = LiveVariantPicker.baseLanguage(config.liveAudioLanguage)
+            if config.isLive, !wanted.isEmpty, heldTrimmedSource() == nil, let asked = audioIndices.first(where: { index in
+                guard let stream = input.pointee.streams[Int(index)],
+                      stream.pointee.disposition & (AV_DISPOSITION_VISUAL_IMPAIRED | AV_DISPOSITION_HEARING_IMPAIRED) == 0 else { return false }
+                let tag = av_dict_get(stream.pointee.metadata, "language", nil, 0).map { String(cString: $0.pointee.value) } ?? ""
+                return LiveVariantPicker.baseLanguage(tag) == wanted
+            }) {
+                audioIndices = [asked] + audioIndices.filter { $0 != asked }
+            }
             let tracks: [RemuxAudioTrack] = audioIndices.enumerated().map { position, index in
                 if let known = config.audioTracks.first(where: { $0.index == Int(index) }) { return known }
                 let metadata = input.pointee.streams[Int(index)]?.pointee.metadata
@@ -1539,8 +1664,7 @@ extension RemuxSession {
             inputAudioTracks = tracks
             stateLock.unlock()
         }
-        // Image subtitle tracks (DVB, teletext) come off the stream too: a channel read from its
-        // origin has no server probe to list them. A file left to describe itself lists its text tracks as well.
+        // A channel has no server probe: its image tracks come off the stream, its text tracks from the renditions the engine reads.
         let discoversFileSubtitles = config.describesInput && !config.isLive && config.subtitles.isEmpty
         if hasVideo, config.isLive || discoversFileSubtitles {
             var found: [RemuxSubtitle] = candidates.compactMap { index in
@@ -1557,6 +1681,10 @@ extension RemuxSession {
                 track.isHearingImpaired = discoversFileSubtitles && stream.pointee.disposition & AV_DISPOSITION_HEARING_IMPAIRED != 0
                 return track
             }
+            stateLock.lock()
+            let fromOrigin = !inputIsFallback
+            stateLock.unlock()
+            if config.isLive, fromOrigin { found += liveTextTracks() }
             // Names are the picker's only handle on a track, so each is unique.
             let names = found.map { $0.name }
             for position in found.indices where names[position].isEmpty || names.filter({ $0 == names[position] }).count > 1 {
@@ -1578,13 +1706,36 @@ extension RemuxSession {
         // audio-only session carries one track. Multi-track audio-only files
         // are a theoretical shape, not one a music library produces.
         if !hasVideo && audioIndices.count > 1 { audioIndices = [audioIndices[0]] }
-        // Live carries no text subtitles, so every stream but the video, the audio and the image
-        // subtitle tracks is dead weight; discarding it is what stops the HLS demuxer downloading
-        // the variants nobody reads.
+        // The video track decides where the item ends, whichever stream runs longer. Off the
+        // container's per-track lengths: the grid ends at the last frame, audio past it is not
+        // written, and a track that stops before it is carried on with silence (padSilence).
+        // Source seconds; nil where the container records no per-track length.
+        var pictureSourceEnd: Double? = nil
+        var audioSourceEnds: [Int32: Double] = [:]
+        if !config.isLive, hasVideo, let video = input.pointee.streams[Int(videoIn)],
+           let picture = Self.trackEndSeconds(video, format: inputFormat) {
+            pictureSourceEnd = picture
+            for index in audioIndices {
+                guard let stream = input.pointee.streams[Int(index)], let end = Self.trackEndSeconds(stream, format: inputFormat),
+                      end < picture - Self.trackEndSlack else { continue }
+                audioSourceEnds[index] = end
+            }
+            let start = video.pointee.start_time == SWIFT_AV_NOPTS_VALUE ? 0 : Double(video.pointee.start_time) * av_q2d(video.pointee.time_base)
+            stateLock.lock()
+            let declared = durationSeconds
+            let length = picture - start
+            if config.tiers.isEmpty, !gridPublished, length < declared - Self.trackEndSlack, declared - length <= Self.pictureEndReach {
+                pictureEndSeconds = length
+                NSLog("[LocalRemuxer] picture ends at %.3fs, %.3fs short of the runtime: the grid ends there", length, declared - length)
+            }
+            stateLock.unlock()
+        }
+        // Every stream but the video, the audio and the image subtitles is discarded; the engine reads live text tracks itself.
+        let liveCarried: [Int32] = config.isLive
+            ? Array(Set(audioIndices + (hasVideo ? [videoIn] : []) + subtitleTracks.filter { $0.isImage }.map { Int32($0.index) })).sorted() : []
         if config.isLive {
-            let carried = Set(audioIndices + (hasVideo ? [videoIn] : []) + imageSubtitleTracks.map { Int32($0.index) })
-            for i in 0..<streamCount where !carried.contains(i) {
-                input.pointee.streams[Int(i)]?.pointee.discard = AVDISCARD_ALL
+            for i in 0..<streamCount {
+                input.pointee.streams[Int(i)]?.pointee.discard = liveCarried.contains(i) ? AVDISCARD_DEFAULT : AVDISCARD_ALL
             }
         }
 
@@ -1635,6 +1786,12 @@ extension RemuxSession {
 
         for sub in subtitleTracks where sub.isImage || sub.isEngineText {
             let index = Int32(sub.index)
+            if config.isLive, sub.isEngineText {
+                stateLock.lock()
+                if textSubtitles[index] == nil { textSubtitles[index] = TextSubtitleDecoder(liveStreamIndex: index) }
+                stateLock.unlock()
+                continue
+            }
             let found = sub.isExternal ? (stream: Int32?.none, refusal: "") : sourceStream(input, index: sub.index, source: sub.source, type: AVMEDIA_TYPE_SUBTITLE)
             if let stream = found.stream { subtitleIdentity[stream] = index }
             stateLock.lock()
@@ -1660,6 +1817,7 @@ extension RemuxSession {
             guard decodedAtStart(sub) else { continue }
             if !openSubtitleDecoder(sub, stream: stream, atStart: true), !discoversFileSubtitles { return }
         }
+        if config.isLive { followLiveSubtitles(subtitleTracks.filter { $0.isEngineText }, headers: inputHeaders) }
         stateLock.lock()
         subtitleDecodersBuilt = true
         if !undecodableSubtitles.isEmpty { inputSubtitles = inputSubtitles?.filter { !undecodableSubtitles.contains($0.index) } }
@@ -1890,6 +2048,8 @@ extension RemuxSession {
                 rendition.completed = previous.completed
                 rendition.writing = previous.writing
                 rendition.prunedWhileWriting = previous.prunedWhileWriting
+                rendition.empty = previous.empty
+                rendition.standIns = previous.standIns
                 rendition.active = previous.active
             }
             if pendingAudioActivations.contains(rendition.prefix) { rendition.active = true }
@@ -2001,7 +2161,22 @@ extension RemuxSession {
         var lastKeyframeUs: Int64? = nil
         var liveResumeUs: Int64 = 0
         var lastOutputEndUs: Int64 = 0
+        /// The longest ordinary live read so far, capped at 10s: the watchdog's measure of this feed's pace.
+        var longestLiveRead: Double = 0
+        /// Reopens in a row, each within 60s of the last, and when the last one landed: the wait before the next.
+        var liveReopenRun = 0
+        var lastLiveReopenAt: Date?
+        /// After a reopen, the source time already carried: the reopened input's keyframes up to it are skipped.
+        var liveCarriedThroughUs: Int64?
+        /// The longest live segment cut so far: a timing step past it is a hole in the source, spliced.
+        var longestLiveCut = 0.0
+        /// The largest timing step carried inside the open live segment.
+        var liveCutStepUs: Int64 = 0
         var segmentOpenSeconds = 0.0
+        // VOD: where this generation's opening keyframe sits, and the furthest the picture has been
+        // read, output seconds. Silence for a track that has ended starts and stops between them.
+        var generationOpenSeconds = 0.0
+        var pictureReadEnd = 0.0
 
         /// Close segment `n` on every rendition. All renditions are cut on the
         /// same boundary so their timelines stay interchangeable, which is what
@@ -2058,7 +2233,16 @@ extension RemuxSession {
                 // index restarts at its own boundary, which necessarily seeks
                 // to an earlier keyframe and covers the segment in full.
                 if n == partialOpenSegment { continue }
-                guard !data.isEmpty else { continue }
+                guard !data.isEmpty else {
+                    // A fed track with nothing in this span: its stream ended before the timing
+                    // stream did (audio short of the picture), and the playlist still lists the index.
+                    if !config.isLive, rendition.active, rendition.heldIn != n {
+                        stateLock.lock()
+                        rendition.empty.insert(n)
+                        stateLock.unlock()
+                    }
+                    continue
+                }
 
                 // The header already shipped ftyp+moov as the init segment, so
                 // a media segment should start at its moof. Guard anyway: a
@@ -2175,6 +2359,65 @@ extension RemuxSession {
             return first != nil
         }
 
+        /// Carries each audio track that ended before the picture on with silence up to `seconds` on
+        /// the output timeline: AVPlayer ends an item with its audio (measured), so a track that stops
+        /// first would end the picture with it. At a cut, only a track `silenceLead` past its recorded
+        /// end; at the end of the file, any track that stopped short of the last frame.
+        func padSilence(upTo seconds: Double, atEnd: Bool) {
+            let anchor = Double(timelineAnchorUs) / Double(SWIFT_AV_TIME_BASE)
+            for rendition in builtRenditions where rendition.active {
+                guard let ctx = rendition.ctx,
+                      let audioIn = rendition.inputStreams.first(where: {
+                          input.pointee.streams[Int($0)]?.pointee.codecpar.pointee.codec_type == AVMEDIA_TYPE_AUDIO
+                      }),
+                      let inStream = input.pointee.streams[Int(audioIn)], let par = inStream.pointee.codecpar,
+                      let outIndex = rendition.streamMap[audioIn],
+                      let outStream = ctx.pointee.streams[Int(outIndex)] else { continue }
+                let trackEnd = audioSourceEnds[audioIn].map { $0 - anchor }
+                if atEnd {
+                    guard trackEnd != nil || rendition.audioEndSeconds != nil else { continue }
+                } else {
+                    guard let trackEnd, seconds >= trackEnd + Self.silenceLead else { continue }
+                }
+                let from = max(rendition.audioEndSeconds ?? generationOpenSeconds, trackEnd ?? 0)
+                guard seconds - from > (rendition.silenced ? 0.02 : Self.trackEndSlack) else { continue }
+                stateLock.lock()
+                let held = rendition.completed.contains(currentSegment) || rendition.writing.contains(currentSegment)
+                stateLock.unlock()
+                if held {
+                    // The file already carries this span; the next one picks up where it ends.
+                    rendition.heldIn = currentSegment
+                    rendition.audioEndSeconds = seconds
+                    rendition.silenced = true
+                    continue
+                }
+                var wrote = false
+                func write(_ packet: UnsafeMutablePointer<AVPacket>, _ timeBase: AVRational) {
+                    av_packet_rescale_ts(packet, timeBase, outStream.pointee.time_base)
+                    packet.pointee.stream_index = outIndex
+                    packet.pointee.pos = -1
+                    rendition.repairTimestamps(packet, streamIndex: outIndex)
+                    rendition.noteMuxZero(packet, timeBase: outStream.pointee.time_base)
+                    rendition.noteBaseDts(streamIndex: outIndex, dts: packet.pointee.dts)
+                    let end = Double(packet.pointee.pts + max(0, packet.pointee.duration)) * av_q2d(outStream.pointee.time_base)
+                    if av_write_frame(ctx, packet) >= 0 {
+                        rendition.audioEndSeconds = end
+                        wrote = true
+                    }
+                }
+                if let transcoder = rendition.transcoder {
+                    transcoder.padSilence(from: from, to: seconds) { write($0, transcoder.encoderTimeBase) }
+                } else {
+                    SilenceEncoder.encode(like: par, from: from, to: seconds, emit: write)
+                }
+                if wrote, !rendition.silenced {
+                    rendition.silenced = true
+                    NSLog("[LocalRemuxer] audio %@ ended at %.3fs, before the picture: silence carries it on",
+                          rendition.prefix.isEmpty ? "primary" : rendition.prefix, from)
+                }
+            }
+        }
+
         /// Live: the cut boundary is relative to the open segment, so a keyframe-aligned
         /// cut overshoots by at most one keyframe interval and the grid never drifts.
         func nextBoundarySeconds() -> Double {
@@ -2185,7 +2428,10 @@ extension RemuxSession {
         func noteLiveCut(atOutputSeconds seconds: Double) {
             stateLock.lock()
             liveDurations[currentSegment] = max(0.001, seconds - segmentOpenSeconds)
+            longestLiveCut = Self.longestLiveCut(longestLiveCut, cut: seconds - segmentOpenSeconds, largestStepUs: liveCutStepUs)
+            liveCutStepUs = 0
             liveDates[currentSegment + 1] = Date()
+            liveSegmentStarts[currentSegment + 1] = seconds
             stateLock.unlock()
             segmentOpenSeconds = seconds
         }
@@ -2195,6 +2441,8 @@ extension RemuxSession {
             for rendition in builtRenditions {
                 rendition.freeMuxer()
                 _ = rendition.takePending() // drop bytes of the abandoned fragment
+                rendition.audioEndSeconds = nil
+                rendition.silenced = false
 
                 // Rebuild the audio transcoder rather than reusing it: AAC
                 // encoders cannot be flushed, so a reused one would emit queued
@@ -2283,6 +2531,93 @@ extension RemuxSession {
             (bytesInSegment, readSecondsInSegment, doviSecondsInSegment, audioSecondsInSegment, subtitleSecondsInSegment) = (0, 0, 0, 0, 0)
             (muxSecondsInSegment, flushSecondsInSegment) = (0, 0)
             return true
+        }
+
+        /// A lost live input, replaced in place: the same channel opened again, behind a new generation
+        /// that continues the output timeline, so the player rides its buffer through the gap. Backs off
+        /// while the origin refuses; three permanent refusals in a row end the session. False ends it.
+        func reopenLiveInput(because reason: String) -> Bool {
+            let layout = Self.streamLayout(input, indices: liveCarried)
+            let carriedThroughUs = liveCarriedThroughUs ?? lastTimingPtsUs
+            NSLog("[LocalRemuxer] Live input lost (%@), reopening it in the session", reason)
+            onLive?(["token": token, "event": "reopening", "reason": reason])
+            openingInput = nil
+            var closing: UnsafeMutablePointer<AVFormatContext>? = input
+            avformat_close_input(&closing)
+            inputOpen = false
+            let closedOwnReadAt = Date()
+            liveReopenRun = lastLiveReopenAt.map { Date().timeIntervalSince($0) < 60 } == true ? liveReopenRun + 1 : 0
+            var attempt = 0
+            var permanentRefusals = 0
+            while !isCancelled && !hasFailed {
+                let step = liveReopenRun + attempt
+                if step > 0 {
+                    let until = Date().addingTimeInterval(step <= 4 ? 0.5 * pow(2, Double(step - 1)) : 5)
+                    while Date() < until, !isCancelled, !hasFailed { usleep(100_000) }
+                    if isCancelled || hasFailed { return false }
+                }
+                attempt += 1
+                guard let fresh = avformat_alloc_context() else { fail("avformat_alloc_context"); return false }
+                fresh.pointee.interrupt_callback = AVIOInterruptCB(callback: Self.interruptCallback, opaque: opaque)
+                // The origin's own read is leased and judged as the first open's is.
+                let leased = inputUrl == config.inputUrl ? lease : nil
+                if leased != nil { originRead.install(on: fresh) }
+                // An input first opened untrimmed reopens untrimmed: a trimmed one numbers its streams differently.
+                let held = heldTrimmedSource()
+                let url = inputUrl == config.inputUrl && held != nil ? trimmedLiveSource(config.inputUrl, headers: config.httpHeaders) ?? held ?? inputUrl : inputUrl
+                var options = inputOpenOptions(headers: inputHeaders, reconnects: lease.map { !LiveConnectionBroker.shared.sharesUnknownOrigin($0) } ?? true)
+                var opening: UnsafeMutablePointer<AVFormatContext>? = fresh
+                stateLock.lock()
+                pulledBase = pulledBytes
+                stateLock.unlock()
+                openingInput = fresh
+                var opened = avformat_open_input(&opening, url, nil, &options)
+                av_dict_free(&options)
+                guard opened >= 0, let reopened = opening else {
+                    openingInput = nil
+                    // The read this reopen closed counts as a close, as one released through the broker does.
+                    let closing = Date().timeIntervalSince(closedOwnReadAt) < 15 || LiveConnectionBroker.shared.recentlyClosed(key: originKey, within: 15)
+                    // An HTTP refusal while the origin may still count that close is no strike.
+                    let excused = closing && Self.httpOpenErrors.contains(opened)
+                    if !excused { permanentRefusals = Self.isPermanentInputError(opened) ? permanentRefusals + 1 : 0 }
+                    NSLog("[LocalRemuxer] Live reopen %d failed (%@)", attempt, averr(opened))
+                    // A refusal while this device holds other reads on the origin makes the lower ones yield.
+                    if Self.httpOpenErrors.contains(opened), let held = leased {
+                        _ = LiveConnectionBroker.shared.noteRefusal(of: held, learn: Self.limitErrors.contains(opened) && !closing)
+                    }
+                    if permanentRefusals >= 3 { fail("live input gone: \(averr(opened))"); return false }
+                    continue
+                }
+                opened = probeStreamInfo(reopened)
+                guard opened >= 0, Self.streamLayout(reopened, indices: liveCarried) == layout else {
+                    openingInput = nil
+                    var dropping: UnsafeMutablePointer<AVFormatContext>? = reopened
+                    avformat_close_input(&dropping)
+                    if opened >= 0 { fail("the live input came back with other streams"); return false }
+                    NSLog("[LocalRemuxer] Live reopen %d could not read its streams (%@)", attempt, averr(opened))
+                    continue
+                }
+                for i in 0..<Int32(reopened.pointee.nb_streams) {
+                    reopened.pointee.streams[Int(i)]?.pointee.discard = liveCarried.contains(i) ? AVDISCARD_DEFAULT : AVDISCARD_ALL
+                }
+                input = reopened
+                inputOpen = true
+                if let held = leased { LiveConnectionBroker.shared.noteOpened(held) }
+                // A TS copy's parameter sets ride the keyframes, not the probe: lifted again for the new init.
+                if hasVideo, let videoStream = input.pointee.streams[Int(videoIn)],
+                   videoStream.pointee.codecpar.pointee.extradata_size == 0,
+                   videoStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_H264 || videoStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_HEVC {
+                    if queuedPacket != nil { av_packet_free(&queuedPacket) }
+                    queuedPacket = readToOpeningParameterSets(videoStream: videoStream)
+                }
+                guard rollGeneration() else { return false }
+                liveCarriedThroughUs = carriedThroughUs
+                lastLiveReopenAt = Date()
+                NSLog("[LocalRemuxer] Live input reopened after %d attempt(s)", attempt)
+                onLive?(["token": token, "event": "reopened", "attempts": attempt, "reason": reason])
+                return true
+            }
+            return false
         }
 
         /// Seek input + rebuild every rendition's muxer. False on fatal error.
@@ -2492,21 +2827,36 @@ extension RemuxSession {
                 fromQueue = true
                 ret = 0
             } else {
+                // A live read that brings nothing for twice its longest ordinary wait (an HLS demuxer
+                // waits a segment's length for the next one) is a dead feed: the callback aborts it.
+                if config.isLive { liveReadDeadline = readStarted.addingTimeInterval(max(12, 2 * longestLiveRead)) }
                 ret = av_read_frame(input, pkt)
+                liveReadDeadline = nil
             }
             let readTook = Date().timeIntervalSince(readStarted)
             readSecondsInSegment += readTook
             stateLock.lock()
             pulledReadSeconds += readTook
             stateLock.unlock()
-            if ret == SWIFT_AVERROR_EOF && config.isLive {
-                // The http layer reconnects on its own (reconnect_streamed). An EOF that reaches
-                // the demuxer means the server closed the live stream; only a new open restores it.
-                noteLiveInputLost()
-                fail("live input ended")
+            if config.isLive, ret >= 0, !fromQueue { longestLiveRead = max(longestLiveRead, min(readTook, 10)) }
+            // A lost live input (the origin closed it, a read failed, or the feed went silent) is opened
+            // again in place: an EOF that reaches the demuxer means the server ended the stream, since
+            // the HLS demuxer rides out failed segments and the http layer a dropped playlist connection.
+            // A fired watchdog can still hand back a packet the demuxer held from another playlist: the
+            // input is lost all the same, or the next read waits out a fresh deadline on the dead feed.
+            if config.isLive, liveReadStalled || (ret < 0 && ret != SWIFT_AVERROR_EXIT) {
+                let reason = liveReadStalled ? String(format: "no data for %.0fs", readTook) : ret == SWIFT_AVERROR_EOF ? "the origin ended the stream" : "read_frame: \(averr(ret))"
+                liveReadStalled = false
+                if ret >= 0 { av_packet_unref(pkt) }
+                let ends = noteLiveInputLost()
+                if !ends, reopenLiveInput(because: reason) { continue readLoop }
+                if !hasFailed { fail("live input lost: \(reason)") }
                 break
             }
             if ret == SWIFT_AVERROR_EOF {
+                // Audio that stopped short of the last frame runs on in silence to it. Before the
+                // flush: a transcoder queues the silence behind its own samples, then flushes both.
+                if hasVideo { padSilence(upTo: pictureReadEnd, atEnd: true) }
                 // Flush the transcoders first so their queued tail frames land
                 // in the final segment instead of being dropped with it.
                 for rendition in builtRenditions {
@@ -2611,7 +2961,7 @@ extension RemuxSession {
                 if allowRecovery {
                     retrySource(because: "read_frame: \(averr(ret))")
                 } else {
-                    if config.isLive { noteLiveInputLost() }
+                    if config.isLive { _ = noteLiveInputLost() }
                     fail("read_frame: \(averr(ret))")
                 }
                 break
@@ -2703,18 +3053,30 @@ extension RemuxSession {
             // instead of waiting forever for a video keyframe that never comes.
             let isTimingStream = hasVideo ? isVideo : pkt.pointee.stream_index == audioIndices.first
 
+            // The picture ends the item: audio past its last frame is not written. A frame read past
+            // the container's track length means the length was wrong, and then nothing is cut.
+            if let end = pictureSourceEnd, pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE {
+                let seconds = Double(pkt.pointee.pts) * av_q2d(inStream.pointee.time_base)
+                if isVideo, seconds > end + Self.trackEndSlack {
+                    NSLog("[LocalRemuxer] a frame at %.3fs is past the picture's recorded end (%.3fs): its audio is kept", seconds, end)
+                    pictureSourceEnd = nil
+                    audioSourceEnds = [:]
+                } else if !isVideo, seconds >= end {
+                    continue
+                }
+            }
+
             // Drop everything until the packet that opens this generation, then
             // place it on the session timeline. The anchor is whatever
             // generation 0 established and never moves, so the opening packet
             // keeps its true source time instead of being relabelled onto the
             // requested segment's boundary.
-            // Live splice: the timing stream's PTS stepping back, or jumping past three
-            // segments, closes the segment and rolls a generation on this very packet.
+            // Live splice: the timing stream's PTS stepping back or past the gap limit rolls a generation on this packet.
             if config.isLive && isTimingStream && !awaitingKeyframe, pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE {
                 let ptsUs = av_rescale_q(pkt.pointee.pts, inStream.pointee.time_base, microTb)
                 if let last = lastTimingPtsUs {
                     let delta = ptsUs - last
-                    let gapLimit = Int64(3 * config.liveSegmentSeconds * Double(SWIFT_AV_TIME_BASE))
+                    let gapLimit = Self.liveGapLimitUs(longestCut: longestLiveCut, segmentSeconds: config.liveSegmentSeconds)
                     if delta < -1_000_000 || delta > gapLimit {
                         NSLog("[LocalRemuxer] Live splice: timing PTS stepped %.3fs at segment %d", Double(delta) / 1e6, currentSegment)
                         guard rollGeneration() else { break }
@@ -2726,6 +3088,8 @@ extension RemuxSession {
                         outIndex = freshIndex
                         ctx = freshCtx
                         outStream = freshOut
+                    } else {
+                        liveCutStepUs = max(liveCutStepUs, delta)
                     }
                 }
                 if isKey {
@@ -2747,6 +3111,9 @@ extension RemuxSession {
                 let anchorSource = pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE ? pkt.pointee.pts : pkt.pointee.dts
                 guard anchorSource != SWIFT_AV_NOPTS_VALUE else { continue }
                 let keyframeUs = av_rescale_q(anchorSource, inStream.pointee.time_base, microTb)
+                // A source timeline more than 120s behind what was carried is a restarted one, taken as it comes.
+                if config.isLive, let carried = liveCarriedThroughUs, keyframeUs <= carried, carried - keyframeUs < 120_000_000 { continue }
+                liveCarriedThroughUs = nil
                 if config.isLive {
                     // Generation 0 opens the timeline at 0; a rolled generation continues where
                     // the spliced segment ended, so tfdt stays monotonic across the MAP change.
@@ -2756,6 +3123,7 @@ extension RemuxSession {
                     stateLock.lock()
                     sessionAnchorSeconds = Double(anchor) / Double(SWIFT_AV_TIME_BASE)
                     liveGenerationStarts[currentSegment] = generation
+                    liveSegmentStarts[currentSegment] = Double(liveResumeUs) / Double(SWIFT_AV_TIME_BASE)
                     liveDates[currentSegment] = Date()
                     stateLock.unlock()
                     segmentOpenSeconds = Double(liveResumeUs) / Double(SWIFT_AV_TIME_BASE)
@@ -2821,6 +3189,7 @@ extension RemuxSession {
                     break
                 }
                 currentSegment = openSegment
+                generationOpenSeconds = openSeconds
                 let partial = openSeconds > segmentStartSeconds(openSegment)
                 if partial { partialOpens[openSegment, default: 0] += 1 }
                 let opens = partialOpens[openSegment] ?? 0
@@ -2838,6 +3207,12 @@ extension RemuxSession {
             let offsetInTb = av_rescale_q(timelineAnchorUs, microTb, inStream.pointee.time_base)
             if pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE { pkt.pointee.pts -= offsetInTb }
             if pkt.pointee.dts != SWIFT_AV_NOPTS_VALUE { pkt.pointee.dts -= offsetInTb }
+            if isVideo, !config.isLive, pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE {
+                let end = pkt.pointee.pts + max(0, pkt.pointee.duration)
+                pictureReadEnd = max(pictureReadEnd, Double(end) * av_q2d(inStream.pointee.time_base))
+            }
+            // A track carried on with silence takes no late packet of its own.
+            if !isVideo, rendition.silenced { continue }
 
             // Live: where the timing stream's output time ends, so a splice resumes there.
             if config.isLive && isTimingStream, pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE {
@@ -2874,7 +3249,7 @@ extension RemuxSession {
                         let seconds = Double(encoded.pointee.pts) * av_q2d(videoTranscoder.encoderTimeBase)
                         let boundary = nextBoundarySeconds()
                         if seconds >= boundary && seconds > 0 && currentSegment + 1 < segmentCount {
-                            if config.isLive { noteLiveCut(atOutputSeconds: seconds) }
+                            if config.isLive { noteLiveCut(atOutputSeconds: seconds) } else { padSilence(upTo: boundary, atEnd: false) }
                             finishSegment(currentSegment)
                             currentSegment += 1
                             stateLock.lock()
@@ -2893,7 +3268,10 @@ extension RemuxSession {
                     stateLock.lock()
                     let held = rendition.completed.contains(currentSegment) || rendition.writing.contains(currentSegment)
                     stateLock.unlock()
-                    if held { return }
+                    if held {
+                        rendition.heldIn = currentSegment
+                        return
+                    }
                     av_packet_rescale_ts(encoded, videoTranscoder.encoderTimeBase, outStream.pointee.time_base)
                     encoded.pointee.stream_index = outIndex
                     encoded.pointee.pos = -1
@@ -2950,7 +3328,7 @@ extension RemuxSession {
                 let boundary = nextBoundarySeconds()
                 let cutAllowed = config.isLive ? isKey : currentSegment + 1 < segmentCount
                 if seconds >= boundary && seconds > 0 && cutAllowed {
-                    if config.isLive { noteLiveCut(atOutputSeconds: seconds) }
+                    if config.isLive { noteLiveCut(atOutputSeconds: seconds) } else { padSilence(upTo: boundary, atEnd: false) }
                     finishSegment(currentSegment)
                     currentSegment += 1
                     stateLock.lock()
@@ -2969,7 +3347,10 @@ extension RemuxSession {
             stateLock.lock()
             let onDisk = rendition.completed.contains(currentSegment) || rendition.writing.contains(currentSegment)
             stateLock.unlock()
-            if onDisk, !isVideo { continue }
+            if onDisk, !isVideo {
+                rendition.heldIn = currentSegment
+                continue
+            }
 
             // Transcoded audio: the encoder emits its own packets on its own
             // clock, so the input packet is consumed rather than written.
@@ -2985,8 +3366,9 @@ extension RemuxSession {
                     rendition.repairTimestamps(encoded, streamIndex: outIndex)
                     rendition.noteMuxZero(encoded, timeBase: outStream.pointee.time_base)
                     rendition.noteBaseDts(streamIndex: outIndex, dts: encoded.pointee.dts)
+                    let end = Double(encoded.pointee.pts + max(0, encoded.pointee.duration)) * av_q2d(outStream.pointee.time_base)
                     let w = av_write_frame(ctx, encoded)
-                    if w < 0 { writeError = w }
+                    if w < 0 { writeError = w } else { rendition.audioEndSeconds = end }
                 }
                 if writeError < 0 {
                     fail("write_frame (audio): \(averr(writeError))")
@@ -3006,7 +3388,10 @@ extension RemuxSession {
                     break
                 }
             }
-            if onDisk { continue }
+            if onDisk {
+                rendition.heldIn = currentSegment
+                continue
+            }
 
             // The ADTS header (9 bytes with its CRC) is not part of an MP4 sample.
             if rendition.adtsStreams.contains(outIndex), pkt.pointee.size > 9, let data = pkt.pointee.data,
@@ -3024,6 +3409,7 @@ extension RemuxSession {
             rendition.noteMuxZero(pkt, timeBase: outStream.pointee.time_base)
             rendition.noteBaseDts(streamIndex: outIndex, dts: pkt.pointee.dts)
 
+            let audioEnd = isVideo ? nil : Double(pkt.pointee.pts + max(0, pkt.pointee.duration)) * av_q2d(outStream.pointee.time_base)
             let muxStarted = Date()
             ret = av_write_frame(ctx, pkt)
             muxSecondsInSegment += Date().timeIntervalSince(muxStarted)
@@ -3031,6 +3417,7 @@ extension RemuxSession {
                 fail("write_frame: \(averr(ret))")
                 break
             }
+            if let audioEnd { rendition.audioEndSeconds = audioEnd }
         }
     }
 
@@ -3077,7 +3464,7 @@ extension RemuxSession {
         stateLock.lock()
         var doomed: [(Rendition, [Int])] = []
         for rendition in renditions {
-            let prunable = rendition.completed.filter { !keep.contains($0) }
+            let prunable = rendition.completed.filter { !keep.contains($0) && !rendition.standIns.contains($0) }
             // A segment still being written lands outside the window: the writer drops it on landing.
             rendition.prunedWhileWriting.formUnion(rendition.writing.filter { !keep.contains($0) })
             guard !prunable.isEmpty else { continue }
@@ -3103,6 +3490,10 @@ extension RemuxSession {
             for segment in stale.keys { liveGenerationStarts.removeValue(forKey: segment) }
             for n in liveDurations.keys where n < first { liveDurations.removeValue(forKey: n) }
             for n in liveDates.keys where n < first { liveDates.removeValue(forKey: n) }
+            for n in liveSegmentStarts.keys where n < first { liveSegmentStarts.removeValue(forKey: n) }
+            if let windowStart = liveSegmentStarts[first] {
+                textSubtitles.values.forEach { $0.dropCues(endingBefore: windowStart) }
+            }
             let staleInits = stale.values.flatMap { generation in
                 renditions.map { Self.liveInitName(prefix: $0.prefix, generation: generation) }
             }

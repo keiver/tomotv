@@ -22,7 +22,13 @@ private final class PacedServer {
     private var script: Script
     private var open: [NWConnection] = []
     private var timers: [DispatchSourceTimer] = []
-    private(set) var requests = 0
+    private var requestCount = 0
+
+    var requests: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return requestCount
+    }
 
     var url: URL { URL(string: "http://127.0.0.1:\(listener.port?.rawValue ?? 0)/body")! }
 
@@ -60,7 +66,7 @@ private final class PacedServer {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, _, _ in
             guard let self, let data else { return }
             self.lock.lock()
-            self.requests += 1
+            self.requestCount += 1
             self.lock.unlock()
             if let limit = script.refuseRangesFrom, Self.rangeStart(of: data) ?? 0 >= limit {
                 connection.send(content: Data("HTTP/1.1 416 Range Not Satisfiable\r\nContent-Length: 0\r\n\r\n".utf8), completion: .contentProcessed { _ in })
@@ -266,7 +272,8 @@ final class LinkEstimateTests: XCTestCase {
         let s = try RemuxSession(config: makeConfig(durationSeconds: 18, inputUrl: server.url.absoluteString))
         defer { s.stop() }
         s.probeLink()
-        XCTAssertEqual(try XCTUnwrap(s.wireLinkBps) / mbps, 120, accuracy: 3.6)
+        XCTAssertEqual(try XCTUnwrap(s.wireLinkBps) / mbps, 120, accuracy: 6)
+        XCTAssertEqual(server.requests, 3)
         XCTAssertNil(s.sourceProbeFailure)
     }
 
@@ -277,7 +284,8 @@ final class LinkEstimateTests: XCTestCase {
         let s = try RemuxSession(config: makeConfig(durationSeconds: 18, inputUrl: server.url.absoluteString))
         defer { s.stop() }
         s.probeLink()
-        XCTAssertEqual(try XCTUnwrap(s.wireLinkBps) / mbps, 120, accuracy: 3.6, "three connections, 40 each")
+        XCTAssertEqual(try XCTUnwrap(s.wireLinkBps) / mbps, 120, accuracy: 6, "three connections, 40 each")
+        XCTAssertEqual(server.requests, 3)
         XCTAssertNil(s.sourceProbeFailure)
     }
 

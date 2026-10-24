@@ -22,6 +22,7 @@ function render(overrides: Partial<React.ComponentProps<typeof GuideCell>> = {})
     tree = TestRenderer.create(
       <GuideCell
         program={program}
+        channelName="Channel One"
         left={0}
         width={400}
         height={90}
@@ -49,13 +50,27 @@ describe("GuideCell", () => {
     mockReel = undefined;
   });
 
-  it("leads one title row with the episode, the show name trailing, and the slot line", () => {
+  it("leads one title row with the channel name, then the episode, the show name trailing, and the slot line", () => {
     const shown = render()
       .root.findAllByType(Text)
       .map((node) => flatText(node));
-    expect(shown).toContain("Episode 9  ·  Evening News");
+    expect(shown).toContain("Channel One  ·  Episode 9  ·  Evening News");
     expect(shown.some((text) => text.includes(" – ") && text.includes("news"))).toBe(true);
-    expect(flatText(render({ program: { ...program, Id: "p15", EpisodeTitle: undefined } }).root)).toContain("Evening News");
+    expect(flatText(render({ program: { ...program, Id: "p15", EpisodeTitle: undefined } }).root.findAllByType(Text)[0])).toBe("Channel One  ·  Evening News");
+  });
+
+  it("shows the channel name once when the programme carries the same title", () => {
+    const title = (overrides: object) => flatText(render({ program: { ...program, Id: "p16", ...overrides } }).root.findAllByType(Text)[0]);
+    expect(title({ Name: "channel one", EpisodeTitle: undefined })).toBe("Channel One");
+    expect(title({ Name: "Channel One", EpisodeTitle: "Episode 9" })).toBe("Channel One  ·  Episode 9");
+  });
+
+  it("puts the heart before the channel name on a favorite channel's programme and stand-in cells", () => {
+    const standIn = { ...program, Id: `${NO_GUIDE_PREFIX}c5`, Name: "No listings", EpisodeTitle: undefined };
+    for (const cell of [program, standIn]) {
+      expect(testIds(render({ program: cell, favorite: true }))).toContain("guide-cell-favorite");
+      expect(testIds(render({ program: cell }))).not.toContain("guide-cell-favorite");
+    }
   });
 
   it("prints the slot the row parsed, never the programme's dates again", () => {
@@ -180,7 +195,7 @@ describe("GuideCell", () => {
     expect(testIds(render({ program: airing, airing: false }))).not.toContain("guide-focus-reel");
   });
 
-  it("sets when this device grabbed the frames as a stand-in's second line and leading a programme's slot line, only while they show", () => {
+  it("sets when this device grabbed the frames, then no listings, as a stand-in's second line and leading a programme's slot line, only while they show", () => {
     const airing = { ...program, Id: "p8", ChannelId: "c1" };
     const standIn = { ...program, Id: `${NO_GUIDE_PREFIX}c2`, Name: "No listings", EpisodeTitle: undefined };
     for (const cell of [airing, standIn]) {
@@ -193,10 +208,10 @@ describe("GuideCell", () => {
 
     const quiet = render({ program: standIn });
     const seenLine = quiet.root.findByProps({ testID: "guide-cell-seen-line" });
-    expect(flatText(seenLine)).toBe(`Seen at ${time}`);
+    expect(flatText(seenLine)).toBe(`Seen at ${time}  ·  No listings`);
     expect(seenLine.findAllByType(Text).some((node) => node.props.children === time)).toBe(true);
     const lines = quiet.root.findAllByType(Text).map((node) => flatText(node));
-    expect(lines.indexOf(`Seen at ${time}`)).toBe(lines.indexOf("No listings") + 1);
+    expect(lines.indexOf(`Seen at ${time}  ·  No listings`)).toBe(lines.indexOf("Channel One") + 1);
 
     const cell = render({ program: airing });
     const slotLine = cell.root.findAllByType(Text).find((node) => flatText(node).includes(" – "))!;
@@ -234,27 +249,27 @@ describe("GuideCell", () => {
     expect(metaLine("Drama")).toContain("  ·  Drama");
   });
 
-  it("titles a stand-in cell in the cell's own face, the hint trailing only while focused", () => {
+  it("titles a stand-in cell with the channel name, the hint trailing only while focused, and no listings under it", () => {
     const standIn = { ...program, Id: `${NO_GUIDE_PREFIX}c1`, Name: "No listings", EpisodeTitle: "Select to watch" };
     const tree = render({ program: standIn });
-    const title = () => flatText(tree.root.findAllByType(Text)[0]);
-    expect(title()).toBe("No listings");
+    const line = (index: number) => flatText(tree.root.findAllByType(Text)[index]);
+    expect(line(0)).toBe("Channel One");
+    expect(line(1)).toBe("No listings");
     const pressable = tree.root.findByProps({ accessibilityRole: "button" });
     act(() => pressable.props.onFocus());
-    expect(title()).toBe("No listings  ·  Select to watch");
+    expect(line(0)).toBe("Channel One  ·  Select to watch");
     act(() => pressable.props.onBlur());
-    expect(title()).toBe("No listings");
+    expect(line(0)).toBe("Channel One");
   });
 
-  it("claims under a stand-in that the stream can be tried until frames show, with the origin's death verdict overriding", () => {
+  it("shows no status under a stand-in until the origin is judged dead, then says it seems offline", () => {
     const standIn = { ...program, Id: `${NO_GUIDE_PREFIX}c9`, Name: "No listings", EpisodeTitle: undefined };
     const status = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAllByProps({ testID: "guide-cell-status" })[0]?.findByType(Text).props.children;
     try {
       const tree = render({ program: standIn });
-      expect(status(tree)).toBe("Available to stream");
+      expect(status(tree)).toBeUndefined();
       act(() => noteChannelAlive("c9"));
-      expect(status(tree)).toBe("Available to stream");
-      // Shown frames carry the claim themselves: the seen line replaces the dot.
+      expect(status(tree)).toBeUndefined();
       mockReel = { at: T0, frames: [{ uri: "file:///f0.jpg", cacheKey: "k0" }] };
       const withFrames = render({ program: standIn });
       expect(status(withFrames)).toBeUndefined();

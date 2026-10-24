@@ -87,9 +87,10 @@ permission on the server overrides all three.
   account is allowed to transcode and Server transcoding is at When needed, and
   AVPlayer switches between them and the original. The connection is timed on
   real files: Settings reads ten seconds of one in the library.
-- **Live TV** uses the same engine. HLS and DASH origins are read directly, tuner
-  streams are read from their source when the device can reach it, otherwise
-  through the server untouched, and the server's live transcode is the fallback.
+- **Live TV** uses the same engine and never the server's transcoder. HLS and
+  DASH origins are read directly, tuner streams are read from their source when
+  the device can reach it, otherwise through the server untouched. A dropped
+  channel reopens on its own.
 - **FFmpeg** is built in this repo from pinned sources, with every native decoder
   enabled, published by CI and fetched when `@keiver/tomo-engine` installs. DivX 3,
   RealVideo, Theora, DV and Cinepak all play on the device; the measured list is in
@@ -104,7 +105,7 @@ any Expo app on Apple TV, iOS or Mac Catalyst. Neither knows Jellyfin: Tomo conn
 | Package                                       | Holds                                                                                                                                                                               |
 | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`@keiver/tomo-engine`](packages/tomo-engine) | The engine, native XMLTV and M3U parsing, frame grabs, probes, the pinned FFmpeg build, and the player's startup checks, error IDs, track language rules and image subtitle overlay |
-| [`@keiver/tomo-live`](packages/tomo-live)     | Warm neighbour channels, focus previews, live frames and clips, channel health, guide sources, `LiveClip`                                                                           |
+| [`@keiver/tomo-live`](packages/tomo-live)     | A channel's play and reopen after a drop (`LivePlayback`), origin and DRM checks, warm neighbours, focus previews, live frames and clips, channel health, guide sources, `LiveClip` |
 
 Here they are npm workspaces, so Tomo builds against the source in the same
 commit. A commit that changes a published package gets a patch bump from the
@@ -213,7 +214,9 @@ allowlists, run it and say so in the PR. See
 AVKit features (Up Next, the info panel, chapters, channel flipping) and upstream
 fixes. An upgrade that breaks the patch fails the install instead of silently
 dropping them. To change it, edit `node_modules/react-native-video/` and run
-`npx patch-package react-native-video`.
+`npx patch-package react-native-video`. Once a patched feature has matured in
+Tomo and proven it helps every react-native-video user, we plan to open a pull
+request for it upstream. None has been opened yet.
 
 Releasing the app is a maintainer step: [`docs/RELEASING.md`](docs/RELEASING.md).
 `npm run archive -- <next-build>` archives iOS, Mac and tvOS in that order with

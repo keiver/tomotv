@@ -1,63 +1,48 @@
 import { type BadgeSegment, CARD_BADGE_INSET, CardBadge, showsFavoriteHeart } from "@/components/card-badge";
+import { CardCornerTab } from "@/components/card-corner-tab";
 import { CardNavProgress } from "@/components/card-nav-progress";
-import { CardCornerScrim, CardScrim } from "@/components/card-scrim";
+import { CardStand } from "@/components/card-stand";
+import { LevelBars } from "@/components/level-bars";
 import { LiveClip } from "@/components/live-tv/live-clip";
 import { LiveFreshnessBadge } from "@/components/live-tv/live-freshness-badge";
-import { NowPlayingTitleBar } from "@/components/now-playing-title-bar";
-import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, GRID, RAISED_EDGE, slotColumns, type SlotOrientation } from "@/constants/app";
+import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, GRID, RAISED_EDGE, slotColumns, STAND_HEIGHT, STAND_ROW_ROOM, type SlotOrientation } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { useMinuteClock } from "@/hooks/useMinuteClock";
 import { useIsNowPlaying, useNowPlayingVideo, useOpenNowPlaying } from "@/hooks/useNowPlaying";
+import { useNowPlayingProgress } from "@/hooks/useNowPlayingProgress";
 import { t } from "@/services/i18n";
 import { showsChannelLogo } from "@/services/itemArtwork";
 import { isAudioItem, isBook } from "@/services/jellyfinApi";
 import { LIVE_FRAME_TRANSITION_MS, type LiveFrame } from "@/services/liveFrames";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
-import { withAlpha } from "@/utils/color";
 import { formatClock, formatDayLabel } from "@/utils/guide";
+import { liveFrameBox, livePictureAspect, rememberLivePictureAspect } from "@/utils/liveFrameFit";
 import { formatIndexBadge } from "@/utils/seasonEpisode";
 import { Ionicons } from "@expo/vector-icons";
-import { Image } from "expo-image";
+import { Image, type ImageLoadEventData } from "expo-image";
 import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Dimensions, Platform, StyleSheet, TouchableOpacity, View } from "react-native";
-import { MarqueeText } from "./MarqueeText";
+import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // Cache platform values at module level for better performance
 const IS_TV = Platform.isTV;
-// Tablet type off the physical short side, read once. The title is pure chrome and feeds
-// no layout math, so it needs no window subscription and cannot desync the row packer.
-const SCREEN = Dimensions.get("screen");
-const IS_TABLET = !IS_TV && Math.min(SCREEN.width, SCREEN.height) >= GRID.PHONE_WIDE_MIN_WIDTH;
-const TITLE_SIZE = IS_TV ? 22 : IS_TABLET ? 15 : 13;
-/** The favorite heart at a channel title's right end: under the title's cap height. */
-const QUIET_MARK_SIZE = Math.round(TITLE_SIZE * 0.8);
-/** A channel's title centres wherever the card is wide: TV, iPad, Mac. */
-const CHANNEL_TITLE_CENTERED = IS_TV || IS_TABLET;
-/** The channel logo over a live frame: the badge's height, twice as wide. */
-const LOGO_MARK_HEIGHT = IS_TV ? 40 : 26;
 const CARD_PADDING = IS_TV ? 16 : 8;
-// The title bar's own padding, and how far past the card's bottom edge the bar hangs. The
-// overhang is clipped by the image container, and it is what puts the bar's fill UNDER the
-// card's border instead of level with it — flush, the border painted a lighter band across the
-// bar's last 2pt that read as a gap beneath the title.
-const BAR_PADDING_V = IS_TV ? 10 : 8;
-const BAR_DROP = 2;
 const POSTER_SIZE = IS_TV ? 300 : 200; // Optimized for memory
+const BACKDROP_BLUR = IS_TV ? 24 : 16;
 
 /** Badge pill contents: "S01E05" alone, or the disc (when past the first) beside the track. */
 export function indexBadgeSegments(video: JellyfinVideoItem, nowMs: number = Date.now(), recording = false): BadgeSegment[] | null {
   // A channel's mark is the freshness badge, keyed to its own pictures, never a pill from here.
   if (video.Type === "TvChannel") return null;
-  // A programme from search: live while it airs, when it starts before then, nothing once it ended.
-  // Recording, REC takes LIVE's place and a scheduled start wears the camera.
+  // A programme from search: NOW while it airs, when it starts before then, nothing once it ended. LIVE stays the
+  // picture's claim. Recording, REC takes NOW's place and a scheduled start wears the camera.
   if (video.Type === "Program") {
     const startMs = Date.parse(video.StartDate ?? "");
     if (Number.isNaN(startMs)) return null;
-    if (startMs <= nowMs) return Date.parse(video.EndDate ?? "") > nowMs ? [{ label: t(recording ? "liveTv.rec" : "liveTv.live") }] : null;
+    if (startMs <= nowMs) return Date.parse(video.EndDate ?? "") > nowMs ? [{ label: t(recording ? "liveTv.rec" : "liveTv.now") }] : null;
     const label = `${formatDayLabel(startMs, nowMs, { today: t("liveTv.today"), tomorrow: t("liveTv.tomorrow") })} ${formatClock(startMs)}`;
     return [recording ? { icon: "videocam", label } : { label }];
   }
@@ -95,9 +80,9 @@ interface VideoGridItemProps {
   onLongPress?: (video: JellyfinVideoItem) => void;
   index: number;
   onItemFocus?: (video: JellyfinVideoItem, index: number) => void;
-  /** TV: focus left this card (grid focus bookkeeping — see library-grid's recovery). */
+  /** TV: focus left this card (grid focus bookkeeping; see library-grid's recovery). */
   onItemBlur?: (video: JellyfinVideoItem) => void;
-  /** TV: this card unmounted while it held focus — its native view died under the viewer. */
+  /** TV: this card unmounted while it held focus: its native view died under the viewer. */
   onFocusedGone?: () => void;
   hasTVPreferredFocus?: boolean;
   /** Wear the focus treatment with no touch on it, how the phone marks the "Show In Folder" target. */
@@ -123,9 +108,9 @@ interface VideoGridItemProps {
   slotOrientation?: SlotOrientation;
   /** Live column count from the host grid (orientation-aware). Falls back to the static count. */
   numColumns?: number;
-  /** A mark drawn at the title's left end, where the now-playing bars sit; the placeholder face too, except on a channel. */
+  /** A mark drawn at the title's left end, where the now-playing bars sit; the placeholder face too. On a channel, inline before its name. */
   titleIcon?: keyof typeof Ionicons.glyphMap;
-  /** Channel cards: leave the airing programme off the title (the guide beside them shows it). */
+  /** Channel cards: title the card by the channel's name, never the airing programme. */
   hideAiring?: boolean;
   /** Channel cards: the latest frame of the channel; it fills the slot and the logo becomes a corner mark. */
   liveFrame?: { uri: string; cacheKey: string };
@@ -139,6 +124,12 @@ interface VideoGridItemProps {
   offline?: boolean;
   /** Channel and programme cards: a timer covers it; REC takes LIVE's place, a scheduled programme's time wears the camera. */
   recording?: boolean;
+  /** Guide channel cards: a 16:9 slot with no title bar, name or bottom wash over the live picture. */
+  liveCard?: boolean;
+  /** Live cards on the channel wall: the name sits on a stand under the card, led by the title mark. */
+  stand?: boolean;
+  /** Square corners, for a card that sits flush among the guide's square program cells. */
+  square?: boolean;
   /** No resting depth shadow, for hosts that clip it; the focus glow stays. */
   flat?: boolean;
   /** Overrides the card's padding, for hosts that size the slot themselves. */
@@ -187,6 +178,9 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     liveMark = true,
     offline = false,
     recording = false,
+    liveCard = false,
+    stand = false,
+    square = false,
     flat = false,
     inset,
     inert = false,
@@ -239,17 +233,29 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   const airingName = isChannel && !hideAiring ? video.CurrentProgram?.Name?.trim() : undefined;
   // A channel card names what is on: the logo and the badge already say which channel.
   const videoName = cleanLabel(video.Name);
-  const watched = isWatched(video);
-  // The watched eye outranks a passed icon (a watched recording drops the camera).
-  const titleMarkIcon = watched ? "eye" : titleIcon;
-  const leadingMark = isChannel ? undefined : titleMarkIcon;
-  // The heart trails the title: a channel's from the wall, any other card's from its own favorite flag.
-  const trailingMark = isChannel ? titleMarkIcon : showsFavoriteHeart(video) ? "heart" : undefined;
+  const leadingMark = isChannel ? undefined : titleIcon;
   const cardTitle = cleanLabel(airingName) || (video.Type === "Program" ? programCardTitle(video) || t("common.unknown") : videoName || t("common.unknown"));
 
-  // The card's slot ratio (see cardSlotRatio — shared with the row packer so rendered and
-  // allocated widths agree). The art always cover-fills the slot — a crop beats a letterbox.
-  const cardRatio = cardSlotRatio(fitArtwork, video.PrimaryImageAspectRatio, slotOrientation);
+  // The card's slot ratio, shared with the row packer so rendered and allocated widths agree. The art
+  // cover-fills the slot, except a live picture liveFrameBox keeps whole.
+  const cardRatio = liveCard
+    ? GRID.LIVE_RATIO
+    : cardWidth != null && cardHeight != null
+      ? (cardWidth - 2 * CARD_PADDING) / (cardHeight - 2 * CARD_PADDING)
+      : cardSlotRatio(fitArtwork, video.PrimaryImageAspectRatio, slotOrientation);
+  // The live picture's own shape, remembered per channel so a remounted card starts in place.
+  const [pictureAspect, setPictureAspect] = useState(() => (liveCard ? livePictureAspect(video.Id) : undefined));
+  const handleLiveFrameLoad = useCallback(
+    ({ source }: ImageLoadEventData) => {
+      if (source.width <= 0 || source.height <= 0) return;
+      rememberLivePictureAspect(video.Id, source.width / source.height);
+      setPictureAspect(source.width / source.height);
+    },
+    [video.Id],
+  );
+  const liveBox = liveCard && liveFrame ? liveFrameBox(pictureAspect, cardRatio) : null;
+  const standed = liveCard && stand;
+  const offlinePill = offline && !standed;
 
   // Focus handlers - no animations
   const handleFocus = useCallback(() => {
@@ -278,33 +284,42 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     onLongPress?.(video);
   }, [onLongPress, video]);
 
-  // Any card GIVEN a progress value is a resume card and shows the bar — even
-  // at 0 (a just-started video whose position hasn't synced yet). The fill is
-  // floored at 5% below so "just starting" is always visible; grids that pass
-  // no progressPercent are unaffected.
-  // The favorite heart is smaller and dimmed, a presence beside the name.
-  const renderTitleMark = (color: string) => (
-    <>
-      {leadingMark ? (
-        <View style={[styles.titleMark, styles.titleMarkLeading]} pointerEvents="none">
-          <Ionicons name={leadingMark} size={TITLE_SIZE} color={color} />
-        </View>
-      ) : null}
-      {trailingMark ? (
-        <View style={[styles.titleMark, styles.titleMarkTrailing]} pointerEvents="none">
-          <Ionicons name={trailingMark} size={QUIET_MARK_SIZE} color={withAlpha(color, 0.65)} />
-        </View>
-      ) : null}
-    </>
-  );
-  const titleInset = leadingMark || trailingMark ? [styles.titleLineInset, isChannel ? styles.titleLineInsetChannel : !leadingMark && styles.titleLineInsetTrailing] : null;
-  const titleText = (color: string) => (
-    <MarqueeText active={focused} style={StyleSheet.flatten([styles.infoValueTitle, { color }, isChannel && styles.infoValueTitleChannel])}>
-      {cardTitle}
-    </MarqueeText>
-  );
+  // Any card GIVEN a progress value is a resume card and fills its base, even at 0 (a just-started
+  // video whose position hasn't synced yet).
   const hasProgress = progressPercent != null;
   const watchedPercent = hasProgress ? Math.round(Math.min(Math.max(progressPercent, 0), 1) * 100) : 0;
+  const nowPlayingProgress = useNowPlayingProgress(video, nowPlayingAudio ? "audio" : nowPlayingVideo.active ? "video" : null, progressPercent, nowPlayingVideo.playing);
+  const standProgress = nowPlaying ? nowPlayingProgress.fraction : hasProgress ? watchedPercent / 100 : isWatched(video) ? 1 : null;
+  // A logo card has no picture to age: NOW when the title names the airing programme, else the channel and its number.
+  const logoTab = isChannel && !liveCard && !offlinePill && !recording && !liveFrame;
+  const channelNow = logoTab && !!airingName;
+  const channelNumber = video.ChannelNumber?.trim();
+  const channelTab = channelNumber ? t("liveTv.channelNumber").replace("{number}", channelNumber) : t("liveTv.channel");
+  const artBadge = channelNow ? [{ label: t("liveTv.now") }] : logoTab ? [{ label: channelTab }] : isChannel ? null : badgeSegments;
+  // One mark before the name: the playing bars, else a passed icon, else the favorite heart (a channel's is passed in).
+  const nameIcon = leadingMark ?? (isChannel ? titleIcon : showsFavoriteHeart(video) ? "heart" : undefined);
+  const metaMark = nowPlaying
+    ? (color: string) => <LevelBars size={IS_TV ? 16 : 10} playing={nowPlayingProgress.playing} color={color} />
+    : nameIcon
+      ? (color: string) => <Ionicons name={nameIcon} size={IS_TV ? 15 : 9} color={color} />
+      : undefined;
+  const depth = [styles.depth, flat && styles.cardFlat, focused && [styles.cardFocused, { shadowColor: palette.accent }]];
+  const posterImage = (
+    <Image
+      source={liveFrame ?? poster ?? posterSource}
+      style={[styles.poster, liveBox, logoPoster && styles.posterLogo, offline && styles.posterOffline]}
+      onLoad={liveCard && liveFrame ? handleLiveFrameLoad : undefined}
+      contentFit={logoPoster ? "contain" : "cover"}
+      // A newer grab's frame fades in; at rest the card holds still.
+      transition={liveFrame ? LIVE_FRAME_TRANSITION_MS : 0}
+      priority={index < 10 ? "high" : "normal"}
+      // A live frame is a local file a later grab replaces; nothing to keep on disk.
+      cachePolicy={liveFrame ? "none" : "memory-disk"}
+      recyclingKey={video.Id} // Helps with memory recycling
+      accessible={true}
+      accessibilityLabel={t("a11y.poster").replace("{name}", videoName || t("a11y.video"))}
+    />
+  );
 
   return (
     <TouchableOpacity
@@ -314,7 +329,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
       onFocus={handleFocus}
       onBlur={handleBlur}
       // Touch: a held press shows the same focus treatment the TV focus engine drives
-      // (gold border, glow, gold title bar). TV keeps onFocus/onBlur only.
+      // (accent border, glow, accent base). TV keeps onFocus/onBlur only.
       onPressIn={IS_TV ? undefined : handleFocus}
       onPressOut={IS_TV ? undefined : handleBlur}
       activeOpacity={0.95}
@@ -325,11 +340,13 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
       nextFocusDown={nextFocusDown}
       accessible={!inert}
       // The card is ONE element to assistive tech (accessible flattens the
-      // subtree): name as the label, watched progress as the VALUE — screen
+      // subtree): name as the label, watched progress or offline as the VALUE; screen
       // readers announce "Name, 42% watched, button" and re-announce the value
       // if it changes, without the name/percent fused into one string.
       accessibilityLabel={airingName ? cardTitle : videoName || t("a11y.video")}
-      accessibilityValue={hasProgress ? { min: 0, max: 100, now: watchedPercent, text: t("a11y.percentWatched").replace("{percent}", String(watchedPercent)) } : undefined}
+      accessibilityValue={
+        hasProgress ? { min: 0, max: 100, now: watchedPercent, text: t("a11y.percentWatched").replace("{percent}", String(watchedPercent)) } : offline ? { text: t("liveTv.offline") } : undefined
+      }
       accessibilityRole="button"
       accessibilityHint={IS_TV ? (hasProgress ? t("a11y.pressToResume") : t("a11y.pressToPlay")) : hasProgress ? t("a11y.doubleTapResume") : t("a11y.doubleTapPlay")}
       style={[
@@ -341,47 +358,35 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             : { width: `${100 / (numColumns ?? slotColumns(slotOrientation, IS_TV))}%` },
         inset && { paddingVertical: inset.vertical, paddingHorizontal: inset.horizontal },
       ]}>
-      <View style={[styles.card, flat && styles.cardFlat, focused && [styles.cardFocused, { shadowColor: palette.accent }]]}>
-        <View style={[styles.imageContainer, { aspectRatio: cardRatio }]}>
+      <View style={[styles.card, IS_TV ? null : depth, square && styles.square, !liveCard && styles.cardOverhang]}>
+        {/* TV: a solid layer behind the picture carries the depth, so the card stays clear for its base. */}
+        {IS_TV ? <View style={[styles.depthLayer, depth, square && styles.square, !liveCard && !focused && styles.depthLayerArt]} pointerEvents="none" /> : null}
+        {/* A wall card's stand says offline with its glyph, so it skips the tab. */}
+        {artBadge && !offlinePill ? <CardCornerTab segments={artBadge} tone={video.Type === "Program" || channelNow ? "live" : "plain"} focused={focused} /> : null}
+        <View style={[styles.imageContainer, { aspectRatio: cardRatio }, square && styles.square, (standed || !liveCard) && styles.squareBottom]}>
           {liveFrame || poster || posterSource ? (
             <>
-              <Image
-                source={liveFrame ?? poster ?? posterSource}
-                style={[styles.poster, logoPoster && styles.posterLogo, offline && styles.posterOffline]}
-                contentFit={logoPoster ? "contain" : "cover"}
-                // A newer grab's frame fades in; at rest the card holds still.
-                transition={liveFrame ? LIVE_FRAME_TRANSITION_MS : 0}
-                priority={index < 10 ? "high" : "normal"}
-                // A live frame is a local file a later grab replaces; nothing to keep on disk.
-                cachePolicy={liveFrame ? "none" : "memory-disk"}
-                recyclingKey={video.Id} // Helps with memory recycling
-                accessible={true}
-                accessibilityLabel={t("a11y.poster").replace("{name}", videoName || t("a11y.video"))}
-              />
-              {(focused || clipActive) && liveFrame && liveClip ? <LiveClip clip={liveClip} /> : null}
-              <CardScrim />
-              {focused && badgeSegments && !isChannel ? <CardCornerScrim /> : null}
-              {liveFrame && posterSource ? (
+              {liveBox ? (
                 <>
-                  <CardCornerScrim corner="right" />
-                  <View style={styles.logoHalo} pointerEvents="none">
-                    <Image
-                      source={posterSource}
-                      style={styles.logoMark}
-                      contentFit="contain"
-                      transition={0}
-                      cachePolicy="memory-disk"
-                      recyclingKey={`${video.Id}-logo`}
-                      accessible={false}
-                      pointerEvents="none"
-                    />
-                  </View>
+                  <Image
+                    source={liveFrame}
+                    style={StyleSheet.absoluteFill}
+                    contentFit="cover"
+                    blurRadius={BACKDROP_BLUR}
+                    transition={LIVE_FRAME_TRANSITION_MS}
+                    cachePolicy="none"
+                    recyclingKey={`${video.Id}-backdrop`}
+                    accessible={false}
+                  />
+                  <View style={styles.backdropDim} pointerEvents="none" />
                 </>
               ) : null}
+              {posterImage}
+              {(focused || clipActive) && liveFrame && liveClip ? <LiveClip clip={liveClip} style={liveBox ?? undefined} /> : null}
             </>
           ) : (
             // No artwork: a glyph for the item's kind on the dark card fill. The title
-            // lives in the bottom bar (always rendered), same as postered cards.
+            // lives in the line under the card, same as postered cards.
             <View style={styles.placeholderPoster}>
               <Ionicons
                 name={isChannel ? "tv-outline" : (titleIcon ?? (isAudioItem(video) ? "musical-note-outline" : isBook(video) ? "book-outline" : "tv-outline"))}
@@ -391,77 +396,45 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             </View>
           )}
 
-          {/* Opaque dark title bar at the very bottom — one treatment for every card */}
-          {/* Progress cards (Continue Watching): the title bar IS the progress
-              indicator — a gold fill behind the title marks the watched
-              fraction (floored at 5% so a barely-started video still shows).
-              Rendered regardless of poster: a posterless placeholder card
-              still owes the user its progress. The bar is identical in both
-              focus states; border/glow/marquee do the identifying. The gold
-              title composites with difference blending, so it self-inverts to
-              black exactly where the fill passes under it and stays gold over
-              the dark remainder — the old manual white→black focus switch,
-              now per-pixel and automatic. */}
-          {nowPlaying ? (
-            <NowPlayingTitleBar video={video} focused={focused} kind={nowPlayingAudio ? "audio" : "video"} progressPercent={progressPercent} playing={nowPlayingVideo.playing} />
-          ) : hasProgress ? (
-            // Glass bar: the gold fill stays opaque, the difference-blended title
-            // rides the near-black bottom scrim (gold over the remainder, black
-            // over the fill). Decorative to a11y — the card announces name + value.
-            <View style={[styles.infoOverlay, styles.infoOverlayGlass]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-              <View style={[styles.infoProgressFill, { width: `${Math.max(watchedPercent, 5)}%`, backgroundColor: palette.accent }]} pointerEvents="none" />
-              <View style={[styles.infoTitleBlend, titleInset]}>
-                {renderTitleMark(palette.accent)}
-                {titleText(palette.accent)}
-              </View>
+          {/* A live card names nothing over its picture; the bars alone mark it playing. */}
+          {nowPlaying && liveCard ? (
+            <View style={styles.liveNowPlaying} pointerEvents="none">
+              <LevelBars size={IS_TV ? 20 : 12} playing={nowPlayingProgress.playing} />
             </View>
-          ) : // Focused or watched: opaque gold bar (the watched bar is the fill at its end state, under the ink eye)
-          focused || watched ? (
-            <View style={[styles.infoOverlay, { backgroundColor: palette.accent }]}>
-              <View style={[styles.infoTitleLine, titleInset]}>
-                {renderTitleMark(palette.ink)}
-                {titleText(palette.ink)}
-              </View>
-            </View>
-          ) : (
-            <View style={[styles.infoOverlay, styles.infoOverlayGlass]}>
-              <View style={[styles.infoTitleLine, titleInset]}>
-                {renderTitleMark(palette.accent)}
-                {titleText(palette.accent)}
-              </View>
-            </View>
-          )}
+          ) : null}
 
-          {/* The music note is what separates "track 5" from the item count the folder
-              cards put in this same corner; "S01E05" needs no help. */}
-          {offline || badgeSegments || (isChannel && (recording || (liveFrame ? liveMark : airingName))) ? (
-            <View style={styles.indexBadge} pointerEvents="none">
-              {offline ? (
+          {offlinePill || (isChannel && (recording || (liveFrame ? liveMark : liveCard && airingName))) ? (
+            <View style={[styles.indexBadge, liveCard && styles.indexBadgeChannel]} pointerEvents="none">
+              {offlinePill ? (
                 // A fact pill, not a broadcast mark: red stays for LIVE and REC.
-                <CardBadge segments={[{ label: t("liveTv.offline") }]} focused={focused} />
+                <CardBadge segments={[{ icon: "cloud-offline" }]} focused={focused} />
               ) : isChannel && recording ? (
                 <CardBadge segments={[{ label: t("liveTv.rec") }]} focused={focused} tone="live" />
               ) : isChannel && liveFrame ? (
                 <LiveFreshnessBadge channelId={video.Id} />
               ) : isChannel ? (
-                // A logo card has no picture to age: LIVE is the guide's claim about the programme in the title.
-                <CardBadge segments={[{ label: t("liveTv.live") }]} focused={focused} tone="live" />
-              ) : badgeSegments ? (
-                <CardBadge segments={badgeSegments} focused={focused} tone={video.Type === "Program" ? "live" : "gold"} />
+                <CardBadge segments={[{ label: t("liveTv.now") }]} focused={focused} tone="live" />
               ) : null}
             </View>
           ) : null}
-
-          {/* The lit edge and the focus border, on top so the art and the title bar sit under them */}
-          <View style={[styles.borderOverlay, focused && [styles.borderOverlayFocused, { borderColor: palette.accent }]]} pointerEvents="none" />
-
-          {/* Per-card feedback while the pressed card's destination loads:
-              the title bar becomes a sweeping gold progress fill. Resume
-              cards start the sweep from their watched fraction. Mounted only
-              around a press (visible lingers past the handoff fade) — idle
-              cards carry no overlay. */}
-          {navBarVisible ? <CardNavProgress active={navigating} title={cardTitle} startFraction={hasProgress ? watchedPercent / 100 : undefined} /> : null}
+          {/* The lit edge, on top so the art sits under it */}
+          <View style={[styles.borderOverlay, focused && styles.borderOverlayFocused, square && styles.square, (standed || !liveCard) && styles.squareBottom]} pointerEvents="none" />
         </View>
+        {/* Inside the card, under the picture's slot: the glow wraps both and the picture keeps its size. */}
+        {standed ? (
+          <View>
+            <CardStand name={cardTitle} icon={titleIcon} focused={focused} offline={offline} liveChannelId={liveFrame && liveMark ? video.Id : undefined} />
+            {navBarVisible ? <CardNavProgress active={navigating} title={cardTitle} stand baseColor={COLORS.SURFACE_SUNKEN} /> : null}
+          </View>
+        ) : null}
+        {/* Rendered regardless of poster: a posterless placeholder card still owes the user its progress. */}
+        {liveCard ? null : (
+          <View>
+            <CardStand name={cardTitle} focused={focused} mark={metaMark} progress={standProgress} scrolls />
+            {navBarVisible ? <CardNavProgress active={navigating} title={cardTitle} startFraction={hasProgress ? watchedPercent / 100 : undefined} stand baseColor={COLORS.SURFACE_SUNKEN} /> : null}
+          </View>
+        )}
+        {focused ? <View style={[styles.focusRing, { borderColor: palette.accent }, square && styles.square]} pointerEvents="none" /> : null}
       </View>
     </TouchableOpacity>
   );
@@ -512,6 +485,9 @@ function arePropsEqual(prevProps: VideoGridItemProps, nextProps: VideoGridItemPr
     prevProps.liveMark === nextProps.liveMark &&
     prevProps.offline === nextProps.offline &&
     prevProps.recording === nextProps.recording &&
+    prevProps.liveCard === nextProps.liveCard &&
+    prevProps.stand === nextProps.stand &&
+    prevProps.square === nextProps.square &&
     prevProps.flat === nextProps.flat &&
     prevProps.inset?.vertical === nextProps.inset?.vertical &&
     prevProps.inset?.horizontal === nextProps.inset?.horizontal &&
@@ -530,11 +506,14 @@ const styles = StyleSheet.create({
   },
   card: {
     borderRadius: DESIGN.BORDER_RADIUS_CARD,
+  },
+  depth: {
+    borderRadius: DESIGN.BORDER_RADIUS_CARD,
     // Solid background so iOS derives the focus glow from the rounded rect
     // (a transparent background forces expensive per-pixel shadow tracing).
-    // No overflow:hidden here — it would clip the glow; the image is already
+    // No overflow:hidden here: it would clip the glow; the image is already
     // clipped by imageContainer.
-    backgroundColor: COLORS.SURFACE,
+    backgroundColor: COLORS.SURFACE_SUNKEN,
     shadowColor: CARD_DEPTH.SHADOW_COLOR,
     shadowOffset: IS_TV ? CARD_DEPTH.SHADOW_OFFSET.tv : CARD_DEPTH.SHADOW_OFFSET.phone,
     shadowOpacity: CARD_DEPTH.SHADOW_OPACITY,
@@ -545,7 +524,18 @@ const styles = StyleSheet.create({
     shadowOpacity: 0,
     elevation: 0,
   },
-  // Overrides every resting shadow prop — a leftover depth offset would smear the glow downward.
+  depthLayer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  // At rest the layer stops at the art, leaving the base over the canvas.
+  depthLayerArt: {
+    bottom: STAND_HEIGHT,
+  },
+  // Overrides every resting shadow prop: a leftover depth offset would smear the glow downward.
   // The glow's colour is the theme's, set inline.
   cardFocused: {
     shadowOffset: { width: 0, height: 0 },
@@ -558,7 +548,7 @@ const styles = StyleSheet.create({
     // aspectRatio set inline from the slot orientation (portrait 2:3 / landscape 16:9)
     borderRadius: DESIGN.BORDER_RADIUS_CARD,
     overflow: "hidden",
-    backgroundColor: COLORS.SURFACE,
+    backgroundColor: COLORS.SURFACE_SUNKEN,
     // Center an orientation-mismatched image in the slot (no-op when it fills it).
     justifyContent: "center",
     alignItems: "center",
@@ -574,8 +564,16 @@ const styles = StyleSheet.create({
   },
   // An inset shadow paints inside the border, so under the gold ring it reads as a second one.
   borderOverlayFocused: {
-    borderWidth: CARD_FOCUS.BORDER_WIDTH_FOCUSED,
     boxShadow: "none",
+  },
+  focusRing: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: DESIGN.BORDER_RADIUS_CARD,
+    borderWidth: CARD_FOCUS.BORDER_WIDTH_FOCUSED,
   },
   poster: {
     width: "100%",
@@ -590,23 +588,6 @@ const styles = StyleSheet.create({
   posterOffline: {
     opacity: 0.4,
   },
-  // The channel's logo over its live frame. No background, so the layer shadow traces the logo's
-  // own alpha: a white halo round a dark mark.
-  logoHalo: {
-    position: "absolute",
-    top: CARD_BADGE_INSET,
-    right: CARD_BADGE_INSET,
-    width: LOGO_MARK_HEIGHT * 2,
-    height: LOGO_MARK_HEIGHT,
-    shadowColor: "#FFFFFF",
-    shadowOpacity: 0.9,
-    shadowRadius: IS_TV ? 3 : 2,
-    shadowOffset: { width: 0, height: 0 },
-  },
-  logoMark: {
-    width: "100%",
-    height: "100%",
-  },
   // Anchors the index pill to the top-left corner of the card.
   indexBadge: {
     position: "absolute",
@@ -617,22 +598,30 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: IS_TV ? 8 : 5,
   },
-  // About two words of programme name; the badge ellipsizes the rest and yields to LIVE first.
-  // The watched fraction, drawn as the title bar's own background: a solid
-  // gold fill spanning `width` percent of the bar, clipped by the bar's
-  // rounded bottom corners (infoOverlay has overflow: hidden). Full gold in
-  // both focus states — the difference-blended title keeps itself legible
-  // over it, so no dimming is needed.
-  //
-  // minWidth clears the rounded bottom-left corner: the 32px TV radius clips
-  // anything narrower into an invisible curved wedge, which made a
-  // just-started video (5% ≈ 20px) look like it had no progress at all.
-  infoProgressFill: {
+  // A channel's mark tucks into the corner, off the channel's own logo.
+  indexBadgeChannel: {
+    top: CARD_BADGE_INSET - 2,
+    left: CARD_BADGE_INSET - 2,
+  },
+  square: {
+    borderRadius: 0,
+  },
+  squareBottom: {
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+  },
+  // Where rows keep no room for it (TV), the base hangs into the card's own bottom padding and the row's.
+  cardOverhang: {
+    marginBottom: STAND_ROW_ROOM - STAND_HEIGHT,
+  },
+  // Holds the blurred fill behind a whole picture under the sharp one.
+  backdropDim: {
     position: "absolute",
     top: 0,
-    bottom: 0,
     left: 0,
-    minWidth: DESIGN.BORDER_RADIUS_CARD + (IS_TV ? 20 : 12),
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0, 0, 0, 0.35)",
   },
   placeholderPoster: {
     width: "100%",
@@ -641,78 +630,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: COLORS.SURFACE, // Elevated card color - matches design system
   },
-  // Opaque sliver at the very bottom showing just the title.
-  infoOverlay: {
+  liveNowPlaying: {
     position: "absolute",
-    bottom: -BAR_DROP,
-    left: 0,
-    right: 0,
-    // The drop is added back as bottom padding: the clipped overhang would otherwise take it out
-    // of the visible band and leave the title sitting low in the bar. Grown at the bottom, not
-    // split evenly, since that is the end the clip eats.
-    paddingTop: BAR_PADDING_V,
-    paddingBottom: BAR_PADDING_V + BAR_DROP,
-    paddingHorizontal: IS_TV ? 16 : 14,
-    overflow: "hidden",
-    justifyContent: "center",
-    alignItems: "center",
-    borderBottomLeftRadius: DESIGN.BORDER_RADIUS_CARD,
-    borderBottomRightRadius: DESIGN.BORDER_RADIUS_CARD,
-  },
-  // Resting bar: the scrimmed artwork tints through so the title area reads as part
-  // of the poster, not a flat strip against the app background. Gold stays legible on
-  // the bottom scrim's near-black wash (CardScrim reaches 0.72).
-  infoOverlayGlass: {
-    backgroundColor: "rgba(28, 28, 30, 0.6)",
-  },
-  // Flush left on phone: touch has no marquee (MarqueeText only scrolls on TV focus), so long
-  // names always ellipsize, and a ragged tail reads better from a fixed left edge than centred.
-  infoValueTitle: {
-    color: COLORS.TEXT_PRIMARY,
-    fontSize: TITLE_SIZE,
-    fontWeight: "700",
-    textAlign: IS_TV ? "center" : "left",
-    width: "100%",
-  },
-  // Pulled halfway into the bar's side inset, closer to the card edge than the title sits.
-  // Out of flow at the line's end, so the title keeps the whole line to centre in.
-  titleMark: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    justifyContent: "center",
-  },
-  titleMarkLeading: {
-    left: IS_TV ? 4 : -4,
-  },
-  // The favorite heart sits at the line's right end.
-  titleMarkTrailing: {
-    right: IS_TV ? 4 : -4,
-  },
-  // A flush-left title with only the heart starts at the bar's edge.
-  titleLineInsetTrailing: {
-    paddingLeft: IS_TV ? undefined : 0,
-  },
-  infoTitleLine: {
-    width: "100%",
-  },
-  // Both sides, so the TV title stays centred while it clears the mark.
-  titleLineInset: {
-    paddingHorizontal: IS_TV ? TITLE_SIZE + 16 : TITLE_SIZE + 2,
-  },
-  // A flush-left channel title starts at the bar's edge: its mark is on the right.
-  titleLineInsetChannel: {
-    paddingLeft: CHANNEL_TITLE_CENTERED ? undefined : 0,
-  },
-  infoValueTitleChannel: {
-    fontSize: TITLE_SIZE - 2,
-    textTransform: "uppercase",
-    textAlign: CHANNEL_TITLE_CENTERED ? "center" : "left",
-  },
-  // The accent title on progress cards runs through a difference blend: over the accent fill it
-  // cancels to black, over the dark bar it stays the accent, per pixel at the fill edge.
-  infoTitleBlend: {
-    width: "100%",
-    mixBlendMode: "difference",
+    left: CARD_BADGE_INSET,
+    bottom: CARD_BADGE_INSET,
   },
 });

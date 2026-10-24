@@ -89,6 +89,9 @@ func probeStreamInfo(_ ctx: UnsafeMutablePointer<AVFormatContext>) -> Int32 {
 /// A file read silent this long reconnects at its offset (http.c). A tvOS receiver can withhold its
 /// reopened window until the sender's 5s persist probe (measured; XNU tcp_output.c), so 15s waits it out.
 let fileSourceReadTimeoutMicros = "2000000"
+/// A live read's silence guard, past any origin's own wait on a channel still starting (Dispatcharr holds an
+/// admitted client silent up to its 60 s client wait): the origin ends the open first, this only ends a dead socket.
+let liveSourceSilenceMicros = "75000000"
 
 /// The terms a source read opens with: reconnects on a dropped link, a bounded wait per I/O call, no
 /// trust store to verify against, and the origin's headers.
@@ -97,7 +100,7 @@ func sourceHttpOptions(headers: [String: String], reconnects: Bool = true, file:
     av_dict_set(&opts, "reconnect", reconnects ? "1" : "0", 0)
     av_dict_set(&opts, "reconnect_streamed", reconnects ? "1" : "0", 0)
     av_dict_set(&opts, "reconnect_delay_max", "5", 0)
-    av_dict_set(&opts, "rw_timeout", file ? fileSourceReadTimeoutMicros : "15000000", 0)
+    av_dict_set(&opts, "rw_timeout", file ? fileSourceReadTimeoutMicros : liveSourceSilenceMicros, 0)
     av_dict_set(&opts, "tls_verify", "0", 0)
     for (name, value) in headers {
         if name.caseInsensitiveCompare("User-Agent") == .orderedSame {
@@ -144,6 +147,10 @@ final class RemuxSession {
     var liveKeepSegments: Int
     /// The live input's connection lease while the input is open; guarded by stateLock.
     var inputLease: LiveConnectionBroker.Lease?
+    /// "http://127.0.0.1:{port}/{token}", set before start() by whoever serves the session.
+    var loopbackBase: String?
+    /// The trimmed master a live HLS input opens through the loopback; guarded by stateLock.
+    var sourcePlaylist: String?
     /// The live input reads `fallbackInputUrl`, not the origin its lease counts; guarded by stateLock.
     var inputIsFallback = false
 
@@ -323,14 +330,29 @@ final class RemuxSession {
     var liveDurations: [Int: Double] = [:]
     /// Wall time each live segment started, for EXT-X-PROGRAM-DATE-TIME.
     var liveDates: [Int: Date] = [:]
+    /// Output second each live segment starts at, where its subtitle window opens.
+    var liveSegmentStarts: [Int: Double] = [:]
+    /// Live: the trimmed master's SUBTITLES renditions (attribute lists), kept out of what FFmpeg opens.
+    var liveSubtitleRenditions: [String] = []
+    /// Live text subtitle track -> the playlist URI of its rendition.
+    var liveSubtitleURIs: [Int: String] = [:]
+    /// Live text subtitle track -> when its last completed read of the rendition playlist began.
+    var liveSubtitlePolledAt: [Int32: Date] = [:]
     /// Segment index -> generation that opened there. Every entry after segment 0 is a splice.
     var liveGenerationStarts: [Int: Int] = [0: 0]
     /// Splices whose bookkeeping the prune dropped; DISCONTINUITY-SEQUENCE counts them still.
     var liveDiscontinuitiesRemoved = 0
     /// Lowest segment still on disk; MEDIA-SEQUENCE.
     var firstRetainedSegment = 0
-    /// Fixed on the first playlist request; TARGETDURATION may not move afterwards.
+    /// The live TARGETDURATION served so far: it never falls, and rises only for a segment longer than it.
     var liveTargetDuration: Int?
+    /// EXT-X-START's distance behind the newest segment, fixed by the first live playlist.
+    var liveStartSeconds: Double?
+    /// A live read past this time is aborted by the interrupt callback and the input reopened. Pipeline thread only.
+    var liveReadDeadline: Date?
+    var liveReadStalled = false
+    /// The live input was lost and is reopening in place, or has reopened: the app's account of a drop.
+    var onLive: (([String: Any]) -> Void)?
     /// Longest keyframe interval seen on the source, which bounds a keyframe-aligned cut's overshoot.
     var maxKeyframeGapSeconds: Double = 0
     /// Every audio stream the demuxer found, in rendition order, for a session that reads its tracks
@@ -345,7 +367,17 @@ final class RemuxSession {
     /// A `describesInput` session's length off the container: written once on the pipeline thread
     /// before the source is ready, like the adopted grid.
     var containerDurationSeconds: Double = 0
-    var durationSeconds: Double { config.durationSeconds > 0 ? config.durationSeconds : containerDurationSeconds }
+    /// Where the picture ends, when the container says so and it is short of the runtime. The video
+    /// track decides where an item ends, so the grid ends there and audio past it is not written.
+    /// Written once on the pipeline thread before the source is ready, and only while no playlist
+    /// has named the grid (gridPublished). 0 = not known.
+    var pictureEndSeconds: Double = 0
+    /// A playlist has named the grid, which can no longer move. Under stateLock.
+    var gridPublished = false
+    var durationSeconds: Double {
+        let declared = config.durationSeconds > 0 ? config.durationSeconds : containerDurationSeconds
+        return pictureEndSeconds > 0 && pictureEndSeconds < declared ? pictureEndSeconds : declared
+    }
     /// The primary rendition's init is on disk, so its video CODECS is resolved (under stateLock).
     var primaryInitWritten = false
     /// Copied video whose opening packets carry CEA-608/708 in their SEI; the master declares them.

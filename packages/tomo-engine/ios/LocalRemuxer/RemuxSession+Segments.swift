@@ -25,11 +25,11 @@ extension RemuxSession {
         let inRange = config.isLive ? n >= firstRetainedSegment : n < segmentCount
         let done = rendition?.completed.contains(n) == true
         let dead = failed || cancelled
-        let pastEnd = reachedEnd && n > lastProducedSegment
         // The copy serving counts too: a rung left for the copy is as idle as one left for another rung.
         if prefix.isEmpty, !config.isLive, !config.tiers.isEmpty { segmentsServed += 1 }
         stateLock.unlock()
-        if dead || !inRange || (pastEnd && !done) { return .notFound }
+        // A segment no stream will fill is answered by segmentURL with a stand-in, never a 404.
+        if dead || !inRange { return .notFound }
         if prefix.isEmpty, !config.isLive, !config.tiers.isEmpty { stopIdleRungs() }
         if done, let rendition {
             let file = dir.appendingPathComponent(rendition.segmentName(n))
@@ -119,11 +119,12 @@ extension RemuxSession {
         let done = rendition.completed.contains(n)
         let producing = producingSegment
         let sessionFailed = failed || cancelled
-        // Past the real end of the stream: nothing will ever produce this, so
-        // answer immediately instead of waiting out the segment timeout.
-        let pastEnd = reachedEnd && n > lastProducedSegment
+        // Past the real end of the stream, or a span this track had nothing in: nothing will ever
+        // produce this, so answer at once instead of waiting out the segment timeout.
+        let neverMade = !done && neverProducedLocked(n, rendition: rendition)
         stateLock.unlock()
-        if sessionFailed || !inRange || (pastEnd && !done) { return nil }
+        if sessionFailed || !inRange { return nil }
+        if neverMade { return standInURL(for: n, prefix: prefix, request: request) }
 
         let url = dir.appendingPathComponent(rendition.segmentName(n))
         if done, FileManager.default.fileExists(atPath: url.path) { return url }
@@ -175,9 +176,10 @@ extension RemuxSession {
         var ticks = 0
         while true {
             stateLock.lock()
-            let completed = renditions.first { $0.prefix == prefix }?.completed.contains(n) == true
+            let current = renditions.first { $0.prefix == prefix }
+            let completed = current?.completed.contains(n) == true
             let dead = failed || cancelled || (prefix.isEmpty && sourceUnusable)
-            let ended = reachedEnd && n > lastProducedSegment
+            let ended = !completed && current.map { neverProducedLocked(n, rendition: $0) } == true
             let producingNow = producingSegment
             let inRecovery = recovering
             if !config.isLive && !completed && !dead && !ended && ticks >= 20 && ticks % 10 == 0
@@ -198,16 +200,55 @@ extension RemuxSession {
         }
 
         stateLock.lock()
-        let completed = renditions.first { $0.prefix == prefix }?.completed.contains(n) == true
-        let ok = !failed && !cancelled && completed
+        let current = renditions.first { $0.prefix == prefix }
+        let completed = current?.completed.contains(n) == true
+        let alive = !failed && !cancelled
+        let ok = alive && completed
+        let ranOut = alive && !completed && current.map { neverProducedLocked(n, rendition: $0) } == true
         let producingAtEnd = producingSegment
         let playheadAtEnd = lastRequestedSegment
         stateLock.unlock()
+        // The read ran out, or the cut came up empty for this track, while the request waited.
+        if ranOut, request?.isAbandoned != true { return standInURL(for: n, prefix: prefix, request: request) }
         if !ok {
             NSLog("[LocalRemuxer] Segment request %d%@ unserved (producing %d, playhead %d)",
                   n, prefix.isEmpty ? "" : " [\(prefix)]", producingAtEnd, playheadAtEnd)
         }
         return ok && FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    /// A declared segment this rendition will never hold: the read reached the end of the file before
+    /// it, or the cut found none of the track's samples in it. The playlist is written from the item's
+    /// runtime, which is its LONGEST stream, so a file whose audio outlasts the picture (or the
+    /// reverse) lists segments one side never fills. A 404 there is a -1100 that fails the item at
+    /// its very end instead of ending it (measured on Apple TV: an episode with 8s of audio past its
+    /// last frame). Caller holds stateLock.
+    func neverProducedLocked(_ n: Int, rendition: Rendition) -> Bool {
+        !config.isLive && ((reachedEnd && n > lastProducedSegment) || rendition.empty.contains(n))
+    }
+
+    /// Answers such a segment with the track's nearest one below it. Those samples are ones the
+    /// player already holds, so the stand-in adds none and AVPlayer runs on to ENDLIST and posts its
+    /// end, with every sample of the longer stream played (StreamEndTests, on the host's AVPlayer).
+    /// A stand-in on disk is handed over as it is, leaving the playhead where the player is, and is
+    /// kept from the prune for the next empty request. One still landing, or pruned before it was
+    /// first needed, goes through the normal path, which waits for it or makes it again.
+    func standInURL(for n: Int, prefix: String, request: SegmentRequest?) -> URL? {
+        stateLock.lock()
+        let rendition = renditions.first { $0.prefix == prefix }
+        let ceiling = reachedEnd ? min(n - 1, lastProducedSegment) : n - 1
+        var standIn: Int?
+        if let rendition {
+            standIn = stride(from: ceiling, through: 0, by: -1).first { !rendition.empty.contains($0) }
+            if let standIn { rendition.standIns.insert(standIn) }
+        }
+        let held = standIn.map { rendition?.completed.contains($0) == true } ?? false
+        stateLock.unlock()
+        guard let standIn, let rendition else { return nil }
+        NSLog("[LocalRemuxer] segment %d%@ holds no media: answered with segment %d", n, prefix.isEmpty ? "" : " [\(prefix)]", standIn)
+        let file = dir.appendingPathComponent(rendition.segmentName(standIn))
+        if held, FileManager.default.fileExists(atPath: file.path) { return file }
+        return segmentURL(standIn, prefix: prefix, request: request)
     }
 
     /// Queues the restart a stranded request needs, and says whether it did. Caller holds stateLock.

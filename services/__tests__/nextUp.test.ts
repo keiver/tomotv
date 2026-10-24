@@ -123,6 +123,18 @@ describe("next-up resolution", () => {
     expect(resolved.map(({ video }) => video.Id)).toEqual(["e3"]);
   });
 
+  it("offers an episode marked watched earlier once its series is marked unwatched", async () => {
+    markPlayed("e2", true);
+    markPlayed("series-1", false);
+    markPlayed("e1", true);
+    fetchRecentlyPlayed.mockResolvedValue([item("e1", { SeriesId: "series-1", Played: true })]);
+    fetchRecursiveVideos.mockResolvedValue([item("e1", { SeriesId: "series-1", Played: true }), item("e2", { SeriesId: "series-1" }), item("e3", { SeriesId: "series-1" })]);
+
+    const resolved = await resolveNextUp([]);
+
+    expect(resolved.map(({ video }) => video.Id)).toEqual(["e2"]);
+  });
+
   it("offers nothing once the container is finished", async () => {
     fetchRecentlyPlayed.mockResolvedValue([item("e2", { SeriesId: "series-1", Played: true })]);
     fetchRecursiveVideos.mockResolvedValue([item("e1", { SeriesId: "series-1", Played: true }), item("e2", { SeriesId: "series-1", Played: true })]);

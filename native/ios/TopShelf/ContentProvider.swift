@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import TVServices
 import UIKit
 import os.log
@@ -87,8 +88,9 @@ class ContentProvider: TVTopShelfContentProvider {
           return
         }
         Self.channelCards(for: picked, base: base, apiKey: apiKey) { cards in
-          let items = picked.map { Self.makeShelfItem($0, base: base, apiKey: apiKey, card: cards[$0.Id]) }
-          Self.log.info("returning \(items.count, privacy: .public) items, \(cards.count, privacy: .public) channel cards")
+          let frames = Self.keyframes()
+          let items = picked.map { Self.makeShelfItem($0, base: base, apiKey: apiKey, card: cards[$0.Id], frame: frames[$0.Id]) }
+          Self.log.info("returning \(items.count, privacy: .public) items, \(cards.count, privacy: .public) channel cards, \(frames.count, privacy: .public) keyframes")
           completionHandler(TVTopShelfSectionedContent(sections: [TVTopShelfItemCollection(items: items)]))
         }
       }
@@ -110,6 +112,39 @@ class ContentProvider: TVTopShelfContentProvider {
   private static var cardDirectory: URL? {
     FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.dev.keiver.tomotv")?
       .appendingPathComponent("Library/Caches/topshelf-cards", isDirectory: true)
+  }
+
+  /// A keyframe file and its width over height. The engine keeps the source's display shape with the
+  /// bars cut, so a 4:3, scope or vertical source each give a different shape.
+  private struct Keyframe {
+    let url: URL
+    let aspect: Double
+  }
+
+  /// Keyframes the app copied for items without a server poster (services/topShelfFrames.ts), named
+  /// `<itemId>.<md5>.jpg`. The app owns the directory; for two files of one item the newest wins.
+  private static func keyframes() -> [String: Keyframe] {
+    guard let directory = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.dev.keiver.tomotv")?
+      .appendingPathComponent("Library/Caches/topshelf-frames", isDirectory: true),
+      let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey]) else { return [:] }
+    var newest: [String: (url: URL, modified: Date)] = [:]
+    for file in files where file.pathExtension == "jpg" {
+      let id = String(file.lastPathComponent.prefix { $0 != "." })
+      let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+      if let held = newest[id], held.modified >= modified { continue }
+      newest[id] = (file, modified)
+    }
+    return newest.compactMapValues { entry in pixelAspect(of: entry.url).map { Keyframe(url: entry.url, aspect: $0) } }
+  }
+
+  /// Read from the file's header; the picture is never decoded in this process. Nil for a file that is not an image.
+  private static func pixelAspect(of url: URL) -> Double? {
+    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+          let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+          let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue,
+          let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue,
+          width > 0, height > 0 else { return nil }
+    return width / height
   }
 
   /// Card files by channel id for the picked channels with a logo; a card made for the same logo is reused.
@@ -199,7 +234,12 @@ class ContentProvider: TVTopShelfContentProvider {
 
   // MARK: - Item mapping
 
-  private static func makeShelfItem(_ item: ShelfItemDTO, base: String, apiKey: String, card: URL?) -> TVTopShelfSectionedItem {
+  /// The in-app card shapes (artworkSlotShape in constants/app.ts).
+  private static func shape(forAspect aspect: Double) -> TVTopShelfSectionedItem.ImageShape {
+    aspect < 0.85 ? .poster : (aspect <= 1.25 ? .square : .hdtv)
+  }
+
+  private static func makeShelfItem(_ item: ShelfItemDTO, base: String, apiKey: String, card: URL?, frame: Keyframe?) -> TVTopShelfSectionedItem {
     let shelfItem = TVTopShelfSectionedItem(identifier: item.Id)
 
     let name = item.Name ?? "Untitled"
@@ -216,20 +256,19 @@ class ContentProvider: TVTopShelfContentProvider {
       shelfItem.playbackProgress = min(max(percentage / 100, 0), 1)
     }
 
-    // Items without a Primary image get the bundled brand face instead: requesting
+    // Items without a Primary image get the app's keyframe, else the bundled brand face: requesting
     // /Images/Primary for them just 404s (same ImageTags?.Primary check as the app's
     // hasPoster()), and a failed system image load leaves the shelf card blank.
     // The face is square, so the placeholder card declares .square whatever the
     // media's orientation; artful items snap to the in-app card shapes
     // (artworkSlotShape in constants/app.ts): poster below 0.85, square through
-    // 1.25, 16:9 above.
+    // 1.25, 16:9 above. A keyframe snaps by its own pixel size the same way.
     if let card {
       shelfItem.imageShape = .hdtv
       shelfItem.setImageURL(card, for: .screenScale1x)
       shelfItem.setImageURL(card, for: .screenScale2x)
     } else if item.ImageTags?["Primary"] != nil {
-      let aspect = item.PrimaryImageAspectRatio ?? 0
-      shelfItem.imageShape = aspect < 0.85 ? .poster : (aspect <= 1.25 ? .square : .hdtv)
+      shelfItem.imageShape = shape(forAspect: item.PrimaryImageAspectRatio ?? 0)
       // Poster URL shape mirrors getPosterUrl() in services/jellyfinApi.ts. The SYSTEM
       // downloads these (not this process), so no image bytes ever enter the extension.
       if let image1x = URL(string: "\(base)/Items/\(item.Id)/Images/Primary?ApiKey=\(apiKey)&maxHeight=720&quality=90") {
@@ -238,6 +277,10 @@ class ContentProvider: TVTopShelfContentProvider {
       if let image2x = URL(string: "\(base)/Items/\(item.Id)/Images/Primary?ApiKey=\(apiKey)&maxHeight=1440&quality=90") {
         shelfItem.setImageURL(image2x, for: .screenScale2x)
       }
+    } else if let frame {
+      shelfItem.imageShape = shape(forAspect: frame.aspect)
+      shelfItem.setImageURL(frame.url, for: .screenScale1x)
+      shelfItem.setImageURL(frame.url, for: .screenScale2x)
     } else if let placeholder = Bundle.main.url(forResource: "TopShelfPlaceholder", withExtension: "png") {
       shelfItem.imageShape = .square
       shelfItem.setImageURL(placeholder, for: .screenScale1x)

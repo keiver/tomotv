@@ -1,6 +1,8 @@
 import { GRID_LINE, GuideCell, type RecordingMark } from "@/components/live-tv/guide-cell";
 import { COLORS } from "@/constants/colors";
+import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { t } from "@/services/i18n";
+import { isFavoriteChannel } from "@/services/liveTvPreferences";
 import type { JellyfinItem, JellyfinProgram, JellyfinTimer } from "@/types/jellyfin";
 import { cellGeometry, cellInSpan, NO_GUIDE_PREFIX, programTimes, type CanvasSpan, type GuideMetrics } from "@/utils/guide";
 import React, { useCallback, useMemo, useRef, useState } from "react";
@@ -41,8 +43,6 @@ interface GuideRowProps {
   nextFocusUp?: number;
   /** TV: asked on a cell's focus; the answer rides that cell until it blurs. */
   targetsFor?: FocusTargetsFor;
-  /** The one cell that claims focus on mount, until the latch retires the claim. */
-  focusProgramId?: string;
   onProgramPress: (program: JellyfinProgram, channel: JellyfinItem) => void;
   onProgramLongPress: (program: JellyfinProgram, channel: JellyfinItem) => void;
   onCellFocus?: (program: JellyfinProgram, channel: JellyfinItem) => void;
@@ -93,13 +93,13 @@ function GuideRowComponent({
   snapOffset,
   nextFocusUp,
   targetsFor,
-  focusProgramId,
   onProgramPress,
   onProgramLongPress,
   onCellFocus,
   onCellHandle,
 }: GuideRowProps) {
   const cellHeight = metrics.rowHeight - 1;
+  const favorite = isFavoriteChannel(useLiveTvPreferences(), channel);
   // Row-local, so a focus move re-renders this row and the one it left, never the canvas.
   const [focusTargets, setFocusTargets] = useState<FocusTargets | undefined>(undefined);
   const focusedIdRef = useRef<string | null>(null);
@@ -110,7 +110,7 @@ function GuideRowComponent({
       if (targetsFor && program.Id) {
         const programId = program.Id;
         focusedIdRef.current = programId;
-        // A tick later: the mount claim's focus event lands inside React's commit, where
+        // A tick later: a focus event can land inside React's commit, where
         // targetsFor may not read the scroll offset's shared value.
         setTimeout(() => {
           if (focusedIdRef.current === programId) setFocusTargets({ programId, ...targetsFor(rowIndex, program) });
@@ -141,24 +141,27 @@ function GuideRowComponent({
         if (mountSpan && !cellInSpan(geometry, mountSpan)) return null;
         const showArt = artSpan !== undefined && cellInSpan(geometry, artSpan);
         const targets = focusTargets?.programId === programId ? focusTargets : undefined;
+        const airing = startMs <= nowMs && nowMs < endMs;
         return (
           <GuideCell
             key={programId}
             program={program}
+            channelName={channel.Name ?? ""}
+            // One heart per row: on the airing programme, or the no-listings cell that is the whole row.
+            favorite={favorite && (airing || programId.startsWith(NO_GUIDE_PREFIX))}
             left={geometry.left}
             width={geometry.width}
             height={cellHeight}
             startMs={startMs}
             endMs={endMs}
             past={endMs <= nowMs}
-            airing={startMs <= nowMs && nowMs < endMs}
+            airing={airing}
             recording={recordingMark(program, timersByProgramId)}
             scrollX={scrollX}
             viewportWidth={viewportWidth}
             showArt={showArt}
             nextFocusUp={targets?.up ?? nextFocusUp}
             nextFocusDown={targets?.down}
-            hasTVPreferredFocus={focusProgramId === programId}
             onFocus={focus}
             onBlur={IS_TV ? blur : undefined}
             onHandle={onCellHandle}

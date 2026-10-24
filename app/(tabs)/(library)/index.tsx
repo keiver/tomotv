@@ -11,9 +11,9 @@ import { Platform } from "react-native";
 import { t } from "@/services/i18n";
 
 /**
- * Home root — the default screen of the Home tab's nested Stack. Tapping a library pushes a
+ * Home root: the default screen of the Home tab's nested Stack. Tapping a library pushes a
  * real `[folderId]` route. This root screen itself has no menu handling (Menu goes to the tab bar);
- * pushed folder screens don't either — the Menu button pops the nested Stack natively.
+ * pushed folder screens don't either: the Menu button pops the nested Stack natively.
  */
 function LibrariesRootScreen() {
   const router = useRouter();
@@ -24,7 +24,7 @@ function LibrariesRootScreen() {
     (item: JellyfinItem) => {
       if (item.CollectionType === "livetv") {
         // TV: the guide lives at its own tab root, so Menu reaches the tab bar instead of popping.
-        if (Platform.isTV) router.navigate("/livetv");
+        if (Platform.isTV) router.navigate({ pathname: "/livetv", params: { opened: String(Date.now()) } });
         else router.push({ pathname: "/live-tv", params: { viewId: item.Id, name: item.Name } });
       } else if (isFolder(item)) {
         const type = item.Type === "Playlist" ? "playlist" : "folder";
@@ -34,7 +34,7 @@ function LibrariesRootScreen() {
           params: { folderId: item.Id, name: item.Name, type, crumbs: JSON.stringify([crumb]) },
         });
       } else {
-        // At the libraries root — play standalone (no queue).
+        // At the libraries root: play standalone (no queue).
         showGlobalLoader();
         router.push({ pathname: "/player", params: { videoId: item.Id, videoName: item.Name } });
       }
@@ -48,7 +48,7 @@ function LibrariesRootScreen() {
 /**
  * Auth gate, mirroring the Search tab's: while no server is connected the grid never mounts (so
  * no fetch fires with an empty server URL) and the connect widget renders in its place. Login and
- * logout flip `isConnected`, which mounts/unmounts the grid with fresh state — the grid's own
+ * logout flip `isConnected`, which mounts/unmounts the grid with fresh state; the grid's own
  * error CTA now only appears for genuine errors while connected.
  */
 export default function LibraryIndexScreen() {

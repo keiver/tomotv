@@ -1,6 +1,6 @@
 import Foundation
 
-/// The loopback routes of one session, shared by the app bridge (LocalRemuxer.route) and the drills.
+/// The loopback routes of one session, shared by the native module (LocalRemuxer.route) and the drills.
 extension RemuxSession {
     /// The time in "frame-{ms}.jpg"; the path carries it because the server strips queries.
     static func frameMilliseconds(_ name: String) -> Int64? {
@@ -22,6 +22,8 @@ extension RemuxSession {
             return .data(Data(masterPlaylist().utf8), contentType: m3u8)
         case "media.m3u8":
             return .data(Data(mediaPlaylist().utf8), contentType: m3u8)
+        case "source.m3u8":
+            return sourcePlaylistResponse()
         case "init.mp4":
             return initResponse()
         case "iframes.m3u8":
@@ -49,13 +51,19 @@ extension RemuxSession {
             stateLock.lock()
             let subtitles = inputSubtitles ?? config.subtitles
             let dead = failed || cancelled
-            let inRange = config.isLive ? segment >= firstRetainedSegment && segment <= lastProducedSegment : segment < segmentCount
+            // Live: the window the subtitle playlist lists, the primary rendition's completed segments.
+            let inRange = config.isLive
+                ? segment >= firstRetainedSegment && renditions.first { $0.prefix.isEmpty }?.completed.contains(segment) == true
+                : segment < segmentCount
             stateLock.unlock()
             guard !dead, inRange, let subtitle = subtitles.first(where: { $0.index == index }) else { return .notFound }
             // A VOD playlist is fetched once; a re-selection asks for segments only (probed).
             if !config.isLive { noteSubtitleRequest(index) }
             if config.isLive, subtitle.isImage {
                 return .data(Data(emptySubtitleBody().utf8), contentType: "text/vtt")
+            }
+            if config.isLive, subtitle.isEngineText {
+                return .data(Data(liveSubtitleBody(streamIndex: index, segment: segment).utf8), contentType: "text/vtt")
             }
             guard subtitle.isEngineText else { return .notFound }
             if let body = subtitleSegment(streamIndex: index, segment: segment) {

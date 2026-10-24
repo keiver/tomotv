@@ -10,7 +10,7 @@ jest.mock("@/components/sf-symbol-icon", () => {
 });
 jest.mock("@/services/i18n", () => ({ t: (key: string) => key }));
 
-async function renderCorner(props: { refreshing?: boolean; recording?: boolean } = {}) {
+async function renderCorner(props: { refreshing?: boolean; recording?: boolean; claimFocus?: boolean } = {}) {
   const onRefreshGuide = jest.fn();
   let renderer!: TestRenderer.ReactTestRenderer;
   await act(async () => {
@@ -28,6 +28,13 @@ describe("GuideCornerActions", () => {
     expect(cells.map((cell) => cell.props.accessibilityLabel)).toEqual(["liveTv.channels", "liveTv.recordings", "liveTv.scheduled", "liveTv.guideRefresh"]);
     refresh.props.onPress();
     expect(onRefreshGuide).toHaveBeenCalledTimes(1);
+  });
+
+  it("only the Channels cell claims focus, and only while asked to", async () => {
+    const claimed = await renderCorner({ claimFocus: true });
+    expect(claimed.cells.map((cell) => cell.props.hasTVPreferredFocus === true)).toEqual([true, false, false, false]);
+    const idle = await renderCorner();
+    expect(idle.cells.some((cell) => cell.props.hasTVPreferredFocus === true)).toBe(false);
   });
 
   it("drops the refresh press and spins while the guide is working", async () => {

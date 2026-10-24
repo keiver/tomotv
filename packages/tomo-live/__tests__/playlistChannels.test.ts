@@ -23,6 +23,7 @@ import {
   playlistChannelsPage,
   playlistGroupList,
   playlistOriginKey,
+  playlistOrigins,
   playlistSourceStatuses,
   playlistTvgUrls,
   resetPlaylistChannels,
@@ -88,6 +89,18 @@ describe("table", () => {
       { name: "Local", channelIds: ["a"] },
       { name: "Elsewhere", channelIds: ["a"] },
     ]);
+  });
+
+  it("lists each provider host once with its channel count and the sources that read it", async () => {
+    const a = source("t1", [row("a"), row("b", { originKey: "two.example" })]);
+    const b = source("t2", [row("c"), row("b", { originKey: "two.example" })]);
+    await syncPlaylistSources([a, b]);
+    expect(playlistOrigins()).toEqual([
+      { originKey: "host", channels: 2, sources: ["t1", "t2"] },
+      { originKey: "two.example", channels: 2, sources: ["t1", "t2"] },
+    ]);
+    await syncPlaylistSources([]);
+    expect(playlistOrigins()).toEqual([]);
   });
 
   it("does not reload a fresh source and prunes removed ones", async () => {
@@ -263,8 +276,9 @@ describe("enginePlaylistRows", () => {
 });
 
 describe("playlistOriginKey / playlistChannelFromEntry", () => {
-  it("keys the origin by host and rejects entries the app's id rejects", () => {
-    expect(playlistOriginKey("http://User@Host.example:8080/x.ts")).toBe("host.example");
+  it("keys the origin by host and port and rejects entries the app's id rejects", () => {
+    expect(playlistOriginKey("http://User@Host.example:8080/x.ts")).toBe("host.example:8080");
+    expect(playlistOriginKey("http://host.example/x.ts")).toBe("host.example");
     expect(playlistChannelFromEntry({ name: "n" } as never, null)).toBeNull();
   });
 

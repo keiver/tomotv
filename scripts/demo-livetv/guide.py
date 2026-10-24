@@ -31,6 +31,11 @@ def load_lineup(directory):
     return lineup
 
 
+def broadcast(lineup):
+    """The channels the box streams; a `url` channel is read from that URL and has no broadcaster or relay port."""
+    return [channel for channel in lineup["channels"] if "url" not in channel]
+
+
 def compose_yaml(lineup):
     lines = ["services:"]
     lines += [
@@ -51,7 +56,7 @@ def compose_yaml(lineup):
         "    volumes: [/opt/tomotv/livetv:/livetv:ro]",
         '    command: ["python3", "/livetv/relay.py", "/livetv"]',
     ]
-    for channel in lineup["channels"]:
+    for channel in broadcast(lineup):
         lines += [
             f"  livetv-{channel['id']}:",
             "    image: jellyfin/jellyfin:latest",
@@ -69,7 +74,7 @@ def compose_yaml(lineup):
 def flatten(directory, out):
     lineup = load_lineup(directory)
     os.makedirs(os.path.join(out, "channels"), exist_ok=True)
-    for channel in lineup["channels"]:
+    for channel in broadcast(lineup):
         with open(os.path.join(out, "channels", f"{channel['id']}.list"), "w") as f:
             f.write("".join(f"{s}\n" for s in channel["sources"]))
     with open(os.path.join(out, "epoch.txt"), "w") as f:
@@ -165,12 +170,29 @@ def programmes(channel, durations, epoch, start, end, pattern):
     return [entry for entry in out if entry[1] > start]
 
 
-def programme_xml(directory, channel, start, stop, sources, items, base):
+def slot_index(epoch, pattern, t):
+    """Positive slots before t, counted from the epoch, so a slot keeps its programme across regenerations."""
+    unit = sum(abs(s) for s in pattern)
+    cycles, off = divmod(t - epoch, unit)
+    n = int(cycles) * sum(1 for s in pattern if s > 0)
+    for slot in pattern:
+        if off <= 0:
+            break
+        if slot > 0:
+            n += 1
+        off -= abs(slot)
+    return n
+
+
+def programme_xml(directory, channel, start, stop, sources, items, base, index):
     names = [(items.get(src) or {}).get("Name") or os.path.splitext(os.path.basename(src))[0] for src in sources]
     first = items.get(sources[0]) or {}
     series = {(items.get(src) or {}).get("SeriesName") for src in sources}
     distinct = list(dict.fromkeys(names))
-    if len(series) == 1 and None not in series:
+    listed = channel.get("programmes")
+    if listed:
+        title, sub = listed[index % len(listed)]["title"], None
+    elif len(series) == 1 and None not in series:
         title, sub = series.pop(), (distinct[0] if len(distinct) == 1 else f"{distinct[0]} to {distinct[-1]}")
     elif len(distinct) == 1:
         title, sub = distinct[0], None
@@ -181,7 +203,7 @@ def programme_xml(directory, channel, start, stop, sources, items, base):
     parts = [f'  <programme start="{stamp(start)}" stop="{stamp(stop)}" channel="{channel["id"]}">', f"<title>{escape(title)}</title>"]
     if sub:
         parts.append(f"<sub-title>{escape(sub)}</sub-title>")
-    desc = first.get("Overview") if len(distinct) == 1 else " / ".join(distinct)
+    desc = listed[index % len(listed)]["desc"] if listed else first.get("Overview") if len(distinct) == 1 else " / ".join(distinct)
     if desc:
         parts.append(f"<desc>{escape(desc)}</desc>")
     parts.append(f"<category>{escape(category)}</category>")
@@ -192,6 +214,29 @@ def programme_xml(directory, channel, start, stop, sources, items, base):
     parts.append(f'<icon src="{base}/frames/{frame}?v={frame_version(directory, frame)}"/>')
     parts.append("</programme>")
     return "".join(parts)
+
+
+def fixed_slots(epoch, start, end, pattern):
+    """(start, stop) of every positive slot overlapping [start, end), the pattern anchored on the epoch."""
+    unit = sum(abs(s) for s in pattern)
+    if unit == 0:
+        return []
+    out = []
+    t = epoch + math.floor((start - epoch) / unit) * unit
+    while t < end:
+        for slot in pattern:
+            if slot > 0 and t + slot > start:
+                out.append((t, t + slot))
+            t += abs(slot)
+    return out
+
+
+def fixed_programme_xml(channel, start, stop):
+    """A `url` channel has no sources to name: every slot lists the lineup's own `title` and `desc`."""
+    return (
+        f'  <programme start="{stamp(start)}" stop="{stamp(stop)}" channel="{channel["id"]}">'
+        f"<title>{escape(channel['title'])}</title><desc>{escape(channel['desc'])}</desc></programme>"
+    )
 
 
 def frame_version(directory, frame):
@@ -224,20 +269,25 @@ def generate(directory):
     xml = ['<?xml version="1.0" encoding="UTF-8"?>', "<tv>"]
     ready = []
     for channel in lineup["channels"]:
-        durations = read_durations(directory, channel)
-        if durations is None:
+        durations = None if "url" in channel else read_durations(directory, channel)
+        if durations is None and "url" not in channel:
             print(f"{channel['id']}: no channels/{channel['id']}.dur yet, left out", flush=True)
             continue
         ready.append((channel, durations))
         logo = logo_url(directory, base, channel)
         m3u.append(f'#EXTINF:-1 tvg-id="{channel["id"]}" tvg-chno="{channel["number"]}" tvg-logo="{logo}" tvg-name="{channel["name"]}",{channel["name"]}')
-        m3u.append(f"http://127.0.0.1:{channel['port']}/live.ts")
+        m3u.append(channel.get("url") or f"http://127.0.0.1:{channel['port']}/live.ts")
         xml.append(f'  <channel id="{channel["id"]}"><display-name>{escape(channel["name"])}</display-name><icon src="{logo}"/></channel>')
     count = 0
     for channel, durations in ready:
         pattern = [60 * m for m in channel.get("slots", lineup.get("slots", [30]))]
+        if durations is None:
+            for p_start, p_stop in fixed_slots(epoch, start, end, pattern):
+                xml.append(fixed_programme_xml(channel, p_start, p_stop))
+                count += 1
+            continue
         for p_start, p_stop, sources in programmes(channel, durations, epoch, start, end, pattern):
-            xml.append(programme_xml(directory, channel, p_start, p_stop, sources, items, base))
+            xml.append(programme_xml(directory, channel, p_start, p_stop, sources, items, base, slot_index(epoch, pattern, p_start)))
             count += 1
     xml.append("</tv>")
     write_atomic(os.path.join(directory, "live.m3u"), "\n".join(m3u) + "\n")

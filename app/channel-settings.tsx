@@ -1,4 +1,5 @@
 import { AmbientBackground } from "@/components/ambient-background";
+import { promptChannelGroup } from "@/components/live-tv/channel-group-prompt";
 import { DurationChips } from "@/components/settings/DurationChips";
 import { DurationSlider } from "@/components/settings/DurationSlider";
 import { ListRow } from "@/components/settings/ListRow";
@@ -10,6 +11,7 @@ import { activeGuideUrls } from "@/services/externalGuide";
 import { t } from "@/services/i18n";
 import { lastKnownTunerData } from "@/services/jellyfin/tunerGroups";
 import { deleteGroup, RECORDING_MINUTES_OPTIONS, updateLiveTvPreferences, type ChannelGroup, type ChannelSort, type RecordingMinutes } from "@/services/liveTvPreferences";
+import { connectionLimitsSubtitle } from "@/utils/connectionLimits";
 import { durationLabel } from "@/utils/guide";
 import { useRouter } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
@@ -32,17 +34,18 @@ export default function ChannelSettingsScreen() {
   const toggleSkipCommercials = useCallback(() => updateLiveTvPreferences({ skipCommercials: !preferences.skipCommercials }), [preferences.skipCommercials]);
   const pickSort = useCallback((sort: ChannelSort) => updateLiveTvPreferences({ sort }), []);
   const pickRecordingMinutes = useCallback((recordingMinutes: RecordingMinutes) => updateLiveTvPreferences({ recordingMinutes }), []);
-  const newGroup = useCallback(() => router.push("/channel-group"), [router]);
+  const newGroup = useCallback(() => promptChannelGroup(), []);
   const openGuideSources = useCallback(() => router.push("/guide-sources"), [router]);
+  const openConnectionLimits = useCallback(() => router.push("/connection-limits"), [router]);
   const activeGuides = activeGuideUrls(preferences, lastKnownTunerData()?.tvgUrls ?? []).length;
   const manageGroup = useCallback(
     (group: ChannelGroup) =>
       Alert.alert(group.name, undefined, [
-        { text: t("liveTv.renameGroup"), onPress: () => router.push({ pathname: "/channel-group", params: { groupId: group.id } }) },
+        { text: t("liveTv.renameGroup"), onPress: () => promptChannelGroup({ group }) },
         { text: t("liveTv.deleteGroup"), style: "destructive", onPress: () => deleteGroup(group.id) },
         { text: t("common.cancel"), style: "cancel" },
       ]),
-    [router],
+    [],
   );
 
   return (
@@ -53,7 +56,7 @@ export default function ChannelSettingsScreen() {
         showsVerticalScrollIndicator={false}>
         <View style={settingsStyles.contentContainer}>
           <View style={settingsStyles.sectionHeader}>
-            <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.channels")}</Text>
+            <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.channelsHeader")}</Text>
           </View>
           <View style={settingsStyles.section}>
             <ListRow
@@ -74,11 +77,18 @@ export default function ChannelSettingsScreen() {
               subtitle={activeGuides > 0 ? t("liveTv.guideSourcesActive").replace("{count}", String(activeGuides)) : t("liveTv.guideSourcesHint")}
               trailingIcon="chevron-forward"
               onPress={openGuideSources}
+            />
+            <ListRow
+              icon="git-network-outline"
+              title={t("liveTv.connectionLimits")}
+              subtitle={connectionLimitsSubtitle(preferences.connectionLimits, t)}
+              trailingIcon="chevron-forward"
+              onPress={openConnectionLimits}
               isLast
             />
           </View>
           <View style={settingsStyles.sectionHeader}>
-            <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.groups")}</Text>
+            <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.groupsHeader")}</Text>
           </View>
           <View style={settingsStyles.section}>
             {preferences.groups.map((group, index) => (
@@ -87,14 +97,14 @@ export default function ChannelSettingsScreen() {
             <ListRow icon="add" title={t("liveTv.newGroup")} onPress={newGroup} isFirst={preferences.groups.length === 0} isLast />
           </View>
           <View style={settingsStyles.sectionHeader}>
-            <Text style={settingsStyles.sectionHeaderText}>{t("filters.sort")}</Text>
+            <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.sortHeader")}</Text>
           </View>
           <View style={settingsStyles.section}>
             <ListRow icon="list" title={t("liveTv.sortNumber")} trailingIcon={preferences.sort === "number" ? tick : undefined} onPress={() => pickSort("number")} isFirst />
             <ListRow icon="text" title={t("liveTv.sortName")} trailingIcon={preferences.sort === "name" ? tick : undefined} onPress={() => pickSort("name")} isLast />
           </View>
           <View style={settingsStyles.sectionHeader}>
-            <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.recordingLength")}</Text>
+            <Text style={settingsStyles.sectionHeaderText}>{t("liveTv.recordingLengthHeader")}</Text>
           </View>
           <View style={settingsStyles.section}>
             {IS_TV ? (

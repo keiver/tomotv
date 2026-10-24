@@ -50,3 +50,48 @@ describe("InfoActionRow layout", () => {
     expect(row).toMatchObject({ flexDirection: "row", flexWrap: "wrap", justifyContent: "center" });
   });
 });
+
+describe("InfoActionRow toggles and actions", () => {
+  const mountRow = async (props: React.ComponentProps<typeof InfoActionRow>) => {
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(<InfoActionRow {...props} />);
+    });
+    return renderer;
+  };
+
+  it("puts favorite, watched and progress in the toggle group, and download and delete outside it", async () => {
+    const { GlassToggleGroup } = jest.requireActual("@/components/glass-toggle-group");
+    const renderer = await mountRow({
+      onToggleFavorite: jest.fn(async () => true),
+      onToggleWatched: jest.fn(async () => true),
+      onToggleProgress: jest.fn(() => true),
+      onToggleDownload: jest.fn(async () => true),
+      downloadState: "none",
+      extras: [{ key: "delete", icon: "trash-outline", label: "common.delete", word: "info.word.delete", destructive: true, onPress: jest.fn() }],
+    });
+    const group = renderer.root.findByType(GlassToggleGroup);
+    expect((group.props.toggles as { key: string }[]).map((toggle) => toggle.key)).toEqual(["favorite", "watched", "progress"]);
+    expect(renderer.root.findAllByType(GlassButton).map((node) => (node.props as CircleProps).accessibilityLabel)).toEqual(["info.download", "common.delete"]);
+  });
+
+  it("fills a toggle that is on with the solid accent and leaves one that is off clear", async () => {
+    const { FocusableButton } = jest.requireActual("@/components/FocusableButton");
+    const renderer = await mountRow({ isFavorite: true, isPlayed: false, onToggleFavorite: jest.fn(async () => true), onToggleWatched: jest.fn(async () => true) });
+    const variants = renderer.root.findAllByType(FocusableButton).map((node) => node.props.variant);
+    expect(variants).toEqual(["primary", "link"]);
+  });
+
+  it("writes one word under every control", async () => {
+    const { Text } = jest.requireActual("react-native");
+    const renderer = await mountRow({
+      onToggleFavorite: jest.fn(async () => true),
+      onToggleWatched: jest.fn(async () => true),
+      onToggleDownload: jest.fn(async () => true),
+      downloadState: "none",
+      extras: [{ key: "delete", icon: "trash-outline", label: "common.delete", word: "info.word.delete", destructive: true, onPress: jest.fn() }],
+    });
+    const words = renderer.root.findAllByType(Text).map((node) => node.props.children);
+    expect(words).toEqual(expect.arrayContaining(["info.word.favorite", "info.word.watched", "info.word.download", "info.word.delete"]));
+  });
+});

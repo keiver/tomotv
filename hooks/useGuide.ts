@@ -3,10 +3,10 @@ import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { usePlaylistChannelIds } from "@/hooks/useTunerGroups";
 import { useHealthGeneration } from "@/hooks/useChannelHealth";
 import { healthFor } from "@/services/channelHealth";
-import { fetchChannels, fetchChannelsByIds, fetchGuideHorizon, fetchGuidePrograms, fetchListedChannels, fetchTimers } from "@/services/jellyfinApi";
+import { fetchCategoryChannelIds, fetchChannels, fetchChannelsByIds, fetchGuideHorizon, fetchGuidePrograms, fetchListedChannels, fetchTimers } from "@/services/jellyfinApi";
 import { reportRecordingTimers } from "@/services/recordingStatus";
 import { activeGuideUrls, fetchExternalProgramWindow, subscribeGuideRefreshed } from "@/services/externalGuide";
-import { activeCategory, activeChannelList, channelSortParam, getLiveTvPreferences, type LiveTvPreferences } from "@/services/liveTvPreferences";
+import { activeCategory, activeChannelList, channelSortParam, getLiveTvPreferences, playlistGroupIds, type LiveTvPreferences } from "@/services/liveTvPreferences";
 import { pendingChannelsAfter } from "@/services/jellyfin/playlistItems";
 import { fetchTunerData, subscribeTunerDataRefreshed } from "@/services/jellyfin/tunerGroups";
 import { cachedRequest, invalidateByPrefix } from "@/services/requestCache";
@@ -188,6 +188,7 @@ export function useGuide(): GuideState {
   // The list alone, not the preferences object: toggling Auto update must not reload the guide.
   const list = activeChannelList(preferences);
   const category = activeCategory(preferences.filter);
+  const categoryEdit = category ? preferences.categoryEdits[category] : undefined;
   const playlistIds = usePlaylistChannelIds(preferences.filter);
   // Another sign-in starts over: channel ids repeat across servers, so no program may merge into the last one's rows.
   const session = useAuthSession();
@@ -290,18 +291,19 @@ export function useGuide(): GuideState {
         const result = await fetchPrograms(items, window.from, window.to);
         if (result !== null) land.programs(result.channels, result.programs, window);
       };
-      if (Array.isArray(playlistIds)) {
+      const pageIds = Array.isArray(playlistIds) ? playlistIds : category ? playlistGroupIds(await fetchCategoryChannelIds(category, channelSortParam(sort)), categoryEdit) : null;
+      if (pageIds) {
         // Slices whose ids the server does not know come back empty; keep going until items or the end.
         let consumed = 0;
         let items: JellyfinItem[] = [];
-        while (items.length === 0 && startIndex + consumed < playlistIds.length) {
-          const slice = playlistIds.slice(startIndex + consumed, startIndex + consumed + GUIDE_CHANNEL_PAGE);
+        while (items.length === 0 && startIndex + consumed < pageIds.length) {
+          const slice = pageIds.slice(startIndex + consumed, startIndex + consumed + GUIDE_CHANNEL_PAGE);
           items = await cachedRequest(`guide:channels:ids:${slice.join(",")}`, () => fetchChannelsByIds(slice), GUIDE_READ_TTL_MS);
           consumed += slice.length;
         }
         land.channels(items);
         await landPrograms(items);
-        return { hasMore: startIndex + consumed < playlistIds.length, pageLength: consumed };
+        return { hasMore: startIndex + consumed < pageIds.length, pageLength: consumed };
       }
       // A list is fetched by its entries in one page: a catalog can hold thousands of channels.
       if (list) {
@@ -311,15 +313,15 @@ export function useGuide(): GuideState {
         return { hasMore: false, pageLength: items.length };
       }
       const { items, total } = await cachedRequest(
-        `guide:channels:page:${channelSortParam(sort)}:${category ?? "all"}:${startIndex}`,
-        () => fetchChannels({ startIndex, limit: GUIDE_CHANNEL_PAGE, sortBy: channelSortParam(sort), ...(category ? { category } : {}) }),
+        `guide:channels:page:${channelSortParam(sort)}:all:${startIndex}`,
+        () => fetchChannels({ startIndex, limit: GUIDE_CHANNEL_PAGE, sortBy: channelSortParam(sort) }),
         GUIDE_READ_TTL_MS,
       );
       const loaded = startIndex + items.length;
       let hasMore = total !== undefined ? loaded < total : items.length >= GUIDE_CHANNEL_PAGE;
       let page = items;
       let waiting = false;
-      if (!hasMore && !category) {
+      if (!hasMore) {
         // The server catalog is done: channels only the tuner playlists carry yet follow, a page at a time.
         // A first page starts a fresh list: what the previous sort landed is not on it.
         const tail = await pendingChannelsAfter(items, startIndex === 0 ? [] : channelsRef.current, GUIDE_CHANNEL_PAGE);
@@ -330,7 +332,7 @@ export function useGuide(): GuideState {
       await landPrograms(page);
       return { hasMore, pageLength: page.length, waiting };
     },
-    [sort, list, category, playlistIds, fetchPrograms],
+    [sort, list, category, categoryEdit, playlistIds, fetchPrograms],
   );
 
   const sessionRef = useRef(session);

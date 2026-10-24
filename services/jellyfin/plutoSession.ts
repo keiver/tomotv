@@ -83,11 +83,15 @@ function refreshAfter(refreshInSec: unknown): number {
   return Date.now() + (typeof refreshInSec === "number" && refreshInSec > 0 ? refreshInSec * 1000 : DEFAULT_REFRESH_MS);
 }
 
+/** Pluto's streamingUrl answers browser, CFNetwork and app-named agents with an internal error; a plain library agent is answered. */
+const USER_AGENT = "okhttp/4.9.0";
+
 /** The web player's GraphQL request; cookies go only as given, never from the system store. */
 async function graphql(url: string, operationName: string, query: string, variables: object, cookie?: string): Promise<{ data: Record<string, unknown>; response: Response }> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Accept: "application/json",
+    "User-Agent": USER_AGENT,
     "apollo-require-preflight": "true",
     "x-apollo-operation-name": operationName,
     ...(cookie ? { Cookie: cookie } : {}),

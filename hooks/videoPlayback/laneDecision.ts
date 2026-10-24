@@ -1,5 +1,5 @@
 /**
- * Which lane plays this item: direct play, the on-device engine, or the server's transcode.
+ * Which lane plays this item: direct play, the on-device engine, or the server's transcode (never for a live channel).
  *
  * Pure, and split in two because the caller has to await between the halves: the gates say
  * what to ask the engine and the verdict store, the lane pick reads their answers back.
@@ -27,10 +27,6 @@ export interface LaneGatesInput {
   hasTriedTranscoding: boolean;
   /** The engine lane is spent for this held item, so subtitles stop being a reason to reach it. */
   heldEngineSpent: boolean;
-  /** Which rung a live channel is on. */
-  liveLane: "engine" | "server";
-  /** The server may be asked to transcode this item (services/transcodePolicy.ts). */
-  serverTranscodingAllowed: boolean;
 }
 
 export interface LaneGates {
@@ -50,9 +46,6 @@ export interface LaneGates {
   sourceBps: number;
   cannotDirectPlay: boolean;
   leavesDirectPlay: boolean;
-  liveServerUrl: string | null;
-  liveWantsServer: boolean;
-  liveLane: "engine" | "server";
   /** The open handed the engine a stream to read. */
   hasLiveStreamUrl: boolean;
   /** Ask engineVerdicts whether this device already measured the file below realtime. */
@@ -107,11 +100,6 @@ export function planLaneGates(input: LaneGatesInput): LaneGates {
 
   const leavesDirectPlay = networkVideo || live || cannotDirectPlay || subtitlesWantEngine;
 
-  // A live channel takes the server's transcode once the engine is spent on it, or when the
-  // open gave the engine nothing to read. Never when the server is not to be asked.
-  const liveServerUrl = live && input.serverTranscodingAllowed ? (details.liveTranscodeUrl ?? null) : null;
-  const liveWantsServer = liveServerUrl !== null && (input.liveLane === "server" || !details.liveStreamUrl);
-
   return {
     live,
     audioOnly,
@@ -128,13 +116,10 @@ export function planLaneGates(input: LaneGatesInput): LaneGates {
     sourceBps,
     cannotDirectPlay,
     leavesDirectPlay,
-    liveServerUrl,
-    liveWantsServer,
-    liveLane: input.liveLane,
     hasLiveStreamUrl: Boolean(details.liveStreamUrl),
     // A held file is exempt: sending a download to the server is what it was taken to avoid.
     asksRememberedVerdict: leavesDirectPlay && !live && !input.hasTriedTranscoding && !heldOnDisk,
-    engineGate: leavesDirectPlay && !liveWantsServer && (live || !input.hasTriedTranscoding) && !input.heldEngineSpent,
+    engineGate: leavesDirectPlay && (live || !input.hasTriedTranscoding) && !input.heldEngineSpent,
   };
 }
 
@@ -149,10 +134,8 @@ export interface LaneDecision {
   mode: PlaybackMode;
   /** Image stream the server paints into the picture; null on every other lane. */
   burnInSubtitleIndex: number | null;
-  /** Neither lane can play this channel; the caller throws with this. */
+  /** The engine cannot play this channel and nothing else may; the caller throws with this. */
   unplayable: string | null;
-  /** Live only: why the channel left the engine, for the log and the probe. */
-  liveFallbackReason: string | null;
 }
 
 export function selectLane(gates: LaneGates, input: LanePickInput): LaneDecision {
@@ -161,25 +144,22 @@ export function selectLane(gates: LaneGates, input: LanePickInput): LaneDecision
   if (input.canRemux) {
     // The engine draws these itself. Cleared only here, so a fallback to the server keeps its
     // burn-in.
-    return { mode: "localRemux", burnInSubtitleIndex: null, unplayable: null, liveFallbackReason: null };
+    return { mode: "localRemux", burnInSubtitleIndex: null, unplayable: null };
   }
 
+  // A live channel plays on the engine or not at all: the server never re-encodes one.
   if (gates.live) {
-    if (!gates.liveServerUrl) {
-      return { mode: "transcode", burnInSubtitleIndex: burnInFromStream, unplayable: "live channel cannot reach the engine and the server offers no transcode", liveFallbackReason: null };
-    }
     return {
-      mode: "transcode",
-      burnInSubtitleIndex: burnInFromStream,
-      unplayable: null,
-      liveFallbackReason: gates.liveLane === "server" ? "engine spent on this channel" : gates.hasLiveStreamUrl ? "engine cannot take the stream" : "the open gave the engine nothing to read",
+      mode: "localRemux",
+      burnInSubtitleIndex: null,
+      unplayable: gates.hasLiveStreamUrl ? "the engine cannot take this channel's stream" : "the open gave the engine nothing to read",
     };
   }
 
   if (!gates.cannotDirectPlay && !gates.networkVideo) {
-    return { mode: "direct", burnInSubtitleIndex: burnInFromStream, unplayable: null, liveFallbackReason: null };
+    return { mode: "direct", burnInSubtitleIndex: burnInFromStream, unplayable: null };
   }
 
   // A text track never burns in: Jellyfin extracts every subtitle track from the whole file first.
-  return { mode: "transcode", burnInSubtitleIndex: burnInFromStream, unplayable: null, liveFallbackReason: null };
+  return { mode: "transcode", burnInSubtitleIndex: burnInFromStream, unplayable: null };
 }

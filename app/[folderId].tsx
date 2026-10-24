@@ -12,10 +12,11 @@ import { countActiveFilters, FolderStackEntry, JellyfinItem, JellyfinVideoItem }
 import { LIBRARY_ROOT_TITLE } from "@/constants/app";
 import { cleanLabel } from "@/utils/cleanLabel";
 import { logger } from "@/utils/logger";
+import { bingeFocusId } from "@/utils/resumeProgress";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import type { NativeStackNavigationOptions } from "expo-router";
-import React, { useCallback, useMemo } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { Platform } from "react-native";
 import { t } from "@/services/i18n";
 
@@ -66,7 +67,10 @@ function FolderScreen() {
 
   // "Show In Folder" arrives with the item to focus; the first load reads pages until it holds it.
   const focusId = params.focusId;
-  const { items, isLoading, isLoadingMore, hasMoreResults, error, loadMore, refresh } = useFolderContents(folderId, folderType, filters, focusId);
+  const { items, isLoading, isLoadingMore, hasMoreResults, error, loadMore, refresh } = useFolderContents(folderId, folderType, filters, focusId, IS_TV && !focusId);
+  // TV: a season opens on its binge episode, picked once from the first listing so a later read never moves focus.
+  const [bingeId, setBingeId] = useState<string | null>();
+  if (IS_TV && !focusId && bingeId === undefined && !isLoading && items.length > 0) setBingeId(bingeFocusId(items) ?? null);
 
   // The folder's ambient wash, resolved once on open and held for the whole folder.
   const backdropSource = useFolderBackdrop(folderId);
@@ -191,7 +195,7 @@ function FolderScreen() {
         onOpenFilters={handleOpenFilters}
         activeFilterCount={activeFilterCount}
         onItemLongPress={handleItemLongPress}
-        focusItemId={focusId}
+        focusItemId={focusId ?? bingeId ?? undefined}
         backdropSource={backdropSource}
       />
     </>

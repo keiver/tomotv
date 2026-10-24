@@ -47,6 +47,8 @@ export interface LiveTvPreferences {
   groups: ChannelGroup[];
   /** Channels the viewer added to or removed from a playlist group, by group name. */
   playlistEdits: Record<string, PlaylistEdit>;
+  /** Channels the viewer added to or removed from a server category. */
+  categoryEdits: Partial<Record<LiveTvCategory, PlaylistEdit>>;
   /** XMLTV guides the viewer added, for channels the server has no listings for; asked in order. */
   guideUrls: string[];
   /** Guide URLs switched off, the viewer's own or a playlist's declared ones alike. */
@@ -58,7 +60,12 @@ export interface LiveTvPreferences {
   compactColumn: boolean;
   /** Phone: playback seeks past a Commercial segment on reaching it. Apple TV shows a pill instead. */
   skipCommercials: boolean;
+  /** Streams a tuner playlist's provider allows this device at once, by playlist URL; a playlist left out is learned from its provider. */
+  connectionLimits: Record<string, ConnectionLimit>;
 }
+/** The limits a viewer can set; 0 ("Auto") removes the host's entry. */
+export const CONNECTION_LIMIT_OPTIONS = [1, 2, 3, 4, 5] as const;
+export type ConnectionLimit = (typeof CONNECTION_LIMIT_OPTIONS)[number];
 export type ChannelIdentity = Pick<JellyfinItem, "Name" | "ChannelNumber" | "playlistPending"> & { Id?: string };
 
 export const DEFAULT_LIVE_TV_PREFERENCES: LiveTvPreferences = {
@@ -69,12 +76,14 @@ export const DEFAULT_LIVE_TV_PREFERENCES: LiveTvPreferences = {
   favorites: [],
   groups: [],
   playlistEdits: {},
+  categoryEdits: {},
   guideUrls: [],
   guideSourcesOff: [],
   recordingMinutes: 120,
   hideOffline: false,
   compactColumn: false,
   skipCommercials: true,
+  connectionLimits: {},
 };
 
 let current: LiveTvPreferences | null = null;
@@ -116,6 +125,11 @@ function parsePlaylistEdits(raw: unknown): Record<string, PlaylistEdit> {
   return edits;
 }
 
+function parseCategoryEdits(raw: unknown): Partial<Record<LiveTvCategory, PlaylistEdit>> {
+  const edits = parsePlaylistEdits(raw);
+  return Object.fromEntries(LIVE_TV_CATEGORIES.flatMap((category) => (edits[category] ? [[category, edits[category]]] : [])));
+}
+
 /** A filter naming a group that no longer exists, or a category the server has no flag for, shows everything. */
 function parseFilter(raw: unknown, legacyFavoritesOnly: unknown, groups: readonly ChannelGroup[]): ChannelFilter {
   if (raw === undefined) return legacyFavoritesOnly === true ? "favorites" : "all";
@@ -150,6 +164,7 @@ export function parseLiveTvPreferences(raw: unknown): LiveTvPreferences {
     favorites: parseChannelList(source.favorites),
     groups,
     playlistEdits: parsePlaylistEdits(source.playlistEdits),
+    categoryEdits: parseCategoryEdits(source.categoryEdits),
     // A document from before the list names its one URL as guideUrl.
     guideUrls: parseUrlList(Array.isArray(source.guideUrls) ? source.guideUrls : [source.guideUrl]),
     guideSourcesOff: parseUrlList(source.guideSourcesOff),
@@ -159,7 +174,24 @@ export function parseLiveTvPreferences(raw: unknown): LiveTvPreferences {
     hideOffline: typeof source.hideOffline === "boolean" ? source.hideOffline : DEFAULT_LIVE_TV_PREFERENCES.hideOffline,
     compactColumn: source.compactColumn === true,
     skipCommercials: typeof source.skipCommercials === "boolean" ? source.skipCommercials : DEFAULT_LIVE_TV_PREFERENCES.skipCommercials,
+    connectionLimits: parseConnectionLimits(source.connectionLimits),
   };
+}
+
+/** Playlist URL to limit, keeping only the limits a viewer can set. */
+function parseConnectionLimits(raw: unknown): Record<string, ConnectionLimit> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const limits: Record<string, ConnectionLimit> = {};
+  for (const [url, limit] of Object.entries(raw as Record<string, unknown>)) {
+    if (url && (CONNECTION_LIMIT_OPTIONS as readonly unknown[]).includes(limit)) limits[url] = limit as ConnectionLimit;
+  }
+  return limits;
+}
+
+/** Sets or, at 0, removes the viewer's limit for a tuner playlist. */
+export function setConnectionLimit(url: string, limit: ConnectionLimit | 0): void {
+  const { [url]: _previous, ...others } = getLiveTvPreferences().connectionLimits;
+  updateLiveTvPreferences({ connectionLimits: limit === 0 ? others : { ...others, [url]: limit } });
 }
 
 /** The http(s) URLs of a stored list, deduped in order; anything else is dropped. */
@@ -191,10 +223,10 @@ function usersOf(doc: Record<string, unknown>): Record<string, unknown> {
 function write(preferences: LiveTvPreferences, userId: string): void {
   try {
     const stored = readDocument();
-    const { favorites, groups, playlistEdits, ...shared } = preferences;
+    const { favorites, groups, playlistEdits, categoryEdits, ...shared } = preferences;
     const doc = userId
-      ? { ...shared, users: { ...usersOf(stored), [userId]: { favorites, groups, playlistEdits } } }
-      : { ...shared, favorites, groups, playlistEdits, ...(stored.users === undefined ? {} : { users: stored.users }) };
+      ? { ...shared, users: { ...usersOf(stored), [userId]: { favorites, groups, playlistEdits, categoryEdits } } }
+      : { ...shared, favorites, groups, playlistEdits, categoryEdits, ...(stored.users === undefined ? {} : { users: stored.users }) };
     Settings.set({ [LIVE_TV_PREFERENCES_KEY]: JSON.stringify(doc) });
   } catch (error) {
     logger.warn("Live TV preferences write failed", error, { service: "LiveTvPreferences" });
@@ -210,7 +242,7 @@ export function getLiveTvPreferences(): LiveTvPreferences {
   const claiming = !!userId && stored.users === undefined;
   const own = usersOf(stored)[userId];
   const lists = !userId || claiming ? stored : own && typeof own === "object" ? (own as Record<string, unknown>) : {};
-  current = parseLiveTvPreferences({ ...stored, favorites: lists.favorites, groups: lists.groups, playlistEdits: lists.playlistEdits });
+  current = parseLiveTvPreferences({ ...stored, favorites: lists.favorites, groups: lists.groups, playlistEdits: lists.playlistEdits, categoryEdits: lists.categoryEdits });
   currentUserId = userId;
   if (claiming) write(current, userId);
   return current;
@@ -286,7 +318,7 @@ export function activePlaylistGroup(filter: ChannelFilter): string | null {
   return filter.startsWith("playlist:") ? filter.slice("playlist:".length) : null;
 }
 
-/** A playlist group's channel ids as the viewer edited them: the tuner's, less the removed, plus the added. */
+/** A playlist group's or category's channel ids as the viewer edited them: the server's, less the removed, plus the added. */
 export function playlistGroupIds(tunerIds: readonly string[], edit: PlaylistEdit | undefined): readonly string[] {
   if (!edit || (edit.added.length === 0 && edit.removed.length === 0)) return tunerIds;
   const removed = new Set(edit.removed);
@@ -299,15 +331,23 @@ export function isChannelInPlaylistGroup(tunerIds: readonly string[], edit: Play
   return playlistGroupIds(tunerIds, edit).includes(channelId);
 }
 
-/** Adds the channel to the playlist group or takes it out, undoing an earlier edit before recording a new one. */
+/** The edit with the channel added or taken out, undoing an earlier edit before recording a new one. */
+export function toggledEdit(edit: PlaylistEdit | undefined, serverIds: readonly string[], channelId: string): PlaylistEdit {
+  const { added, removed } = edit ?? { added: [], removed: [] };
+  const onServer = serverIds.includes(channelId);
+  return isChannelInPlaylistGroup(serverIds, edit, channelId)
+    ? { added: added.filter((id) => id !== channelId), removed: onServer ? removed.concat(channelId) : removed }
+    : { added: onServer ? added : added.concat(channelId), removed: removed.filter((id) => id !== channelId) };
+}
+
 export function toggleChannelInPlaylistGroup(name: string, tunerIds: readonly string[], channelId: string): void {
   const { playlistEdits } = getLiveTvPreferences();
-  const edit = playlistEdits[name] ?? { added: [], removed: [] };
-  const inTuner = tunerIds.includes(channelId);
-  const next = isChannelInPlaylistGroup(tunerIds, edit, channelId)
-    ? { added: edit.added.filter((id) => id !== channelId), removed: inTuner ? edit.removed.concat(channelId) : edit.removed }
-    : { added: inTuner ? edit.added : edit.added.concat(channelId), removed: edit.removed.filter((id) => id !== channelId) };
-  updateLiveTvPreferences({ playlistEdits: { ...playlistEdits, [name]: next } });
+  updateLiveTvPreferences({ playlistEdits: { ...playlistEdits, [name]: toggledEdit(playlistEdits[name], tunerIds, channelId) } });
+}
+
+export function toggleChannelInCategory(category: LiveTvCategory, serverIds: readonly string[], channelId: string): void {
+  const { categoryEdits } = getLiveTvPreferences();
+  updateLiveTvPreferences({ categoryEdits: { ...categoryEdits, [category]: toggledEdit(categoryEdits[category], serverIds, channelId) } });
 }
 
 export function isChannelInGroup(group: ChannelGroup, channel: ChannelIdentity): boolean {

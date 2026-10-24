@@ -10,19 +10,19 @@
 import { EMPTY_FILTERS, JellyfinFolderResponse, JellyfinItem, JellyfinVideoItem, JellyfinVideosResponse, LibraryFilters } from "@/types/jellyfin";
 import { addFavoriteIds, getFavoriteIds, isFavoritesLoaded } from "@/services/favoritesCache";
 import { updateLiveTvAvailability } from "@/services/liveTvAvailability";
-import { getPlayedOverrides } from "@/services/playedCache";
+import { playedOverride } from "@/services/playedCache";
 import { cachedRequest } from "@/services/requestCache";
 import { CACHE } from "@/constants/app";
 import { logger } from "@/utils/logger";
 import { orderSortNameTies } from "@/utils/seasonEpisode";
 import { retryWithBackoff } from "@/utils/retry";
 import { API_TIMEOUTS, BROWSE_ITEM_TYPES, INCLUDED_LOCATION_TYPES, FOLDER_TYPE_SET, PLAYABLE_ITEM_TYPES, STANDALONE_VIDEO_TYPES } from "./constants";
-import { filtersCacheKey } from "./cacheKeys";
+import { filtersCacheKey, invalidateFolderListing } from "./cacheKeys";
 import { fetchWithTimeout } from "./http";
 import { fetchAllPlaylistItems } from "./items";
 import { fetchChannels } from "./liveTv";
 import { isAudioItem } from "./media";
-import { getAuthHeader, getConfig, JellyfinConfig, throwRequestError } from "./session";
+import { getAuthHeader, getCachedConfig, getConfig, JellyfinConfig, throwRequestError } from "./session";
 
 /**
  * Check if item is a folder type
@@ -698,8 +698,7 @@ async function resolveViewRootMatches(config: JellyfinConfig, parentId: string, 
   const [leaves, playedIds] = await Promise.all([fetchViewRootLeaves(config, parentId, filters), fetchPlayedIds(config), isFavoritesLoaded() ? Promise.resolve() : fetchFavoriteIds()]);
 
   const favoriteIds = getFavoriteIds();
-  const playedOverrides = getPlayedOverrides();
-  const isPlayed = (item: JellyfinItem) => playedOverrides.get(item.Id) ?? playedIds.has(item.Id);
+  const isPlayed = (item: JellyfinItem) => playedOverride(item) ?? playedIds.has(item.Id);
 
   // Stamp the state we just resolved onto the items. The view root returned them with EMPTY
   // UserData, so without this the grid paints no heart and no checkmark, and the long-press
@@ -852,6 +851,11 @@ export async function fetchFolderContents(
       ),
     CACHE.DEFAULT_TTL_MS,
   );
+}
+
+/** Drop one listing's cached pages for the signed-in account, so its next read reaches the server. */
+export function invalidateFolderReads(folderId: string | null): void {
+  invalidateFolderListing(getCachedConfig().userId, folderId);
 }
 
 /** Page size for the folder-wide photo sweep, the same 500 the other whole-set sweeps use. */

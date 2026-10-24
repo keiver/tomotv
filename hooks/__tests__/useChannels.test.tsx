@@ -2,11 +2,17 @@
 import { CHANNEL_WALL_PAGE, useChannels } from "@/hooks/useChannels";
 import { pendingChannelsAfter } from "@/services/jellyfin/playlistItems";
 import { fetchChannels } from "@/services/jellyfinApi";
-import type { ChannelSort } from "@/services/liveTvPreferences";
+import type { ChannelSort, LiveTvCategory, PlaylistEdit } from "@/services/liveTvPreferences";
 import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
 
-jest.mock("@/services/jellyfinApi", () => ({ fetchChannels: jest.fn(), fetchChannelsByIds: jest.fn(), fetchListedChannels: jest.fn() }));
+jest.mock("@/services/jellyfinApi", () => ({
+  fetchCategoryChannelIds: jest.fn(),
+  fetchChannels: jest.fn(),
+  fetchChannelsByIds: jest.fn(),
+  fetchListedChannels: jest.fn(),
+  fillAiringFromGuides: jest.fn(async (channels: unknown[]) => channels),
+}));
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
 jest.mock("@/services/jellyfin/playlistItems", () => ({ pendingChannelsAfter: jest.fn() }));
 /** Listeners told when a tuner playlist that playback held back has downloaded. */
@@ -24,8 +30,15 @@ const NOTHING_PENDING = { pending: [], hasMore: false, waiting: false };
 type Hook = ReturnType<typeof useChannels>;
 type HookRef = { get: () => Hook };
 
-const Harness = forwardRef<HookRef, { sort: ChannelSort; list?: { id?: string; name: string }[]; ids?: readonly string[] | "loading" | null }>(({ sort, list, ids }, ref) => {
-  const result = useChannels(sort, null, list ?? null, ids ?? null);
+type HarnessProps = {
+  sort: ChannelSort;
+  list?: { id?: string; name: string }[];
+  ids?: readonly string[] | "loading" | null;
+  category?: LiveTvCategory;
+  categoryEdit?: PlaylistEdit;
+};
+const Harness = forwardRef<HookRef, HarnessProps>(({ sort, list, ids, category, categoryEdit }, ref) => {
+  const result = useChannels(sort, category ?? null, list ?? null, ids ?? null, categoryEdit);
   useImperativeHandle(ref, () => ({ get: () => result }), [result]);
   return null;
 });
@@ -213,5 +226,21 @@ describe("useChannels", () => {
     expect(mockFetch).not.toHaveBeenCalled();
     expect(ref.current!.get().items.map((item) => item.Id)).toEqual(["c2"]);
     expect(ref.current!.get().hasMore).toBe(false);
+  });
+
+  it("pages a category by its ids in the sort's order with the viewer's edits, and fills each page's airing programme", async () => {
+    const { fetchCategoryChannelIds, fetchChannelsByIds, fillAiringFromGuides } = jest.requireMock("@/services/jellyfinApi") as Record<string, jest.Mock>;
+    fetchCategoryChannelIds.mockResolvedValue(["k1", "k2"]);
+    fetchChannelsByIds.mockImplementation(async (slice: string[]) => slice.map((id) => ({ Id: id, Name: id, Type: "TvChannel" })));
+    const ref = React.createRef<HookRef>();
+    await act(async () => {
+      TestRenderer.create(<Harness ref={ref} sort="name" category="kids" categoryEdit={{ added: ["v3"], removed: ["k1"] }} />);
+    });
+    await settle();
+    expect(fetchCategoryChannelIds).toHaveBeenCalledWith("kids", "Name");
+    expect(fetchChannelsByIds).toHaveBeenCalledWith(["k2", "v3"]);
+    expect(fillAiringFromGuides).toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(ref.current!.get().items.map((item) => item.Id)).toEqual(["k2", "v3"]);
   });
 });

@@ -119,7 +119,7 @@ ios/MultiAudioResourceLoader/
 ├── MultiAudioResourceLoader.swift      # AVAssetResourceLoaderDelegate
 ├── HLSManifestParser.swift            # Parse Jellyfin manifests
 ├── HLSManifestGenerator.swift         # Generate multivariant manifest
-├── MultiAudioResourceLoader.m         # React Native bridge
+├── MultiAudioResourceLoader.m         # React Native module export
 └── MultiAudioResourceLoader-Bridging-Header.h
 ```
 

@@ -44,7 +44,7 @@ let package = Package(
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         // The book reader's page renderer (plugins/withBookRenderer.js copies the same
-        // files into the app). No UIKit outside the bridge, so it tests on the host.
+        // files into the app). No UIKit outside the native module, so it tests on the host.
         .target(
             name: "TomoBooks",
             dependencies: [.product(name: "Libarchive", package: "TomoEngine")],

@@ -19,7 +19,7 @@ npm run test:playback -- --list              # print the manifest and exit
 ### Host manifest acceptance
 
 Unit tests cannot establish which HLS variant AVPlayer actually selects. The host
-drill captures the app's bridge configuration and plays the native engine's
+drill captures the engine configuration the app sends and plays the native engine's
 loopback HLS through macOS AVPlayer. It does not launch or control the Apple TV.
 
 For a captured config on an unthrottled link, run:
@@ -305,7 +305,7 @@ evidence before these results can be a release gate. Simulator results never
 replace the physical Apple TV matrix. Results append to `$TMPDIR/tomotv-drill/drill-results.md`
 with each run's timeline, proxy log and engine log beside them.
 
-The host path captures the app's real bridge config through
+The host path captures the app's real engine config through
 `test/playback/drill/engineConfig.drill.test.ts` and plays it in
 `SlipstreamDrillTests`; the device path signs the TV into the proxy with
 `tomotv://dev-session`, plays through the app itself, and restores the TV to
@@ -327,6 +327,66 @@ title for a live one in `real.m3u`.
 | L03  | Unified live                    | audio as a separate rendition group        |
 | L04  | Unified SCTE-35 live            | SCTE-35 ad cues (EXT-X-CUE-OUT, DATERANGE) |
 | L05  | DW English                      | multi-variant news channel                 |
+
+`real.m3u` must be a tuner on the Jellyfin (`POST /LiveTv/TunerHosts`, `Type` `m3u`, `Url` the
+file's absolute path). Removing the tuner removes these channels and Bunny.
+
+### Bunny (screenshot channel)
+
+Bunny, the last entry in `real.m3u`, is a Big Buck Bunny loop used for store screenshots. It is
+not a public origin: Docker containers on this Mac serve it at `http://127.0.0.1:9101/live.ts`.
+
+| Container                 | Role                                                |
+| ------------------------- | --------------------------------------------------- |
+| `tomo-livetv-relay`       | serves readers, publishes ports 9101, 9102 and 9109 |
+| `tomo-livetv-bbb`         | `pusher.py` loops `bbb-onair.ts` into the relay     |
+| `tomo-livetv-commercials` | `pusher.py` loops `commercials.ts` into the relay   |
+| `tomo-livetv-guide`       | static file server on 9109                          |
+
+The other three share the relay's network, so the relay starts first:
+
+```bash
+open -a Docker
+docker start tomo-livetv-relay && docker start tomo-livetv-guide tomo-livetv-bbb tomo-livetv-commercials
+curl -s -m 4 http://127.0.0.1:9101/live.ts -o /dev/null -w "%{size_download}\n"
+```
+
+With the containers stopped the channel still lists, and an open fails with Jellyfin's
+`Failed to open channel: 500` and the engine's `open_input: Server returned 5XX`. The guide
+server has no `logos/`, so Bunny's `tvg-logo` answers 404 and the channel shows no logo.
+
+### Dispatcharr (connection limit rig, issue 104)
+
+A local [Dispatcharr](https://github.com/Dispatcharr/Dispatcharr) plays an IPTV provider that
+allows one stream. Its provider account is `real.m3u` with `max_streams` 1, and its Xtream user
+has `stream_limit` 1 with `terminate_on_limit_exceeded` off, so a second read is refused instead
+of kicking the first. Web UI on `http://<mac-lan-ip>:9191`.
+
+| Container            | Image                                    |
+| -------------------- | ---------------------------------------- |
+| `dispatcharr_db`     | `postgres:17`                            |
+| `dispatcharr_redis`  | `redis:latest`                           |
+| `dispatcharr_web`    | `ghcr.io/dispatcharr/dispatcharr:latest` |
+| `dispatcharr_celery` | `ghcr.io/dispatcharr/dispatcharr:latest` |
+
+```bash
+docker start dispatcharr_db dispatcharr_redis && docker start dispatcharr_web && docker start dispatcharr_celery
+docker stop dispatcharr_celery dispatcharr_web dispatcharr_db dispatcharr_redis
+```
+
+It serves two tuner playlists, one per refusal:
+
+- `/output/m3u`: a second read waits about 3 s for a provider slot, then 503.
+- `/get.php?username=<user>&password=<pass>&type=m3u_plus&output=ts`: a second read by the same
+  user, 429.
+
+Add one as the Jellyfin's only m3u tuner for a run (a second tuner listing the same channel names
+plays them from their public origins instead). The issue 104 runs use the Xtream one, 28 channels:
+
+```
+POST /LiveTv/TunerHosts
+{"Type":"m3u","FriendlyName":"Dispatcharr","Url":"http://<mac-lan-ip>:9191/get.php?username=<user>&password=<pass>&type=m3u_plus&output=ts"}
+```
 
 The engine package's `LivePipelineTests` read raw MPEG-TS sources without Jellyfin, paced on the
 Mac loopback by `live/rawstream.py`. The spliced source is T24 at 40-70s then 0-30s, same PIDs,

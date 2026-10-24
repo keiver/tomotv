@@ -17,10 +17,9 @@ import {
   JELLYFIN_TIME,
   closeLiveStream,
   isLiveSource,
-  noteOpenFailed,
-  openChannel,
   type MediaSegmentWindow,
 } from "@/services/jellyfinApi";
+import { LivePlayback } from "@keiver/tomo-live";
 import { linkRungsAllowed, serverTranscodeAllowed, serverTranscodeBlock, type ServerTranscodeBlock } from "@/services/transcodePolicy";
 import { heldImageSubtitleForOrdinal, playsConverted, playsFromDisk, playsRepackaged } from "@/services/downloads/localSource";
 import { usePlaybackReporter } from "./usePlaybackReporter";
@@ -36,6 +35,7 @@ import {
   needsSingleServerTranscode,
   tierDeclaredFor,
   engineInputMissing,
+  engineInputOverLimit,
   engineProgress,
   engineStarving,
   liveStarving,
@@ -72,6 +72,7 @@ import {
 } from "@/services/localRemux";
 import { retainLiveSession, takeRingSession, takeWarmDetails, yieldLiveRing } from "@/services/liveRing";
 import { takeLivePreview } from "@/services/livePreview";
+import { admitOnOneConnection, admitUntilPlaying, isAdmitting, isChannelHeld } from "@/services/recordingHold";
 import { recordTimeoutVerdict, rememberedVerdict, recordVerdict } from "@/services/engineVerdicts";
 import { downloadManager } from "@/services/downloads/manager";
 import { setPlaybackProbeEnabled, probeEmit, probeFirstPlaying, probeProgress, sourceSummary } from "@/services/playbackProbe";
@@ -100,8 +101,9 @@ import { videoPlayerReducer, type PlaybackMode, type PlaybackTransport, type Vid
 import {
   automaticRetryDelay,
   engineSpentWithoutServer,
+  isPermanentLiveError,
   planErrorRecovery,
-  planLiveErrorRecovery,
+  reopensUntilAdmitted,
   ServerTranscodeOffError,
   serverOffForError,
   shouldAutomaticallyRetry,
@@ -129,6 +131,7 @@ import {
   keptForReason,
   nextLinkCap,
   linkAffordsChapterFrames,
+  LiveProviderFullError,
   stillPullingInput,
   type PreflightOutcome,
   type ThroughputWatch,
@@ -138,8 +141,6 @@ import {
   ENGINE_PREFLIGHT_CAP_MS,
   ENGINE_SEGMENT_DEADLINE_MS,
   ENGINE_TRACK_RAMP_SEC,
-  LIVE_START_BUFFER_CAP_MS,
-  LIVE_START_BUFFER_SEGMENTS,
   LIVE_START_DEADLINE_MS,
   LIVE_STALL_DEADLINE_MS,
   PLAYER_BUFFER_REPORT_MS,
@@ -149,6 +150,11 @@ import {
   SUBTITLE_CAPTURE_SETTLE_MS,
   VOD_OPEN_DEADLINE_MS,
 } from "./videoPlayback/constants";
+
+/** The player's own error on a live channel, handed to the controller as the drop's cause. */
+class LivePlayerError {
+  constructor(readonly error: OnVideoErrorData["error"]) {}
+}
 
 // Classification moved to utils/errorClassification.ts so non-player code
 // (library, search) can share it; re-exported to keep existing call sites.
@@ -325,6 +331,9 @@ export interface VideoPlaybackResult {
   currentTimeRef: React.RefObject<number>;
 }
 
+/** An item holding a channel this play must close: a live source, or a server open of one. */
+const isChannelItem = (item: JellyfinVideoItem): boolean => isLiveSource(item) || !!item.LiveStreamId;
+
 /**
  * Custom hook to manage video playback logic using a state machine
  * Handles codec checking, transcoding decisions, and player lifecycle
@@ -413,6 +422,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // Request ID to prevent race conditions when videoId changes
   // Incremented on each videoId change, async operations check before updating state
   const requestIdRef = useRef(0);
+  const retryRef = useRef<() => void>(() => {});
 
   // === Refs for synchronous access in event handlers ===
   // Note: These refs cannot be consolidated into state because event handlers
@@ -578,19 +588,25 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // screen transition, so shared state here makes one player's teardown kill
   // the other's session.
   const localRemuxTokenRef = useRef<string | null>(null);
-  // Live TV: the channel stream the server opened for this play, released on every teardown.
   const isLiveRef = useRef<boolean>(false);
+  // The channel on this player; `reopen` hands its next open to the controller instead of the metadata step.
+  const liveChannelRef = useRef<{ details: JellyfinVideoItem; hasSubtitles: boolean; reopen: boolean } | null>(null);
   const standInRef = useRef<boolean>(false);
-  const liveStreamIdRef = useRef<string | null>(null);
-  // One fresh open of the channel per play after the stream drops; the second drop is the error.
-  const liveReopenedRef = useRef(false);
-  // The live ladder: the engine, then the server's transcode when the open returned one, then the error.
-  const liveLaneRef = useRef<"engine" | "server">("engine");
-  // The channel this play opened and the engine URL it reads, handed to the live ring on a flip.
-  const liveDetailsRef = useRef<JellyfinVideoItem | null>(null);
-  const liveSessionUrlRef = useRef<string | null>(null);
-  // A hot ring session taken for this item, bound by the stream step instead of a new start.
-  const adoptedLiveRef = useRef<{ videoId: string; url: string; token: string; ready: boolean } | null>(null);
+  // Live TV: the ring session taken over, the channel the server opened, the session the player reads, and its drops.
+  const [liveChannel] = useState(
+    () =>
+      new LivePlayback<JellyfinVideoItem>({
+        closeChannel: (item) => void closeLiveStream(item.LiveStreamId),
+        takeHot: async (id) => (await takeRingSession(id)) ?? takeLivePreview(id),
+        takeWarm: takeWarmDetails,
+        retain: retainLiveSession,
+        stopSession: stopLocalRemux,
+        openChannel: fetchVideoDetails,
+        isChannel: isChannelItem,
+        // A full provider ends the play with no reopen, as the failures no open fixes do.
+        isPermanent: (error) => error instanceof LiveProviderFullError || isPermanentLiveError(classifyPlaybackError(error), error instanceof Error ? error.message : String(error)),
+      }),
+  );
   // This player's playlist shim (EXT-X-START resume on the server lane) ,
   // per-instance for the same overlap reason as the remux token.
   const playlistShimTokenRef = useRef<string | null>(null);
@@ -623,31 +639,24 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     void refreshTrackSettings();
 
     // The channel this attempt opened: a failure before playback takes it closes it again.
-    let openedLiveStreamId: string | null = null;
-    // A session taken for an earlier attempt and never bound.
-    if (adoptedLiveRef.current) {
-      void stopLocalRemux(adoptedLiveRef.current.token);
-      adoptedLiveRef.current = null;
-    }
+    let openedLive: JellyfinVideoItem | null = null;
     // Both halves sit in their own function: the React Compiler cannot lower a conditional
     // or an optional chain inside a try block, and bails out of memoizing the hook if it finds one.
     const readDetails = async () => {
-      // The ring's session for this channel, ready or still starting, is taken rather than opened twice.
-      const ringSession = (await takeRingSession(videoId)) ?? takeLivePreview(videoId);
-      if (ringSession && requestIdRef.current !== currentRequestId) {
-        void stopLocalRemux(ringSession.token);
-        void closeLiveStream(ringSession.details.LiveStreamId);
+      // A retry of the channel on this player: the controller opens it again and runs its waits.
+      const retried = isLiveRef.current ? liveChannelRef.current : null;
+      if (retried) {
+        retried.reopen = true;
+        dispatch({ type: "METADATA_FETCHED", details: retried.details, mode: "localRemux", hasSubtitles: retried.hasSubtitles });
         return;
       }
-      if (ringSession) adoptedLiveRef.current = { videoId, url: ringSession.url, token: ringSession.token, ready: ringSession.ready };
-      // A neighbour's quiet resolve is the same shape a fresh one returns, minus two server round trips.
-      const warmDetails = ringSession ? null : takeWarmDetails(videoId);
-      let details = ringSession ? ringSession.details : (warmDetails ?? (await fetchVideoDetails(videoId)));
+      if (await isChannelHeld(videoId)) failWith(PLAYBACK_ERROR_IDS.LIVE_RECORDING, "live origin is held by a recording");
+      await admitOnOneConnection(videoId);
+      // A ring session or a neighbour's resolve of this channel is taken rather than opened twice.
+      let details = await liveChannel.open(videoId, () => requestIdRef.current === currentRequestId);
 
       // Check if this response is stale (videoId changed while fetching)
       if (requestIdRef.current !== currentRequestId) {
-        // A channel's fetch is its open: nobody will play this stream, so release its tuner.
-        if (details?.LiveStreamId) void closeLiveStream(details.LiveStreamId);
         logger.debug("Ignoring stale metadata response", {
           service: "useVideoPlayback",
           expectedRequestId: requestIdRef.current,
@@ -658,30 +667,14 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
       if (!details) fail("Video not found or unavailable");
 
-      // A channel the engine could not play opens on the server now, for its transcode.
-      if (isLiveSource(details) && liveLaneRef.current === "server" && !details.liveTranscodeUrl) {
-        setPlaybackStage("opening");
-        // Every open is one consumer the server counts; the engine's is released for the server's.
-        const engineOpen = details.LiveStreamId;
-        details = await openChannel(videoId, details, { serverOnly: true }).finally(() => {
-          if (engineOpen) void closeLiveStream(engineOpen);
-        });
-        if (requestIdRef.current !== currentRequestId) {
-          void closeLiveStream(details.LiveStreamId);
-          return;
-        }
-      }
-
       setVideoDetails(details);
       mediaSourceIdRef.current = details.MediaSources?.[0]?.Id ?? null;
-      // Live TV: the engine reads the channel, the server's transcode follows; resume, the link
-      // gate and verdicts do not apply.
+      // Live TV: the engine reads the channel and nothing else does; resume, the link gate and
+      // verdicts do not apply.
       const live = isLiveSource(details);
       isLiveRef.current = live;
       standInRef.current = details.playlistPending === true;
-      liveStreamIdRef.current = details.LiveStreamId ?? null;
-      liveDetailsRef.current = live ? details : null;
-      openedLiveStreamId = liveStreamIdRef.current;
+      if (isChannelItem(details)) openedLive = details;
       if (wasPlayedAtStartRef.current === null) {
         wasPlayedAtStartRef.current = playedAtStart ?? details.UserData?.Played ?? false;
       }
@@ -698,8 +691,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         directPlayFailed: directPlayFailedRef.current,
         hasTriedTranscoding,
         heldEngineSpent: heldEngineSpentRef.current,
-        liveLane: liveLaneRef.current,
-        serverTranscodingAllowed: serverTranscodeAllowed(details),
       });
       const { audioOnly, hasTextSubs, textSubtitles, burnInStream } = gates;
       if (!isMountedRef.current || requestIdRef.current !== currentRequestId) return;
@@ -740,11 +731,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
       const canRemux = gates.engineGate && (!remembered || slipstreamEligible(details)) && (await canRemuxLocally(details));
       if (!isMountedRef.current || requestIdRef.current !== currentRequestId) return;
-      if (!canRemux && adoptedLiveRef.current) {
-        // The server lane reads the open, not the engine session taken with it.
-        void stopLocalRemux(adoptedLiveRef.current.token);
-        adoptedLiveRef.current = null;
-      }
+      // The server lane reads the open, not the engine session taken with it.
+      if (!canRemux) liveChannel.dropAdopted();
 
       const lane = selectLane(gates, { canRemux, subtitlesOff: getSubtitlePreferenceSync().kind === "off" });
       const serverBlock = lane.mode === "transcode" && !gates.heldOnDisk ? serverTranscodeBlock(details) : null;
@@ -759,10 +747,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           codec: details.MediaStreams?.find((stream) => stream.Type === "Video")?.Codec,
           container: details.MediaSources?.[0]?.Container,
         });
-      } else if (gates.live) {
-        liveLaneRef.current = "server";
-        logger.info("Live channel on the server's transcode", { service: "useVideoPlayback", reason: lane.liveFallbackReason });
-        probeEmit("fallback", { from: "localRemux", to: "transcode", reason: lane.liveFallbackReason ?? "" });
       } else if (lane.mode === "transcode") {
         // Fallback only: the engine could not take this file. The server session carries no
         // subtitle rendition from inside the file.
@@ -794,6 +778,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       probeEmit("mode", { mode: selectedMode, canDirectPlay: !gates.requiresTranscoding, hasTextSubs, burnIn: burnInStream !== null, held: gates.heldOnDisk });
       probeEmit("source", sourceSummary(details));
 
+      liveChannelRef.current = live ? { details, hasSubtitles: hasTextSubs || burnInStream !== null, reopen: false } : null;
       dispatch({
         type: "METADATA_FETCHED",
         details,
@@ -815,16 +800,19 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       const errorMessage = getPlaybackErrorMessage(errorType);
       const serverOff = serverOffForError(err, errorType, null, playsFromDisk(videoId));
 
-      if (openedLiveStreamId) {
-        void closeLiveStream(openedLiveStreamId);
-        if (liveStreamIdRef.current === openedLiveStreamId) liveStreamIdRef.current = null;
-      }
+      if (openedLive) liveChannel.abandon(openedLive);
 
       // An attempt the viewer already left: its failure belongs to no channel on screen.
       if (!isMountedRef.current || requestIdRef.current !== currentRequestId) return;
+      // A channel whose lane check failed ends here; its retry goes to the controller.
+      if (isLiveRef.current) {
+        probeEmit("error", { mode: "metadata", message: String(err), willRetry: false });
+        dispatch({ type: "PLAYER_ERROR", error: { message: errorMessage, ref: { id: errorIdOf(err, PLAYBACK_ERROR_IDS.META) } }, mode: "localRemux", hasTriedTranscode: true });
+        return;
+      }
       // No lane takes the item, so no stage stopped and no retry can change the answer.
       if (serverOff) resetPlaybackStages();
-      const autoRetry = !serverOff && shouldAutomaticallyRetry({ live: isLiveRef.current, heldOnDisk: playsFromDisk(videoId), errorType, ladderSpent: true, retryingForMs: retryingForMs() });
+      const autoRetry = !serverOff && shouldAutomaticallyRetry({ live: false, heldOnDisk: playsFromDisk(videoId), errorType, ladderSpent: true, retryingForMs: retryingForMs() });
       probeEmit("error", { mode: "metadata", message: String(err), willRetry: autoRetry });
       dispatch({
         type: "PLAYER_ERROR",
@@ -840,7 +828,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     } catch (err) {
       failed(err);
     }
-  }, [videoId, startPositionTicks, playedAtStart, hasTriedTranscoding, retryingForMs]);
+  }, [videoId, startPositionTicks, playedAtStart, hasTriedTranscoding, retryingForMs, liveChannel]);
 
   /**
    * Handle audio track switch by restarting video with new audioStreamIndex
@@ -1052,41 +1040,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         let presetResolved = false;
         const ownsAttempt = () => isMountedRef.current && requestIdRef.current === currentRequestId;
 
-        // A live channel's server transcode, opened on first need; null when the server offers none.
-        let liveServerRung: Promise<string | null> | null = null;
-        // Its own function for the same reason as the lanes below: no value block may sit in a try.
-        const openChannelOnServer = async (): Promise<string | null> => {
-          const opened = await openChannel(videoId, details, { serverOnly: true });
-          // The engine's open is one consumer the server counts; released for the server's.
-          if (liveStreamIdRef.current) void closeLiveStream(liveStreamIdRef.current);
-          liveStreamIdRef.current = null;
-          if (requestIdRef.current !== currentRequestId) {
-            void closeLiveStream(opened.LiveStreamId);
-            return null;
-          }
-          liveStreamIdRef.current = opened.LiveStreamId ?? null;
-          mediaSourceIdRef.current = opened.MediaSources?.[0]?.Id ?? mediaSourceIdRef.current;
-          // The transcode runs under the session the open named, which a Stopped report ends.
-          if (opened.PlaySessionId) playSessionIdRef.current = opened.PlaySessionId;
-          return opened.liveTranscodeUrl ?? null;
-        };
-        const openLiveServerRung = () => {
-          if (liveServerRung !== null) return liveServerRung;
-          liveServerRung = (async () => {
-            if (!serverTranscodeAllowed(details)) return null;
-            if (details.liveTranscodeUrl) return details.liveTranscodeUrl;
-            try {
-              return await openChannelOnServer();
-            } catch (openError) {
-              logger.warn("Live channel has no server transcode to fall back on", openError, { service: "useVideoPlayback", videoId });
-              // Neither lane plays it: the ring neither warms nor heats it for a while.
-              noteOpenFailed(videoId);
-              return null;
-            }
-          })();
-          return liveServerRung;
-        };
-
         const resolveTranscodePreset = async (): Promise<QualityPreset | undefined> => {
           if (presetResolved) return preparedPreset;
           const quality = await getQualitySettings();
@@ -1285,7 +1238,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             probeEmit("preflight", { produceSeconds: null, segmentSeconds: null, readSeconds: null, thermal: "unknown", remembered: false, keptForTier: true });
             logger.info("Ladder offered, opening without timing the engine primary", { service: "useVideoPlayback" });
           } else {
-            // A failure reported before these listeners existed is never replayed: ask the session itself.
+            // A session that ended with no failure report: ask the session itself.
             const startedAlive = await engineProgress(token);
             if (startedAlive !== null && !startedAlive.alive) preflight.settle({ failed: "engine session ended before its pre-flight" });
             // A deadline that finds the session alive and still pulling bytes at the link's pace
@@ -1329,6 +1282,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               localRemuxTokenRef.current = null;
               dropThroughputWatch(throughputRef.current);
               if (engineInputMissing(outcome.failed) && !playsFromDisk(videoId)) throw new EngineInputMissingError(outcome.failed);
+              if (isLiveRef.current && engineInputOverLimit(outcome.failed)) throw new LiveProviderFullError(outcome.failed);
               throw new IdentifiedError(PLAYBACK_ERROR_IDS.ENGINE_FAILED, `engine failed: ${outcome.failed}`);
             }
             const sample = outcome;
@@ -1336,8 +1290,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             const keptFor = keptForReason({
               belowRealtime: under,
               live: isLiveRef.current,
-              // The channel's own rung, opened only when one is needed to decide.
-              liveHasServerRung: under && isLiveRef.current && !readBound(sample) ? (await openLiveServerRung()) !== null : false,
               tierDeclared: tierDeclaredFor(token),
               readBound: sample !== null && readBound(sample),
               serverTranscodingAllowed: !serverDenied,
@@ -1366,22 +1318,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
                 segmentSeconds: sample.segmentSeconds,
                 readSeconds: sample.readSeconds,
               });
-              // A read-bound live start buys runway before the player binds: the
-              // spinner holds until two segments stand ahead or the cap passes,
-              // so origin jitter drains a cushion instead of stalling frame one.
-              if (keptFor === "live" && readBound(sample)) {
-                const gateStarted = Date.now();
-                while (Date.now() - gateStarted < LIVE_START_BUFFER_CAP_MS && requestIdRef.current === currentRequestId) {
-                  const cushion = throughputRef.current.samples.at(-1)?.cushion ?? sample.cushion;
-                  if (cushion >= LIVE_START_BUFFER_SEGMENTS) break;
-                  await new Promise((resolve) => setTimeout(resolve, 500));
-                }
-                logger.info("Live start buffer gate released", {
-                  service: "useVideoPlayback",
-                  waitedSeconds: (Date.now() - gateStarted) / 1000,
-                  cushion: throughputRef.current.samples.at(-1)?.cushion ?? sample.cushion,
-                });
-              }
             } else if (!sample || belowRealtime(sample)) {
               // A channel, or a session that read nothing, says nothing about the device: no verdict.
               // Nor does one the server-off wait ended, which stops only when the reads stop.
@@ -1412,10 +1348,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           return true;
         };
 
-        const openEngineLane = async (serverVideoOnly = false): Promise<boolean> => {
+        const enterGateway = () => {
           preparedTransport = "gateway";
           transportRef.current = "gateway";
-          if (serverVideoOnly) preparedMode = "transcode";
           linkCapRef.current = 0;
           capFloorRef.current = 0;
           copyFloorRef.current = 0;
@@ -1424,6 +1359,27 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           pinnedCapRef.current = null;
           onTierLaneRef.current = false;
           copyOnlyRef.current = false;
+        };
+
+        /** The engine session for an item; the track the stored choice lands on is decoded from the start. */
+        const startEngine = (item: JellyfinVideoItem, offset?: number, serverVideoOnly = false): Promise<string> => {
+          setPlaybackStage("engine");
+          // Every other in-file track waits for a pick. Smart reads the playing audio's language.
+          const audioStreams = (item.MediaStreams ?? []).filter((stream) => stream.Type === "Audio");
+          const playingAudio = audioStreams.find((stream) => stream.Index === audioStreamIndexForReportingRef.current) ?? audioStreams.find((stream) => stream.IsDefault === true) ?? audioStreams[0];
+          const selectedSubtitleIndex = startingSubtitleRendition(getSubtitlePreferenceSync(playingAudio?.Language), subtitleRenditionsRef.current);
+          // A channel opened again keeps the language AVPlayer was playing.
+          const liveAudioLanguage = isLiveRef.current ? reportedAudioLanguageRef.current : undefined;
+          return startLocalRemux(item, audioStreamIndexForReportingRef.current ?? undefined, offset, {
+            ...(serverVideoOnly ? { serverVideoOnly: true } : {}),
+            ...(liveAudioLanguage ? { audioLanguage: liveAudioLanguage } : {}),
+            selectedSubtitleIndex,
+          }).catch(rethrowAs(PLAYBACK_ERROR_IDS.ENGINE_START));
+        };
+
+        const openEngineLane = async (serverVideoOnly = false): Promise<boolean> => {
+          enterGateway();
+          if (serverVideoOnly) preparedMode = "transcode";
           if (!serverDenied && !isLiveRef.current && (serverVideoOnly || (slipstreamEligible(details) && linkRungsAllowed(details))) && !playsFromDisk(videoId)) {
             const quality = await getQualitySettings();
             if (requestIdRef.current !== currentRequestId) return false;
@@ -1441,49 +1397,15 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           // is what sets the session's timeline anchor. Consumed only on
           // success, so the transcode fallback below still sees the position.
           const engineOffset = seekToPositionAfterLoadRef.current;
-          const adopted = adoptedLiveRef.current;
-          adoptedLiveRef.current = null;
-          if (adopted && adopted.videoId !== videoId) void stopLocalRemux(adopted.token);
-          if (adopted && adopted.videoId === videoId && adopted.ready) {
-            // Already cutting segments: no start, no pre-flight, the player binds it now.
-            url = adopted.url;
-            localRemuxTokenRef.current = adopted.token;
-            logger.info("Live channel bound to its hot ring session", { service: "useVideoPlayback", videoId });
-          } else {
-            if (adopted && adopted.videoId === videoId) {
-              // Still cutting its first segments: its head start is kept and it is timed like a fresh one.
-              url = adopted.url;
-              logger.info("Live channel bound to its warming ring session", { service: "useVideoPlayback", videoId });
-            } else {
-              setPlaybackStage("engine");
-              // The track the stored choice lands on is decoded from the start; every other
-              // in-file track waits for a pick. Smart reads the playing audio's language.
-              const audioStreams = (details.MediaStreams ?? []).filter((stream) => stream.Type === "Audio");
-              const playingAudio =
-                audioStreams.find((stream) => stream.Index === audioStreamIndexForReportingRef.current) ?? audioStreams.find((stream) => stream.IsDefault === true) ?? audioStreams[0];
-              const selectedSubtitleIndex = startingSubtitleRendition(getSubtitlePreferenceSync(playingAudio?.Language), subtitleRenditionsRef.current);
-              const engineStarted = startLocalRemux(details, audioStreamIndexForReportingRef.current ?? undefined, engineOffset ?? undefined, {
-                ...(serverVideoOnly ? { serverVideoOnly: true } : {}),
-                selectedSubtitleIndex,
-              });
-              url = await engineStarted.catch(rethrowAs(PLAYBACK_ERROR_IDS.ENGINE_START));
-              if (requestIdRef.current !== currentRequestId) {
-                // Stale since the await: a session nobody will play, stopped here instead of at the cap.
-                stopLocalRemux(localRemuxToken(url));
-                return false;
-              }
-            }
-            if (!(await runEnginePreflight(url, serverVideoOnly))) return false;
+          url = await startEngine(details, engineOffset ?? undefined, serverVideoOnly);
+          if (requestIdRef.current !== currentRequestId) {
+            // Stale since the await: a session nobody will play, stopped here instead of at the cap.
+            stopLocalRemux(localRemuxToken(url));
+            return false;
           }
+          if (!(await runEnginePreflight(url, serverVideoOnly))) return false;
           if (!ownsAttempt()) return false;
-          liveSessionUrlRef.current = isLiveRef.current ? url : null;
           preparedMapping = orderAudioTracks(getAudioTracks(details), audioStreamIndexForReportingRef.current);
-          if (isLiveRef.current) {
-            // The tracks the engine found on the open input, in the order its master lists them.
-            const discovered = await liveSubtitleRenditions(localRemuxTokenRef.current);
-            if (requestIdRef.current !== currentRequestId) return false;
-            if (discovered) subtitleRenditionsRef.current = discovered;
-          }
           if (engineOffset != null && engineOffset > 0) {
             seekToPositionAfterLoadRef.current = null;
             currentTimeRef.current = engineOffset;
@@ -1554,14 +1476,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // selectedAudioTrackIndexRef holds AVPlayer's positional index after an auto-load,
             // which as AudioStreamIndex would point at the wrong stream (0 is video).
             const audioStreamIndex = audioStreamIndexForReportingRef.current ?? undefined;
-            // A live channel plays the URL the server opened it with; nothing here is ours to steer.
-            url =
-              isLiveRef.current && details.liveTranscodeUrl
-                ? details.liveTranscodeUrl
-                : await viaShim(
-                    await getTranscodingStreamUrl(videoId, details, audioStreamIndex, undefined, burnInIndex, playSessionIdRef.current, await resolveTranscodePreset(), await videoDecodeSupport()),
-                    iframeLine,
-                  );
+            url = await viaShim(
+              await getTranscodingStreamUrl(videoId, details, audioStreamIndex, undefined, burnInIndex, playSessionIdRef.current, await resolveTranscodePreset(), await videoDecodeSupport()),
+              iframeLine,
+            );
 
             if (!ownsAttempt()) return;
             preparedMapping = audioStreamIndex === undefined ? orderAudioTracks(getAudioTracks(details), null) : [audioStreamIndex];
@@ -1578,8 +1496,194 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           burnInSubtitleIndexRef.current = useMultiAudio ? null : (burnInIndex ?? null);
         };
 
+        /** Hands a stream URL to the player: this attempt's first, or a live channel's next after a reopen. */
+        const bindStream = (url: string, reopened: boolean, item: JellyfinVideoItem) => {
+          // Check if this response is stale (videoId changed while fetching)
+          if (!ownsAttempt()) {
+            logger.debug("Ignoring stale stream URL response", { service: "useVideoPlayback" });
+            return;
+          }
+
+          logger.info("Stream URL generated", {
+            service: "useVideoPlayback",
+            mode: preparedMode.toUpperCase(),
+            streamType: url.includes(".m3u8") ? "HLS" : "Direct",
+            // Two facts: how many tracks are served, and whether the custom-protocol path serves them.
+            audioTrackCount: item ? getAudioTracks(item).length : 0,
+            multiAudioProtocol: url.includes("jellyfin-multi://"),
+          });
+
+          if (!url) fail("Failed to generate stream URL");
+
+          currentModeRef.current = preparedMode;
+          transportRef.current = preparedTransport;
+          isUsingMultiAudioRef.current = preparedMultiAudio;
+          audioTrackMappingRef.current = preparedMapping;
+          if (audioStreamIndexForReportingRef.current === null) audioStreamIndexForReportingRef.current = preparedMapping[0] ?? null;
+          // Held for the whole stream: unset means automatic, which drops a pick.
+          const pickedPosition = viewerPickedAudioRef.current === null || preparedMapping.length < 2 ? -1 : preparedMapping.indexOf(viewerPickedAudioRef.current);
+          setSelectedAudioTrack(pickedPosition < 0 ? undefined : ({ type: "index", value: String(pickedPosition) } as SelectedTrack));
+          // A held subtitle ordinal names a position in the previous manifest; off still holds.
+          setSelectedSubtitleTrack((current) => (current?.type === "index" ? null : current));
+          if (transportRef.current !== "gateway") {
+            stopLocalRemux(localRemuxTokenRef.current);
+            localRemuxTokenRef.current = null;
+            dropThroughputWatch(throughputRef.current);
+            linkCapRef.current = 0;
+            capFloorRef.current = 0;
+            copyFloorRef.current = 0;
+            lastLinkBpsRef.current = 0;
+            bufferReportRef.current = { at: 0, sinceSeek: true };
+            pinnedCapRef.current = null;
+            onTierLaneRef.current = false;
+            copyOnlyRef.current = false;
+            setVideoMaxBitRate(null);
+            setForwardBufferSeconds(null);
+          }
+          retryProgressStartRef.current = null;
+          lastTickRef.current = null;
+          // The player's wait belongs to what feeds it: the server's stream, the file itself, or the engine.
+          setPlaybackStage(preparedTransport === "server" ? "server" : preparedTransport === "direct" ? "reading" : "player");
+          // A live reload keeps the one player.
+          if (!isLiveRef.current) playerPlayingRef.current = false;
+          streamGenerationRef.current += 1;
+          // Before the player exists, so it opens with captions shown; off picked on this item holds.
+          if (viewerSubtitleStreamRef.current !== null && getSubtitlePreferenceSync().kind === "language") showCaptionsAlways();
+          streamUrlRef.current = url;
+          setStreamUrl(url);
+          setStreamTransport(preparedTransport);
+          // Read here, not at load: every path that resumes sets the ref before this line.
+          setStartPositionMs(IS_MAC && seekToPositionAfterLoadRef.current ? seekToPositionAfterLoadRef.current * 1000 : null);
+          probeEmit("stream", { mode: currentModeRef.current, url });
+          dispatch(reopened ? { type: "LIVE_STREAM", streamUrl: url } : { type: "STREAM_CREATED", streamUrl: url, mode: preparedMode });
+
+          // Both HLS paths expose several audio tracks to the player, so both need the index mapping.
+          if ((preparedMode === "transcode" || preparedMode === "localRemux") && item) {
+            const subtitles = getTextSubtitleStreams(item);
+            const audioTracks = getAudioTracks(item);
+
+            // The mapping must match the order handed to the native side, or a switch targets the wrong stream.
+            if (item.MediaStreams && audioTracks.length > 0) {
+              // First report of a fresh session: the default track at position 0 is what plays.
+              if (audioStreamIndexForReportingRef.current === null) {
+                audioStreamIndexForReportingRef.current = audioTrackMappingRef.current[0] ?? null;
+              }
+              logger.debug("Built audio track mapping", { service: "useVideoPlayback", mapping: audioTrackMappingRef.current });
+            }
+
+            if (subtitles.length > 0 || audioTracks.length > 0) {
+              logger.debug("Available tracks in HLS stream", {
+                service: "useVideoPlayback",
+                subtitleCount: subtitles.length,
+                audioTrackCount: audioTracks.length,
+                subtitleLanguages: subtitles.map((s) => s.Language || "und").join(", "),
+                audioLanguages: audioTracks.map((a) => a.Language).join(", "),
+              });
+            }
+          }
+        };
+
+        /** A drop of the live channel: the dead stream is let go, and the screen says it reopens or failed. */
+        const liveDropped = (message: string, cause: unknown, retry: boolean, item: JellyfinVideoItem) => {
+          if (!isMountedRef.current) return;
+          // The player's own error, or a session the engine ended, is named as the player names it.
+          const player = cause instanceof LivePlayerError ? cause.error : cause === undefined ? { errorString: message } : null;
+          const errorType = cause instanceof LiveProviderFullError ? PlaybackErrorType.PROVIDER_LIMIT : classifyPlaybackError(player ?? cause);
+          if (retry) setPlaybackStage("reopening");
+          logger.error("Live channel dropped", cause ?? message, { service: "useVideoPlayback", videoId, next: retry ? "reopen" : "error" });
+          probeEmit("error", { mode: "localRemux", message, willRetry: retry });
+          localRemuxTokenRef.current = null;
+          dropThroughputWatch(throughputRef.current);
+          // The freeze watch belonged to the stream that just died; the next stream arms its own.
+          if (stallWatchRef.current != null) {
+            clearTimeout(stallWatchRef.current.timer);
+            stallWatchRef.current = null;
+          }
+          // Nothing of the dead stream carries into the next one: its clock, its buffer depth, its playing edge.
+          currentTimeRef.current = 0;
+          setForwardBufferSeconds(null);
+          playerPlayingRef.current = false;
+          // With nothing left to try, the Stopped report ends the play.
+          if (!retry) {
+            resetPlaybackSessionRef.current?.();
+            // The dead player leaves the window on TV.
+            if (Platform.isTV) {
+              streamUrlRef.current = null;
+              setStreamUrl(null);
+            }
+          }
+          const id =
+            errorType === PlaybackErrorType.RECORDING_HOLD ? PLAYBACK_ERROR_IDS.LIVE_RECORDING : player ? errorIdOf(player, PLAYBACK_ERROR_IDS.AVPLAYER) : errorIdOf(cause, PLAYBACK_ERROR_IDS.META);
+          const ref = player ? { id, lane: laneTagFor(transportRef.current, false), native: nativeErrorOf(player) } : cause instanceof IdentifiedError ? { id, lane: "ENG" as const } : { id };
+          const serverOff = !retry && player ? serverOffForError(player, errorType, serverTranscodeBlock(item), false) : undefined;
+          const attempt = requestIdRef.current;
+          const admitting = reopensUntilAdmitted({ reopening: retry, errorType, admitting: isAdmitting(videoId) });
+          setImmediate(() => {
+            if (!isMountedRef.current || requestIdRef.current !== attempt) return;
+            if (admitting) retryRef.current();
+            else dispatch({ type: "PLAYER_ERROR", error: { message: getPlaybackErrorMessage(errorType), ref, ...(serverOff ? { serverOff } : {}) }, mode: "localRemux", hasTriedTranscode: !retry });
+          });
+        };
+
+        /** A live channel: the controller opens, starts, binds and reopens it; the player reads each URL it hands over. */
+        const playLive = async () => {
+          enterGateway();
+          setVideoMaxBitRate(pinnedCapRef.current);
+          let channel = details;
+          // A URL after a bind or a drop replaces a stream the screen already moved past CREATING_STREAM.
+          let replaces = false;
+          const reopen = liveChannelRef.current?.reopen === true;
+          if (liveChannelRef.current) liveChannelRef.current.reopen = false;
+          await liveChannel.play(
+            videoId,
+            {
+              onOpened: (item) => {
+                channel = item;
+                if (liveChannelRef.current) liveChannelRef.current.details = item;
+                setVideoDetails(item);
+                mediaSourceIdRef.current = item.MediaSources?.[0]?.Id ?? null;
+                // New stream = new server session, as every stream build reports it.
+                resetPlaybackSessionRef.current?.();
+                playSessionIdRef.current = item.PlaySessionId ?? generatePlaySessionId();
+                syncPlayManager.noteStreamRebuild();
+              },
+              startSession: (item) => startEngine(item),
+              prepare: async ({ url, token, ready }) => {
+                if (ready) {
+                  // Already cutting segments: no pre-flight.
+                  localRemuxTokenRef.current = token;
+                  logger.info("Live channel bound to its hot ring session", { service: "useVideoPlayback", videoId });
+                } else if (!(await runEnginePreflight(url))) {
+                  return false;
+                }
+                // The tracks the engine found on the open input, in the order its master lists them.
+                const discovered = await liveSubtitleRenditions(token);
+                if (discovered && ownsAttempt()) subtitleRenditionsRef.current = discovered;
+              },
+              onUrl: (url) => {
+                preparedMode = "localRemux";
+                preparedTransport = "gateway";
+                preparedMapping = orderAudioTracks(getAudioTracks(channel), audioStreamIndexForReportingRef.current);
+                bindStream(url, replaces, channel);
+                replaces = true;
+              },
+              onReopening: ({ reason }) => logger.warn("Live input lost, the engine reopens it in the session", { service: "useVideoPlayback", reason }),
+              onReopened: ({ attempts }) => logger.info("Live input back in the session", { service: "useVideoPlayback", attempts }),
+              onDrop: (message, cause) => {
+                replaces = true;
+                liveDropped(message, cause, true, channel);
+              },
+              onEnded: (message, cause) => liveDropped(message, cause, false, channel),
+            },
+            reopen ? {} : { opened: details },
+          );
+        };
+
         if (mode === "transcode") {
           await openServerLane();
+        } else if (mode === "localRemux" && isLiveRef.current) {
+          await playLive();
+          return;
         } else if (mode === "localRemux") {
           // Rewrap on device and play the loopback HLS URL. A failure here is
           // not fatal: fall through to the server transcode the file would
@@ -1593,36 +1697,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // to the item that replaced it.
             if (requestIdRef.current !== currentRequestId) return false;
             if (serverDenied) throw remuxError;
-            const liveServerUrl = isLiveRef.current ? await openLiveServerRung() : null;
-            if (requestIdRef.current !== currentRequestId) return false;
-            if (liveServerUrl) {
-              // The server's transcode is the rung below the engine; its open stays held for it.
-              liveLaneRef.current = "server";
-              setPlaybackStage("server");
-              logger.warn("Live channel failed on the engine, taking the server's transcode", remuxError, { service: "useVideoPlayback", videoId });
-              probeEmit("fallback", { from: "localRemux", to: "transcode", reason: remuxError instanceof Error ? remuxError.message : String(remuxError) });
-              preparedMode = "transcode";
-              preparedTransport = "server";
-              hasTriedTranscodingRef.current = true;
-              setHasTriedTranscoding(true);
-              url = liveServerUrl;
-            } else if (isLiveRef.current) {
-              // No rung below the engine: a channel it could not open at all (a DRM'd origin, a
-              // dead feed) fails the same way on a second open, so this is the error.
-              logger.error("Live channel failed on the engine", remuxError, { service: "useVideoPlayback", videoId });
-              probeEmit("error", { mode: "localRemux", message: remuxError instanceof Error ? remuxError.message : String(remuxError), willRetry: false });
-              void closeLiveStream(liveStreamIdRef.current);
-              liveStreamIdRef.current = null;
-              const errorType = classifyPlaybackError(remuxError);
-              const serverOff = serverOffForError(remuxError, errorType, serverTranscodeBlock(details), false);
-              dispatch({
-                type: "PLAYER_ERROR",
-                error: { message: getPlaybackErrorMessage(errorType), ref: { id: errorIdOf(remuxError, PLAYBACK_ERROR_IDS.STREAM), lane: "ENG" }, ...(serverOff ? { serverOff } : {}) },
-                mode: "localRemux",
-                hasTriedTranscode: true,
-              });
-              return false;
-            } else if (remuxError instanceof EngineInputMissingError) {
+            if (remuxError instanceof EngineInputMissingError) {
               // The server has no file at the path; the transcode lane would read the same path.
               logger.error("The server could not find the file", remuxError, { service: "useVideoPlayback", videoId });
               probeEmit("error", { mode: "localRemux", message: remuxError.message, willRetry: false });
@@ -1670,101 +1745,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           // Direct play
           url = getVideoStreamUrl(videoId, details);
         }
-
-        // Check if this response is stale (videoId changed while fetching)
-        if (!ownsAttempt()) {
-          logger.debug("Ignoring stale stream URL response", { service: "useVideoPlayback" });
-          return;
-        }
-
-        logger.info("Stream URL generated", {
-          service: "useVideoPlayback",
-          mode: preparedMode.toUpperCase(),
-          streamType: url.includes(".m3u8") ? "HLS" : "Direct",
-          // Distinct facts: how many tracks are being served, and whether the
-          // server-side custom-protocol path is the one serving them. Reporting
-          // only the latter as "isMultiAudio" read as false for local remux
-          // even when it was serving several tracks.
-          audioTrackCount: details ? getAudioTracks(details).length : 0,
-          multiAudioProtocol: url.includes("jellyfin-multi://"),
-        });
-
-        if (!url) fail("Failed to generate stream URL");
-
-        currentModeRef.current = preparedMode;
-        transportRef.current = preparedTransport;
-        isUsingMultiAudioRef.current = preparedMultiAudio;
-        audioTrackMappingRef.current = preparedMapping;
-        if (audioStreamIndexForReportingRef.current === null) audioStreamIndexForReportingRef.current = preparedMapping[0] ?? null;
-        // Held for the whole stream: RNV re-applies this prop on foreground, and unset means automatic, which drops a pick.
-        const pickedPosition = viewerPickedAudioRef.current === null || preparedMapping.length < 2 ? -1 : preparedMapping.indexOf(viewerPickedAudioRef.current);
-        setSelectedAudioTrack(pickedPosition < 0 ? undefined : ({ type: "index", value: String(pickedPosition) } as SelectedTrack));
-        // A held subtitle ordinal names a position in the previous manifest; off still holds.
-        setSelectedSubtitleTrack((current) => (current?.type === "index" ? null : current));
-        if (transportRef.current !== "gateway") {
-          stopLocalRemux(localRemuxTokenRef.current);
-          localRemuxTokenRef.current = null;
-          dropThroughputWatch(throughputRef.current);
-          linkCapRef.current = 0;
-          capFloorRef.current = 0;
-          copyFloorRef.current = 0;
-          lastLinkBpsRef.current = 0;
-          bufferReportRef.current = { at: 0, sinceSeek: true };
-          pinnedCapRef.current = null;
-          onTierLaneRef.current = false;
-          copyOnlyRef.current = false;
-          setVideoMaxBitRate(null);
-          setForwardBufferSeconds(null);
-        }
-        retryProgressStartRef.current = null;
-        lastTickRef.current = null;
-        // The player's wait belongs to what feeds it: the server's stream, the file itself, or the engine.
-        setPlaybackStage(preparedTransport === "server" ? "server" : preparedTransport === "direct" ? "reading" : "player");
-        // A new stream remounts the player, which starts paused; a live reload keeps the one player.
-        if (!isLiveRef.current) playerPlayingRef.current = false;
-        streamGenerationRef.current += 1;
-        // Before the player exists: AVKit reads the display type as it opens, and a track the player
-        // picks itself is re-selected below without AVKit hearing of it. Off picked on this item holds.
-        if (viewerSubtitleStreamRef.current !== null && getSubtitlePreferenceSync().kind === "language") showCaptionsAlways();
-        streamUrlRef.current = url;
-        setStreamUrl(url);
-        setStreamTransport(preparedTransport);
-        // Captured here rather than at load: every path that resumes (first play,
-        // audio-switch restart, seek recovery) sets the ref before this line.
-        setStartPositionMs(IS_MAC && seekToPositionAfterLoadRef.current ? seekToPositionAfterLoadRef.current * 1000 : null);
-        probeEmit("stream", { mode: currentModeRef.current, url });
-        dispatch({ type: "STREAM_CREATED", streamUrl: url, mode: preparedMode });
-
-        // Both HLS paths expose several audio tracks to the player, so both need
-        // the index mapping below. Local remux was previously excluded, leaving
-        // the mapping empty: switching audio then warned and reported no
-        // AudioStreamIndex to the server, so its session view showed the wrong
-        // track.
-        if ((preparedMode === "transcode" || preparedMode === "localRemux") && details) {
-          const subtitles = getTextSubtitleStreams(details);
-          const audioTracks = getAudioTracks(details);
-
-          // The mapping must match the order handed to the native side (prepareMultiAudioPlayback
-          // for transcode, startLocalRemux for the engine), or the next switch targets the wrong
-          // stream.
-          if (details.MediaStreams && audioTracks.length > 0) {
-            // First report of a fresh session: the default track at position 0 is what plays.
-            if (audioStreamIndexForReportingRef.current === null) {
-              audioStreamIndexForReportingRef.current = audioTrackMappingRef.current[0] ?? null;
-            }
-            logger.debug("Built audio track mapping", { service: "useVideoPlayback", mapping: audioTrackMappingRef.current });
-          }
-
-          if (subtitles.length > 0 || audioTracks.length > 0) {
-            logger.debug("Available tracks in HLS stream", {
-              service: "useVideoPlayback",
-              subtitleCount: subtitles.length,
-              audioTrackCount: audioTracks.length,
-              subtitleLanguages: subtitles.map((s) => s.Language || "und").join(", "),
-              audioLanguages: audioTracks.map((a) => a.Language).join(", "),
-            });
-          }
-        }
+        bindStream(url, false, details);
       };
 
       const failed = (error: unknown) => {
@@ -1815,7 +1796,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // The flag is read from its ref, never taken as a dependency: the fallback path
     // above sets it mid-run and a dependency here re-entered this effect on top of
     // itself. `state` is what legitimately re-runs it, the retry dispatches RETRY.
-  }, [state, videoId, handOverToServer, restartAtPlayhead, retryingForMs]);
+  }, [state, videoId, handOverToServer, restartAtPlayhead, retryingForMs, liveChannel]);
 
   /**
    * Step 3: Create video ref for Video component
@@ -2217,45 +2198,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       const errorType = classifyPlaybackError(error.error);
 
       if (isLiveRef.current) {
-        const { reopen, toServer, retry } = planLiveErrorRecovery({
-          mode: currentMode,
-          errorType,
-          hasReopened: liveReopenedRef.current,
-          lane: liveLaneRef.current,
-          serverTranscodingAllowed: !videoDetails || serverTranscodeAllowed(videoDetails),
-        });
-        if (reopen) liveReopenedRef.current = true;
-        if (toServer) liveLaneRef.current = "server";
-        if (retry) setPlaybackStage("reopening");
-        logger.error("Live playback error", error, { service: "useVideoPlayback", lane: currentMode, next: reopen ? "reopen" : toServer ? "server" : "error" });
-        probeEmit("error", { mode: currentMode, message: originalMessage, willRetry: retry });
-        stopLocalRemux(localRemuxTokenRef.current);
-        localRemuxTokenRef.current = null;
-        dropThroughputWatch(throughputRef.current);
-        void closeLiveStream(liveStreamIdRef.current);
-        liveStreamIdRef.current = null;
-        // The freeze watch belonged to the stream that just died; the next stream arms its own.
-        if (stallWatchRef.current != null) {
-          clearTimeout(stallWatchRef.current.timer);
-          stallWatchRef.current = null;
-        }
-        // With no rung left the Stopped report is what ends the server's transcode for this play.
-        if (!retry) {
-          resetPlaybackSessionRef.current?.();
-          // The dead player must leave the window on TV: parked offstage with its stream it keeps
-          // tvOS focus inside AVKit's transport, and no claim can move it to the error buttons.
-          if (Platform.isTV) {
-            streamUrlRef.current = null;
-            setStreamUrl(null);
-          }
-        }
-        const attempt = requestIdRef.current;
-        setImmediate(() => {
-          if (!isMountedRef.current || requestIdRef.current !== attempt) return;
-          const serverOff = retry ? undefined : serverOffForError(error.error, errorType, serverTranscodeBlock(videoDetails), false);
-          const ref = { id: errorIdOf(error.error, PLAYBACK_ERROR_IDS.AVPLAYER), lane: laneTagFor(transportRef.current, false), native: nativeErrorOf(error.error) };
-          dispatch({ type: "PLAYER_ERROR", error: { message: getPlaybackErrorMessage(errorType), ref, ...(serverOff ? { serverOff } : {}) }, mode: currentMode, hasTriedTranscode: !retry });
-        });
+        // A channel plays on the engine or not at all: the controller decides the reopen.
+        liveChannel.fail(originalMessage, isPermanentLiveError(errorType, originalMessage), undefined, new LivePlayerError(error.error));
         return;
       }
 
@@ -2427,7 +2371,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         });
       });
     },
-    [videoId, videoDetails, hasTriedCredentialRefresh, hasTriedSeekRecovery, restartAtPlayhead, retryingForMs, viewerPaused],
+    [videoId, videoDetails, hasTriedCredentialRefresh, hasTriedSeekRecovery, restartAtPlayhead, retryingForMs, viewerPaused, liveChannel],
   );
 
   const onError = useCallback(
@@ -2852,29 +2796,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // screen transition two players are briefly mounted at once, and passing
       // anything shared here would stop the incoming player's session instead.
       // A live channel left mid-surf stays hot in the ring, so flipping back to it is instant.
-      const liveDetails = liveDetailsRef.current;
-      const liveToken = localRemuxTokenRef.current;
-      const liveUrl = liveSessionUrlRef.current;
-      const retained =
-        isLiveRef.current &&
-        hasStablePlaybackRef.current &&
-        liveDetails !== null &&
-        liveToken !== null &&
-        liveUrl !== null &&
-        retainLiveSession({ channelId: liveDetails.Id, details: liveDetails, url: liveUrl, token: liveToken });
-      if (!retained) stopLocalRemux(liveToken);
+      const retained = liveChannel.release(isLiveRef.current && hasStablePlaybackRef.current);
+      if (!retained) stopLocalRemux(localRemuxTokenRef.current);
       localRemuxTokenRef.current = null;
       dropThroughputWatch(throughputWatch);
-      // The server holds the tuner until every open is closed.
-      if (!retained) void closeLiveStream(liveStreamIdRef.current);
-      liveStreamIdRef.current = null;
-      liveDetailsRef.current = null;
-      liveSessionUrlRef.current = null;
-      if (adoptedLiveRef.current) {
-        void stopLocalRemux(adoptedLiveRef.current.token);
-        adoptedLiveRef.current = null;
-      }
       isLiveRef.current = false;
+      liveChannelRef.current = null;
       resetPlaybackStages();
       stopFrameProvider(frameProviderTokenRef.current);
       frameProviderTokenRef.current = null;
@@ -2887,7 +2814,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         stallWatchRef.current = null;
       }
     };
-  }, [videoId]);
+  }, [videoId, liveChannel]);
 
   /**
    * tvOS chapter pictures the server has none of: the engine lane serves them from its own session
@@ -2973,8 +2900,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     hasTriedRemuxRestartRef.current = false;
     copyRebuiltRef.current = false;
     liveStarvedLoggedRef.current = false;
-    liveReopenedRef.current = false;
-    liveLaneRef.current = "engine";
+    liveChannel.reset();
     dropThroughputWatch(throughputRef.current);
     // One hand-over per item, like the transcode latch above it.
     throughputRef.current.handedOver = false;
@@ -3057,7 +2983,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     appliedSubtitlePreferenceRef.current = SUBTITLES_UNSET;
     setTextTrackLanguages([]);
     setAppliedSubtitlePreference(SUBTITLES_UNSET);
-  }, [videoId]);
+  }, [videoId, liveChannel]);
 
   /**
    * Waits for stable playback on purpose: AVFoundation wipes the legible selection ~0.4s in,
@@ -3158,7 +3084,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
    */
   useEffect(() => {
     if (skip || state.type !== "ERROR" || !state.canRetryWithTranscode || !isMountedRef.current) return;
-    const attempt = ++requestIdRef.current;
+    // A drop the live controller reopens keeps this attempt: its next URL binds to it.
+    const liveReopen = isLiveRef.current && liveChannel.state === "reopening";
+    const attempt = liveReopen ? requestIdRef.current : ++requestIdRef.current;
     if (gatewayRecoveryRef.current) clearTimeout(gatewayRecoveryRef.current.timer);
     gatewayRecoveryRef.current = null;
     if (autoPlayTimerRef.current) clearTimeout(autoPlayTimerRef.current);
@@ -3189,22 +3117,23 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // Clear streamUrl to unmount Video component during retry
     // This prevents the old URL from firing additional errors
     setStreamUrl(null);
+    if (liveReopen) {
+      setHasStablePlayback(false);
+      return;
+    }
 
-    // Auto-retry with transcoding
-    const retryTimer = setTimeout(
-      () => {
-        if (isMountedRef.current && requestIdRef.current === attempt) {
-          setHasTriedTranscoding(hasTriedTranscodingRef.current);
-          setHasStablePlayback(false);
-          dispatch({ type: "RETRY_WITH_TRANSCODE" });
-        }
-      },
-      state.autoRetry ? automaticRetryDelay(retryAttemptRef.current++) : 500,
-    );
+    const retry = () => {
+      if (isMountedRef.current && requestIdRef.current === attempt) {
+        setHasTriedTranscoding(hasTriedTranscodingRef.current);
+        setHasStablePlayback(false);
+        dispatch({ type: "RETRY_WITH_TRANSCODE" });
+      }
+    };
+    const retryTimer = setTimeout(retry, state.autoRetry ? automaticRetryDelay(retryAttemptRef.current++) : 500);
     if (state.autoRetry) retryWindowStartRef.current ??= Date.now();
 
     return () => clearTimeout(retryTimer);
-  }, [skip, state, viewerPaused]);
+  }, [skip, state, viewerPaused, liveChannel]);
 
   /**
    * Playback control functions
@@ -3269,12 +3198,16 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     (event: OnPlaybackStateChangedData) => {
       syncPlayManager.notePlaybackState(event);
       playerPlayingRef.current = event.isPlaying;
+      if (event.isPlaying && isLiveRef.current) {
+        liveChannel.notePlaying();
+        admitUntilPlaying(null);
+      }
       // RNV's programmatic seek pauses the player itself and reports it with isSeeking.
       if (event.isPlaying) nativePausedRef.current = false;
       else if (!event.isSeeking) nativePausedRef.current = true;
       reportPauseChange(!event.isPlaying);
     },
-    [reportPauseChange],
+    [reportPauseChange, liveChannel],
   );
 
   const onBandwidthUpdate = useCallback((event: OnBandwidthUpdateData) => {
@@ -3321,8 +3254,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     hasTriedRemuxRestartRef.current = false;
     copyRebuiltRef.current = false;
     liveStarvedLoggedRef.current = false;
-    liveReopenedRef.current = false;
-    liveLaneRef.current = "engine";
+    liveChannel.reset();
     heldEngineSpentRef.current = false;
     resetPlaybackStages();
     stallFallbackRef.current = false;
@@ -3343,7 +3275,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       setStreamUrl(null);
     }
     dispatch({ type: "RETRY" });
-  }, []);
+  }, [liveChannel]);
+  useEffect(() => {
+    retryRef.current = retry;
+  }, [retry]);
 
   /**
    * Compute UI state from state machine

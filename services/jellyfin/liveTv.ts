@@ -1,13 +1,13 @@
 /**
  * Live TV through the on-device engine. A manifest channel plays from its origin with no server
- * open; any other source is opened on the server and read through it. The server's HLS transcode
- * is the rung below the engine, opened when the engine cannot play the channel.
+ * open; any other source is opened on the server and read from its origin, the server's relay, or
+ * the server's remux when this device cannot reach the origin. The server never re-encodes a channel.
  */
 import { JellyfinItem, JellyfinMediaSource, JellyfinProgram, JellyfinSeriesTimer, JellyfinTimer, JellyfinVideoItem } from "@/types/jellyfin";
 import { CACHE } from "@/constants/app";
 import { engineCodecAllowlists } from "@/services/localRemux";
 import { activeGuideUrls, fetchExternalAiringPrograms } from "@/services/externalGuide";
-import { channelListKey, favoriteKey, getLiveTvPreferences, LIVE_TV_CATEGORIES, type ChannelFavorite, type LiveTvCategory } from "@/services/liveTvPreferences";
+import { channelListKey, favoriteKey, getLiveTvPreferences, type ChannelFavorite, type LiveTvCategory } from "@/services/liveTvPreferences";
 import { setPlaybackStage } from "@/services/playbackStage";
 import { cachedRequest } from "@/services/requestCache";
 import { logger } from "@/utils/logger";
@@ -20,41 +20,49 @@ import { rawLiveInput } from "./liveInput";
 import { recordClose, recordedOpens, recordOpen } from "./liveOpens";
 import { playlistPlayable, playlistStandIn, playlistStandInsAllowed, sessionRow, standInItem } from "./playlistItems";
 import { plutoStreamUrl } from "./plutoSession";
-import { didConfigReadFail, getAuthHeader, getConfig, getQualitySettings, throwRequestError } from "./session";
+import { didConfigReadFail, getAuthHeader, getConfig, throwRequestError } from "./session";
 import { lastKnownTunerData } from "./tunerGroups";
-import { type ChannelOrigin, clearOpenFailure, playlistChannelById } from "@keiver/tomo-live";
+import { type ChannelOrigin, clearOpenFailure, manifestDrm, mergeOriginHeaders, originKeyOf, originReach, playlistChannelById, splitPipeHeaders } from "@keiver/tomo-live";
 
 export type { ChannelOrigin };
-export { noteOpenFailed, openRecentlyFailed } from "@keiver/tomo-live";
+export { dashProtection, drmKeyFormat, noteOpenFailed, openRecentlyFailed } from "@keiver/tomo-live";
 
 const LIVE_BITRATE_CAP = 200_000_000;
 
-/** A fixed Streaming Quality pick caps the server's live transcode; Auto leaves the server its own clamps (live has no link reading). */
-async function liveTranscodeBitrate(): Promise<number> {
-  const quality = await getQualitySettings();
-  return quality.mode === "fixed" ? quality.bitrate : LIVE_BITRATE_CAP;
-}
-
 /**
- * Every codec the engine copies or decodes, declared as direct play on MPEG-TS. The one transcoding
- * profile is what the server answers with a TranscodingUrl: live HLS is TS-only on Jellyfin (an fMP4
- * profile is ignored and the reply degrades to a progressive stream), and AVPlayer plays HEVC in TS.
+ * Every codec the engine copies or decodes, declared as direct play on MPEG-TS and as the codecs of
+ * the one transcoding profile: when the server must carry a channel this device cannot reach, the
+ * codecs match and its HLS is a copy of the channel (live HLS is TS-only on Jellyfin).
  */
-function liveDeviceProfile(maxBitrate: number = LIVE_BITRATE_CAP) {
+function liveDeviceProfile() {
   const { video, audio } = engineCodecAllowlists();
   return {
     Name: "Tomo TV live",
-    MaxStreamingBitrate: maxBitrate,
-    MaxStaticBitrate: maxBitrate,
+    MaxStreamingBitrate: LIVE_BITRATE_CAP,
+    MaxStaticBitrate: LIVE_BITRATE_CAP,
     DirectPlayProfiles: [
       { Type: "Video", Container: "ts,mpegts", VideoCodec: video.join(","), AudioCodec: audio.join(",") },
       { Type: "Audio", Container: "ts,mpegts,mp3,aac,adts", AudioCodec: audio.join(",") },
     ],
-    TranscodingProfiles: [{ Type: "Video", Container: "ts", Protocol: "hls", VideoCodec: "h264,hevc", AudioCodec: "aac,ac3,eac3", Context: "Streaming" }],
+    TranscodingProfiles: [{ Type: "Video", Container: "ts", Protocol: "hls", VideoCodec: video.join(","), AudioCodec: audio.join(","), Context: "Streaming" }],
     ContainerProfiles: [],
     CodecProfiles: [],
     SubtitleProfiles: [],
   };
+}
+
+/** Jellyfin's relay of an open tuner stream (a shared TS stream, an HDHomeRun): a byte copy of the channel. */
+const RELAY_PATH = /\/LiveTv\/LiveStreamFiles\//i;
+
+/** The reasons a TranscodingUrl may carry and still be taken as a copy of the channel. */
+const COPY_REASONS = new Set(["DirectPlayError"]);
+
+/** The server's HLS of an open channel when it copies the channel; null when it would re-encode any of it. */
+export function remuxOf(server: string, transcodingUrl: string | null | undefined): string | null {
+  if (!transcodingUrl) return null;
+  const reasons = /[?&]TranscodeReasons=([^&]*)/i.exec(transcodingUrl)?.[1];
+  const named = reasons ? decodeURIComponent(reasons).split(",").filter(Boolean) : [];
+  return named.every((reason) => COPY_REASONS.has(reason)) ? `${server}${transcodingUrl}` : null;
 }
 
 /** The server writes its own bind address into Path; the client reaches it on the address it signed into. */
@@ -70,111 +78,23 @@ function isManifestSource(source: JellyfinMediaSource): boolean {
   return source.Container === "hls" || source.Container === "dash" || /\.(?:m3u8?|mpd)(?:$|\?)/i.test(source.Path);
 }
 
-/** The variants a multivariant playlist declares, in order; empty for a media playlist. */
-function variantsOf(master: string): { bandwidth: number; uri: string; grouped: boolean }[] {
-  const lines = master.split(/\r?\n/).map((line) => line.trim());
-  const variants: { bandwidth: number; uri: string; grouped: boolean }[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    if (!lines[i].startsWith("#EXT-X-STREAM-INF:")) continue;
-    const attributes = lines[i].slice("#EXT-X-STREAM-INF:".length);
-    const uri = lines.slice(i + 1).find((line) => line && !line.startsWith("#"));
-    if (!uri) continue;
-    variants.push({ bandwidth: Number(/(?:^|,)BANDWIDTH=(\d+)/.exec(attributes)?.[1] ?? 0), uri, grouped: /(?:^|,)(?:AUDIO|SUBTITLES)=/.test(attributes) });
-  }
-  return variants;
+/** The URL the engine opens for a manifest channel: the master as given, a DASH MPD checked here for DRM. */
+async function manifestInput(source: JellyfinMediaSource, masterUrl: string): Promise<string> {
+  if (!isDashSource(source)) return masterUrl;
+  const system = await manifestDrm(masterUrl, source.RequiredHttpHeaders, API_TIMEOUTS.SHORT);
+  if (system) throw new Error(`channel is DRM protected (${system})`);
+  return masterUrl;
 }
 
-function absolute(uri: string, base: string): string | null {
-  try {
-    return new URL(uri, base).toString();
-  } catch {
-    return null;
-  }
-}
-
-/**
- * The top-bitrate variant of a multivariant playlist, absolute, or null when the text is a media
- * playlist or every variant hangs audio or subtitles off a rendition group (a variant playlist
- * alone would then lose them). Opening one variant instead of the master spares the demuxer a
- * playlist and a first segment per variant: measured 10.4s against 2.1s on a four-variant origin.
- */
-export function topVariantUrl(master: string, masterUrl: string): string | null {
-  const variants = variantsOf(master);
-  if (variants.length === 0 || variants.some((variant) => variant.grouped)) return null;
-  const best = variants.reduce((top, variant) => (variant.bandwidth > top.bandwidth ? variant : top));
-  return absolute(best.uri, masterUrl);
-}
-
-/**
- * The key scheme of a playlist that no lane can play: SAMPLE-AES (FFmpeg decodes none of it) or
- * a key format other than a plain key (FairPlay, Widevine, PlayReady). AES-128 with a key URI
- * is not that: FFmpeg fetches the key and decrypts, as the server's ffmpeg does.
- */
-export function drmKeyFormat(playlist: string): string | null {
-  for (const line of playlist.split(/\r?\n/)) {
-    const tag = /^#EXT-X-(?:SESSION-)?KEY:(.*)$/.exec(line.trim());
-    if (!tag) continue;
-    const attributes = `,${tag[1]}`;
-    const method = /,METHOD=([A-Z0-9-]+)/.exec(attributes)?.[1] ?? "NONE";
-    const keyFormat = /,KEYFORMAT="([^"]*)"/.exec(attributes)?.[1] ?? "identity";
-    if (method.startsWith("SAMPLE-AES")) return keyFormat === "identity" ? method : keyFormat;
-    if (method !== "NONE" && keyFormat !== "identity") return keyFormat;
-  }
-  return null;
-}
-
-/** The DRM system an MPD names in its first ContentProtection, null for a clear presentation. */
-export function dashProtection(mpd: string): string | null {
-  const tag = /<ContentProtection\b([^>]*)>/i.exec(mpd);
-  if (!tag) return null;
-  return /\bschemeIdUri="(urn:uuid:[^"]+)"/i.exec(tag[1])?.[1] ?? /\bvalue="([^"]+)"/i.exec(tag[1])?.[1] ?? "ContentProtection";
-}
-
-/**
- * The URL the engine opens for a manifest channel: an HLS master's top variant when it yields
- * one, a DASH MPD whole. Reads the manifest (and one HLS media playlist) first, so a DRM channel
- * fails here, in a second, and not after the engine and the server have both timed out on it.
- */
-async function originVariantUrl(masterUrl: string, headers: Record<string, string> | undefined): Promise<string> {
-  let master: string;
-  let base = masterUrl;
-  try {
-    const response = await fetchWithTimeout(masterUrl, { headers: headers ?? {} }, API_TIMEOUTS.SHORT);
-    if (!response.ok) return masterUrl;
-    master = await response.text();
-    // A shortlink master: its variants resolve against where it landed.
-    if (response.url) base = response.url;
-  } catch (error) {
-    logger.debug("Origin master unreadable ahead of the engine, opening it whole", { service: "LiveTv", error: String(error) });
-    return masterUrl;
-  }
-  if (/<MPD\b/i.test(master)) {
-    const system = dashProtection(master);
-    if (system) throw new Error(`channel is DRM protected (${system})`);
-    return masterUrl;
-  }
-  const sessionKey = drmKeyFormat(master);
-  if (sessionKey) throw new Error(`channel is DRM protected (${sessionKey})`);
-  const variant = topVariantUrl(master, base);
-  const media = variant ?? (variantsOf(master)[0] ? absolute(variantsOf(master)[0].uri, base) : null);
-  if (media) {
-    try {
-      const response = await fetchWithTimeout(media, { headers: headers ?? {} }, API_TIMEOUTS.SHORT);
-      const key = response.ok ? drmKeyFormat(await response.text()) : null;
-      if (key) throw new Error(`channel is DRM protected (${key})`);
-    } catch (error) {
-      if (error instanceof Error && /DRM protected/.test(error.message)) throw error;
-      logger.debug("Origin variant unreadable ahead of the engine", { service: "LiveTv", error: String(error) });
-    }
-  }
-  return variant ?? masterUrl;
+function isDashSource(source: JellyfinMediaSource): boolean {
+  return source.Container === "dash" || /\.mpd(?:$|\?)/i.test(source.Path ?? "");
 }
 
 const CATEGORY_PARAMS: Record<LiveTvCategory, string> = { news: "isNews", sports: "isSports", kids: "isKids", movie: "isMovie", series: "isSeries" };
 
 /** Channels listed with no current programme get the one airing now from the device guides already open.
  *  Bounded by the page the caller fetched; any failure leaves the page as the server sent it. */
-async function fillAiringFromGuides<T extends JellyfinVideoItem>(channels: T[]): Promise<T[]> {
+export async function fillAiringFromGuides<T extends JellyfinVideoItem>(channels: T[]): Promise<T[]> {
   const bare = channels.filter((channel) => channel.Type === "TvChannel" && !channel.CurrentProgram);
   if (bare.length === 0) return channels;
   try {
@@ -192,9 +112,7 @@ async function fillAiringFromGuides<T extends JellyfinVideoItem>(channels: T[]):
 }
 
 /** One page of channels in the server's channel order; the whole list when no page is asked for. */
-export async function fetchChannels(
-  page: { startIndex?: number; limit?: number; sortBy?: "SortName" | "Name"; category?: LiveTvCategory; favorite?: boolean } = {},
-): Promise<{ items: JellyfinItem[]; total?: number }> {
+export async function fetchChannels(page: { startIndex?: number; limit?: number; sortBy?: "SortName" | "Name"; favorite?: boolean } = {}): Promise<{ items: JellyfinItem[]; total?: number }> {
   const config = await getConfig();
   if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
   const query = new URLSearchParams({
@@ -207,7 +125,6 @@ export async function fetchChannels(
     ...(page.startIndex !== undefined ? { startIndex: String(page.startIndex) } : {}),
     ...(page.limit !== undefined ? { limit: String(page.limit) } : {}),
     ...(page.sortBy ? { sortBy: page.sortBy } : {}),
-    ...(page.category ? { [CATEGORY_PARAMS[page.category]]: "true" } : {}),
     ...(page.favorite ? { isFavorite: "true" } : {}),
   });
   const response = await fetchWithTimeout(
@@ -246,29 +163,16 @@ export async function fetchChannelOrder(order: { sortBy?: "SortName" | "Name"; c
   return ((json.Items ?? []) as JellyfinItem[]).map(({ Id, Name, Type }) => ({ Id, Name, Type }) as JellyfinItem);
 }
 
-/** Category flags move only when guide data refreshes, so mounts share one read for a while. */
-const CHANNEL_CATEGORIES_TTL_MS = 60 * 60 * 1000;
+/** Category flags move only when guide data refreshes, so mounts share one read for a while; the guide's refresh drops it. */
+const CATEGORY_CHANNELS_TTL_MS = 60 * 60 * 1000;
 
-/** The categories with at least one channel: the flags come from XMLTV programme categories, so most servers have few. */
-export async function fetchChannelCategories(): Promise<LiveTvCategory[]> {
+/** The ids of the server's channels in a category, in the guide's order for the sort. */
+export async function fetchCategoryChannelIds(category: LiveTvCategory, sortBy: "SortName" | "Name"): Promise<string[]> {
   const config = await getConfig();
-  if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
   return cachedRequest(
-    `channelCategories:${config.server}:${config.userId}`,
-    async () => {
-      const headers = { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) };
-      const present = await Promise.all(
-        LIVE_TV_CATEGORIES.map(async (category) => {
-          const query = new URLSearchParams({ userId: config.userId, limit: "0", enableTotalRecordCount: "true", [CATEGORY_PARAMS[category]]: "true" });
-          const response = await fetchWithTimeout(`${config.server}/LiveTv/Channels?${query.toString()}`, { headers }, API_TIMEOUTS.NORMAL);
-          if (!response.ok) throwRequestError(response, `Failed to count channels: ${response.status}`);
-          const json = await response.json();
-          return (json.TotalRecordCount ?? 0) > 0;
-        }),
-      );
-      return LIVE_TV_CATEGORIES.filter((_, index) => present[index]);
-    },
-    CHANNEL_CATEGORIES_TTL_MS,
+    `guide:category:${config.server}:${config.userId}:${category}:${sortBy}`,
+    async () => (await fetchChannelOrder({ sortBy, category })).map((channel) => channel.Id),
+    CATEGORY_CHANNELS_TTL_MS,
   );
 }
 
@@ -392,9 +296,9 @@ async function describeChannel(
   const source: JellyfinMediaSource | undefined = info.MediaSources?.[0];
   const described = { ...channel, MediaSources: info.MediaSources, MediaStreams: source?.MediaStreams ?? [], PlaySessionId: info.PlaySessionId };
   if (source && !isManifestSource(source)) {
-    const raw = await rawLiveInput(config.server, config.apiKey, channelId, source);
+    const raw = await rawLiveInput(source);
     if (!raw) return { channel, playable: null };
-    logger.info("Live channel resolved without a server open", { service: "LiveTv", channel: channel.Name, via: raw.via });
+    logger.info("Live channel resolved without a server open", { service: "LiveTv", channel: channel.Name });
     return {
       channel,
       playable: {
@@ -402,7 +306,6 @@ async function describeChannel(
         liveStreamUrl: raw.url,
         liveOriginKey: raw.originKey,
         ...(raw.headers ? { liveHttpHeaders: raw.headers } : {}),
-        ...(raw.fallbackUrl ? { liveFallbackUrl: raw.fallbackUrl } : {}),
       },
     };
   }
@@ -410,12 +313,15 @@ async function describeChannel(
 
   if (!options.quiet) setPlaybackStage("opening");
   const origin = await manifestOrigin(source);
-  logger.info("Live channel resolved to its origin", { service: "LiveTv", channel: channel.Name, variant: origin.url !== source.Path });
-  return { channel, playable: { ...described, liveStreamUrl: origin.url, ...(origin.headers ? { liveHttpHeaders: origin.headers } : {}) } };
+  logger.info("Live channel resolved to its origin", { service: "LiveTv", channel: channel.Name });
+  return {
+    channel,
+    playable: { ...described, liveStreamUrl: origin.url, ...(origin.headers ? { liveHttpHeaders: origin.headers } : {}), ...(isDashSource(source) ? {} : { livePlaylist: true }) },
+  };
 }
 
 async function manifestOrigin(source: JellyfinMediaSource): Promise<ChannelOrigin> {
-  const url = await originVariantUrl(await plutoStreamUrl(source.Path!), source.RequiredHttpHeaders);
+  const url = await manifestInput(source, await plutoStreamUrl(source.Path!));
   return { url, ...(source.RequiredHttpHeaders ? { headers: source.RequiredHttpHeaders } : {}) };
 }
 
@@ -442,44 +348,38 @@ export async function resolveChannelOrigin(channelId: string): Promise<ChannelOr
   // Jellyfin's placeholder when no tuner lists the channel (LiveTvMediaSourceProvider.cs): the item's own id, no path.
   if (source && !source.Path && source.Id === channelId) return "untuned";
   if (source && !isManifestSource(source)) {
-    const raw = await rawLiveInput(config.server, config.apiKey, channelId, source);
-    return raw ? { url: raw.url, originKey: raw.originKey, ...(raw.headers ? { headers: raw.headers } : {}), ...(raw.fallbackUrl ? { fallbackUrl: raw.fallbackUrl } : {}) } : null;
+    const raw = await rawLiveInput(source);
+    return raw ? { url: raw.url, originKey: raw.originKey, ...(raw.headers ? { headers: raw.headers } : {}) } : null;
   }
   if (!source) return null;
   return { url: await plutoStreamUrl(source.Path!), ...(source.RequiredHttpHeaders ? { headers: source.RequiredHttpHeaders } : {}) };
 }
 
 /**
- * Open a channel's live stream and describe it as a playable item: the raw tuner bytes,
- * every stream the server probed, and the ids the reports and the close need.
- * `serverOnly` opens it for the server's transcode alone, the lane a channel takes when the engine cannot play it;
- * that open carries the Streaming Quality preset as its bitrate ceiling, the way the file transcode does.
+ * Open a channel's live stream and describe it as a playable item: what the engine reads, every
+ * stream the server probed, and the ids the reports and the close need. The engine reads the
+ * provider's own URL when this device reaches it, else the server's relay of the open (a shared
+ * TS stream, an HDHomeRun), else the server's HLS copy of it (`remux`, asked for in a second open),
+ * and never a re-encode: a channel the server could only re-encode fails here.
  */
-export async function openChannel(channelId: string, item?: JellyfinVideoItem, options: { quiet?: boolean; serverOnly?: boolean } = {}): Promise<JellyfinVideoItem> {
+export async function openChannel(channelId: string, item?: JellyfinVideoItem, options: { quiet?: boolean; remux?: boolean } = {}): Promise<JellyfinVideoItem> {
   const config = await getConfig();
   if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
   const headers = { Accept: "application/json", "Content-Type": "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) };
   const origin: LiveOrigin = { server: config.server, deviceId: config.deviceId, apiKey: config.apiKey };
-  const maxBitrate = options.serverOnly ? await liveTranscodeBitrate() : LIVE_BITRATE_CAP;
   const body = {
     UserId: config.userId,
-    DeviceProfile: liveDeviceProfile(maxBitrate),
+    DeviceProfile: liveDeviceProfile(),
     // The server builds a TranscodingUrl only for a source it will not direct play.
-    EnableDirectPlay: !options.serverOnly,
-    EnableDirectStream: !options.serverOnly,
+    EnableDirectPlay: !options.remux,
+    EnableDirectStream: !options.remux,
     EnableTranscoding: true,
     AutoOpenLiveStream: true,
-    MaxStreamingBitrate: maxBitrate,
+    MaxStreamingBitrate: LIVE_BITRATE_CAP,
   };
-  // The open probes the origin on the server (measured 11.8s cold), longer than a normal call; the
-  // fallback's open is capped at the normal budget, above that.
   // A ring neighbour opens in the background and must not narrate over the channel on screen.
   if (!options.quiet) setPlaybackStage("opening");
-  const infoRequest = fetchWithTimeout(
-    `${config.server}/Items/${channelId}/PlaybackInfo?UserId=${config.userId}`,
-    { method: "POST", headers, body: JSON.stringify(body) },
-    options.serverOnly ? API_TIMEOUTS.NORMAL : API_TIMEOUTS.EXTENDED,
-  );
+  const infoRequest = fetchWithTimeout(`${config.server}/Items/${channelId}/PlaybackInfo?UserId=${config.userId}`, { method: "POST", headers, body: JSON.stringify(body) }, API_TIMEOUTS.EXTENDED);
   // The item's failure surfaces at once; an open that still goes through beside it is released as it lands.
   const releaseOpenWhenItLands = () => void infoRequest.then((response) => (response.ok ? closeOpenedStream(response, origin) : undefined)).catch(() => {});
   let itemResponse: Response | null = null;
@@ -498,27 +398,30 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
   const [channel] = await fillAiringFromGuides<JellyfinVideoItem>([item ?? (await itemResponse!.json())]);
   const info = await infoResponse.json();
   const source: JellyfinMediaSource | undefined = info.MediaSources?.[0];
-  const raw = !options.serverOnly && !!source?.Path && source.SupportsDirectPlay === true;
-  const manifest = !options.serverOnly && !!source && !raw && isManifestSource(source);
-  // The server's transcode URL already carries the session, the live stream and the token.
-  const liveTranscodeUrl = source?.SupportsTranscoding && source.TranscodingUrl ? `${config.server}${source.TranscodingUrl}` : undefined;
-  const engineInput = !!source?.Path && (raw || manifest);
-  if (!source || (!engineInput && !liveTranscodeUrl)) {
-    // An open that answered with a stream nobody can play still holds the tuner.
-    void closeLiveStream(source?.LiveStreamId, origin);
-    throw new Error(`The server did not open ${channel.Name}${info.ErrorCode ? ` (${info.ErrorCode})` : ""}`);
-  }
-  let liveStreamUrl: string | undefined;
+  if (!source) throw new Error(`The server did not open ${channel.Name}${info.ErrorCode ? ` (${info.ErrorCode})` : ""}`);
+  let input: { url: string; headers?: Record<string, string>; originKey?: string; via: "relay" | "manifest" | "origin" | "remux" } | null = null;
   try {
-    liveStreamUrl = !engineInput
-      ? undefined
-      : manifest
-        ? await originVariantUrl(await plutoStreamUrl(source.Path!), source.RequiredHttpHeaders)
-        : liveStreamUrlFor(config.server, config.apiKey, source.Path!);
+    if (options.remux) {
+      const remux = remuxOf(config.server, source.TranscodingUrl);
+      if (remux) input = { url: remux, via: "remux" };
+    } else if (source.Path && RELAY_PATH.test(source.Path)) {
+      input = { url: liveStreamUrlFor(config.server, config.apiKey, source.Path), via: "relay" };
+    } else if (isManifestSource(source)) {
+      input = { url: await manifestInput(source, await plutoStreamUrl(source.Path!)), headers: source.RequiredHttpHeaders, via: "manifest" };
+    } else if (source.Path && /^https?$/i.test(source.Protocol ?? "")) {
+      const { url, headers: own } = splitPipeHeaders(source.Path);
+      if ((await originReach(url)) === "reachable") input = { url, headers: mergeOriginHeaders(source.RequiredHttpHeaders, own), originKey: originKeyOf(url), via: "origin" };
+    }
   } catch (error) {
     // The server holds the tuner for an open nobody will play.
     void closeLiveStream(source.LiveStreamId, origin);
     throw error;
+  }
+  if (!input) {
+    // An open that answered with a stream nobody can play still holds the tuner.
+    void closeLiveStream(source.LiveStreamId, origin);
+    if (!options.remux) return openChannel(channelId, channel, { ...options, remux: true });
+    throw new Error(`The server can carry ${channel.Name} only by re-encoding it${info.ErrorCode ? ` (${info.ErrorCode})` : ""}`);
   }
   clearOpenFailure(channelId);
   if (source.LiveStreamId) {
@@ -529,8 +432,7 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
     service: "LiveTv",
     channel: channel.Name,
     container: source.Container,
-    origin: !engineInput ? "none" : manifest ? "manifest" : "server",
-    serverTranscode: !!liveTranscodeUrl,
+    via: input.via,
     liveStreamId: source.LiveStreamId,
     streams: (source.MediaStreams ?? []).map((stream) => `${stream.Type}:${stream.Codec}`).join(","),
   });
@@ -540,11 +442,10 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
     MediaStreams: source.MediaStreams ?? [],
     PlaySessionId: info.PlaySessionId,
     LiveStreamId: source.LiveStreamId ?? undefined,
-    ...(liveStreamUrl ? { liveStreamUrl } : {}),
-    ...(liveTranscodeUrl ? { liveTranscodeUrl } : {}),
-    ...(manifest && source.RequiredHttpHeaders ? { liveHttpHeaders: source.RequiredHttpHeaders } : {}),
-    // The origin a resolve carried in is not this lane's input.
-    ...(options.serverOnly ? { liveStreamUrl: undefined, liveHttpHeaders: undefined } : {}),
+    liveStreamUrl: input.url,
+    liveHttpHeaders: input.headers && Object.keys(input.headers).length > 0 ? input.headers : undefined,
+    liveOriginKey: input.originKey,
+    ...(input.via === "manifest" && !isDashSource(source) ? { livePlaylist: true } : {}),
   };
 }
 
@@ -753,6 +654,27 @@ export async function fetchRecordings(): Promise<{ items: JellyfinItem[]; total?
   );
   const json = await response.json();
   return { items: (json.Items ?? []) as JellyfinItem[], total: json.TotalRecordCount };
+}
+
+/** The recording a timer is writing now; null while it has none. */
+export async function fetchInProgressRecording(timerId: string): Promise<JellyfinItem | null> {
+  const response = await liveTvRequest(`/LiveTv/Recordings?${await userQuery({ isInProgress: "true" })}`, {}, API_TIMEOUTS.QUICK);
+  const json = (await response.json()) as { Items?: (JellyfinItem & { TimerId?: string })[] };
+  return json.Items?.find((item) => item.TimerId === timerId) ?? null;
+}
+
+/** The first bytes of a recording's file as written so far; empty while nothing has reached disk (the server answers 416). */
+export async function readRecordingStart(itemId: string): Promise<Uint8Array> {
+  const config = await getConfig();
+  if (!config.server || !config.apiKey) throw new Error("Jellyfin server not configured.");
+  const response = await fetchWithTimeout(
+    `${config.server}/Items/${encodeURIComponent(itemId)}/Download`,
+    { headers: { Authorization: getAuthHeader(config.deviceId, config.apiKey), Range: "bytes=0-187" } },
+    API_TIMEOUTS.QUICK,
+  );
+  if (response.status === 416) return new Uint8Array(0);
+  if (!response.ok) throwRequestError(response, `Recording read failed: ${response.status}`);
+  return new Uint8Array(await response.arrayBuffer());
 }
 
 export async function fetchProgram(programId: string): Promise<JellyfinProgram> {

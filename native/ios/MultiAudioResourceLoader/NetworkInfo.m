@@ -2,7 +2,7 @@
 //  NetworkInfo.m
 //  TomoTV
 //
-//  React Native bridge for the NetworkInfo Swift module.
+//  React Native export of the NetworkInfo Swift module.
 //
 
 #import <React/RCTBridgeModule.h>

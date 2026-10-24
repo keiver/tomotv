@@ -87,7 +87,8 @@ describe("Video info: drag to a sibling", () => {
     const next = panels.find((panel) => panel.videoId === "s2e1")!;
     expect(next).toMatchObject({ active: false, name: "Episode s2e1", inFolderId: "season-1" });
     expect(next.fromResume).toBeUndefined();
-    expect(next.onReady).toBeUndefined();
+    // A sibling's ready only uncovers its own card: the queue stays read off the opened item.
+    expect(mockFetchRecursive).toHaveBeenCalledTimes(1);
   });
 
   it("walks videos only, past the audio a folder also holds", async () => {

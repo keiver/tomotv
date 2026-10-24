@@ -58,6 +58,30 @@ describe("PosterCollage", () => {
     expect(bottomRow(tree)).toHaveLength(0);
   });
 
+  it("stacks three full-width bands in a poster card and two in a square card, with no side-by-side row", () => {
+    const items = [video("a"), video("b"), video("c")];
+    let poster!: TestRenderer.ReactTestRenderer;
+    let square!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      poster = TestRenderer.create(<PosterCollage items={items} height={200} shape="portrait" />);
+      square = TestRenderer.create(<PosterCollage items={items} height={200} shape="square" />);
+    });
+
+    expect(cells(poster)).toHaveLength(3);
+    expect(bottomRow(poster)).toHaveLength(0);
+    expect(cells(square)).toHaveLength(2);
+    expect(bottomRow(square)).toHaveLength(0);
+  });
+
+  it("keeps the top-and-bottom-row layout in a wide card", () => {
+    let tree!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      tree = TestRenderer.create(<PosterCollage items={[video("a"), video("b"), video("c")]} height={200} shape="landscape" />);
+    });
+
+    expect(bottomRow(tree)).toHaveLength(1);
+  });
+
   it("keeps a cell's fill, and draws no picture, until its frame lands", () => {
     const tree = render([video("a", false), video("b")]);
 

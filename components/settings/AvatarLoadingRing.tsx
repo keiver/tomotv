@@ -1,6 +1,6 @@
-import { useEffect } from "react";
-import { StyleSheet } from "react-native";
-import Animated, { cancelAnimation, Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
+import { useEffect, useMemo } from "react";
+import { Animated, Easing, StyleSheet, useAnimatedValue } from "react-native";
+import { useReducedMotion } from "react-native-reanimated";
 
 interface AvatarLoadingRingProps {
   /** Stroke of the resting ring it sits on. */
@@ -13,23 +13,28 @@ interface AvatarLoadingRingProps {
 
 /** A half-arc turning in an avatar's ring slot while that account connects. */
 export function AvatarLoadingRing({ width, radius, color }: AvatarLoadingRingProps) {
-  const turn = useSharedValue(0);
+  const turn = useAnimatedValue(0);
   const reducedMotion = useReducedMotion();
 
   useEffect(() => {
     if (reducedMotion) return;
-    turn.value = 0;
-    turn.value = withRepeat(withTiming(1, { duration: 900, easing: Easing.linear }), -1);
-    return () => cancelAnimation(turn);
+    turn.setValue(0);
+    const loop = Animated.loop(Animated.timing(turn, { toValue: 1, duration: 900, easing: Easing.linear, useNativeDriver: true }));
+    loop.start();
+    return () => loop.stop();
   }, [reducedMotion, turn]);
 
-  const spin = useAnimatedStyle(() => ({ transform: [{ rotate: `${turn.value * 360}deg` }] }));
+  const rotate = useMemo(() => turn.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] }), [turn]);
 
   // Insets of -width sit the arc on the parent's border, which absolute children otherwise start inside.
   return (
     <Animated.View
       pointerEvents="none"
-      style={[styles.arc, { borderWidth: width, borderRadius: radius, borderTopColor: color, borderRightColor: color, top: -width, right: -width, bottom: -width, left: -width }, spin]}
+      style={[
+        styles.arc,
+        { borderWidth: width, borderRadius: radius, borderTopColor: color, borderRightColor: color, top: -width, right: -width, bottom: -width, left: -width },
+        { transform: [{ rotate }] },
+      ]}
     />
   );
 }

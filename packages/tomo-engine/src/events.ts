@@ -234,25 +234,31 @@ export type EngineFailure = { token: string; message: string };
 
 type FailureListener = (failure: EngineFailure) => void;
 const failureListeners = new Map<string, Set<FailureListener>>();
+/** Each session's failure, so a subscriber arriving after the report still hears it. */
+const failureReports = new Map<string, EngineFailure>();
 let failureSubscription: { remove: () => void } | null = null;
 
-function watchEngineFailure(): void {
+export function watchEngineFailure(): void {
   if (failureSubscription || !isLocalRemuxAvailable()) return;
   if (!nativeEmits("onEngineFailed")) {
     engineLog().info("Engine build predates the failure report; the pre-flight deadline stands in", { service: "LocalRemux" });
     return;
   }
   failureSubscription = engineEmitter().addListener("onEngineFailed", (failure: EngineFailure) => {
+    failureReports.set(failure.token, failure);
+    if (failureReports.size > 32) failureReports.delete(failureReports.keys().next().value!);
     failureListeners.get(failure.token)?.forEach((listener) => listener(failure));
   });
 }
 
-/** One session's failure, until the returned function runs. Never fires on a native build without the event. */
+/** One session's failure, until the returned function runs; one already reported comes on the next microtask. Never fires on a native build without the event. */
 export function subscribeEngineFailure(token: string, listener: FailureListener): () => void {
   watchEngineFailure();
   const listeners = failureListeners.get(token) ?? new Set<FailureListener>();
   listeners.add(listener);
   failureListeners.set(token, listeners);
+  const reported = failureReports.get(token);
+  if (reported) queueMicrotask(() => listeners.has(listener) && listener(reported));
   return () => {
     listeners.delete(listener);
     if (listeners.size === 0) failureListeners.delete(token);
@@ -321,9 +327,40 @@ export function subscribeSubtitleRequests(token: string, listener: SubtitleReque
   };
 }
 
-/** Drops what a stopped session left behind: its link reading and listeners, and its stage history. */
+/**
+ * A live session's input lost and reopening in the session (`reopening`), or back (`reopened`, after
+ * `attempts` opens). The player keeps the same URL throughout; only its buffer drains and refills.
+ */
+export type EngineLiveEvent = { token: string; event: "reopening" | "reopened"; reason: string; attempts?: number };
+
+type LiveListener = (event: EngineLiveEvent) => void;
+const liveListeners = new Map<string, Set<LiveListener>>();
+let liveSubscription: { remove: () => void } | null = null;
+
+function watchEngineLive(): void {
+  if (liveSubscription || !isLocalRemuxAvailable() || !nativeEmits("onEngineLive")) return;
+  liveSubscription = engineEmitter().addListener("onEngineLive", (event: EngineLiveEvent) => {
+    liveListeners.get(event.token)?.forEach((listener) => listener(event));
+  });
+}
+
+/** One live session's input drops and returns, until the returned function runs. Never fires on a native build without the event. */
+export function subscribeEngineLive(token: string, listener: LiveListener): () => void {
+  watchEngineLive();
+  const listeners = liveListeners.get(token) ?? new Set<LiveListener>();
+  listeners.add(listener);
+  liveListeners.set(token, listeners);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) liveListeners.delete(token);
+  };
+}
+
+/** Drops what a stopped session left behind: its link reading and listeners, its stage history and its failure. */
 export function forgetSession(token: string): void {
   rememberLink(token, null);
   linkListeners.delete(token);
+  liveListeners.delete(token);
   stageReports.delete(token);
+  failureReports.delete(token);
 }

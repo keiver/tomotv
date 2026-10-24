@@ -70,6 +70,10 @@ export function useItemDownload(item: JellyfinItem | null): ItemDownload {
       router.back();
       router.push({ pathname: "/downloads", params: { highlight: itemId } });
     };
+    const openSettings = () => {
+      router.back();
+      router.push("/transcoding");
+    };
     // Anything already known, held or in flight, leads to the tab rather than acting here.
     // Making the same circle also cancel is how a second press, on a panel that was not yet
     // showing progress, threw the file away.
@@ -125,20 +129,16 @@ export function useItemDownload(item: JellyfinItem | null): ItemDownload {
       }
 
       // The one place a single press commits real storage, so every button carries its size.
-      // An undeclared size admits itself rather than claiming zero.
-      const offered = choices.filter((choice) => choice.bytes <= 0 || free - choice.bytes >= DISK_HEADROOM_BYTES);
-      if (!offered.some((choice) => !choice.disabled)) {
-        const smallest = Math.min(...choices.filter((choice) => !choice.disabled).map((choice) => choice.bytes));
-        Alert.alert(t("downloads.notEnoughSpace"), t("downloads.needsSpace").replace("{size}", formatFileSize(smallest)).replace("{free}", formatFileSize(free)));
-        return true;
-      }
+      // A size that does not fit stays listed, greyed; an undeclared size admits itself rather than claiming zero.
+      const fits = (choice: SizeChoice) => choice.bytes <= 0 || free - choice.bytes >= DISK_HEADROOM_BYTES;
       const body = lane === "server" ? t("downloads.convertOnly") : t("downloads.chooseSize").replace("{free}", formatFileSize(free));
-      const note = offered.some((choice) => choice.disabled) ? blockedSizesNote(block) : null;
-      showSizeSheet(
-        name,
-        note ? `${body}\n\n${note}` : body,
-        offered.map((choice) => ({ text: choice.text, disabled: choice.disabled, onPress: () => queue(choice.convert) })),
-      );
+      const note = choices.some((choice) => choice.disabled) ? blockedSizesNote(block) : null;
+      // Only this device's own setting can be changed from here; an account block is the server's.
+      const settings = note && block === "device" ? [{ text: t("downloads.transcodingSettings"), onPress: openSettings }] : [];
+      showSizeSheet(name, note ? `${body}\n\n${note}` : body, [
+        ...choices.map((choice) => ({ text: choice.text, disabled: choice.disabled || !fits(choice), onPress: () => queue(choice.convert) })),
+        ...settings,
+      ]);
       return true;
     } catch (error) {
       logger.warn("Download action failed", error, { service: "Downloads", itemId });

@@ -162,7 +162,7 @@ enabled. The build registers **520 decoders** (271 video, 226 audio, 22
 subtitle) and exactly five audio encoders plus the two VideoToolbox video ones.
 The output side is pruned hard on purpose: one muxer (`mp4`), one bitstream
 filter (`pgs_frame_merge`), a named filter list. Decoders, demuxers and parsers
-are left entirely enabled — that is the point of owning the build.
+are left entirely enabled: that is the point of owning the build.
 
 **DASH and teletext are in the build since ffmpeg-n8.1.2-tomo.5.** The `dash` demuxer needs
 libxml2 (`build.sh` writes a pc for the SDK's `libxml2.tbd`, podspec links `xml2`); teletext
@@ -229,7 +229,7 @@ with VideoToolbox. Its input contract is the whole story:
 
 Encoder choice follows source depth: `h264_videotoolbox` for 8-bit,
 `hevc_videotoolbox` with `p010le` for 10-bit. HEVC output needs no special
-handling for the playlist — `Remuxer.buildMuxer` applies the `hvc1` sample-entry
+handling for the playlist: `Remuxer.buildMuxer` applies the `hvc1` sample-entry
 tag off the output codec id, and a non-SDR variant already declares an `hvc1`
 CODECS token through `hdrFallbackTag`.
 
@@ -277,7 +277,7 @@ can ride the pipeline whatever its format, rate or layout.
 
 Copied untouched: AAC, ALAC, AC-3, E-AC-3, and FLAC whose extradata is exactly a
 34-byte STREAMINFO block. AC-3 and E-AC-3 copying is what preserves Atmos, since
-JOC rides inside E-AC-3 as side data — the `delay_moov` path in
+JOC rides inside E-AC-3 as side data: the `delay_moov` path in
 `Remuxer.buildMuxer` is what makes the fMP4 muxer accept it.
 
 Everything else is decoded and re-encoded to **FLAC**, with AAC only as a
@@ -391,7 +391,7 @@ file whose codec and container both passed inspection usually means a container
 fault, and rewrapping is exactly what fixes that; going straight to the server
 re-encoded a whole film to work around a broken wrapper. `directPlayFailedRef`
 carries that state, and it appears in **both** the remux condition and the
-transcode condition — without the second, a file the engine declines falls back
+transcode condition; without the second, a file the engine declines falls back
 to direct play and fails identically forever.
 
 ## The server transcoding setting
@@ -437,6 +437,41 @@ cleanup hook (`RCTInvalidating`; RCTNetworking cancels its tasks the same way),
 not a dev-only shim. Release never reloads, so there it only runs at shutdown. The "footprint N MB" segment
 lines print whole-process `phys_footprint` (`RemuxSession+Pipeline.swift`),
 the number to watch across reloads.
+
+## Provider connection limits
+
+Every live read, and every file read that names its provider (`liveOriginKey`), takes a lease on
+that provider's budget in `LiveConnectionBroker.swift` before it opens. Reads rank
+`sweep < preview < ring < playback`; a higher one revokes the lowest lower one on a full budget
+and waits for its connection to close. A budget is set (`setOriginConnectionBudget`; Tomo's
+Connection limits screen sets one per tuner playlist and `services/liveConnectionLimits.ts` hands
+it to every host and port that playlist reads, the lowest limit winning where playlists share one) or
+learned, in memory only, from the provider itself: a refusal or a kick while
+this device holds other reads sets it to what was held. Nothing stores a learned budget: it only
+ever goes down (`learnLocked`), so a stored one could never be corrected.
+
+A refused open (`httpOpenErrors` in `RemuxSession+Pipeline.swift`: every HTTP tag but 404) makes
+the lower reads yield and retries with backoff 0.5, 1, 2, 4 s, then once a second while the
+provider had a close in the last 15 s (it counts a closed read until it next writes to it, up to
+10 s on a stalling Dispatcharr feed); a 4xx (`limitErrors`, 429 has its own FFmpeg tag) also
+teaches the number unless a read on the provider closed in the last 15 s, a 5xx never does. A
+neighbour with nothing below it to revoke fails at once; playback waits out the playback it
+replaces. A preview takes nothing from anyone and holds a slot only while one stays spare beside
+it for the sweep (`previewsWithoutSpareLocked`): a learned or set budget that leaves none ends it.
+The sweep's grab is a fight (`LiveFrameQueue.swift`): it waits for a slot, tries a refused open
+every second for its deadline, leaves an open the origin admitted to the origin (a 75 s silence
+guard aside: Dispatcharr holds an admitted client silent up to its 60 s client wait and counts
+a hung-up unserved client as a ghost for 50 s, so our cut never frees the slot) and, once served,
+has the deadline for its pictures and clip. The origin ending an unserved open (`ended`: EOF,
+invalid data, I/O error, reset) is the channel's own answer; the sampler strikes it (two make it
+down: read last, never first on focus, no preview) and brings no refused sibling back. A fight lost beside
+other reads calls `noteLostFight`, which ends the preview and teaches on a 4xx, unless the
+provider has shown room beside a preview (`noteOpened`: a read admitted while an admitted preview
+was held) and only one channel has lost since (its own 403 or 503). A provider that never showed
+room stops previews at the second channel lost beside one. Tests: `LiveConnectionBrokerTests`
+against `scripts/demo-livetv/relay.py` with `RELAY_CAP_STATUS` 403, 429, 503 and 404,
+`RELAY_RELEASE_LAG_MS` and `RELAY_HOLD_MS` (admitted, silent, then closed). Issue 104 was a 429
+answered by a one-connection provider's server.
 
 ## Rules of engagement
 

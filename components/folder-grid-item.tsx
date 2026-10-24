@@ -1,31 +1,25 @@
 import { CARD_BADGE_INSET, CardBadge, showsFavoriteHeart } from "@/components/card-badge";
+import { CardCornerTab } from "@/components/card-corner-tab";
 import { CardNavProgress } from "@/components/card-nav-progress";
-import { CardCornerScrim, CardScrim } from "@/components/card-scrim";
+import { CardStand } from "@/components/card-stand";
 import { PosterCollage } from "@/components/poster-collage";
-import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, GRID, RAISED_EDGE, slotColumns, type SlotOrientation } from "@/constants/app";
+import { artworkSlotShape, CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, RAISED_EDGE, slotColumns, STAND_HEIGHT, STAND_ROW_ROOM, type SlotOrientation } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { useFolderPreview } from "@/hooks/useFolderPreview";
 import { useViewItemCount } from "@/hooks/useViewItemCount";
 import { folderPosterSource } from "@/services/itemArtwork";
-import { t } from "@/services/i18n";
+import { locale, t } from "@/services/i18n";
 import { cleanLabel } from "@/utils/cleanLabel";
-import { withAlpha } from "@/utils/color";
+import { folderWatchedProgress } from "@/utils/resumeProgress";
 import { JellyfinItem } from "@/types/jellyfin";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Dimensions, Platform, StyleSheet, TouchableOpacity, View } from "react-native";
-import { MarqueeText } from "./MarqueeText";
+import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 
 const IS_TV = Platform.isTV;
-// Tablet type off the physical short side, read once. The title is pure chrome and feeds
-// no layout math, so it needs no window subscription and cannot desync the row packer.
-const SCREEN = Dimensions.get("screen");
-const IS_TABLET = !IS_TV && Math.min(SCREEN.width, SCREEN.height) >= GRID.PHONE_WIDE_MIN_WIDTH;
-const TITLE_SIZE = IS_TV ? 22 : IS_TABLET ? 15 : 13;
-const QUIET_MARK_SIZE = Math.round(TITLE_SIZE * 0.8);
 const CARD_PADDING = IS_TV ? 16 : 8;
 const POSTER_SIZE = IS_TV ? 300 : 200;
 
@@ -36,9 +30,9 @@ interface FolderGridItemProps {
   onLongPress?: (folder: JellyfinItem) => void;
   index: number;
   onItemFocus?: (folder: JellyfinItem, index: number) => void;
-  /** TV: focus left this card (grid focus bookkeeping — see library-grid's recovery). */
+  /** TV: focus left this card (grid focus bookkeeping; see library-grid's recovery). */
   onItemBlur?: (folder: JellyfinItem) => void;
-  /** TV: this card unmounted while it held focus — its native view died under the viewer. */
+  /** TV: this card unmounted while it held focus: its native view died under the viewer. */
   onFocusedGone?: () => void;
   hasTVPreferredFocus?: boolean;
   /** Wear the focus treatment with no touch on it, how the phone marks the "Show In Folder" target. */
@@ -115,19 +109,12 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
   const thumbnailSource = useMemo(() => folderPosterSource(folder, POSTER_SIZE), [folder]);
   const preview = useFolderPreview(folder, !thumbnailSource);
 
-  // The card's slot ratio (see cardSlotRatio — shared with the row packer so rendered and
-  // allocated widths agree). The art always cover-fills the slot — a crop beats a letterbox.
-  const cardRatio = cardSlotRatio(fitArtwork, folder.PrimaryImageAspectRatio, slotOrientation);
+  // The card's slot ratio (see cardSlotRatio, shared with the row packer so rendered and
+  // allocated widths agree). The art always cover-fills the slot: a crop beats a letterbox.
+  const cardRatio =
+    cardWidth != null && cardHeight != null ? (cardWidth - 2 * CARD_PADDING) / (cardHeight - 2 * CARD_PADDING) : cardSlotRatio(fitArtwork, folder.PrimaryImageAspectRatio, slotOrientation);
 
   const folderName = cleanLabel(folder.Name);
-  const favorite = showsFavoriteHeart(folder);
-  // The same heart a channel card wears after its title: smaller and dimmed.
-  const renderFavoriteMark = (color: string) =>
-    favorite ? (
-      <View style={styles.titleMark} pointerEvents="none">
-        <Ionicons name="heart" size={QUIET_MARK_SIZE} color={withAlpha(color, 0.65)} />
-      </View>
-    ) : null;
 
   // The Live TV view counts channels, and its empty face is a set, not a folder.
   const isLiveTv = folder.CollectionType === "livetv";
@@ -157,10 +144,10 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
   // Recursive count when the server provides it; ChildCount (direct children) is the
   // fallback for types excluded from recursive counts (e.g. channel-sourced folders),
   // where the server reports a recursive 0 despite real children. A resolved 0 still
-  // renders as a "0" badge. Library views carry no inline count — theirs streams in
-  // lazily (badge shows the box spinner meanwhile).
-  const { count: lazyCount, loading: countLoading } = useViewItemCount(folder);
+  // reads as 0. Library views carry no inline count: theirs streams in lazily.
+  const { count: lazyCount } = useViewItemCount(folder);
   const itemCount = (folder.RecursiveItemCount || (folder.ChildCount ?? folder.RecursiveItemCount)) ?? lazyCount;
+  const depth = [styles.depth, focused && [styles.cardFocused, { shadowColor: palette.accent }]];
 
   return (
     <TouchableOpacity
@@ -170,7 +157,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
       onFocus={handleFocus}
       onBlur={handleBlur}
       // Touch: a held press shows the same focus treatment the TV focus engine drives
-      // (gold border, glow, gold title bar). TV keeps onFocus/onBlur only.
+      // (accent border, glow, accent base). TV keeps onFocus/onBlur only.
       onPressIn={IS_TV ? undefined : handleFocus}
       onPressOut={IS_TV ? undefined : handleBlur}
       activeOpacity={0.95}
@@ -193,32 +180,20 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
           ? (itemCount === 1 ? t("a11y.folderItemOne") : t("a11y.folderItemMany")).replace("{name}", folderName).replace("{count}", String(itemCount))
           : t("a11y.folderNav").replace("{name}", folderName)
       }>
-      <View style={[styles.card, focused && [styles.cardFocused, { shadowColor: palette.accent }]]}>
-        <View style={[styles.imageContainer, { aspectRatio: cardRatio }]}>
+      <View style={[styles.card, IS_TV ? null : depth, styles.cardOverhang]}>
+        {/* TV: a solid layer behind the picture carries the depth, so the card stays clear for its base. */}
+        {IS_TV ? <View style={[styles.depthLayer, depth, !focused && styles.depthLayerArt]} pointerEvents="none" /> : null}
+        {itemCount != null ? <CardCornerTab segments={[{ label: itemCount.toLocaleString(locale()) }]} focused={focused} /> : null}
+        <View style={[styles.imageContainer, { aspectRatio: cardRatio }, styles.squareBottom]}>
           {thumbnailSource ? (
-            <>
-              <Image source={thumbnailSource} style={styles.poster} contentFit="cover" transition={0} priority={index < 10 ? "high" : "normal"} cachePolicy="memory-disk" recyclingKey={folder.Id} />
-              <CardScrim />
-              {focused && (itemCount != null || countLoading) ? <CardCornerScrim /> : null}
-            </>
+            <Image source={thumbnailSource} style={styles.poster} contentFit="cover" transition={0} priority={index < 10 ? "high" : "normal"} cachePolicy="memory-disk" recyclingKey={folder.Id} />
           ) : preview.length > 0 ? (
-            <>
-              <PosterCollage items={preview} height={POSTER_SIZE} deferWhileVideo />
-              <CardScrim />
-              {focused && (itemCount != null || countLoading) ? <CardCornerScrim /> : null}
-            </>
+            <PosterCollage items={preview} height={POSTER_SIZE} deferWhileVideo shape={artworkSlotShape(cardRatio)} />
           ) : (
             <View style={styles.placeholderPoster}>
               <Ionicons name={isLiveTv ? "tv-outline" : "folder-outline"} size={IS_TV ? 90 : 56} color="rgba(255, 255, 255, 0.45)" />
             </View>
           )}
-
-          {/* Item-count badge (top-left): the number alone, on glass */}
-          {itemCount != null || countLoading ? (
-            <View style={styles.countBadge} pointerEvents="none">
-              {itemCount != null ? <CardBadge segments={[{ label: itemCount }]} focused={focused} /> : <CardBadge loading focused={focused} />}
-            </View>
-          ) : null}
 
           {recording ? (
             <View style={styles.recBadge} pointerEvents="none">
@@ -226,36 +201,13 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             </View>
           ) : null}
 
-          {/* Title bar at the very bottom — same treatment as the video cards.
-              Focused: opaque gold bar; resting: glass over the scrimmed art. */}
-          {focused ? (
-            <View style={[styles.infoOverlay, { backgroundColor: palette.accent }]}>
-              <View style={[styles.titleLine, favorite && styles.titleLineInset]}>
-                {renderFavoriteMark(palette.ink)}
-                <MarqueeText active={focused} style={StyleSheet.flatten([styles.folderName, { color: palette.ink }])}>
-                  {folderName}
-                </MarqueeText>
-              </View>
-            </View>
-          ) : (
-            <View style={[styles.infoOverlay, styles.infoOverlayGlass]}>
-              <View style={[styles.titleLine, favorite && styles.titleLineInset]}>
-                {renderFavoriteMark(palette.accent)}
-                <MarqueeText active={focused} style={StyleSheet.flatten([styles.folderName, { color: palette.accent }])}>
-                  {folderName}
-                </MarqueeText>
-              </View>
-            </View>
-          )}
-
-          <View style={[styles.borderOverlay, focused && [styles.borderOverlayFocused, { borderColor: palette.accent }]]} pointerEvents="none" />
-
-          {/* Per-card feedback while the pressed card's destination loads:
-              the title bar becomes a sweeping gold progress fill. Mounted only
-              around a press (visible lingers past the handoff fade) — idle
-              cards carry no overlay. */}
-          {navBarVisible ? <CardNavProgress active={navigating} title={folderName || t("a11y.folder")} /> : null}
+          <View style={[styles.borderOverlay, focused && styles.borderOverlayFocused, styles.squareBottom]} pointerEvents="none" />
         </View>
+        <View>
+          <CardStand name={folderName || t("a11y.folder")} icon={showsFavoriteHeart(folder) ? "heart" : undefined} focused={focused} progress={folderWatchedProgress(folder)} scrolls />
+          {navBarVisible ? <CardNavProgress active={navigating} title={folderName || t("a11y.folder")} stand baseColor={COLORS.SURFACE_SUNKEN} /> : null}
+        </View>
+        {focused ? <View style={[styles.focusRing, { borderColor: palette.accent }]} pointerEvents="none" /> : null}
       </View>
     </TouchableOpacity>
   );
@@ -268,6 +220,8 @@ function arePropsEqual(prev: FolderGridItemProps, next: FolderGridItemProps): bo
     prev.folder.ChildCount === next.folder.ChildCount &&
     prev.folder.RecursiveItemCount === next.folder.RecursiveItemCount &&
     prev.folder.UserData?.IsFavorite === next.folder.UserData?.IsFavorite &&
+    prev.folder.UserData?.Played === next.folder.UserData?.Played &&
+    prev.folder.UserData?.PlayedPercentage === next.folder.UserData?.PlayedPercentage &&
     prev.folder.ImageTags?.Primary === next.folder.ImageTags?.Primary &&
     prev.folder.SeriesId === next.folder.SeriesId &&
     prev.folder.SeriesPrimaryImageTag === next.folder.SeriesPrimaryImageTag &&
@@ -300,9 +254,12 @@ const styles = StyleSheet.create({
   },
   card: {
     borderRadius: DESIGN.BORDER_RADIUS_CARD,
+  },
+  depth: {
+    borderRadius: DESIGN.BORDER_RADIUS_CARD,
     // Solid background so iOS derives the focus glow from the rounded rect
     // (a transparent background forces expensive per-pixel shadow tracing).
-    // No overflow:hidden here — it would clip the glow; the image is already
+    // No overflow:hidden here: it would clip the glow; the image is already
     // clipped by imageContainer.
     backgroundColor: COLORS.SURFACE_SUNKEN,
     shadowColor: CARD_DEPTH.SHADOW_COLOR,
@@ -311,7 +268,18 @@ const styles = StyleSheet.create({
     shadowRadius: IS_TV ? CARD_DEPTH.SHADOW_RADIUS.tv : CARD_DEPTH.SHADOW_RADIUS.phone,
     elevation: CARD_DEPTH.ELEVATION,
   },
-  // Overrides every resting shadow prop — a leftover depth offset would smear the glow downward.
+  depthLayer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  // At rest the layer stops at the art, leaving the base over the canvas.
+  depthLayerArt: {
+    bottom: STAND_HEIGHT,
+  },
+  // Overrides every resting shadow prop: a leftover depth offset would smear the glow downward.
   // The glow's colour is the theme's, set inline.
   cardFocused: {
     shadowOffset: { width: 0, height: 0 },
@@ -340,8 +308,16 @@ const styles = StyleSheet.create({
   },
   // An inset shadow paints inside the border, so under the gold ring it reads as a second one.
   borderOverlayFocused: {
-    borderWidth: CARD_FOCUS.BORDER_WIDTH_FOCUSED,
     boxShadow: "none",
+  },
+  focusRing: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: DESIGN.BORDER_RADIUS_CARD,
+    borderWidth: CARD_FOCUS.BORDER_WIDTH_FOCUSED,
   },
   poster: {
     width: "100%",
@@ -357,57 +333,17 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.SURFACE_RAISED,
     padding: IS_TV ? 20 : 12,
   },
-  countBadge: {
-    position: "absolute",
-    top: CARD_BADGE_INSET,
-    left: CARD_BADGE_INSET,
+  squareBottom: {
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+  },
+  // Where rows keep no room for it (TV), the base hangs into the card's own bottom padding and the row's.
+  cardOverhang: {
+    marginBottom: STAND_ROW_ROOM - STAND_HEIGHT,
   },
   recBadge: {
     position: "absolute",
     top: CARD_BADGE_INSET,
     right: CARD_BADGE_INSET,
-  },
-  // Opaque sliver at the very bottom showing just the title.
-  infoOverlay: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingVertical: IS_TV ? 10 : 8,
-    paddingHorizontal: IS_TV ? 16 : 14,
-    overflow: "hidden",
-    justifyContent: "center",
-    alignItems: "center",
-    borderBottomLeftRadius: DESIGN.BORDER_RADIUS_CARD,
-    borderBottomRightRadius: DESIGN.BORDER_RADIUS_CARD,
-  },
-  // Resting bar: the scrimmed artwork tints through so the title area reads as part
-  // of the poster, not a flat strip. Gold stays legible on the bottom scrim's wash.
-  infoOverlayGlass: {
-    backgroundColor: "rgba(28, 28, 30, 0.6)",
-  },
-  titleLine: {
-    width: "100%",
-  },
-  // Both sides on TV, so the centred title clears the heart; the right side alone elsewhere.
-  titleLineInset: {
-    paddingRight: IS_TV ? TITLE_SIZE + 16 : TITLE_SIZE + 2,
-    paddingLeft: IS_TV ? TITLE_SIZE + 16 : 0,
-  },
-  titleMark: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    right: IS_TV ? 4 : -4,
-    justifyContent: "center",
-  },
-  // Flush left on phone: touch has no marquee (MarqueeText only scrolls on TV focus), so long
-  // library names always ellipsize, and a ragged tail reads better from a fixed left edge.
-  folderName: {
-    color: COLORS.TEXT_PRIMARY,
-    fontSize: TITLE_SIZE,
-    fontWeight: "700",
-    textAlign: IS_TV ? "center" : "left",
-    width: "100%",
   },
 });

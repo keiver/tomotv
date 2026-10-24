@@ -4,7 +4,9 @@ import TestRenderer, { act } from "react-test-renderer";
 import { Animated } from "react-native";
 
 let mockCellRenders = 0;
+let mockFavorite = false;
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
+jest.mock("@/services/liveTvPreferences", () => ({ ...jest.requireActual("@/services/liveTvPreferences"), isFavoriteChannel: () => mockFavorite }));
 jest.mock("@/services/jellyfinApi", () => ({ getPosterUrl: (id: string) => `poster:${id}`, getCachedConfig: () => ({ server: "http://jf" }) }));
 // One object: useSyncExternalStore re-renders forever on a fresh snapshot each read.
 const mockRowReel = { at: 1, frames: [{ uri: "file:///f0.jpg", cacheKey: "k0" }] };
@@ -90,6 +92,55 @@ describe("GuideRow", () => {
     const tree = mount({ nowMs: T0 + 5 * MINUTE_MS });
     act(() => tree.update(row({ nowMs: T0 + 5 * MINUTE_MS, timers: new Map() })));
     expect(mockCellRenders).toBe(0);
+  });
+
+  it("hands every cell the row's channel name", () => {
+    const tree = mount({ nowMs: T0 });
+    const names = tree.root.findAll((node) => node.props.channelName !== undefined && typeof node.type !== "string").map((node) => node.props.channelName);
+    expect(new Set(names)).toEqual(new Set(["One"]));
+  });
+
+  describe("on a favorite channel", () => {
+    beforeEach(() => {
+      mockFavorite = true;
+    });
+    afterEach(() => {
+      mockFavorite = false;
+    });
+    const favoriteIds = (tree: TestRenderer.ReactTestRenderer) =>
+      tree.root.findAll((node) => node.props.favorite === true && node.props.program !== undefined && typeof node.type !== "string").map((node) => node.props.program.Id);
+
+    it("shows the heart on the airing programme only", () => {
+      expect(new Set(favoriteIds(mount({ nowMs: T0 + 90 * MINUTE_MS })))).toEqual(new Set(["p1"]));
+    });
+
+    it("shows no heart when no programme in the window is airing", () => {
+      expect(favoriteIds(mount({ nowMs: T0 + CELLS * SLOT + MINUTE_MS }))).toEqual([]);
+    });
+
+    it("shows the heart on the no-listings cell even when it is not airing", () => {
+      let tree!: TestRenderer.ReactTestRenderer;
+      act(() => {
+        tree = TestRenderer.create(
+          <GuideRow
+            channel={channel}
+            programs={[]}
+            windowStartMs={T0}
+            windowEndMs={T0 + CELLS * SLOT}
+            metrics={metrics}
+            spanPx={CELLS * slotPx}
+            nowMs={T0 - SLOT}
+            timersByProgramId={noTimers}
+            scrollX={scrollX}
+            viewportWidth={1600}
+            rowIndex={0}
+            onProgramPress={press}
+            onProgramLongPress={press}
+          />,
+        );
+      });
+      expect(favoriteIds(tree).length).toBeGreaterThan(0);
+    });
   });
 
   it("wears reels only inside the span it is handed", () => {

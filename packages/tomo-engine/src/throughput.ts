@@ -57,3 +57,8 @@ export function liveStarving(samples: ThroughputSample[]): boolean {
 export function engineInputMissing(message: string): boolean {
   return /Server returned 404/.test(message);
 }
+
+/** FFmpeg's wording for an HTTP 429 on the input (av_strerror of AVERROR_HTTP_TOO_MANY_REQUESTS). */
+export function engineInputOverLimit(message: string): boolean {
+  return /Server returned 429/.test(message);
+}

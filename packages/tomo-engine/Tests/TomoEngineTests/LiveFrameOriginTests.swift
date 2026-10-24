@@ -51,13 +51,17 @@ final class LiveFrameOriginTests: XCTestCase {
                 line["frames"] = files.count
                 line["clipBytes"] = clip.flatMap { (try? FileManager.default.attributesOfItem(atPath: $0.path))?[.size] as? Int } ?? 0
                 XCTAssertFalse(expectFail, "run \(run): expected a failure, got \(files.count) frames")
-            case .none(let opened, let failure)?:
+            case .none(let opened, let failure, _)?:
                 line["outcome"] = opened ? "frame" : "open"
                 line["failure"] = failure ?? ""
                 if !expectFail { XCTFail("run \(run): no frame, opened=\(opened), \(failure ?? "")") }
             case .empty?:
                 line["outcome"] = "empty"
                 if !expectFail { XCTFail("run \(run): the source listed no streams") }
+            case .refused(let failure)?:
+                line["outcome"] = "refused"
+                line["failure"] = failure ?? ""
+                if !expectFail { XCTFail("run \(run): the provider turned the open away, \(failure ?? "")") }
             default:
                 line["outcome"] = "cancelled"
                 XCTFail("run \(run): cancelled")

@@ -82,6 +82,20 @@ const mockSession = {
   hostMode: "video",
 };
 jest.mock("@/contexts/PlayerSessionContext", () => ({ usePlayerSession: () => mockSession }));
+const mockStatus = { running: [] as unknown[], active: [] as unknown[] };
+const mockStatusListeners = new Set<() => void>();
+jest.mock("@/services/recordingStatus", () => ({
+  ...jest.requireActual("@/services/recordingStatus"),
+  getRecordingStatus: () => mockStatus,
+  subscribeRecordingStatus: (listener: () => void) => {
+    mockStatusListeners.add(listener);
+    return () => mockStatusListeners.delete(listener);
+  },
+}));
+const publishStatus = (active: unknown[]) => {
+  mockStatus.active = active;
+  for (const listener of mockStatusListeners) listener();
+};
 
 const lastConfig = (): PlayerTvConfig => mockSession.setTvConfig.mock.calls.at(-1)![0];
 const lastHandlers = () => mockSession.setHandlers.mock.calls.filter((c) => c[0]).at(-1)![0];
@@ -135,6 +149,23 @@ describe("transport bar record after a failed re-read", () => {
     expect(cancelTimer).not.toHaveBeenCalled();
     await press();
     expect(cancelTimer).toHaveBeenCalledWith("t1");
+  });
+
+  it("follows a timer stopped or made again elsewhere, so Stop always cancels the timer recording now", async () => {
+    const now = Date.now();
+    const timer = (id: string) => ({ Id: id, ChannelId: "ch1", Status: "InProgress", StartDate: new Date(now - 60_000).toISOString(), EndDate: new Date(now + 3_600_000).toISOString() });
+    jest.mocked(fetchTimers).mockResolvedValue([timer("t1")] as never);
+    await act(async () => {
+      renderer = TestRenderer.create(<VideoPlayerScreen />);
+    });
+    expect(recordButton()).toMatchObject({ title: "liveTv.stopRecording" });
+    await act(async () => publishStatus([]));
+    expect(recordButton()).toMatchObject({ title: "liveTv.record" });
+    await act(async () => publishStatus([timer("t2")]));
+    expect(recordButton()).toMatchObject({ title: "liveTv.stopRecording" });
+    jest.mocked(fetchTimers).mockResolvedValue([]);
+    await press();
+    expect(cancelTimer).toHaveBeenCalledWith("t2");
   });
 });
 

@@ -58,7 +58,7 @@ const DEFAULT_FIXTURE_ROOTS = [
 /**
  * Recursively sort object keys so a value can be compared and stored as JSON.
  *
- * The engine plan arrives from a Swift [String: Any] over the bridge, and Swift
+ * The engine plan arrives from a Swift [String: Any], and Swift
  * dictionaries have no stable iteration order (the hash seed changes per
  * process). Identical plans therefore serialise with different key orders on
  * every run, which made a plain JSON.stringify comparison fail 32 items on
@@ -838,7 +838,7 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath,
     // copies, which encoder it picks, or the layout and depth it targets is
     // exactly the kind of silent regression the output-side probes missed.
     // The session token is deliberately absent from the emitted payload, and
-    // canonical() sorts the keys the Swift bridge hands over in arbitrary
+    // canonical() sorts the keys Swift hands over in arbitrary
     // order, so this is stable run to run.
     enginePlan: plan ? canonical({ video: plan.video, audio: plan.audio }) : null,
     video: { policy: item.validate, ...video },

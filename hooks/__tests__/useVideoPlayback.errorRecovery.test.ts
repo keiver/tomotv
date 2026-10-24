@@ -10,7 +10,8 @@
  */
 
 import { PlaybackErrorType, planErrorRecovery, type ErrorRecoveryInput } from "../useVideoPlayback";
-import { AUTOMATIC_RETRY_BUDGET_MS, automaticRetryDelay, planLiveErrorRecovery, shouldAutomaticallyRetry } from "../videoPlayback/errorRecovery";
+import { AUTOMATIC_RETRY_BUDGET_MS, automaticRetryDelay, isPermanentLiveError, reopensUntilAdmitted, shouldAutomaticallyRetry } from "../videoPlayback/errorRecovery";
+import { classifyPlaybackError as classifyError } from "@/utils/errorClassification";
 
 describe("automatic network recovery", () => {
   it("caps the delay without exhausting retries", () => {
@@ -109,7 +110,7 @@ describe("network gateway item recovery", () => {
   });
 });
 
-describe("planErrorRecovery — engine restart rung", () => {
+describe("planErrorRecovery: engine restart rung", () => {
   it("restarts the engine once for a mid-playback starvation", () => {
     const d = planErrorRecovery({ ...base, errorType: PlaybackErrorType.STALLED });
     expect(d.action.kind).toBe("restartRemux");
@@ -151,7 +152,7 @@ describe("planErrorRecovery — engine restart rung", () => {
   });
 });
 
-describe("planErrorRecovery — preserved pre-existing paths", () => {
+describe("planErrorRecovery: preserved pre-existing paths", () => {
   it("mid-playback localRemux failure latches transcode up front and carries the playhead", () => {
     const d = planErrorRecovery(base);
     expect(d.action.kind).toBe("reportError");
@@ -183,7 +184,7 @@ describe("planErrorRecovery — preserved pre-existing paths", () => {
       expect(d.action.kind).toBe("refreshCredentials");
       expect(d.carryPositionSec).toBeNull();
     }
-    // A 401 mid-remux still spends the engine rung up front — today's behavior, preserved.
+    // A 401 mid-remux still spends the engine rung up front: today's behavior, preserved.
     expect(planErrorRecovery({ ...base, errorType: PlaybackErrorType.UNAUTHORIZED }).latchTranscodeUpFront).toBe(true);
   });
 
@@ -228,7 +229,7 @@ describe("planErrorRecovery — preserved pre-existing paths", () => {
   });
 });
 
-describe("classifyPlaybackError — starvation", () => {
+describe("classifyPlaybackError: starvation", () => {
   const { classifyPlaybackError } = jest.requireActual<typeof import("../useVideoPlayback")>("../useVideoPlayback");
 
   it("classifies the native -12889 code+domain shape", () => {
@@ -246,7 +247,7 @@ describe("classifyPlaybackError — starvation", () => {
   });
 });
 
-describe("planErrorRecovery — a held file degrades instead of reaching a server", () => {
+describe("planErrorRecovery: a held file degrades instead of reaching a server", () => {
   it("spends the subtitles rather than the transcode rung, and stops the dead session", () => {
     const d = planErrorRecovery({ ...base, heldOnDisk: true });
     expect(d.dropSubtitles).toBe(true);
@@ -290,31 +291,35 @@ describe("planErrorRecovery — a held file degrades instead of reaching a serve
   });
 });
 
-describe("planLiveErrorRecovery", () => {
-  const base = { mode: "localRemux" as const, errorType: PlaybackErrorType.STALLED, hasReopened: false, lane: "engine" as const };
-
-  it("opens the channel afresh on its first drop: a dropped tuner only comes back that way", () => {
-    expect(planLiveErrorRecovery(base)).toEqual({ reopen: true, toServer: false, retry: true });
+describe("isPermanentLiveError", () => {
+  it("takes a stall or a lost input for something another open fixes", () => {
+    expect(isPermanentLiveError(PlaybackErrorType.STALLED, "live playback stalled for 60s")).toBe(false);
+    expect(isPermanentLiveError(PlaybackErrorType.NETWORK, "live input lost: no data for 12s")).toBe(false);
   });
 
-  it("takes the server's transcode on the second drop", () => {
-    expect(planLiveErrorRecovery({ ...base, hasReopened: true })).toEqual({ reopen: false, toServer: true, retry: true });
+  it("takes the account, a gone channel and DRM for failures every open repeats", () => {
+    for (const errorType of [PlaybackErrorType.UNAUTHORIZED, PlaybackErrorType.NOT_FOUND, PlaybackErrorType.PROTECTED]) {
+      expect(isPermanentLiveError(errorType, "")).toBe(true);
+    }
   });
 
-  it("ends at the error once the channel is already on the server", () => {
-    expect(planLiveErrorRecovery({ ...base, mode: "transcode", hasReopened: true, lane: "server" })).toEqual({ reopen: false, toServer: false, retry: false });
+  it("takes an input the engine gave up, a channel the server could only re-encode, or one the engine cannot take, for permanent", () => {
+    expect(isPermanentLiveError(PlaybackErrorType.STALLED, "live input gone: Server returned 404 Not Found")).toBe(true);
+    expect(isPermanentLiveError(PlaybackErrorType.STALLED, "The server can carry News 24 only by re-encoding it")).toBe(true);
+    expect(isPermanentLiveError(PlaybackErrorType.STALLED, "the open gave the engine nothing to read")).toBe(true);
   });
 
-  it("spends no cold opens on a 401, which fails every rung the same way", () => {
-    expect(planLiveErrorRecovery({ ...base, errorType: PlaybackErrorType.UNAUTHORIZED })).toEqual({ reopen: false, toServer: false, retry: false });
+  it("takes a recording holding the provider for permanent, and never retries it on its own", () => {
+    const errorType = classifyError(new Error("live origin is held by a recording"));
+    expect(errorType).toBe(PlaybackErrorType.RECORDING_HOLD);
+    expect(isPermanentLiveError(errorType, "live origin is held by a recording")).toBe(true);
+    expect(shouldAutomaticallyRetry({ live: false, heldOnDisk: false, errorType, ladderSpent: true, retryingForMs: 0 })).toBe(false);
   });
 
-  it("does not reopen from the server lane, which is the last rung", () => {
-    expect(planLiveErrorRecovery({ ...base, mode: "transcode", lane: "server" })).toEqual({ reopen: false, toServer: false, retry: false });
-  });
-
-  it("ends at the error after the one reopen when the server rung is ruled out", () => {
-    expect(planLiveErrorRecovery({ ...base, serverTranscodingAllowed: false })).toEqual({ reopen: true, toServer: false, retry: true });
-    expect(planLiveErrorRecovery({ ...base, hasReopened: true, serverTranscodingAllowed: false })).toEqual({ reopen: false, toServer: false, retry: false });
+  it("opens a channel again on the provider's refusal only after its recording was stopped", () => {
+    expect(reopensUntilAdmitted({ reopening: false, errorType: PlaybackErrorType.PROVIDER_LIMIT, admitting: true })).toBe(true);
+    expect(reopensUntilAdmitted({ reopening: false, errorType: PlaybackErrorType.PROVIDER_LIMIT, admitting: false })).toBe(false);
+    expect(reopensUntilAdmitted({ reopening: false, errorType: PlaybackErrorType.NOT_FOUND, admitting: true })).toBe(false);
+    expect(reopensUntilAdmitted({ reopening: true, errorType: PlaybackErrorType.PROVIDER_LIMIT, admitting: true })).toBe(false);
   });
 });

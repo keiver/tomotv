@@ -1,3 +1,4 @@
+import { STAND_NAME_TEXT } from "@/components/card-stand";
 import { DESIGN, GRID } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardPalette } from "@/hooks/useCardPalette";
@@ -29,6 +30,10 @@ interface CardNavProgressProps {
   title: string;
   /** Where the sweep starts (0 to 1): a resume card starts at its watched fraction. */
   startFraction?: number;
+  /** Fills a channel stand, in the stand's lettering, instead of the title bar. */
+  stand?: boolean;
+  /** The stand's resting colour under the sweep, where it differs from the wall's. */
+  baseColor?: string;
 }
 
 /**
@@ -47,7 +52,7 @@ interface CardNavProgressProps {
  * blur), and already announces its own state to assistive tech; this overlay
  * is hidden from it.
  */
-export function CardNavProgress({ active, title, startFraction }: CardNavProgressProps) {
+export function CardNavProgress({ active, title, startFraction, stand = false, baseColor }: CardNavProgressProps) {
   const progress = useSharedValue(0);
   const opacity = useSharedValue(0);
   const reducedMotion = useReducedMotion();
@@ -77,10 +82,14 @@ export function CardNavProgress({ active, title, startFraction }: CardNavProgres
   const barStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
 
   return (
-    <Animated.View pointerEvents="none" style={[styles.bar, barStyle]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+    <Animated.View
+      pointerEvents="none"
+      style={[styles.bar, stand && styles.barStand, baseColor ? { backgroundColor: baseColor } : null, barStyle]}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants">
       <Animated.View style={[styles.fill, { backgroundColor: accent }, fillStyle]} />
       <View style={styles.titleBlend}>
-        <Text style={[styles.title, { color: accent }]} numberOfLines={1}>
+        <Text style={[styles.title, stand && STAND_NAME_TEXT, { color: accent }]} numberOfLines={1}>
           {title}
         </Text>
       </View>
@@ -106,6 +115,11 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: DESIGN.BORDER_RADIUS_CARD,
     backgroundColor: COLORS.SURFACE_SUNKEN,
   },
+  barStand: {
+    top: 0,
+    paddingVertical: 0,
+    backgroundColor: COLORS.BACKGROUND_DEEP,
+  },
   // Same minWidth rule as the resume fill: clear the rounded bottom-left
   // corner so the sweep's opening frames aren't clipped invisible.
   fill: {
@@ -122,9 +136,11 @@ const styles = StyleSheet.create({
   // The accent through the difference blend: black over the fill, the accent over the dark
   // remainder, identical treatment to the Continue Watching title bar.
   title: {
-    fontSize: TITLE_SIZE,
-    fontWeight: "700",
+    fontSize: TITLE_SIZE - 2,
+    fontWeight: "800",
+    letterSpacing: IS_TV ? 1.5 : 0.8,
     textAlign: "center",
+    textTransform: "uppercase",
     width: "100%",
   },
 });

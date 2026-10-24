@@ -1,6 +1,7 @@
 import { engineLog } from "./config";
-import { attributeSession, forgetSession, watchEngineLink, watchEnginePlan, watchEngineStage, watchEngineTier } from "./events";
+import { attributeSession, forgetSession, watchEngineFailure, watchEngineLink, watchEnginePlan, watchEngineStage, watchEngineTier } from "./events";
 import { engineModule, isLocalRemuxAvailable } from "./native";
+import { LIVE_BUFFER_SECONDS, LIVE_SEGMENT_SECONDS } from "./playbackConstants";
 import type { SourcePosition, SubtitleRendition } from "./subtitles";
 
 /** One audio track of a session, as the native side reads it (LocalRemuxer.startRemux). */
@@ -72,12 +73,85 @@ export interface EngineSessionConfig {
   inputConnections?: number;
   fallbackInputUrl?: string;
   livePriority?: "playback" | "ring" | "preview";
+  /** Live: the audio track made the default, by language code; the source's default when absent. */
+  liveAudioLanguage?: string;
+  /** Live: the input is an HLS playlist whatever its URL's extension. */
+  livePlaylist?: boolean;
+  /** Live: seconds of output the media playlists wait for before answering, the player's start buffer. */
+  liveBufferSeconds?: number;
   stopRequests?: EngineStopRequest[];
   /**
    * The open input names its own range, size, rate and bit rate, and whichever of `audioTracks`,
    * `subtitles` and `durationSeconds` are left empty. Takes no `tiers` and no `serverVideoOnly`.
    */
   describesInput?: boolean;
+}
+
+/** A live channel the engine reads from its origin, as any app knows it: a URL and how to reach it. */
+export interface LiveSessionInput {
+  inputUrl: string;
+  /** Keys the frame caches; the channel's own id. */
+  itemId: string;
+  /** Headers the origin requires, sent on every read of the channel. */
+  httpHeaders?: Record<string, string>;
+  /** The provider whose connection budget the channel spends (setOriginConnectionBudget); its host when absent. */
+  originKey?: string;
+  /** "playback" for the channel on screen; a neighbour kept warm or a card preview yields to it. */
+  priority?: "playback" | "ring" | "preview";
+  /** Seconds the player starts behind the newest output; LIVE_BUFFER_SECONDS when absent. */
+  bufferSeconds?: number;
+  /** The audio language played first on a channel that offers several (ISO 639-1 or -2); every language is carried. */
+  audioLanguage?: string;
+  /** Seconds of output kept and listed; the player's rewind. */
+  windowSeconds?: number;
+  /** A second way to the same channel (a relay), opened once when the origin itself will not open. */
+  fallbackInputUrl?: string;
+  /** An HLS origin read with no server between: its refusal is checked beside the open, so a refused channel fails in seconds. */
+  checkOrigin?: boolean;
+  /** The input is an HLS playlist whatever its URL's extension, so it is trimmed and checked for DRM. */
+  playlist?: boolean;
+}
+
+/**
+ * The config of a live session from the channel's URL alone: the engine reads the tracks, the
+ * picture and the codecs off the input, opens the top variant of an HLS master with every rendition
+ * it names, and answers the player once `bufferSeconds` are built.
+ */
+export function liveSessionConfig(input: LiveSessionInput): EngineSessionConfig {
+  const buffer = input.bufferSeconds ?? LIVE_BUFFER_SECONDS;
+  return {
+    inputUrl: input.inputUrl,
+    itemId: input.itemId,
+    audioTracks: [],
+    durationSeconds: 0,
+    subtitles: [],
+    videoRange: "",
+    codecs: "",
+    primaryVideoCodecs: "",
+    primaryVideoBandwidth: 0,
+    sourceBandwidth: 0,
+    serverVideoOnly: false,
+    supplementalCodecs: "",
+    width: 0,
+    height: 0,
+    frameRate: 0,
+    bandwidth: 0,
+    readAheadSegments: 0,
+    startOffsetSeconds: 0,
+    tiers: [],
+    isLive: true,
+    liveSegmentSeconds: LIVE_SEGMENT_SECONDS,
+    liveBufferSeconds: Number.isFinite(buffer) && buffer > 0 ? buffer : 0,
+    ...(input.windowSeconds && input.windowSeconds > 0 ? { liveWindowSeconds: input.windowSeconds } : {}),
+    ...(input.httpHeaders && Object.keys(input.httpHeaders).length > 0 ? { httpHeaders: input.httpHeaders } : {}),
+    ...(input.originKey ? { liveOriginKey: input.originKey } : {}),
+    ...(input.priority && input.priority !== "playback" ? { livePriority: input.priority } : {}),
+    ...(input.audioLanguage ? { liveAudioLanguage: input.audioLanguage } : {}),
+    ...(input.playlist ? { livePlaylist: true } : {}),
+    ...(input.fallbackInputUrl ? { fallbackInputUrl: input.fallbackInputUrl } : {}),
+    ...(input.checkOrigin ? { probeOrigin: true } : {}),
+    describesInput: true,
+  };
 }
 
 /** What a session needs when the input describes itself: where to read, and where to resume. */
@@ -127,14 +201,19 @@ export function describedSessionConfig(input: DescribedSessionInput): EngineSess
   };
 }
 
+const setLimits = new Map<string, number>();
+
 /**
  * How many connections a provider allows this device at once, for every read that names `originKey`;
  * 0 forgets the limit and leaves the provider's own refusals to teach it. False when the binary has no such method.
  */
 export async function setOriginConnectionBudget(originKey: string, connections: number): Promise<boolean> {
   if (!isLocalRemuxAvailable() || !originKey || typeof engineModule().setOriginBudget !== "function") return false;
+  const limit = Number.isFinite(connections) && connections > 0 ? Math.floor(connections) : 0;
   try {
-    await engineModule().setOriginBudget(originKey, Number.isFinite(connections) && connections > 0 ? Math.floor(connections) : 0);
+    await engineModule().setOriginBudget(originKey, limit);
+    if (limit > 0) setLimits.set(originKey, limit);
+    else setLimits.delete(originKey);
     return true;
   } catch (error) {
     engineLog().warn("Failed to set an origin's connection budget", error, { service: "LocalRemux" });
@@ -142,24 +221,76 @@ export async function setOriginConnectionBudget(originKey: string, connections: 
   }
 }
 
+/** The limit setOriginConnectionBudget last gave the engine for a provider; null when none is set. */
+export function originConnectionLimit(originKey: string | null | undefined): number | null {
+  return (originKey && setLimits.get(originKey)) || null;
+}
+
 /** A provider's limit as the engine holds it, and the connections this device has open on it now. */
 export interface OriginConnections {
   /** Set by setOriginConnectionBudget or learned from the provider's refusals; null while neither has happened. */
   budget: number | null;
   active: number;
+  /** A server recording reads the provider and its limit is 1: the engine opens nothing on it. */
+  held: boolean;
 }
 
 /** What the engine knows of a provider's connections, for a screen that shows or edits the limit; null without the method. */
 export async function originConnections(originKey: string): Promise<OriginConnections | null> {
   if (!isLocalRemuxAvailable() || !originKey || typeof engineModule().originBudget !== "function") return null;
   try {
-    const answer = (await engineModule().originBudget(originKey)) as { budget?: unknown; active?: unknown } | null;
+    const answer = (await engineModule().originBudget(originKey)) as { budget?: unknown; active?: unknown; held?: unknown } | null;
     if (!answer || typeof answer.active !== "number") return null;
-    return { budget: typeof answer.budget === "number" && answer.budget > 0 ? answer.budget : null, active: answer.active };
+    const held = answer.held === true;
+    noteHeld(originKey, held);
+    return { budget: typeof answer.budget === "number" && answer.budget > 0 ? answer.budget : null, active: answer.active, held };
   } catch (error) {
     engineLog().warn("Failed to read an origin's connections", error, { service: "LocalRemux" });
     return null;
   }
+}
+
+const heldOrigins = new Set<string>();
+const holdListeners = new Set<() => void>();
+
+function noteHeld(originKey: string, held: boolean): void {
+  if (heldOrigins.has(originKey) === held) return;
+  if (held) heldOrigins.add(originKey);
+  else heldOrigins.delete(originKey);
+  for (const listener of holdListeners) listener();
+}
+
+/** Tells the engine a server recording reads the provider; at a limit of 1 every read on it ends and none opens. Resolves whether it is held. */
+export async function setOriginRecording(originKey: string, active: boolean): Promise<boolean> {
+  if (!isLocalRemuxAvailable() || !originKey || typeof engineModule().setOriginRecording !== "function") return false;
+  try {
+    const held = (await engineModule().setOriginRecording(originKey, active)) === true;
+    noteHeld(originKey, held);
+    return held;
+  } catch (error) {
+    engineLog().warn("Failed to set an origin's recording", error, { service: "LocalRemux" });
+    return false;
+  }
+}
+
+/** Whether a recording held the provider at the engine's last answer. */
+export function originHeld(originKey: string | null | undefined): boolean {
+  return !!originKey && heldOrigins.has(originKey);
+}
+
+export function subscribeOriginHolds(listener: () => void): () => void {
+  holdListeners.add(listener);
+  return () => holdListeners.delete(listener);
+}
+
+/** A session the broker ended for its provider's budget, not the channel: no slot was left, or a higher read took its connection. */
+export function isConnectionBudgetFailure(message: string): boolean {
+  return message.startsWith("no connection left on the") || message.endsWith("yielded its connection to a higher-priority read");
+}
+
+/** A session ended or refused because a recording holds its provider's only connection. */
+export function isRecordingHoldFailure(message: string): boolean {
+  return message.includes("live origin is held by a recording");
 }
 
 export interface StartSessionOptions {
@@ -186,6 +317,7 @@ export async function startSession(config: EngineSessionConfig, options: StartSe
   }
   watchEngineLink();
   watchEngineStage();
+  watchEngineFailure();
   const url: string = await engineModule().startRemux(config);
   // The token is the path segment of the master URL (.../<token>/master.m3u8).
   // The CALLER owns it and must hand it back to stopLocalRemux.
@@ -271,6 +403,8 @@ export type EngineProgress = {
   recovering?: boolean;
   hasPlayableSupplier?: boolean;
   sourceRetryAfterSeconds?: number;
+  /** Live: seconds of output a player bound now would hold ahead of it. */
+  bufferedSeconds?: number;
 };
 
 export async function engineProgress(token: string): Promise<EngineProgress | null> {
@@ -289,6 +423,7 @@ export async function engineProgress(token: string): Promise<EngineProgress | nu
       ...(typeof progress.sourceRetryAfterSeconds === "number" && Number.isFinite(progress.sourceRetryAfterSeconds) && progress.sourceRetryAfterSeconds >= 0
         ? { sourceRetryAfterSeconds: progress.sourceRetryAfterSeconds }
         : {}),
+      ...(typeof progress.bufferedSeconds === "number" && Number.isFinite(progress.bufferedSeconds) ? { bufferedSeconds: progress.bufferedSeconds } : {}),
     };
   } catch (error) {
     engineLog().warn("Engine progress read failed", error, { service: "LocalRemux", token });

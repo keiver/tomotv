@@ -164,6 +164,14 @@ export const CREDITS: Credit[] = [
     copyright: "Copyright (c) 2015-present 650 Industries, Inc. (Expo)",
     url: "https://expo.dev",
   },
+  {
+    name: "React Native Video",
+    role: "Video player component",
+    license: "MIT",
+    licenseLabel: "MIT",
+    copyright: "Copyright (c) 2016-2022 Project contributors; Copyright (c) 2016 Brent Vatne, Baris Sencan",
+    url: "https://github.com/TheWidlarzGroup/react-native-video",
+  },
 ];
 
 /** Note rendered above LGPL-3.0 texts: it supplements GPLv3 by reference. */

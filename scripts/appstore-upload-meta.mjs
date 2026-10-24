@@ -5,7 +5,7 @@
  * fields under them.
  *
  * Usage:
- *   npm run meta:upload                     every locale, all three platforms
+ *   npm run meta:upload                     every locale, every platform not held by a review
  *   npm run meta:upload -- --dry-run        print the plan, write nothing
  *   npm run meta:upload -- --locale de-DE,fr-FR   one language or a few
  *   npm run meta:upload -- --platform IOS   one platform
@@ -31,7 +31,7 @@ import { fileURLToPath } from "node:url";
 
 import { ascEnv, client } from "./appstore/asc.mjs";
 import { DOC, INFO_FIELDS, PLATFORM_LABELS, VERSION_FIELDS, measure, overLimit, readMetadata, whatsNewVersions } from "./appstore/metadata.mjs";
-import { editableVersion, isFirstVersion, platformVersions, selectedPlatforms } from "./appstore/platforms.mjs";
+import { editableAppInfo, isFirstVersion, listingPlatforms, platformVersions, selectedPlatforms } from "./appstore/platforms.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const BUNDLE_ID = "dev.keiver.tomotv";
@@ -70,11 +70,13 @@ async function main() {
     app = apps.data[0];
     if (!app) fail(`No app with bundle id ${BUNDLE_ID} on this account`);
     for (const platform of platforms) {
-      const history = await platformVersions(api, app.id, platform);
-      if (isFirstVersion(history, version)) firstVersions.add(platform);
-      const found = editableVersion(history, platform, version);
-      if (!found && (platform === "MAC_OS" || !CHECK_ONLINE)) {
-        fail(`No editable ${platform} version for ${version}. Add the platform/version in App Store Connect first.`);
+      if (isFirstVersion(await platformVersions(api, app.id, platform), version)) firstVersions.add(platform);
+    }
+    for (const { platform, slot, version: found } of await listingPlatforms(api, app.id, version, opt("--platform"))) {
+      if (slot === "free" && !CHECK_ONLINE) {
+        if (!DRY) fail(`No ${platform} draft for ${version}. Open it with npm run shots:upload -- --platform ${platform} --create-version.`);
+        console.log(`  ${platform}: no draft for ${version} yet, nothing to plan`);
+        continue;
       }
       versions[platform] = found;
     }
@@ -131,11 +133,10 @@ async function main() {
 
   console.log(`App Store Connect: ${BUNDLE_ID}, version ${version}${DRY ? " (dry run)" : ""}`);
 
-  // Two app infos exist while a change is pending: the live one and the editable
-  // one. The name and subtitle only land on the editable one.
+  // The app info is shared by all platforms: while any platform's submission holds it, the
+  // name and subtitle wait for that review to finish.
   const infos = await api.get(`/v1/apps/${app.id}/appInfos`);
-  const info = infos.data.find((i) => i.attributes.appStoreState !== "READY_FOR_SALE");
-  if (!info) fail("No editable app info. Its name and subtitle cannot be changed while the listing is live with no draft.");
+  const info = editableAppInfo(infos.data);
 
   // A new Mac platform has no previous English URLs to inherit. Reuse the
   // existing iOS listing on this same app record, never an invented address.
@@ -150,7 +151,7 @@ async function main() {
     }
   }
 
-  for (const platform of platforms) {
+  for (const platform of Object.keys(versions)) {
     const versionId = versions[platform].id;
     const existing = await api.get(`/v1/appStoreVersions/${versionId}/appStoreVersionLocalizations`);
     // A new language inherits the URLs the English listing already carries,
@@ -199,6 +200,13 @@ async function main() {
     }
   }
 
+  const done = DRY ? "\n--dry-run: nothing written" : "\nListing text uploaded. Read it in App Store Connect before submitting.";
+  if (!info) {
+    const held = infos.data.find((i) => i.attributes.state !== "READY_FOR_DISTRIBUTION")?.attributes.state ?? "live with no draft";
+    console.log(`  info: name and subtitle skipped, the app info is ${held}`);
+    console.log(done);
+    return;
+  }
   const infoLocalizations = await api.get(`/v1/appInfos/${info.id}/appInfoLocalizations`);
   const englishInfo = infoLocalizations.data.find((l) => l.attributes.locale === "en-US")?.attributes ?? {};
   for (const locale of locales) {
@@ -233,7 +241,7 @@ async function main() {
     });
   }
 
-  console.log(DRY ? "\n--dry-run: nothing written" : "\nListing text uploaded. Read it in App Store Connect before submitting.");
+  console.log(done);
 }
 
 main().catch((e) => fail(e.message));

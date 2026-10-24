@@ -1,4 +1,52 @@
-import { cardResumeProgress, queueTrackProgress } from "../resumeProgress";
+import { bingeFocusId, cardResumeProgress, folderWatchedProgress, queueTrackProgress } from "../resumeProgress";
+
+describe("folderWatchedProgress", () => {
+  it("is the server percentage of a partly watched series", () => {
+    expect(folderWatchedProgress({ Type: "Series", UserData: { PlayedPercentage: 20 } })).toBe(0.2);
+  });
+
+  it("is full for a watched season", () => {
+    expect(folderWatchedProgress({ Type: "Season", UserData: { Played: true, PlayedPercentage: 100 } })).toBe(1);
+  });
+
+  it("gives a season with nothing watched no fill", () => {
+    expect(folderWatchedProgress({ Type: "Season", UserData: { PlayedPercentage: 0 } })).toBeUndefined();
+  });
+
+  it("gives a collection or a movie no fill", () => {
+    expect(folderWatchedProgress({ Type: "BoxSet", UserData: { PlayedPercentage: 50 } })).toBeUndefined();
+    expect(folderWatchedProgress({ Type: "Movie", UserData: { Played: true } })).toBeUndefined();
+  });
+});
+
+describe("bingeFocusId", () => {
+  const episode = (Id: string, Played = false, PlaybackPositionTicks = 0) => ({ Id, Type: "Episode", UserData: { Played, PlaybackPositionTicks } });
+
+  it("is the episode after the last watched one", () => {
+    expect(bingeFocusId([episode("e1"), episode("e2", true), episode("e3", true), episode("e4"), episode("e5")])).toBe("e4");
+  });
+
+  it("is the episode in progress after the watched ones", () => {
+    expect(bingeFocusId([episode("e1", true), episode("e2"), episode("e3", false, 500), episode("e4")])).toBe("e3");
+  });
+
+  it("is nothing when the last episode is watched", () => {
+    expect(bingeFocusId([episode("e1"), episode("e2", true)])).toBeUndefined();
+  });
+
+  it("is nothing when no episode was started", () => {
+    expect(bingeFocusId([episode("e1"), episode("e2")])).toBeUndefined();
+  });
+
+  it("skips items that are not episodes", () => {
+    expect(bingeFocusId([episode("e1", true), { Id: "extra", Type: "Video", UserData: {} }, episode("e2")])).toBe("e2");
+    const seasons = [
+      { Id: "s1", Type: "Season", UserData: { Played: true } },
+      { Id: "s2", Type: "Season", UserData: {} },
+    ];
+    expect(bingeFocusId(seasons)).toBeUndefined();
+  });
+});
 
 describe("cardResumeProgress", () => {
   it("returns the watched fraction from the resume position", () => {

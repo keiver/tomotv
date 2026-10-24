@@ -2,7 +2,7 @@
 //  LiveSources.m
 //  TomoTV
 //
-//  Objective-C bridge exposing the LiveSources Swift module to React Native.
+//  Objective-C export of the LiveSources Swift module to React Native.
 //
 
 #import <React/RCTBridgeModule.h>

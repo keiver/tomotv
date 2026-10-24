@@ -28,7 +28,7 @@ import { recenterLiveRing, releaseLiveRing } from "@/services/liveRing";
 import { probeEmit } from "@/services/playbackProbe";
 import { showToast } from "@/services/toast";
 import { cleanLabel } from "@/utils/cleanLabel";
-import { activeRecordTimer, adjacentChannelId, channelWindow, durationLabel, programTimes, ringWithCenter } from "@/utils/guide";
+import { activeRecordTimer, channelWindow, durationLabel, formatClock, programTimes, ringWithCenter } from "@/utils/guide";
 import { cancelPosterFrame, requestPosterFrame } from "@/services/localRemux";
 import { playsFromDisk } from "@/services/downloads/localSource";
 import { serverOffText, stageStopped } from "@/hooks/usePlaybackStage";
@@ -37,7 +37,11 @@ import { isJoined as syncPlayIsJoined, requestNextItem } from "@/services/syncPl
 import { JellyfinItem, JellyfinTimer, JellyfinVideoItem } from "@/types/jellyfin";
 import { libraryManager } from "@/services/libraryManager";
 import { logger } from "@/utils/logger";
-import { formatErrorRef } from "@/utils/errorIds";
+import { formatErrorRef, PLAYBACK_ERROR_IDS } from "@/utils/errorIds";
+import { adjacentPlayableChannelId, admitUntilPlaying, recordingWhenReady, stopRecordingAndPlay, stopRecordingCheck, watchRecordingsWhilePlaying } from "@/services/recordingHold";
+import { writeAfterReserve } from "@/hooks/useRecordActions";
+import { useChannelHeld, useHeldRecording } from "@/hooks/useRecordingStatus";
+import { getRecordingStatus, recordingWindow, subscribeRecordingStatus } from "@/services/recordingStatus";
 import { formatEpisodeNumber } from "@/utils/seasonEpisode";
 import { APP_BUILD_LABEL } from "@/constants/app";
 import { Ionicons } from "@expo/vector-icons";
@@ -71,7 +75,7 @@ LogBox.ignoreLogs([
   "Failed to load the player item", // Player errors during automatic retry
 ]);
 
-/** A known credits start, or null to let AVKit present at the actual playback end. */
+/** A known credits start, or null to let the native side time the card a beat before the item's end. */
 function proposalTime(outroStartSeconds: number | undefined): number | null {
   return outroStartSeconds !== undefined && Number.isFinite(outroStartSeconds) && outroStartSeconds > 0 ? outroStartSeconds : null;
 }
@@ -227,6 +231,8 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
   // tvOS channel flipping rides AVKit's own swipe: the channel ring is the list the channel was tuned
   // from (the filter and sort at open), and a flip swaps the channel under the one player.
   const [ringPreferences] = useState(() => getLiveTvPreferences());
+  const isChannelHeld = useChannelHeld();
+  useEffect(() => (isLiveChannel ? watchRecordingsWhilePlaying(videoId) : undefined), [isLiveChannel, videoId]);
   const [loadedRing, setLoadedRing] = useState<JellyfinItem[] | null>(null);
   // Swipes before the ring loads wait here in order; a failed load is retried by the next swipe.
   const pendingFlipsRef = useRef<(1 | -1)[]>([]);
@@ -289,7 +295,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
   const liveChannelFlip = useMemo(() => {
     if (!Platform.isTV || !isLiveChannel) return undefined;
     const neighbour = (direction: 1 | -1) => {
-      const id = adjacentChannelId(channelRing, videoId, direction);
+      const id = adjacentPlayableChannelId(channelRing, videoId, direction, isChannelHeld);
       const channel = id ? channelRing.find((entry) => entry.Id === id) : undefined;
       return channel ? { title: cleanLabel(channel.Name), subtitle: cleanLabel(windowChannels.get(channel.Id)?.CurrentProgram?.Name) } : undefined;
     };
@@ -300,7 +306,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     // A loaded ring with no neighbour (a one-channel lineup) has nothing to flip to.
     if (channelRing.length > 0 && !next && !previous) return undefined;
     return { ...(next ? { next } : {}), ...(previous ? { previous } : {}) };
-  }, [isLiveChannel, channelRing, windowChannels, videoId]);
+  }, [isLiveChannel, channelRing, windowChannels, videoId, isChannelHeld]);
   const handleSkipChannel = useCallback(
     (direction: 1 | -1) => {
       if (loadedRing === null) {
@@ -310,7 +316,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
       }
       const from = flipCenterRef.current;
       const ring = ringWithCenter(loadedRing, from);
-      const targetId = adjacentChannelId(ring, from.Id, direction);
+      const targetId = adjacentPlayableChannelId(ring, from.Id, direction);
       const target = targetId ? ring.find((entry) => entry.Id === targetId) : undefined;
       if (!target) return;
       flipCenterRef.current = target;
@@ -354,8 +360,9 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
   // auto-accepting 5s after playback ends unless autoplay is off, where it waits
   // for a choice. Undefined on phone and with nothing next.
   //
-  // Without a marker, omit the time: CMTime.indefinite uses AVKit's playback-end
-  // path. Guessing runtime minus 30 seconds can cover dialogue before the credits.
+  // Without a marker, omit the time: the patch times the card a second before the
+  // item's own duration, which playback reaches. Guessing runtime minus 30 seconds
+  // can cover dialogue before the credits.
   const proposalAt = proposalTime(segments?.outro?.startSeconds);
 
   /** A card is what covers the credits — when one is coming, the pill stays off. */
@@ -550,6 +557,19 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
       cancelled = true;
     };
   }, [canRecord, recordKey, currentProgramId, videoId]);
+  // One recording write at a time: AVKit can deliver a second press before the reload lands.
+  const recordBusyRef = useRef(false);
+  // A timer stopped or made again anywhere (Stop Recording and Play, the recording check, another screen) moves the button too.
+  useEffect(() => {
+    if (!canRecord || !recordKey) return;
+    const key = recordKey;
+    const programId = currentProgramId;
+    const channelId = videoId;
+    return subscribeRecordingStatus(() => {
+      if (recordBusyRef.current) return;
+      setTimerResult({ key, timer: activeRecordTimer(getRecordingStatus().active, { programId, channelId }, Date.now()) });
+    });
+  }, [canRecord, recordKey, currentProgramId, videoId]);
 
   const transportBarButtons = useMemo(() => {
     if (!Platform.isTV) return undefined;
@@ -569,9 +589,6 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     }
     return buttons.length > 0 ? buttons : undefined;
   }, [isLiveChannel, playingChannel, liveFavorite, vodFavorite, canRecord, recordKey, recordTimer]);
-
-  // One recording write at a time: AVKit can deliver a second press before the reload lands.
-  const recordBusyRef = useRef(false);
   const handleTransportBarButtonSelected = useCallback(
     (event: { id: string }) => {
       if (event.id === "record") {
@@ -620,20 +637,17 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
                 Status: "InProgress",
               },
         });
+        if (recordTimer) stopRecordingCheck(channelId);
+        const manualEnd = new Date(Date.now() + getLiveTvPreferences().recordingMinutes * 60_000).toISOString();
         const action = recordTimer
           ? cancelTimer(recordTimer.Id)
-          : fetchTimerDefaults(programId).then((defaults) =>
-              createTimer(
-                programId
-                  ? defaults
-                  : {
-                      ...defaults,
-                      ChannelId: channelId,
-                      Name: channelName,
-                      StartDate: new Date().toISOString(),
-                      EndDate: new Date(Date.now() + getLiveTvPreferences().recordingMinutes * 60_000).toISOString(),
-                    },
-              ),
+          : writeAfterReserve(
+              channelId,
+              () =>
+                fetchTimerDefaults(programId).then((defaults) =>
+                  createTimer(programId ? defaults : { ...defaults, ChannelId: channelId, Name: channelName, StartDate: new Date().toISOString(), EndDate: manualEnd }),
+                ),
+              programId,
             );
         action
           .then(() => {
@@ -824,7 +838,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
         logger.info("Live TV: channel picked from the panel", { service: "VideoPlayer", to: channel.Name });
         probeEmit("flip", { direction: 0, from: videoId, to: channel.Id });
         flipCenterRef.current = channel;
-        switchLiveChannel({ videoId: channel.Id, videoName: channel.Name });
+        switchLiveChannel({ videoId: channel.Id, videoName: channel.Name, picked: true });
         router.setParams({ videoId: channel.Id, videoName: channel.Name });
         return;
       }
@@ -893,9 +907,12 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
   // where Menu backgrounds the app. Re-claim while no error button holds focus, briefly.
   const retryButtonRef = useRef<View>(null);
   // Which error button holds focus; a blur clears only its own name, so either event order reads right.
-  const errorButtonFocusedRef = useRef<"retry" | "back" | null>(null);
+  const errorButtonFocusedRef = useRef<"retry" | "stop" | "back" | null>(null);
   const onRetryFocus = useCallback(() => {
     errorButtonFocusedRef.current = "retry";
+  }, []);
+  const onStopFocus = useCallback(() => {
+    errorButtonFocusedRef.current = "stop";
   }, []);
   const onBackFocus = useCallback(() => {
     errorButtonFocusedRef.current = "back";
@@ -903,9 +920,56 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
   const onRetryBlur = useCallback(() => {
     if (errorButtonFocusedRef.current === "retry") errorButtonFocusedRef.current = null;
   }, []);
+  const onStopBlur = useCallback(() => {
+    if (errorButtonFocusedRef.current === "stop") errorButtonFocusedRef.current = null;
+  }, []);
   const onBackBlur = useCallback(() => {
     if (errorButtonFocusedRef.current === "back") errorButtonFocusedRef.current = null;
   }, []);
+  const recordingHold = playbackState.type === "ERROR" && playbackState.ref?.id === PLAYBACK_ERROR_IDS.LIVE_RECORDING;
+  const holdingTimer = useHeldRecording(videoId, recordingHold);
+  const [stoppingRecording, setStoppingRecording] = useState(false);
+  const stopRecordingThenPlay = useCallback(() => {
+    if (!holdingTimer) return;
+    Alert.alert(holdingTimer.Name, undefined, [
+      { text: t("common.cancel"), style: "cancel" },
+      {
+        text: t("liveTv.stopRecording"),
+        style: "destructive",
+        onPress: () => {
+          setStoppingRecording(true);
+          stopRecordingAndPlay(holdingTimer, videoId)
+            .then(() => retry())
+            .catch((err) => {
+              logger.warn("Stop recording failed", err, { service: "VideoPlayer" });
+              showToast(t("liveTv.recordingFailed"), "error");
+            })
+            .finally(() => setStoppingRecording(false));
+        },
+      },
+    ]);
+  }, [holdingTimer, videoId, retry]);
+  const [openingRecording, setOpeningRecording] = useState(false);
+  const leftRef = useRef(false);
+  useEffect(
+    () => () => {
+      leftRef.current = true;
+      admitUntilPlaying(null);
+    },
+    [],
+  );
+  const watchRecording = useCallback(() => {
+    if (!holdingTimer) return;
+    setOpeningRecording(true);
+    recordingWhenReady(videoId)
+      .then((item) => {
+        if (!item || leftRef.current) return;
+        showGlobalLoader();
+        router.replace({ pathname: "/player" as const, params: { videoId: item.Id, videoName: item.Name } });
+      })
+      .catch((err) => logger.warn("Recording read failed", err, { service: "VideoPlayer" }))
+      .finally(() => setOpeningRecording(false));
+  }, [holdingTimer, videoId, router, showGlobalLoader]);
   const showErrorButtons = playbackState.type === "ERROR" && !liveOnStage && !playbackState.canRetryWithTranscode;
   useEffect(() => {
     if (!Platform.isTV || !showErrorButtons) return;
@@ -926,10 +990,53 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
   if (playbackState.type === "ERROR" && !liveOnStage) {
     // If we can retry with transcoding, show loading overlay instead of error
     // This prevents flashing an error message during automatic retry
-    if (playbackState.canRetryWithTranscode) {
+    if (playbackState.canRetryWithTranscode || stoppingRecording || openingRecording) {
       return (
         <View style={styles.container}>
           <PlayerLoadingOverlay live={isLiveChannel} local={playsFromDisk(videoId)} />
+        </View>
+      );
+    }
+
+    if (recordingHold) {
+      const holdText = holdingTimer
+        ? t("player.error.recordingHold")
+            .replace("{channel}", cleanLabel(holdingTimer.ChannelName ?? holdingTimer.Name))
+            .replace("{time}", formatClock(recordingWindow(holdingTimer).endMs))
+        : playbackState.error;
+      return (
+        <View style={styles.errorContainer}>
+          <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />
+          <Text style={styles.errorTitle}>{t("player.limitedConnections")}</Text>
+          <Text style={styles.errorText}>{holdText}</Text>
+          {playbackState.ref ? <Text style={styles.errorCode}>{`${t("player.errorCode")}: ${formatErrorRef(playbackState.ref, APP_BUILD_LABEL)}`}</Text> : null}
+          <View style={[styles.buttonGroup, styles.uniformButtons]}>
+            {holdingTimer ? (
+              <FocusableButton
+                ref={retryButtonRef}
+                onFocus={onRetryFocus}
+                onBlur={onRetryBlur}
+                title={t("liveTv.watchRecording")}
+                onPress={watchRecording}
+                variant="retry"
+                style={styles.button}
+                hasTVPreferredFocus={true}
+              />
+            ) : null}
+            {holdingTimer ? (
+              <FocusableButton onFocus={onStopFocus} onBlur={onStopBlur} title={t("liveTv.stopRecordingAndPlay")} onPress={stopRecordingThenPlay} variant="secondary" style={styles.button} />
+            ) : null}
+            <FocusableButton
+              ref={holdingTimer ? undefined : retryButtonRef}
+              onFocus={onBackFocus}
+              onBlur={onBackBlur}
+              title={t("common.goBack")}
+              onPress={handleBack}
+              variant="secondary"
+              style={styles.button}
+              hasTVPreferredFocus={!holdingTimer}
+            />
+          </View>
         </View>
       );
     }
@@ -1045,5 +1152,8 @@ const styles = StyleSheet.create({
   },
   button: {
     minWidth: Platform.isTV ? 300 : 250,
+  },
+  uniformButtons: {
+    alignItems: "stretch",
   },
 });

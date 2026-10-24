@@ -2,7 +2,7 @@
 //  LocalRemuxer.m
 //  TomoTV
 //
-//  Objective-C bridge exposing the LocalRemuxer Swift module to React Native.
+//  Objective-C export of the LocalRemuxer Swift module to React Native.
 //
 
 #import <React/RCTBridgeModule.h>
@@ -105,6 +105,12 @@ RCT_EXTERN_METHOD(setOriginBudget
 
 RCT_EXTERN_METHOD(originBudget
                   : (nonnull NSString *)key resolver
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(setOriginRecording
+                  : (nonnull NSString *)key active
+                  : (BOOL)active resolver
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
 

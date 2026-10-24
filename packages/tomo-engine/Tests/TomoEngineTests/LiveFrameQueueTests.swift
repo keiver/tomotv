@@ -265,9 +265,10 @@ final class LiveFrameQueueTests: XCTestCase {
         XCTAssertFalse(LiveFrameQueue.touch(burstOf: nil, in: root.appendingPathComponent("chan-none", isDirectory: true), now: now))
     }
 
-    /// The clip as AVFoundation opens it: its one video track's codec, its duration in seconds and where its
-    /// first media segment starts (over zero means an empty edit leads the file; timeRange.start stays 0 for one).
-    private func playable(_ url: URL) throws -> (tracks: Int, codec: String, seconds: Double, start: Double) {
+    /// The clip as AVFoundation opens it: its one video track's codec, its duration in seconds, where its first
+    /// media segment starts (over zero means an empty edit leads the file; timeRange.start stays 0 for one) and
+    /// its shortest sample in seconds (0 when the last sample has no length).
+    private func playable(_ url: URL) throws -> (tracks: Int, codec: String, seconds: Double, start: Double, shortestFrame: Double) {
         let asset = AVURLAsset(url: url)
         let tracks = asset.tracks(withMediaType: .video)
         let format = tracks.first?.formatDescriptions.first.map { $0 as! CMFormatDescription }
@@ -275,7 +276,8 @@ final class LiveFrameQueueTests: XCTestCase {
         let codec = String(bytes: [24, 16, 8, 0].map { UInt8((fourcc >> $0) & 0xFF) }, encoding: .ascii) ?? ""
         let media = tracks.first?.segments.first { !$0.isEmpty }
         let start = media.map { CMTimeGetSeconds($0.timeMapping.target.start) } ?? -1
-        return (asset.tracks.count, codec, CMTimeGetSeconds(asset.duration), start)
+        let shortestFrame = tracks.first.map { CMTimeGetSeconds($0.minFrameDuration) } ?? -1
+        return (asset.tracks.count, codec, CMTimeGetSeconds(asset.duration), start, shortestFrame)
     }
 
     private func grab(_ queue: LiveFrameQueue, _ stream: URL, clipSpan: TimeInterval) -> LiveFrameQueue.Outcome? {
@@ -303,6 +305,8 @@ final class LiveFrameQueueTests: XCTestCase {
         XCTAssertEqual(opened.tracks, 1, "video only, no audio")
         XCTAssertEqual(opened.codec, "avc1")
         XCTAssertEqual(opened.seconds, 5, accuracy: 0.1)
+        // 25 fps in, capped to 15: every second frame kept, and the last sample lasts a frame like the rest.
+        XCTAssertEqual(opened.shortestFrame, 0.08, accuracy: 0.001, "a last sample of no length reads as an endless frame rate")
 
         let found = queue.queue.sync { queue.latest(channelIds: ["chan-a"]) }
         XCTAssertEqual(found["chan-a"]?.urls.map(\.lastPathComponent), urls.map(\.lastPathComponent))
@@ -321,6 +325,7 @@ final class LiveFrameQueueTests: XCTestCase {
         XCTAssertEqual(opened.seconds, 2, accuracy: 0.25)
         // B-frames hold the keyframe's presentation behind its decode time; the clip's zero is its presentation.
         XCTAssertEqual(opened.start, 0, "no empty edit leads the clip")
+        XCTAssertEqual(opened.shortestFrame, 0.08, accuracy: 0.001, "the last sample lasts a frame like the rest")
     }
 
     func testAClipCutShortOfThreeOfItsFiveSecondsIsNotWritten() throws {
@@ -534,12 +539,110 @@ final class LiveFrameQueueTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let queue = LiveFrameQueue(root: root)
 
-        // A non-routable address: the connect hangs until the watchdog's stop interrupts it.
+        // A non-routable address: no origin admitted anything, so FFmpeg's 5 s connect bound ends each connect (the
+        // playlist's, then the input's), never the silence guard, and the host's own answer is not the channel's.
         let started = Date()
-        let outcome = settle(queue, "chan-dead", "http://10.255.255.1:9/live.m3u8", deadline: 1, timeout: 12)
-        guard case .none(let opened, _)? = outcome else { return XCTFail("a dead origin gives no frame") }
+        let outcome = settle(queue, "chan-dead", "http://10.255.255.1:9/live.m3u8", deadline: 1, timeout: 20)
+        guard case .none(let opened, _, let ended)? = outcome else { return XCTFail("a dead origin gives no frame") }
         XCTAssertFalse(opened)
-        XCTAssertLessThan(Date().timeIntervalSince(started), 6, "the deadline bounds the grab, not rw_timeout")
+        XCTAssertFalse(ended, "an unanswered connect is not the origin ending the open")
+        XCTAssertLessThan(Date().timeIntervalSince(started), 12, "the connect bound ends the grab, not the silence guard")
+    }
+
+    /// Direct and fallback reads bound both a trickling probe and the manifest read before it.
+    func testTricklingStreamsAndManifestsKeepTheServedReadDeadline() throws {
+        let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/tier-segment.mpegts")
+        let server = Process()
+        server.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        server.arguments = ["python3", "-u", "-c", """
+        import http.server, sys, time
+        from pathlib import Path
+        payload = Path(sys.argv[1]).read_bytes()
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *args): pass
+            def do_GET(self):
+                self.send_response(200)
+                manifest = self.path.endswith('.m3u8')
+                self.send_header('Content-Type', 'application/vnd.apple.mpegurl' if manifest else 'video/mp2t')
+                self.end_headers()
+                if self.path == '/late.m3u8': time.sleep(3)
+                body = b'#EXTM3U\\n#keepalive\\n' if manifest else payload
+                until = time.monotonic() + 7
+                offset = 0
+                try:
+                    while time.monotonic() < until:
+                        self.wfile.write(body[offset:offset+188])
+                        self.wfile.flush()
+                        offset = (offset + 188) % len(body)
+                        time.sleep(.05)
+                except (BrokenPipeError, ConnectionResetError): pass
+        server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        print(server.server_port, flush=True)
+        server.serve_forever()
+        """, fixture.path]
+        let pipe = Pipe()
+        server.standardOutput = pipe
+        try server.run()
+        defer { server.terminate() }
+        let output = String(decoding: pipe.fileHandleForReading.availableData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        let port = try XCTUnwrap(Int(output))
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = LiveFrameQueue(root: root)
+        for (path, fallback, delay) in [("live.ts", false, 0.0), ("live.ts", true, 0.0), ("live.m3u8", false, 0.0), ("live.m3u8", true, 0.0), ("late.m3u8", false, 3.0)] {
+            let url = "http://127.0.0.1:\(port)/\(path)"
+            let key = "trickle-\(UUID().uuidString)"
+            let done = XCTestExpectation(description: "served read")
+            var originServed = false
+            let started = Date()
+            queue.request(channelId: fallback ? "fallback" : "direct", inputUrl: fallback ? "file:///nonexistent/review.ts" : url,
+                          headers: [:], deadline: 2, count: 1, originKey: key, fallbackUrl: fallback ? url : nil,
+                          onOriginServed: { originServed = true }) { _ in done.fulfill() }
+            wait(for: [done], timeout: 12)
+            let elapsed = Date().timeIntervalSince(started)
+            XCTAssertLessThan(elapsed, delay + 4, "\(path): a served read retains its two-second deadline, including the fallback")
+            XCTAssertGreaterThanOrEqual(elapsed, delay + 1.5, "the deadline starts at the first byte, not at the response headers")
+            XCTAssertEqual(originServed, !fallback)
+            XCTAssertEqual(LiveConnectionBroker.shared.activeCount(for: key), 0)
+            XCTAssertNil(LiveConnectionBroker.shared.budget(for: key))
+            XCTAssertEqual(LiveConnectionBroker.shared.recentlyClosed(key: key, within: 15), !fallback,
+                           "the fallback's body must not count as a served origin read")
+        }
+    }
+
+    func testOriginEvidenceDistinguishesDirectAndFallbackFramesAndUnchangedResults() throws {
+        let stream = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/tier-segment.mpegts")
+        let root = try scratchRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queue = LiveFrameQueue(root: root)
+        for fallback in [false, true] {
+            let channel = fallback ? "fallback-evidence" : "direct-evidence"
+            var shownPts: Int64?
+            var shownFile: URL?
+            for verify in [false, true] {
+                let done = XCTestExpectation(description: "source evidence")
+                var servedCalls = 0
+                var outcome: LiveFrameQueue.Outcome?
+                queue.request(channelId: channel, inputUrl: fallback ? "file:///nonexistent/live.ts" : stream.absoluteString,
+                              headers: [:], count: 1, originKey: channel, fallbackUrl: fallback ? stream.absoluteString : nil,
+                              shownPts: shownPts, shownFile: shownFile, onOriginServed: { servedCalls += 1 }) {
+                    outcome = $0
+                    done.fulfill()
+                }
+                wait(for: [done], timeout: 15)
+                XCTAssertEqual(servedCalls, fallback ? 0 : 1)
+                if verify {
+                    guard case .unchanged(let onDisk)? = outcome else { return XCTFail("expected an unchanged verification") }
+                    XCTAssertTrue(onDisk)
+                } else {
+                    guard case .frames(let files, _, let pts)? = outcome else { return XCTFail("expected frames") }
+                    shownPts = try XCTUnwrap(pts)
+                    shownFile = try XCTUnwrap(files.first)
+                }
+            }
+        }
     }
 
     /// A playlist with no segments, as an origin serves a channel it will not play here.
@@ -565,7 +668,7 @@ final class LiveFrameQueueTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let queue = LiveFrameQueue(root: root)
 
-        guard case .none(let opened, _)? = settle(queue, "chan-radio", audio.absoluteString) else {
+        guard case .none(let opened, _, _)? = settle(queue, "chan-radio", audio.absoluteString) else {
             return XCTFail("a source with streams but no video answers none")
         }
         XCTAssertTrue(opened)
@@ -584,7 +687,7 @@ final class LiveFrameQueueTests: XCTestCase {
         }
         wait(for: [done], timeout: 15)
 
-        guard case .none(let opened, let failure)? = outcome else { return XCTFail("neither read gives a frame") }
+        guard case .none(let opened, let failure, _)? = outcome else { return XCTFail("neither read gives a frame") }
         XCTAssertFalse(opened)
         XCTAssertTrue(failure?.hasPrefix("open: ") == true, "the origin's failure, not the fallback's: \(failure ?? "nil")")
     }
@@ -593,7 +696,7 @@ final class LiveFrameQueueTests: XCTestCase {
         let queue = LiveFrameQueue()
         var outcome: LiveFrameQueue.Outcome?
         queue.request(channelId: "../escape", inputUrl: "file:///nowhere", headers: [:]) { outcome = $0 }
-        guard case .none(let opened, _)? = outcome else { return XCTFail("refused before any open") }
+        guard case .none(let opened, _, _)? = outcome else { return XCTFail("refused before any open") }
         XCTAssertTrue(opened)
     }
 }

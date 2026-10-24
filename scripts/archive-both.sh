@@ -410,7 +410,7 @@ if [[ $UPLOAD -eq 1 ]]; then
   # --create-version: the binary for this version just went up, so opening its
   # draft to hang the shots on is intended, not the silent open the flag guards.
   npm run shots:upload -- --create-version || { echo "Screenshot upload failed; the build is uploaded, the shots are not." >&2; exit 1; }
-  RESULTS+=("screenshots | composed and uploaded, every store language")
+  RESULTS+=("screenshots | composed and uploaded, every store language, platforms held by a review skipped (see above)")
 
   # Opt-in via --notes, never fatal: it needs ollama, and the blocks already in the
   # document go up either way.
@@ -428,11 +428,11 @@ if [[ $UPLOAD -eq 1 ]]; then
   # text goes up in the same run as the pictures.
   echo "[7/$STEPS] Listing text"
   npm run meta:upload || { echo "Listing text upload failed; the build and shots are uploaded, the text is not." >&2; exit 1; }
-  RESULTS+=("listing text | uploaded, every store language, all three platforms")
+  RESULTS+=("listing text | uploaded, every store language, platforms held by a review skipped (see above)")
 
   echo "[8/$STEPS] Build $BUILD_NUMBER on the $VERSION versions"
   node scripts/appstore-attach-build.mjs "$BUILD_NUMBER" || { echo "Selecting the build failed; everything is uploaded, pick build $BUILD_NUMBER in App Store Connect." >&2; exit 1; }
-  RESULTS+=("build $BUILD_NUMBER | selected on all three $VERSION versions")
+  RESULTS+=("build $BUILD_NUMBER | selected on the open $VERSION versions, platforms held by a review skipped (see above)")
 fi
 
 echo "Done. TomoTV $VERSION ($BUILD_NUMBER)"

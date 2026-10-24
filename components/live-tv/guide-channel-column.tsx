@@ -69,7 +69,7 @@ export function GuideChannelColumn({
   onEndReached,
 }: GuideChannelColumnProps) {
   const preferences = useLiveTvPreferences();
-  const { viewabilityConfig, onViewableItemsChanged, visibleChannelIds } = useLiveFrameViewport("guide", preferences.autoUpdate, channels, channelIds);
+  const { viewabilityPairs, visibleChannelIds } = useLiveFrameViewport("guide", preferences.autoUpdate, channels, channelIds);
   const firstCardRef = useCallback(
     (node: React.ElementRef<typeof GuideChannelCard> | null) => {
       onFirstHandle?.(node ? (findNodeHandle(node) ?? undefined) : undefined);
@@ -92,7 +92,7 @@ export function GuideChannelColumn({
   // The wrapper is the row: exactly rowHeight, so the column never drifts off the grid's rows.
   const renderItem = useCallback(
     ({ item, index }: { item: JellyfinItem; index: number }) => (
-      <View style={{ height: metrics.rowHeight, justifyContent: "center" }} scrollSnapOffset={rowSnapOffset}>
+      <View style={[styles.row, !IS_TV && compact && styles.rowCompact, { height: metrics.rowHeight }]} scrollSnapOffset={rowSnapOffset}>
         {IS_TV ? (
           <GuideChannelCard
             ref={index === 0 ? firstCardRef : undefined}
@@ -101,6 +101,7 @@ export function GuideChannelColumn({
             cardWidth={metrics.channelColumnWidth}
             hideAiring
             flat
+            square
             inset={metrics.cardInset}
             titleIcon={favoriteMark(preferences, item)}
             recording={recordingChannelIds.has(item.Id)}
@@ -153,8 +154,7 @@ export function GuideChannelColumn({
         scrollEventThrottle={16}
         onEndReached={onEndReached}
         onEndReachedThreshold={1}
-        viewabilityConfig={viewabilityConfig}
-        onViewableItemsChanged={onViewableItemsChanged}
+        viewabilityConfigCallbackPairs={viewabilityPairs}
         showsVerticalScrollIndicator={false}
         removeClippedSubviews={!IS_TV}
         maxToRenderPerBatch={4}
@@ -213,6 +213,7 @@ function ChannelMorph({
           cardWidth={metrics.channelColumnWidth}
           hideAiring
           flat
+          square
           inset={metrics.cardInset}
           titleIcon={titleIcon}
           recording={recording}
@@ -233,6 +234,15 @@ const styles = StyleSheet.create({
   // The seam is drawn over the grid by the canvas (TV) or the resize divider (phone), since the grid reaches under it.
   column: {
     overflow: "hidden",
+  },
+  // The program rows' grid line, so the card above it reads as the row's first cell.
+  row: {
+    justifyContent: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: GRID_LINE,
+  },
+  rowCompact: {
+    borderBottomWidth: 0,
   },
   // The card keeps its full width and is clipped by the column as it narrows; it shrinks from its left edge.
   cardLayer: {

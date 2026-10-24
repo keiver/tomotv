@@ -59,19 +59,20 @@ export interface GuideMetrics {
   cardInset: { vertical: number; horizontal: number };
 }
 
-/** A row is as tall as the channel card the column draws at its width: a wide slot inside the card's padding. */
+/**
+ * The channel card is one more program cell: a 16:9 picture the column's full width and the cell's height, the
+ * row's grid line under it. Widths are multiples of 16 so both sides are whole points.
+ */
 export function guideMetrics(isTV: boolean): GuideMetrics {
-  const channelColumnWidth = isTV ? 300 : 150;
+  const channelColumnWidth = isTV ? 368 : 176;
   const padding = slotCardPadding(isTV);
-  const rowHeight = Math.round((channelColumnWidth - 2 * padding) / GRID.LANDSCAPE_RATIO + 2 * padding);
+  const rowHeight = Math.round(channelColumnWidth / GRID.LIVE_RATIO) + 1;
   // The compact column holds a portrait card the row's own height, capping the row: padded on the left only.
   const compactColumnWidth = isTV ? channelColumnWidth : Math.round((rowHeight - 1) * GRID.PORTRAIT_RATIO + padding);
-  // TV: a centred 3:2 card 7 narrower than the row's height less 8 above and below allows.
-  const tvCardWidth = (rowHeight - 16) * GRID.LANDSCAPE_RATIO - 7;
-  const cardInset = isTV ? { vertical: (rowHeight - tvCardWidth / GRID.LANDSCAPE_RATIO) / 2, horizontal: (channelColumnWidth - tvCardWidth) / 2 } : { vertical: padding, horizontal: padding };
+  const cardInset = { vertical: 0, horizontal: 0 };
   return isTV
-    ? { pxPerMinute: 8, rowHeight, channelColumnWidth, compactColumnWidth, rulerHeight: 74, cardInset }
-    : { pxPerMinute: 4, rowHeight, channelColumnWidth, compactColumnWidth, rulerHeight: 47, cardInset };
+    ? { pxPerMinute: 8, rowHeight, channelColumnWidth, compactColumnWidth, rulerHeight: 81, cardInset }
+    : { pxPerMinute: 4, rowHeight, channelColumnWidth, compactColumnWidth, rulerHeight: 51, cardInset };
 }
 
 export interface CellGeometry {

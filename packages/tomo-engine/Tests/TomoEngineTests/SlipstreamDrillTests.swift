@@ -8,7 +8,7 @@ import XCTest
 /// test/playback/drill/engineConfig.drill.test.ts), the app's own loopback routes, macOS AVPlayer,
 /// and the netsim proxy shaping the link. Records a JSONL timeline; scripts/abr-drill.mjs scores it.
 ///
-/// Env: TOMO_DRILL_CONFIG (bridge config json), TOMO_DRILL_OUT (timeline jsonl),
+/// Env: TOMO_DRILL_CONFIG (engine config json), TOMO_DRILL_OUT (timeline jsonl),
 /// TOMO_DRILL_PROXY (netsim base URL), TOMO_DRILL_PROFILE (json steps), TOMO_DRILL_SECONDS,
 /// TOMO_DRILL_LINK (stands in for the measured link, bps),
 /// TOMO_DRILL_BUFFER (preferredForwardBufferDuration, seconds), TOMO_DRILL_WINDOW=1 (render into a 1080p window),
@@ -31,7 +31,7 @@ final class SlipstreamDrillTests: XCTestCase {
         outLock.unlock()
     }
 
-    /// The bridge dictionary to RemuxConfig, field for field as LocalRemuxer.startRemux reads it.
+    /// The dictionary JS passes, to RemuxConfig, field for field as LocalRemuxer.startRemux reads it.
     private func config(from raw: [String: Any]) -> RemuxConfig {
         let audioTracks: [RemuxAudioTrack] = ((raw["audioTracks"] as? [[String: Any]]) ?? []).compactMap { entry in
             guard let index = entry["index"] as? Int else { return nil }

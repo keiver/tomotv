@@ -13,7 +13,7 @@ export const RULER_RED = COLORS.DESTRUCTIVE;
 export const MAJOR_MARK_WIDTH = 1;
 export const MAJOR_MARK_HEIGHT = IS_TV ? 16 : 10;
 export const HOUR_MARK_HEIGHT = IS_TV ? 26 : 16;
-const NOW_LABEL_LANE = IS_TV ? 28 : 17;
+const NOW_LABEL_LANE = IS_TV ? 35 : 21;
 const NOW_EDGE = IS_TV ? 3 : 2;
 /** The gold band stands as tall as a minor mark; its now edge spans the ruler. */
 const NOW_HEIGHT = IS_TV ? 8 : 5;
@@ -170,7 +170,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 0,
     lineHeight: NOW_LABEL_LANE,
-    fontSize: IS_TV ? 24 : 14,
+    fontSize: IS_TV ? 30 : 17.5,
     fontWeight: "700",
   },
 });

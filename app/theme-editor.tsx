@@ -72,9 +72,8 @@ export default function ThemeEditorScreen() {
   // The theme this screen is editing; a first save gives a new one its id and name.
   const opened = useRef({ id: params.id, name: params.name });
 
-  // A saved theme goes back to the list on both platforms. The crash app/channel-group.tsx works around
-  // (popping a screen whose own text field holds focus) cannot happen: TV draws no text field here, and
-  // focus is on the prompt's button when Save fires.
+  // A saved theme goes back to the list on both platforms. TV draws no text field here, so popping never
+  // removes a focused field (a UIFocusSystem crash): focus is on the prompt's button when Save fires.
   const promptSave = useCallback(() => {
     Alert.prompt(
       t("themeEditor.saveTitle"),
@@ -226,10 +225,10 @@ const styles = StyleSheet.create({
     flex: IS_TV ? 1 : undefined,
     marginBottom: 0,
   },
-  // The card's own padding holds its focus glow; this is the air above and below it.
+  // The card's own padding holds its focus glow; this is the air above and below it, the base the card hangs on TV included.
   preview: {
     paddingTop: IS_TV ? 16 : 12,
-    paddingBottom: IS_TV ? 8 : 12,
+    paddingBottom: IS_TV ? 24 : 12,
   },
   // Inset to the rows' text edge (settingsStyles.listItem), like everything else in the card.
   grid: {

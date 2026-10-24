@@ -1,3 +1,4 @@
+import { isPermanentLiveFailure } from "@keiver/tomo-live";
 import type { ServerTranscodeBlock } from "@/services/transcodePolicy";
 import { PlaybackErrorType } from "@/utils/errorClassification";
 import { IdentifiedError, PLAYBACK_ERROR_IDS } from "@/utils/errorIds";
@@ -33,6 +34,7 @@ export function shouldAutomaticallyRetry(input: { live: boolean; heldOnDisk: boo
     case PlaybackErrorType.UNAUTHORIZED:
     case PlaybackErrorType.NOT_FOUND:
     case PlaybackErrorType.PROTECTED:
+    case PlaybackErrorType.RECORDING_HOLD:
       return false;
     // A corrupt-looking message can still be one lane's fault, until every lane has said it.
     case PlaybackErrorType.CORRUPT:
@@ -135,32 +137,15 @@ export function planErrorRecovery(input: ErrorRecoveryInput): ErrorRecoveryDecis
   };
 }
 
-export interface LiveErrorInput {
-  mode: PlaybackMode;
-  errorType: PlaybackErrorType;
-  /** This play has already reopened the channel once. */
-  hasReopened: boolean;
-  /** Which rung the channel is on. */
-  lane: "engine" | "server";
-  /** False when the device or the server rules the server rung out. */
-  serverTranscodingAllowed?: boolean;
+/** Failures every open of the channel repeats: the account, a channel the server no longer has, DRM, a recording holding the provider. */
+const LIVE_PERMANENT: readonly PlaybackErrorType[] = [PlaybackErrorType.UNAUTHORIZED, PlaybackErrorType.NOT_FOUND, PlaybackErrorType.PROTECTED, PlaybackErrorType.RECORDING_HOLD];
+
+/** A channel on a one-connection provider opens again on the provider's refusal, until it plays. */
+export function reopensUntilAdmitted(input: { reopening: boolean; errorType: PlaybackErrorType; admitting: boolean }): boolean {
+  return input.admitting && !input.reopening && input.errorType === PlaybackErrorType.PROVIDER_LIMIT;
 }
 
-export interface LiveErrorDecision {
-  /** Open the channel afresh on the engine: a dropped tuner stream only comes back that way. */
-  reopen: boolean;
-  /** Spend the engine rung and take the server's transcode. */
-  toServer: boolean;
-  /** Either rung: a retry is coming, so the reducer must not treat this as terminal. */
-  retry: boolean;
-}
-
-/** The live ladder: one fresh engine open, then the server's transcode, then the error. */
-export function planLiveErrorRecovery(input: LiveErrorInput): LiveErrorDecision {
-  const engineLane = input.mode === "localRemux";
-  // A 401 fails every rung the same way; a reopen would only spend two cold opens on it.
-  const retriable = input.errorType !== PlaybackErrorType.UNAUTHORIZED;
-  const reopen = retriable && engineLane && !input.hasReopened;
-  const toServer = retriable && engineLane && !reopen && input.lane === "engine" && input.serverTranscodingAllowed !== false;
-  return { reopen, toServer, retry: reopen || toServer };
+/** A live failure no open of the channel fixes; every other one opens it again. */
+export function isPermanentLiveError(errorType: PlaybackErrorType, message: string): boolean {
+  return LIVE_PERMANENT.includes(errorType) || isPermanentLiveFailure(message) || /only by re-encoding|engine cannot take this channel|gave the engine nothing to read/.test(message);
 }

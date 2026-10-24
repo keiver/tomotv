@@ -10,7 +10,7 @@
 import { fetchFilteredVideos, fetchFolderContents, refreshConfig } from "../jellyfinApi";
 import { clearFavoriteIdsCache } from "../favoritesCache";
 import { clearPlayedCache, markPlayed } from "../playedCache";
-import { EMPTY_FILTERS, LibraryFilters } from "@/types/jellyfin";
+import { EMPTY_FILTERS, JellyfinItem, LibraryFilters } from "@/types/jellyfin";
 
 jest.mock("expo-secure-store", () => ({
   getItemAsync: jest.fn().mockResolvedValue(null),
@@ -26,7 +26,7 @@ const VIEW_ROOT = "photos-library";
 const ALBUM = "album-1";
 
 /** Leaves as the view root reports them: real items, no user data at all. */
-const LEAVES = [
+const LEAVES: Partial<JellyfinItem>[] = [
   { Id: "photo-1", Name: "Alpha", Type: "Photo", ParentId: ALBUM, UserData: {} },
   { Id: "photo-2", Name: "Bravo", Type: "Photo", ParentId: ALBUM, UserData: {} },
   { Id: "photo-3", Name: "Charlie", Type: "Photo", ParentId: ALBUM, UserData: {} },
@@ -125,6 +125,21 @@ describe("user-data filters at a library view root", () => {
     const result = await fetchFolderContents(VIEW_ROOT, { filters: filters({ played: true }) });
 
     expect(result.items.map((item) => item.Id)).toEqual(["photo-1", "photo-3"]);
+  });
+
+  it("leaves out an episode marked watched earlier once its series is marked unwatched", async () => {
+    const episode: Partial<JellyfinItem> = { Id: "episode-1", Name: "Echo", Type: "Episode", ParentId: VIEW_ROOT, SeasonId: "season-1", SeriesId: "series-1", UserData: {} };
+    LEAVES.push(episode);
+    try {
+      markPlayed("episode-1", true);
+      markPlayed("series-1", false);
+
+      const result = await fetchFolderContents(VIEW_ROOT, { filters: filters({ played: true }) });
+
+      expect(result.items.map((item) => item.Id)).toEqual(["photo-3"]);
+    } finally {
+      LEAVES.splice(LEAVES.indexOf(episode), 1);
+    }
   });
 
   it("intersects combined filters rather than picking one", async () => {
