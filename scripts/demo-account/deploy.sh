@@ -3,11 +3,11 @@
 # the json files beside this script, synced over, media.py places files, artwork and .nfo on the box, setup.py
 # installs the Bookshelf plugin, adds the five libraries and the demo user (config backed up with Jellyfin stopped
 # before the first write, Jellyfin restarted after the plugin install) and scans them, each library's image goes
-# into its Jellyfin folder, the nightly reset goes into cron, and the Space artwork and library images come back
-# to build/review for a look.
+# into its Jellyfin folder, the nightly reset and the box monitor go into cron, and the Space artwork and library
+# images come back to build/review for a look.
 #   npm run demo:account
 #   npm run demo:account -- capture   the demo user's favorites and part-played items as they are -> seed.json
-#   .env.demo: DEMO_SSH (user@host), DEMO_SSH_KEY (path)
+#   .env.demo: DEMO_SSH (user@host), DEMO_SSH_KEY (path), DEMO_NTFY_TOPIC (the monitor's push channel), DEMO_NTFY_ALWAYS (1: push every run)
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -46,7 +46,7 @@ python3 "$HERE/titles.py" "$HERE" "$BUILD"
 
 step "sync to $DEMO_SSH:$REMOTE"
 "${SSH[@]}" "sudo mkdir -p $REMOTE && sudo chown \$(id -u):\$(id -g) $REMOTE"
-rsync -az -e "ssh -i $KEY -o IdentitiesOnly=yes" "$BUILD/titles.json" "$HERE/media.py" "$HERE/setup.py" "$HERE/reset.py" "$HERE/seed.json" "$HERE/disclosure.txt" "$HERE/art" "$DEMO_SSH:$REMOTE/"
+rsync -az -e "ssh -i $KEY -o IdentitiesOnly=yes" "$BUILD/titles.json" "$HERE/media.py" "$HERE/setup.py" "$HERE/reset.py" "$HERE/boxwatch.py" "$HERE/seed.json" "$HERE/disclosure.txt" "$HERE/art" "$DEMO_SSH:$REMOTE/"
 
 step "files, artwork and nfo on the box"
 # media.py writes each photo's title and date with exiftool.
@@ -96,6 +96,12 @@ box_setup images
 step "nightly reset (cron 04:00 UTC)"
 "${SSH[@]}" "printf '0 4 * * * ubuntu sudo cp /opt/tomotv/jellyfin/config/data/jellyfin.db /tmp/jf-reset.db && sudo chown ubuntu /tmp/jf-reset.db && /usr/bin/python3 $REMOTE/reset.py $REMOTE /tmp/jf-reset.db \$(docker inspect -f \"{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}\" jellyfin) >> $REMOTE/reset.log 2>&1\n' | sudo tee /etc/cron.d/tomotv-demo-reset > /dev/null && \
   sudo chmod 644 /etc/cron.d/tomotv-demo-reset && cat /etc/cron.d/tomotv-demo-reset"
+
+step "box monitor (cron every 5 min)"
+# The ntfy topic is the only credential: it lives in .env.demo here and in $REMOTE/.env on the box, never in the repo.
+"${SSH[@]}" "printf 'NTFY_TOPIC=%s\nNTFY_ALWAYS=%s\n' '${DEMO_NTFY_TOPIC:-}' '${DEMO_NTFY_ALWAYS:-0}' > $REMOTE/.env && chmod 600 $REMOTE/.env && \
+  printf '*/5 * * * * ubuntu /usr/bin/python3 $REMOTE/boxwatch.py watch >> $REMOTE/boxwatch.log 2>&1\n' | sudo tee /etc/cron.d/tomotv-boxwatch > /dev/null && \
+  sudo chmod 644 /etc/cron.d/tomotv-boxwatch && python3 $REMOTE/boxwatch.py report"
 
 step "artwork back to $BUILD/review"
 mkdir -p "$BUILD/review"

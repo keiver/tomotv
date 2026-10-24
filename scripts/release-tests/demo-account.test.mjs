@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
@@ -37,4 +38,16 @@ test("every seed entry and library image names a library the demo user sees", ()
 
 test("no library name carries the word Demo", () => {
   for (const name of libraryNames()) assert.doesNotMatch(name, /demo/i);
+});
+
+test("the deploy installs the box monitor and its cron entry", () => {
+  const text = read("deploy.sh");
+  assert.match(text, /boxwatch\.py/);
+  assert.match(text, /tomotv-boxwatch/);
+  assert.match(text, /DEMO_NTFY_TOPIC/);
+});
+
+test("the box monitor's decisions pass their unit tests", () => {
+  const run = spawnSync("python3", ["-m", "unittest", "discover", "-s", folder, "-p", "test_boxwatch.py"], { encoding: "utf8" });
+  assert.equal(run.status, 0, `${run.stdout}\n${run.stderr}`);
 });
