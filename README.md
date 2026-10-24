@@ -142,10 +142,9 @@ The scripts detect a missing Metal Toolchain and offer to install it after
 approval. Signing and local FFmpeg setup are covered in
 [the release guide](docs/RELEASING.md#mac-setup-and-local-validation).
 
-In the app, open **Settings → Scan Network** to find servers on your network, or
-type an address; reverse-proxy paths work. Sign in with Quick Connect or a
-password. Submitting the empty Add Server field connects to Jellyfin's public
-demo.
+In the app, open **Settings → Scan Network** to find servers on your network,
+or type an address; reverse-proxy paths work. Sign in with Quick Connect or a
+password. Submitting the empty Add Server field opens Tomo TV's demo library.
 
 ## Development
 

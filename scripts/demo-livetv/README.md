@@ -1,6 +1,6 @@
 # Demo Live TV (tomotv.cubita.studio)
 
-Eleven always-on channels built from the demo media and one offline on purpose, served to Jellyfin as an M3U tuner with an XMLTV guide, the same shape as the Live TV rig in `test/playback/README.md`. `lineup.json` is the single source of truth; `npm run demo:livetv` deploys it and reruns are idempotent.
+Eleven always-on channels built from the demo media and one offline on purpose, served to Jellyfin as an M3U tuner with an XMLTV guide, the same shape as the Live TV rig in `test/playback/README.md`. `lineup.json` is the single source of truth; `npm run demo:livetv` deploys it and reruns are idempotent. The demo user's libraries and the `demo` account itself come from `scripts/demo-account/`.
 
 ## What runs on the box
 

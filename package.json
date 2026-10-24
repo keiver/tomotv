@@ -79,6 +79,7 @@
     "notes": "node scripts/translate-notes.mjs",
     "demo:livetv": "scripts/demo-livetv/deploy.sh",
     "demo:livetv:audit": "scripts/demo-livetv/audit.sh",
+    "demo:account": "scripts/demo-account/deploy.sh",
     "prebuild:all": "bash scripts/prebuild-all.sh",
     "prebuild:mac": "bash scripts/prebuild-mac.sh",
     "clearmac": "bash scripts/clear.sh --mac",

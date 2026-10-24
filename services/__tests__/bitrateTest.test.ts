@@ -135,6 +135,17 @@ describe("measurement", () => {
     expect(String(mockMeasure.mock.calls[0][0])).not.toContain("BitrateTest");
   });
 
+  it("never measures the link to the demo server, on a direct call or a trigger", async () => {
+    mockGetConfig.mockResolvedValue({ server: "https://tomotv.cubita.studio", apiKey: "key", userId: "u", deviceId: "d" });
+    mockMeasure.mockResolvedValue(link(16_000_000));
+
+    expect(await measureServerBitrate()).toBeNull();
+    expect(await measureIfIdle()).toBeNull();
+    expect(await remeasureBitrate()).toBeNull();
+    expect(mockMeasure).not.toHaveBeenCalled();
+    expect(mockLibrary).not.toHaveBeenCalled();
+  });
+
   it("hands the engine's probe the server's auth, a ranged read and a budget", async () => {
     mockMeasure.mockResolvedValue(link(16_000_000));
     await measureServerBitrate();

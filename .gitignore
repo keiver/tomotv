@@ -89,3 +89,5 @@ __pycache__/
 
 # demo Live TV deploy artifacts (scripts/demo-livetv/deploy.sh)
 scripts/demo-livetv/build/
+# demo account deploy artifacts (scripts/demo-account/deploy.sh)
+scripts/demo-account/build/

@@ -1358,7 +1358,7 @@ describe("jellyfinApi", () => {
         // Mock SecureStore operations
         mockSecureStore.setItemAsync.mockResolvedValue(undefined);
         mockSecureStore.getItemAsync.mockImplementation((key: string) => {
-          if (key === "jellyfin_server_url") return Promise.resolve("https://demo.jellyfin.org/stable");
+          if (key === "jellyfin_server_url") return Promise.resolve("https://tomotv.cubita.studio");
           if (key === "jellyfin_api_key") return Promise.resolve("demo-api-key-123");
           if (key === "jellyfin_user_id") return Promise.resolve("demo-user-id-456");
           return Promise.resolve(null);
@@ -1368,7 +1368,7 @@ describe("jellyfinApi", () => {
 
         // Verify authentication call
         expect(global.fetch).toHaveBeenCalledWith(
-          "https://demo.jellyfin.org/stable/Users/AuthenticateByName",
+          "https://tomotv.cubita.studio/Users/AuthenticateByName",
           expect.objectContaining({
             method: "POST",
             headers: expect.objectContaining({
@@ -1379,7 +1379,7 @@ describe("jellyfinApi", () => {
         );
 
         // Verify credentials were saved (3 credentials + demo flag)
-        expect(mockSecureStore.setItemAsync).toHaveBeenCalledWith("jellyfin_server_url", "https://demo.jellyfin.org/stable");
+        expect(mockSecureStore.setItemAsync).toHaveBeenCalledWith("jellyfin_server_url", "https://tomotv.cubita.studio");
         expect(mockSecureStore.setItemAsync).toHaveBeenCalledWith("jellyfin_api_key", "demo-api-key-123");
         expect(mockSecureStore.setItemAsync).toHaveBeenCalledWith("jellyfin_user_id", "demo-user-id-456");
         expect(mockSecureStore.setItemAsync).toHaveBeenCalledWith("jellyfin_is_demo_mode", "true");
@@ -1488,7 +1488,7 @@ describe("jellyfinApi", () => {
 
         mockSecureStore.setItemAsync.mockResolvedValue(undefined);
         mockSecureStore.getItemAsync.mockImplementation((key: string) => {
-          if (key === "jellyfin_server_url") return Promise.resolve("https://demo.jellyfin.org/stable");
+          if (key === "jellyfin_server_url") return Promise.resolve("https://tomotv.cubita.studio");
           if (key === "jellyfin_api_key") return Promise.resolve("demo-api-key-123");
           if (key === "jellyfin_user_id") return Promise.resolve("demo-user-id-456");
           return Promise.resolve(null);
@@ -1521,7 +1521,7 @@ describe("jellyfinApi", () => {
 
         mockSecureStore.setItemAsync.mockResolvedValue(undefined);
         mockSecureStore.getItemAsync.mockImplementation((key: string) => {
-          if (key === "jellyfin_server_url") return Promise.resolve("https://demo.jellyfin.org/stable");
+          if (key === "jellyfin_server_url") return Promise.resolve("https://tomotv.cubita.studio");
           if (key === "jellyfin_api_key") return Promise.resolve("demo-api-key-123");
           if (key === "jellyfin_user_id") return Promise.resolve("demo-user-id-456");
           return Promise.resolve(null);
@@ -1561,7 +1561,7 @@ describe("jellyfinApi", () => {
 
         mockSecureStore.setItemAsync.mockResolvedValue(undefined);
         mockSecureStore.getItemAsync.mockImplementation((key: string) => {
-          if (key === "jellyfin_server_url") return Promise.resolve("https://demo.jellyfin.org/stable");
+          if (key === "jellyfin_server_url") return Promise.resolve("https://tomotv.cubita.studio");
           if (key === "jellyfin_api_key") return Promise.resolve("demo-api-key-123");
           if (key === "jellyfin_user_id") return Promise.resolve("demo-user-id-456");
           return Promise.resolve(null);

@@ -47,6 +47,7 @@ function SettingsScreen() {
   const [connectedServerUrl, setConnectedServerUrl] = useState("");
   const [connectedUserName, setConnectedUserName] = useState("");
   const [connectedUserId, setConnectedUserId] = useState("");
+  const [connectedDemo, setConnectedDemo] = useState(false);
   const { serverTranscoding } = useUiPreferences();
   const permissions = useTranscodePermissions();
   const [measuredBps, setMeasuredBps] = useState<number | null>(null);
@@ -75,6 +76,7 @@ function SettingsScreen() {
         // but the login itself is AuthenticateByName with the fixed
         // DEMO_USERNAME account, so the flag maps to that name.
         setConnectedUserName(demoActive ? DEMO_USERNAME : savedUserName || "");
+        setConnectedDemo(demoActive);
         setScreenState("CONNECTED");
         return "CONNECTED";
       }
@@ -227,6 +229,9 @@ function SettingsScreen() {
             userName={connectedUserName}
             userImageUri={connectedUserId ? getUserImageUrl(connectedServerUrl, connectedUserId) : undefined}
             onSwitchServer={handleSwitchServer}>
+            {connectedDemo ? (
+              <ListRow icon="information-circle-outline" title={t("settings.demoTitle")} subtitle={t("settings.demoDisclosure")} subtitleLines={0} isLast={syncPlay?.access === "None"} />
+            ) : null}
             {/* Shown unless the server has said no. Gating on a resolved access instead
                 mounted the row after /Users/Me came back, which re-rounded the card under
                 the reader on every cold open. */}

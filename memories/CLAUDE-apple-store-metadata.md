@@ -2197,18 +2197,18 @@ into HLS on the device, so video plays at original quality with no server load, 
 server transcoding only when the source requires it. The app ships no content of its own.
 
 4. SETUP AND ACCESS
-No login credentials are needed to review the app. On the connect screen (Settings tab), the
-Add Server field shows demo.jellyfin.org/stable as its placeholder; press Go on the empty field
-and the app signs in automatically to the Jellyfin project's public demo server. It works over
-the public internet and needs no permissions. Please note this demo
-server is reset regularly and can be offline intermittently. If the connection fails at first,
-wait a couple of hours for it to come back up and try again, or connect to any other Jellyfin
-server if one is available (username and password or Jellyfin Quick Connect).
+No login credentials are needed to review the app. Go on the empty Add Server field signs into
+the Tomo TV demo server (tomotv.cubita.studio, run by the developer), a shared account with no
+password; the field shows the demo address as its placeholder. It works over the public internet
+and needs no permissions. Its content is free to use: NASA and ESA space clips and photos, music
+from the Internet Archive, public-domain books and Cubita Studio's own shows and channels; each
+item names its source and licence, and the demo account is reset every night. Any other Jellyfin
+server works too (username and password or Jellyfin Quick Connect).
 
 5. EXTERNAL SERVICES
 Two, and no others: (1) the user's own Jellyfin server, at whatever address they enter; all
 library, search, playback, progress, and subtitle requests go directly there. (2)
-demo.jellyfin.org, only in demo mode. No analytics, crash reporting, advertising or tracking
+tomotv.cubita.studio, the developer's demo server, only in demo mode. No analytics, crash reporting, advertising or tracking
 SDKs, payment processors, AI services, or third-party metadata providers, other than Apple's
 own built-in App Store analytics and crash reporting. Credentials are
 stored only in the device Keychain. Media processing (remuxing and transcoding) happens on the
@@ -2222,13 +2222,14 @@ or content.
 Not applicable. Tomo TV ships and hosts no media content. It is an independent client for the
 open-source Jellyfin media server, not affiliated with the Jellyfin project; the name describes
 compatibility. All media comes from the user's own self-hosted server, the same model as VLC or
-the official Jellyfin client. The demo server's library is public domain and Creative Commons
-material.
+the official Jellyfin client. The demo server's library is public domain, Creative Commons and
+the developer's own material, each item naming its source and licence.
 ```
 
-Demo mode lives in `services/jellyfin/demo.ts`; entry points are the Add Server placeholder in
-`components/settings/AddServerRow.tsx` (Go on the empty field) and "Try Demo Server" in
-`app/(tabs)/search.tsx`.
+Demo mode lives in `services/jellyfin/demo.ts`. Its entry points are the Add Server placeholder
+in `components/settings/AddServerRow.tsx` (Go on the empty field) and "Try Demo Server" in
+`app/(tabs)/search.tsx`. The server side (libraries, the `demo` user, the nightly reset, the
+login disclaimer) is `scripts/demo-account/`.
 
 ---
 

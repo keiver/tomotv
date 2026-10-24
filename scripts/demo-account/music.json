@@ -1,0 +1,37 @@
+[
+  {
+    "artist": "Kimiko Ishizaka",
+    "album": "The Open Goldberg Variations",
+    "archive": "OpenGoldbergVariations",
+    "licence": "CC0 1.0, public domain dedication",
+    "about": "J.S. Bach's Goldberg Variations, BWV 988, recorded by Kimiko Ishizaka for the Open Goldberg Variations project and released into the public domain."
+  },
+  {
+    "artist": "Broke For Free",
+    "album": "Directionless EP",
+    "archive": "DirectionlessEP",
+    "licence": "CC BY 3.0",
+    "about": "Instrumental electronic EP by Broke For Free, released under a Creative Commons Attribution licence."
+  },
+  {
+    "artist": "Broke For Free",
+    "album": "Layers",
+    "archive": "BrokeForFreeLayers",
+    "licence": "CC BY 3.0",
+    "about": "Instrumental electronic album by Broke For Free, released under a Creative Commons Attribution licence."
+  },
+  {
+    "artist": "Chris Zabriskie",
+    "album": "Direct to Video",
+    "archive": "ChrisZabriskieDirectToVideo",
+    "licence": "CC BY 3.0",
+    "about": "Ambient and piano album by Chris Zabriskie, released under a Creative Commons Attribution licence."
+  },
+  {
+    "artist": "Kai Engel",
+    "album": "The Run",
+    "archive": "KaiEngelTheRun",
+    "licence": "CC BY 3.0",
+    "about": "Cinematic ambient album by Kai Engel, released under a Creative Commons Attribution licence."
+  }
+]

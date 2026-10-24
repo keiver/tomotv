@@ -25,11 +25,11 @@ Runtime configuration backed by SecureStore, with demo mode support. Users conne
 
 ### Demo Mode (Testing without setup)
 
-1. One-tap connection to Jellyfin's official demo server (`https://demo.jellyfin.org/stable`)
-2. Credentials fetched dynamically via API (demo server resets hourly)
-3. Stores demo credentials in SecureStore with `IS_DEMO_MODE` flag
+1. Tomo TV's own demo server (`https://tomotv.cubita.studio`), built by `scripts/demo-account/`: a shared `demo` account with no password, libraries of free-to-use content, its favorites and part-played items put back every night
+2. Reached from the Add Server placeholder (Go on the empty field or the demo address typed) and "Try Demo Server" on the Search tab
+3. Stores demo credentials in SecureStore with the `IS_DEMO_MODE` flag; never saved as an account
 4. Users can disconnect from demo and configure their own server anytime
-5. Perfect for App Store reviewers or first-time users
+5. The link to the demo is never measured (`bitrateTest.ts`); library views, themes and track settings stay on the device in demo mode
 
 ### Demo Server Advanced Features
 
@@ -150,7 +150,10 @@ Uses refs (`currentServerUrl.current`) alongside state to maintain sync between 
 
 ### Demo Mode UI
 
-Demo server connection is NOT available from Settings screen (removed in commit 740d791). Demo mode is only accessible via:
+Demo mode is reached from:
 
-- "Try Demo Server" button on Library error screen
+- The Add Server field's placeholder: Go on the empty field, or the demo address typed out
+- "Try Demo Server" on the Search tab
 - Programmatic `connectToDemoServer()` calls
+
+Home carries nothing about the demo (decided 2026-10-23). The Settings connected card is named "Tomo TV Demo" and carries a row saying it is the demo and that its content is free to use; the card itself is the Switch Server route.

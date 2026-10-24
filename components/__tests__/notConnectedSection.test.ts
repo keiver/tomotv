@@ -23,8 +23,8 @@ describe("isConnectedDestination", () => {
   });
 
   it("matches no server row while the demo is the session", () => {
-    const demo: ConnectedDestination = { serverId: null, userId: null, url: "https://demo.jellyfin.org/stable", demo: true };
-    expect(isConnectedDestination(demo, undefined, "https://demo.jellyfin.org/stable")).toBe(false);
+    const demo: ConnectedDestination = { serverId: null, userId: null, url: "https://tomotv.cubita.studio", demo: true };
+    expect(isConnectedDestination(demo, undefined, "https://tomotv.cubita.studio")).toBe(false);
   });
 
   it("ignores a null session Id rather than matching an undefined card Id", () => {
