@@ -25,7 +25,7 @@ Runtime configuration backed by SecureStore, with demo mode support. Users conne
 
 ### Demo Mode (Testing without setup)
 
-1. Tomo TV's own demo server (`https://tomotv.cubita.studio`): a shared `demo` account with no password, libraries of free-to-use content, its favorites and part-played items put back every night. The server is run outside this repo
+1. Tomo TV's own demo server (`https://tomotv.cubita.studio`): a shared `demo` account with no password, libraries of free-to-use content, its favorites and part-played items put back every night. The server is run from the private keiver/tomotv-ops repo
 2. Reached from the Demo face on the Who's watching screen (shown while no account is saved), the Add Server placeholder (Go on the empty field or the demo address typed) and "Try Demo Server" on the Search tab
 3. Stores demo credentials in SecureStore with the `IS_DEMO_MODE` flag; never saved as an account
 4. Users can disconnect from demo and configure their own server anytime
