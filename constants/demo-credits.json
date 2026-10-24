@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-24T16:17:20Z",
+  "generated": "2026-10-24T19:09:32Z",
   "items": [
     {
       "library": "Space",
@@ -111,30 +111,12 @@
     },
     {
       "library": "Music",
-      "title": "Danzones de La Habana, 1919-1920",
-      "by": "Orquesta Francesa de Antonio Romeu",
-      "year": 1920,
-      "licence": "Public domain (sound recordings marked public domain by the Discography of American Historical Recordings, UC Santa Barbara Library)",
-      "licenceUrl": "https://adp.library.ucsb.edu/index.php/matrix/search",
-      "source": "https://adp.library.ucsb.edu/index.php/matrix/search"
-    },
-    {
-      "library": "Music",
-      "title": "Port of Spain, 1912-1923",
-      "by": "Various Artists",
-      "year": 1923,
-      "licence": "Public domain (sound recordings marked public domain by the Discography of American Historical Recordings, UC Santa Barbara Library)",
-      "licenceUrl": "https://adp.library.ucsb.edu/index.php/matrix/search",
-      "source": "https://adp.library.ucsb.edu/index.php/matrix/search"
-    },
-    {
-      "library": "Music",
-      "title": "Trova de La Habana, 1918-1923",
-      "by": "Various Artists",
-      "year": 1923,
-      "licence": "Public domain (sound recordings marked public domain by the Discography of American Historical Recordings, UC Santa Barbara Library)",
-      "licenceUrl": "https://adp.library.ucsb.edu/index.php/matrix/search",
-      "source": "https://adp.library.ucsb.edu/index.php/matrix/search"
+      "title": "Chill Beats",
+      "by": "HoliznaCC0",
+      "year": 2024,
+      "licence": "CC0 1.0, public domain dedication",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "source": "https://opengameart.org/content/chill-beats-collection"
     },
     {
       "library": "Books",
