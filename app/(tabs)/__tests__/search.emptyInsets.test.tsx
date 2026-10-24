@@ -27,7 +27,7 @@ jest.mock("@/components/ambient-background", () => ({ AmbientBackground: () => n
 jest.mock("@/components/FocusableButton", () => ({ FocusableButton: () => null }));
 jest.mock("@/components/loading-row", () => ({ LoadingRow: () => null }));
 jest.mock("@/components/search-loading-bar", () => ({ SearchLoadingBar: () => null }));
-jest.mock("@/components/settings/ServerConnectScreen", () => ({ ServerConnectScreen: () => null }));
+jest.mock("@/components/settings/WhoIsWatchingScreen", () => ({ WhoIsWatchingScreen: () => null }));
 jest.mock("@/components/sunken-text-input", () => ({ SunkenTextInput: require("react").forwardRef(() => null) }));
 jest.mock("@/components/search-results-grid", () => ({ SearchResultsGrid: require("react").forwardRef(() => null) }));
 

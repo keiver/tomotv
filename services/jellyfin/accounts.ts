@@ -4,7 +4,7 @@
  *
  * The index at STORAGE_KEYS.ACCOUNTS holds metadata only; each token lives at its
  * own SecureStore key (accountTokenKey). The active-session keys stay the single
- * source of truth for everything downstream — this module is the layer above that
+ * source of truth for everything downstream: this module is the layer above that
  * fills them (activateAccount) or is filled from them (saveAuthResult's upsert).
  *
  * Demo sessions are never saved: the demo server resets hourly, so its tokens are
@@ -15,7 +15,7 @@ import { logger } from "@/utils/logger";
 import * as SecureStore from "expo-secure-store";
 import { warmBitrateMemory } from "./bitrateTest";
 import { accountTokenKey, STORAGE_KEYS } from "./constants";
-import { buildServerUrlCandidates, checkServerInfo, removeSavedServer, upsertSavedServer } from "./connection";
+import { buildServerUrlCandidates, checkServerInfo, getSavedServers, removeSavedServer, upsertSavedServer } from "./connection";
 import { notifyAuthChange } from "./events";
 import { clearContentCaches, refreshConfig, setSavedConnectionStatus, validateAccessToken } from "./session";
 
@@ -105,10 +105,24 @@ async function seedFromActiveSession(): Promise<SavedAccount[]> {
   ];
 }
 
-/** Saved accounts on one server card: matched by system Id, url as the fallback. */
-export async function getAccountsForServer(server: SavedServer): Promise<SavedAccount[]> {
-  const accounts = await getSavedAccounts();
+/** The accounts on one server card: matched by system Id, url as the fallback. */
+function accountsOn(server: SavedServer, accounts: SavedAccount[]): SavedAccount[] {
   return accounts.filter((a) => (server.serverId ? a.serverId === server.serverId : normalizeUrl(a.serverUrl) === server.url));
+}
+
+export async function getAccountsForServer(server: SavedServer): Promise<SavedAccount[]> {
+  return accountsOn(server, await getSavedAccounts());
+}
+
+/** The saved servers and the accounts on each, keyed by server id; a server with none has no entry. */
+export async function getSavedServersWithAccounts(): Promise<{ servers: SavedServer[]; accountsByServer: Record<string, SavedAccount[]> }> {
+  const [servers, accounts] = await Promise.all([getSavedServers(), getSavedAccounts()]);
+  const accountsByServer: Record<string, SavedAccount[]> = {};
+  for (const server of servers) {
+    const saved = accountsOn(server, accounts);
+    if (saved.length > 0) accountsByServer[server.id] = saved;
+  }
+  return { servers, accountsByServer };
 }
 
 /** Save or refresh one account and its token (keyed by serverId + userId). */
@@ -160,7 +174,7 @@ export type ActivateAccountResult = "connected" | "needs_login" | "unreachable";
  *
  * - "connected": token confirmed live, active slot rewritten, caches cleared.
  * - "needs_login": no stored token, or the server rejected it (the account is removed).
- * - "unreachable": the server didn't answer — nothing is deleted, mirroring the
+ * - "unreachable": the server didn't answer, nothing is deleted, mirroring the
  *   recovery ladder's rule that a network failure must never destroy credentials.
  */
 export async function activateAccount(account: SavedAccount): Promise<ActivateAccountResult> {

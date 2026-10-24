@@ -1,7 +1,9 @@
+import { AboutSection } from "@/components/settings/AboutSection";
 import { ConnectStepScreen } from "@/components/settings/ConnectStepScreen";
 import { ListRow } from "@/components/settings/ListRow";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
 import { settingsStyles } from "@/components/settings/styles";
+import { UiSection } from "@/components/settings/UiSection";
 import { getStoredUserName, isAuthenticated, signOut } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
 import { router, useFocusEffect } from "expo-router";
@@ -10,14 +12,15 @@ import { Alert, View } from "react-native";
 import { t } from "@/services/i18n";
 
 /**
- * The server list as a pushed route, opened by the connected Settings card's
- * Switch Server button. A real stack entry, so Menu (TV) and back (phone) walk
- * home for free; picking a destination switches the session without touching
- * this screen's history (finishLogin pops to the tabs), and the current
- * session survives untouched unless Sign Out below is used.
+ * The server list as a pushed route, opened by the connected Settings card's Switch
+ * Server button and by Add Server on the Who's watching screen. A real stack entry, so
+ * Menu (TV) and back (phone) walk back for free; picking a destination switches the
+ * session without touching this screen's history (finishLogin pops to the tabs), and
+ * the current session survives untouched unless Sign Out below is used. Signed out,
+ * the language, appearance and About rows live here too.
  */
 export default function ServersScreen() {
-  const [signedIn, setSignedIn] = useState(false);
+  const [signedIn, setSignedIn] = useState(isAuthenticated);
   const [userName, setUserName] = useState<string | null>(null);
 
   useFocusEffect(
@@ -45,9 +48,10 @@ export default function ServersScreen() {
           try {
             await signOut();
             setSignedIn(false);
-            // Back to the tab this was pushed from, which signOut's auth-change has already
-            // turned into the server list. dismissTo, not back: it names where it lands.
-            router.dismissTo("/(tabs)/settings");
+            // The tabs leave the stack on the auth change; the pop to the first route first
+            // lands on Who's watching whether that has happened yet or not.
+            router.dismissAll();
+            router.dismissTo("/who-is-watching");
           } catch (error) {
             logger.error("Error signing out", error);
             Alert.alert(t("common.error"), t("connect.signOutFailed"));
@@ -73,6 +77,12 @@ export default function ServersScreen() {
             accessibilityHint={t("connect.signOutHint")}
           />
         </View>
+      )}
+      {!signedIn && (
+        <>
+          <UiSection signedIn={false} />
+          <AboutSection showDiagnostics={false} />
+        </>
       )}
     </ConnectStepScreen>
   );

@@ -6,7 +6,7 @@ import {
   connectToDemoServer,
   getAccountsForServer,
   getConfig,
-  getSavedServers,
+  getSavedServersWithAccounts,
   getStoredServerId,
   getStoredUserId,
   isAuthenticated,
@@ -30,16 +30,16 @@ interface ServerConnectFlowProps {
   /**
    * Runs after the demo server logs in. The login steps live on their own routes and
    * finish through useFinishLogin, so hosts gated on auth (Library, Search) can omit
-   * this — their gates flip on the auth change and AuthContext routes to the Library root.
+   * this: their gates flip on the auth change and AuthContext routes to the Library root.
    */
   onConnected?: () => void | Promise<void>;
 }
 
 /**
  * The server list: add, scan, discovered, saved and demo destinations. Rendered by the
- * Settings tab under its JELLYFIN SERVER header, and full-screen by the Library and Search
- * tabs (via ServerConnectScreen) when no server is connected. Sections only; the host owns
- * the scroll container and header.
+ * connect route (app/connect/servers), reached from the Who's watching screen's Add Server
+ * and the connected Settings card's Switch Server. Sections only; the host owns the scroll
+ * container and header.
  *
  * Picking a server resolves the address here, then PUSHES the matching login step
  * (app/connect). Those steps used to be sections swapped in by a flowStep state machine,
@@ -59,19 +59,13 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
 
   const scan = useNetworkScan();
   const serverUrlRef = useRef<TextInput>(null);
-  const { continueAs, signIn, activatingServerId, activatingUserId } = useSelectSavedServer(onConnected);
+  const { continueAs, signIn, accountOptions, activatingServerId, activatingUserId } = useSelectSavedServer(onConnected);
 
   const reloadSavedServers = async () => {
     try {
-      const servers = await getSavedServers();
+      const { servers, accountsByServer } = await getSavedServersWithAccounts();
       setSavedServers(servers);
-      // People per card: who can continue without a login.
-      const accounts: Record<string, SavedAccount[]> = {};
-      for (const server of servers) {
-        const saved = await getAccountsForServer(server);
-        if (saved.length > 0) accounts[server.id] = saved;
-      }
-      setSavedAccounts(accounts);
+      setSavedAccounts(accountsByServer);
     } catch (error) {
       logger.error("Error reloading saved servers", error);
     }
@@ -177,21 +171,7 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
     ]);
   };
 
-  // Long-press a person: sign in again with the password step, or forget the saved sign-in.
-  const handleAccountOptions = (server: SavedServer, account: SavedAccount) => {
-    Alert.alert(account.userName, server.name, [
-      { text: t("connect.signIn"), onPress: () => signIn(server, account) },
-      {
-        text: t("connect.forgetAccount").replace("{user}", account.userName),
-        style: "destructive",
-        onPress: async () => {
-          await removeAccount(account.serverId, account.userId);
-          await reloadSavedServers();
-        },
-      },
-      { text: t("common.cancel"), style: "cancel" },
-    ]);
-  };
+  const handleAccountOptions = (server: SavedServer, account: SavedAccount) => accountOptions(server, account, reloadSavedServers);
 
   // Long-press a saved card → rename or remove it, or forget one saved sign-in.
   const handleServerOptions = async (server: SavedServer) => {

@@ -2197,10 +2197,10 @@ into HLS on the device, so video plays at original quality with no server load, 
 server transcoding only when the source requires it. The app ships no content of its own.
 
 4. SETUP AND ACCESS
-No login credentials are needed to review the app. Go on the empty Add Server field signs into
-the Tomo TV demo server (tomotv.cubita.studio, run by the developer), a shared account with no
-password; the field shows the demo address as its placeholder. It works over the public internet
-and needs no permissions. Its content is free to use: NASA and ESA space clips and photos, music
+No login credentials are needed to review the app. A fresh install opens on a "Who's watching?"
+screen; tap Demo to sign into the Tomo TV demo server (tomotv.cubita.studio, run by the
+developer), a shared account with no password. Go on the empty Add Server field signs into it
+too. It works over the public internet and needs no permissions. Its content is free to use: NASA and ESA space clips and photos, music
 from the Internet Archive, public-domain books and Cubita Studio's own shows and channels; each
 item names its source and licence, and the demo account is reset every night. Any other Jellyfin
 server works too (username and password or Jellyfin Quick Connect).
@@ -2226,9 +2226,10 @@ the official Jellyfin client. The demo server's library is public domain, Creati
 the developer's own material, each item naming its source and licence.
 ```
 
-Demo mode lives in `services/jellyfin/demo.ts`. Its entry points are the Add Server placeholder
-in `components/settings/AddServerRow.tsx` (Go on the empty field) and "Try Demo Server" in
-`app/(tabs)/search.tsx`. The server side (libraries, the `demo` user, the nightly reset, the
+Demo mode lives in `services/jellyfin/demo.ts`. Its entry points are the Demo face on the Who's
+watching screen (`components/settings/WhoIsWatchingScreen.tsx`, shown while no account is saved),
+the Add Server placeholder in `components/settings/AddServerRow.tsx` (Go on the empty field) and
+"Try Demo Server" in `app/(tabs)/search.tsx`. The server side (libraries, the `demo` user, the nightly reset, the
 login disclaimer) is `scripts/demo-account/`.
 
 ---

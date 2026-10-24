@@ -63,7 +63,7 @@ interface NotConnectedSectionProps {
  * `alreadySavedCount` is how many of the scan's finds are also in the saved
  * list. Those render as saved rows, not as new discoveries, so without this the
  * row would finish a successful scan by reverting to its idle label with
- * nothing else on screen changing — as if the scan had found nothing.
+ * nothing else on screen changing, as if the scan had found nothing.
  */
 export function scanRowLabels(scan: UseNetworkScanReturn, alreadySavedCount = 0): { name: string; subtitle?: string } {
   if (scan.status === "UNSUPPORTED") {
@@ -198,8 +198,7 @@ export function NotConnectedSection({
     }
     return callback;
   };
-  // Fires on the null-to-found transition only, so a section mounted after the scan
-  // (this widget also stands in for the Library and Search tabs) never yanks focus.
+  // Fires on the null-to-found transition only, so a section mounted after the scan never yanks focus.
   const previousFirstFoundKey = useRef(firstFoundKey);
   useEffect(() => {
     const previous = previousFirstFoundKey.current;
@@ -276,7 +275,7 @@ export function NotConnectedSection({
   // RCTScrollViewComponentView's shouldUpdateFocusInContext rejects an upward focus update
   // that leaves a scrolled view, and the same for downward. Landing on the first/last row is
   // the only moment focus can leave, so pin the offset there. Same fix, same reason, as the
-  // Video Quality list in app/(tabs)/settings.tsx — where the rows above this scroll (Scan,
+  // Video Quality list in app/(tabs)/settings.tsx, where the rows above this scroll (Scan,
   // Add Server) are what Up has to reach.
   const listRef = useRef<ScrollView>(null);
   const pinToTop = useCallback(() => listRef.current?.scrollTo({ y: 0, animated: false }), []);
@@ -324,9 +323,8 @@ export function NotConnectedSection({
       <View style={sidePanel ? styles.sectionMain : undefined}>
         {/* Not disabled while UNSUPPORTED: pressing it re-reads the device address,
           which is the way back for a TV that booted before its network did.
-          Claims no preferred focus: this section also stands in for the Library
-          and Search tabs while no server is configured, and taking focus on mount
-          drags the user into the form every time they land on one of those tabs. */}
+          Claims no preferred focus: on the Settings tab, taking focus on mount would
+          drag the user into the form every time they land there. */}
         <ServerRow
           ref={rowRef("scan")}
           variant="scan"

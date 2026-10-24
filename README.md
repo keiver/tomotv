@@ -142,9 +142,11 @@ The scripts detect a missing Metal Toolchain and offer to install it after
 approval. Signing and local FFmpeg setup are covered in
 [the release guide](docs/RELEASING.md#mac-setup-and-local-validation).
 
-In the app, open **Settings → Scan Network** to find servers on your network,
-or type an address; reverse-proxy paths work. Sign in with Quick Connect or a
-password. Submitting the empty Add Server field opens Tomo TV's demo library.
+When nothing is signed in, Tomo opens on Who's watching: your saved accounts as
+faces, a Demo face while none is saved, and Add Server. From Add Server (or
+**Settings → Switch Server**), scan the network or type an address;
+reverse-proxy paths work. Sign in with Quick Connect or a password. Submitting
+the empty Add Server field opens Tomo TV's demo library.
 
 ## Development
 

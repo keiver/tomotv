@@ -9,6 +9,8 @@
 
 Research + architecture for in-app multi-user profiles. Decisions locked 2026-08-08: in-app profiles only for the first release (tvOS entitlement deferred to Phase B), full server×user matrix, client-side PIN with re-lock, auto-resume last profile at boot.
 
+2026-10-23: the logged-out root is the in-app Who's watching screen (`components/settings/WhoIsWatchingScreen.tsx`, route `app/who-is-watching.tsx`): the saved accounts as faces, a Demo face while none is saved, Add Server. Phase B (tvOS system users, shared keychain, PIN) stays held; the OS hands the app no user list (`TVUserManager`'s identifiers are deprecated since tvOS 16).
+
 ## Related Documentation
 
 - [`CLAUDE-configuration.md`](./CLAUDE-configuration.md) - current single-user SecureStore layout

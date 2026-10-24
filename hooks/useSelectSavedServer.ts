@@ -1,5 +1,5 @@
 import { useFinishLogin } from "@/hooks/useFinishLogin";
-import { activateAccount, checkQuickConnectEnabled, resolveServerConnection, upsertSavedServer } from "@/services/jellyfinApi";
+import { activateAccount, checkQuickConnectEnabled, removeAccount, resolveServerConnection, upsertSavedServer } from "@/services/jellyfinApi";
 import { t } from "@/services/i18n";
 import { findServerById } from "@/services/networkDiscovery";
 import { SavedAccount, SavedServer } from "@/types/jellyfin";
@@ -13,6 +13,8 @@ interface UseSelectSavedServerReturn {
   continueAs: (server: SavedServer, account: SavedAccount) => void;
   /** A server row press: the login step on that server, prefilled for an account when given. */
   signIn: (server: SavedServer, account?: SavedAccount) => void;
+  /** A long press on a person: sign in again with the login step, or forget the saved sign-in. */
+  accountOptions: (server: SavedServer, account: SavedAccount, afterForget: () => void | Promise<void>) => void;
   /** Id of the server currently connecting, to drive its card's spinner. */
   activatingServerId: string | null;
   /** Id of the account currently connecting on it, to drive that avatar's ring. */
@@ -51,7 +53,7 @@ export function useSelectSavedServer(onConnected?: () => void | Promise<void>): 
    * Resolve the address and push the matching login step. With a known account
    * the route follows how that account signed in last time (its Quick Connect
    * approval or its password, prefilled by name); without one, Quick Connect
-   * leads when the server offers it — same order as the add-server flow.
+   * leads when the server offers it, the same order as the add-server flow.
    */
   const fallbackToLogin = useCallback(
     async (server: SavedServer, account?: SavedAccount) => {
@@ -129,6 +131,23 @@ export function useSelectSavedServer(onConnected?: () => void | Promise<void>): 
 
   const continueAs = useCallback((server: SavedServer, account: SavedAccount) => void activate(server, account), [activate]);
   const signIn = useCallback((server: SavedServer, account?: SavedAccount) => void fallbackToLogin(server, account), [fallbackToLogin]);
+  const accountOptions = useCallback(
+    (server: SavedServer, account: SavedAccount, afterForget: () => void | Promise<void>) => {
+      Alert.alert(account.userName, server.name, [
+        { text: t("connect.signIn"), onPress: () => void fallbackToLogin(server, account) },
+        {
+          text: t("connect.forgetAccount").replace("{user}", account.userName),
+          style: "destructive",
+          onPress: async () => {
+            await removeAccount(account.serverId, account.userId);
+            await afterForget();
+          },
+        },
+        { text: t("common.cancel"), style: "cancel" },
+      ]);
+    },
+    [fallbackToLogin],
+  );
 
-  return { continueAs, signIn, activatingServerId, activatingUserId };
+  return { continueAs, signIn, accountOptions, activatingServerId, activatingUserId };
 }
