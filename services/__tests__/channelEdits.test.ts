@@ -1,6 +1,7 @@
 /** The viewer's channel edits at the fetch boundary: hidden channels leave a list, a renamed one shows its name and keeps the server's in SourceName; a hidden id is remembered for programmes. */
 import { applyChannelEdits, invalidateChannelListReads, isHiddenChannelId, withChannelEdits } from "@/services/jellyfin/channelEdits";
-import { hideChannel, LIVE_TV_PREFERENCES_KEY, renameChannel } from "@/services/liveTvPreferences";
+import { getCachedConfig } from "@/services/jellyfin/session";
+import { channelFavorite, hideChannel, LIVE_TV_PREFERENCES_KEY, renameChannel, unhideChannel } from "@/services/liveTvPreferences";
 import { cachedRequest } from "@/services/requestCache";
 import type { JellyfinItem } from "@/types/jellyfin";
 import { Settings } from "react-native";
@@ -26,6 +27,25 @@ describe("applyChannelEdits", () => {
     expect(isHiddenChannelId("c2")).toBe(false);
     // The same channel under another id on another server hides by its number and name.
     expect(applyChannelEdits([{ ...kqed, Id: "other" }])).toEqual([]);
+  });
+
+  it("forgets a hidden id once the channel is shown again", () => {
+    hideChannel(kqed);
+    applyChannelEdits([kqed]);
+    unhideChannel(channelFavorite(kqed));
+    expect(isHiddenChannelId("c1")).toBe(false);
+    expect(applyChannelEdits([kqed])).toEqual([kqed]);
+    expect(isHiddenChannelId("c1")).toBe(false);
+  });
+
+  it("does not hide another account's channel by an id this account never hid", () => {
+    const config = getCachedConfig as jest.Mock;
+    config.mockReturnValue({ server: "http://jf", apiKey: "k", userId: "a", deviceId: "" });
+    hideChannel(kqed);
+    applyChannelEdits([kqed]);
+    config.mockReturnValue({ server: "http://jf", apiKey: "k", userId: "b", deviceId: "" });
+    expect(isHiddenChannelId("c1")).toBe(false);
+    config.mockReturnValue({ server: "", apiKey: "", userId: "", deviceId: "" });
   });
 
   it("shows a renamed channel under its name and keeps the server's name for the lists", () => {

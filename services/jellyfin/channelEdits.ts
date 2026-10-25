@@ -12,7 +12,10 @@ const hiddenIds = new Set<string>();
 
 export function applyChannelEdits<T extends JellyfinItem>(items: readonly T[]): T[] {
   const preferences = getLiveTvPreferences();
-  if (preferences.hidden.length === 0 && preferences.renames.length === 0) return [...items];
+  if (preferences.hidden.length === 0 && preferences.renames.length === 0) {
+    hiddenIds.clear();
+    return [...items];
+  }
   const kept: T[] = [];
   for (const item of items) {
     if (item.Type !== "TvChannel") {
@@ -38,8 +41,9 @@ export function withChannelEdits<T extends JellyfinItem>(item: T, preferences = 
   return item.Name === name && item.SourceName === source ? item : { ...item, Name: name, SourceName: source };
 }
 
+/** False while the signed-in account hides nothing: the ids were collected for whoever hid them. */
 export function isHiddenChannelId(id: string): boolean {
-  return hiddenIds.has(id);
+  return getLiveTvPreferences().hidden.length > 0 && hiddenIds.has(id);
 }
 
 /** Channel lists cached before an edit: the guide's pages and the search's lineup read again. */
