@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-24T19:09:32Z",
+  "generated": "2026-10-24T20:56:59Z",
   "items": [
     {
       "library": "Space",
@@ -479,15 +479,6 @@
       "source": "https://caminandes.com"
     },
     {
-      "library": "Shows",
-      "title": "Veguitas",
-      "by": "Cubita Studio",
-      "year": 2026,
-      "licence": "Cubita Studio production, shown with the studio's permission",
-      "licenceUrl": "https://cubita.studio",
-      "source": "https://cubita.studio"
-    },
-    {
       "library": "Live TV",
       "title": "Big Buck Bunny",
       "by": "Blender Foundation",
@@ -522,24 +513,6 @@
       "licence": "CC BY 2.5",
       "licenceUrl": "https://creativecommons.org/licenses/by/2.5/",
       "source": "https://orange.blender.org"
-    },
-    {
-      "library": "Live TV",
-      "title": "Elono",
-      "by": "Cubita Studio",
-      "year": 2026,
-      "licence": "Cubita Studio production, shown with the studio's permission",
-      "licenceUrl": "https://cubita.studio",
-      "source": "https://cubita.studio"
-    },
-    {
-      "library": "Live TV",
-      "title": "Elono Colors",
-      "by": "Cubita Studio",
-      "year": 2026,
-      "licence": "Cubita Studio production, shown with the studio's permission",
-      "licenceUrl": "https://cubita.studio",
-      "source": "https://cubita.studio"
     },
     {
       "library": "Live TV",
@@ -621,15 +594,6 @@
       "licence": "Public domain in the United States (copyright not renewed)",
       "licenceUrl": "https://commons.wikimedia.org/wiki/Template:PD-US-not_renewed",
       "source": "https://archive.org/details/VoyagetothePlanetofPrehistoricWomen"
-    },
-    {
-      "library": "Live TV",
-      "title": "Welcome to Veguitas",
-      "by": "Cubita Studio",
-      "year": 2026,
-      "licence": "Cubita Studio production, shown with the studio's permission",
-      "licenceUrl": "https://cubita.studio",
-      "source": "https://cubita.studio"
     }
   ]
 }

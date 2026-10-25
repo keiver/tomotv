@@ -219,7 +219,7 @@
   "search.connectedToDemo": "Connected to Demo",
   "search.demoBody": "You're now browsing the Tomo TV demo library. You can switch to your own server in Settings.",
   "settings.demoTitle": "You're browsing the Tomo TV demo.",
-  "settings.demoDisclosure": "Everything here is free to use: NASA and ESA space clips and photos, public-domain chill beats by HoliznaCC0, public-domain books, Blender open movies, and Cubita Studio's own shows and channels. The shared demo account resets every night.",
+  "settings.demoDisclosure": "Everything here is free to use: NASA and ESA space clips and photos, public-domain chill beats by HoliznaCC0, public-domain books, and Blender open movies. The shared demo account resets every night.",
   "settings.demoCreditsHint": "Opens the list of everything on the demo server with its licence and source",
   "demo.creditsTitle": "Demo Credits",
   "demo.creditsIntro": "Everything on the demo server, who made it, its licence and where it came from.",
