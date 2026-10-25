@@ -26,11 +26,11 @@ describe("the string catalogues", () => {
 
   it("reads from the active language", () => {
     __setLocaleForTests("de");
-    expect(t("filters.title")).toBe("Filter");
+    expect(t("filters.title")).toBe("Sortieren und Filtern");
     __setLocaleForTests("fr");
-    expect(t("filters.title")).toBe("Filtres");
+    expect(t("filters.title")).toBe("Trier et filtrer");
     __setLocaleForTests("es");
-    expect(t("filters.title")).toBe("Filtros");
+    expect(t("filters.title")).toBe("Ordenar y filtrar");
   });
 
   /** A half-filled catalogue shows English, never a key name at a viewer. */

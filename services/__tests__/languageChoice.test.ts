@@ -32,7 +32,7 @@ describe("language choice", () => {
     i18n.subscribeLocale(listener);
     i18n.setLanguage("de");
     expect(i18n.locale()).toBe("de");
-    expect(i18n.t("filters.title")).toBe("Filter");
+    expect(i18n.t("filters.title")).toBe("Sortieren und Filtern");
     expect(Settings.get(i18n.LANGUAGE_KEY)).toBe("de");
     expect(listener).toHaveBeenCalledTimes(1);
   });
