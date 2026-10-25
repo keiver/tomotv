@@ -2336,8 +2336,8 @@ server transcoding only when the source requires it. The app ships no content of
 No login credentials are needed to review the app. A fresh install opens on a "Who's watching?"
 screen; tap Demo to sign into the Tomo TV demo server (tomotv.cubita.studio, run by the
 developer), a shared account with no password. Go on the empty Add Server field signs into it
-too. It works over the public internet and needs no permissions. Its content is free to use: NASA and ESA space clips and photos, music
-from the Internet Archive, public-domain books and Cubita Studio's own shows and channels; each
+too. It works over the public internet and needs no permissions. Its content is free to use: NASA and ESA space clips and photos,
+public-domain chill beats by HoliznaCC0, public-domain books and Blender open movies; each
 item names its source and licence, and the demo account is reset every night. Any other Jellyfin
 server works too (username and password or Jellyfin Quick Connect).
 
