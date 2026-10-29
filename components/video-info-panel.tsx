@@ -768,7 +768,8 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   };
 
   // The CTA row holds two buttons, three on live items; every further action is a circle in the row below.
-  const showFolderCta = !live && !!folderLeafId && folderLeafId !== params.inFolderId;
+  const inShownFolder = !!params.inFolderId && (params.inFolderId === folderLeafId || params.inFolderId === details?.ParentId);
+  const showFolderCta = !live && !!folderLeafId && !inShownFolder;
   const shareable = photo && !IS_TV;
   const folderInRow = showFolderCta && (!isContainer || folderCtas.length < 2);
   const seriesSet = !!recording.seriesTimerId;
