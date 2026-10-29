@@ -92,7 +92,7 @@ See: `app.json` → `ios.infoPlist.NSAppTransportSecurity`
 Before submitting to App Store, verify:
 
 1. **No hardcoded credentials in source code** ✅
-2. **First-run experience works** (fresh install opens on Who's watching with Demo and Add Server) ✅
+2. **First-run experience works** (fresh install opens on Who's watching with Demo and Add Account) ✅
 3. **Settings screen allows user configuration** (server IP + Quick Connect / password) ✅
 
 The app is designed to be **safe for App Store distribution** with a single runtime

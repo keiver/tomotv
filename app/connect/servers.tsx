@@ -13,7 +13,7 @@ import { t } from "@/services/i18n";
 
 /**
  * The server list as a pushed route, opened by the connected Settings card's Switch
- * Server button and by Add Server on the Who's watching screen. A real stack entry, so
+ * Server button and by Add Account on the Who's watching screen. A real stack entry, so
  * Menu (TV) and back (phone) walk back for free; picking a destination switches the
  * session without touching this screen's history (finishLogin pops to the tabs), and
  * the current session survives untouched unless Sign Out below is used. Signed out,

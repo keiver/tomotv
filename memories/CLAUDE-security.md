@@ -63,7 +63,7 @@ This document describes the security architecture, known limitations, and mitiga
 - ✅ Zero hardcoded credentials in source code
 - ✅ `.env.local` is git-ignored (development only)
 - ✅ Production builds require user configuration via Settings
-- ✅ Demo server credentials fetched dynamically from API
+- ✅ The demo server's account is shared and passwordless, so its constants hold no secret
 
 ---
 
@@ -609,15 +609,14 @@ Add to CLAUDE.md Known Issues:
 #### 5. Demo Server Credentials (IMPORTANT - Already Mitigated)
 
 **Status:** SECURE ✅
-**Current Implementation:** Credentials fetched dynamically from Jellyfin API
+**Current Implementation:** A shared account on Tomo TV's own demo server
 **No Action Required**
 
 The demo server credentials are:
 
-- Fetched from public API endpoint (Jellyfin's official demo)
-- Reset hourly by Jellyfin
-- Clearly documented as demo-only
-- Never hardcoded in source
+- `DEMO_USERNAME` ("demo") and `DEMO_PASSWORD` (empty) in `services/jellyfin/constants.ts`
+- A shared, passwordless demo account, so there is no secret to leak
+- Never saved as an account (`services/jellyfin/demo.ts` never calls `saveAuthResult`)
 
 ---
 
@@ -781,7 +780,7 @@ export async function fetchLibraryVideos(startIndex = 0, limit = 60) {
 
 - API keys in URLs (architectural constraint, documented)
 - Self-signed cert support (needed for home servers)
-- Demo credentials (already dynamic and secure)
+- Demo credentials (a shared, passwordless account)
 
 ---
 

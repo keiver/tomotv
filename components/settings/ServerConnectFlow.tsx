@@ -37,7 +37,7 @@ interface ServerConnectFlowProps {
 
 /**
  * The server list: add, scan, discovered, saved and demo destinations. Rendered by the
- * connect route (app/connect/servers), reached from the Who's watching screen's Add Server
+ * connect route (app/connect/servers), reached from the Who's watching screen's Add Account
  * and the connected Settings card's Switch Server. Sections only; the host owns the scroll
  * container and header.
  *

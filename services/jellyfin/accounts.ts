@@ -7,8 +7,7 @@
  * source of truth for everything downstream: this module is the layer above that
  * fills them (activateAccount) or is filled from them (saveAuthResult's upsert).
  *
- * Demo sessions are never saved: the demo server resets hourly, so its tokens are
- * not worth remembering, and demo.ts never calls saveAuthResult.
+ * Demo sessions are never saved: demo.ts never calls saveAuthResult.
  */
 import { JellyfinPublicServerInfo, SavedAccount, SavedServer } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
