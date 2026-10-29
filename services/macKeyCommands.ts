@@ -61,6 +61,11 @@ function applyKeyContext(): void {
 // The native context is static and outlives a JS reload, which starts this stack empty.
 applyKeyContext();
 
+/** The context the newest claim holds, "" with none. */
+export function macKeyContext(): MacKeyContext {
+  return keyClaims[keyClaims.length - 1]?.context ?? "";
+}
+
 export function claimMacContextKeys(owner: string, context: MacKeyContext): () => void {
   const claim = { owner, context };
   keyClaims.push(claim);

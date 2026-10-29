@@ -2,6 +2,7 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { FolderBackdrop } from "@/components/folder-backdrop";
 import type { FolderBackdropSource } from "@/hooks/useFolderBackdrop";
 import { FocusableButton } from "@/components/FocusableButton";
+import { CardZoomPinch } from "@/components/card-zoom-pinch";
 import { FolderGridItem } from "@/components/folder-grid-item";
 import { LoadingRow } from "@/components/loading-row";
 // import { FiltersGhostTitle } from "@/components/filters-ghost-title";
@@ -12,6 +13,7 @@ import { GuideChannelCard } from "@/components/live-tv/guide-channel-card";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { GRID, gridEdgePadding, itemSlotRatio, itemSlotShape, liveRowHeight, slotCardPadding, slotRatio, slotRowHeights, STAND_HEIGHT, STAND_ROW_ROOM } from "@/constants/app";
 import { useCardPalette } from "@/hooks/useCardPalette";
+import { useCardZoom } from "@/hooks/useCardZoom";
 import { useLiveFrameViewport } from "@/hooks/useLiveFrameViewport";
 import { clearLiveFrameFocus, setLiveFrameFocus } from "@/services/liveFrames";
 import { COLORS } from "@/constants/colors";
@@ -297,7 +299,8 @@ export function LibraryGrid({
   // artwork's snapped shape (posters taller than wide thumbs), each full row scaled uniformly
   // to exactly fill the width (no trailing gap). The FlatList virtualizes ROWS — its index
   // space is rows from here on.
-  const rowHeights = useMemo(() => slotRowHeights(windowWidth, windowHeight, insets.left, insets.right, IS_TV, "grid"), [windowWidth, windowHeight, insets.left, insets.right]);
+  const zoom = useCardZoom();
+  const rowHeights = useMemo(() => slotRowHeights(windowWidth, windowHeight, insets.left, insets.right, IS_TV, "grid", zoom), [windowWidth, windowHeight, insets.left, insets.right, zoom]);
   // TV folders mixing posters with wide cards sit on fixed columns: a wide card spans two, its art cropped to fill.
   const columnGrid = useMemo(() => {
     if (!IS_TV || liveChannels) return false;
@@ -401,7 +404,7 @@ export function LibraryGrid({
   // TV channel wall: shorter 16:9 rows, so three rows sit with room under them and the fourth stays off screen.
   const rowPadding = IS_TV && liveChannels ? 16 : ROW_VERTICAL_PADDING;
   // Every card's base sits under it inside the card's own frame; a media card's overhangs on TV, so its row keeps STAND_ROW_ROOM.
-  const standHeight = liveChannels ? STAND_HEIGHT : STAND_ROW_ROOM;
+  const standHeight = (liveChannels ? STAND_HEIGHT : STAND_ROW_ROOM) * zoom;
   const rowLayout = useMemo(() => {
     const lengths: number[] = [];
     const offsets: number[] = [];
@@ -898,39 +901,41 @@ export function LibraryGrid({
   ) : null;
 
   const grid = (
-    <FlatList
-      ref={listRef}
-      testID="library-list"
-      data={packedRows}
-      renderItem={renderRow}
-      keyExtractor={(row) => row.cards[0].item.Id}
-      contentContainerStyle={listBand && items.length === 0 ? [folderGridContentStyle, styles.noBottomPad] : folderGridContentStyle}
-      ListHeaderComponent={folderHeader}
-      ListEmptyComponent={listBand && items.length === 0 && !isLoading && underBand ? <View style={{ height: underBand.height }}>{renderEmpty()}</View> : undefined}
-      showsVerticalScrollIndicator={false}
-      updateCellsBatchingPeriod={50}
-      // List items are packed ROWS of ~3-4 cards, so the render counts are rows.
-      initialNumToRender={Platform.isTV ? 8 : 6}
-      maxToRenderPerBatch={Platform.isTV ? 8 : 6}
-      windowSize={5}
-      // Phone: UIKit owns the vertical insets, because the transparent native header means the
-      // screen extends under it. TV pads by hand, its bar is this list's own header.
-      contentInsetAdjustmentBehavior={IS_TV ? "never" : "automatic"}
-      // Phone: detach off-screen cells so a long-scrolled grid doesn't unmount hundreds of
-      // native views in one commit on pop (same setting as the search results list).
-      // TV must keep everything mounted — the focus engine needs live cells to traverse.
-      removeClippedSubviews={!IS_TV}
-      onEndReached={handleLoadMore}
-      onEndReachedThreshold={0.5}
-      getItemLayout={getItemLayout}
-      // Known at mount whenever the target's page is already in hand (a cached folder, or a
-      // remount): the list opens ON the card instead of painting the top and scrolling off it.
-      initialScrollIndex={targetRowIndex >= 0 ? targetRowIndex : undefined}
-      onScrollToIndexFailed={handleScrollToIndexFailed}
-      onScrollBeginDrag={handleScrollBeginDrag}
-      ListFooterComponent={renderFooter}
-      viewabilityConfigCallbackPairs={liveChannels ? viewabilityPairs : undefined}
-    />
+    <CardZoomPinch>
+      <FlatList
+        ref={listRef}
+        testID="library-list"
+        data={packedRows}
+        renderItem={renderRow}
+        keyExtractor={(row) => row.cards[0].item.Id}
+        contentContainerStyle={listBand && items.length === 0 ? [folderGridContentStyle, styles.noBottomPad] : folderGridContentStyle}
+        ListHeaderComponent={folderHeader}
+        ListEmptyComponent={listBand && items.length === 0 && !isLoading && underBand ? <View style={{ height: underBand.height }}>{renderEmpty()}</View> : undefined}
+        showsVerticalScrollIndicator={false}
+        updateCellsBatchingPeriod={50}
+        // List items are packed ROWS of ~3-4 cards, so the render counts are rows.
+        initialNumToRender={Platform.isTV ? 8 : 6}
+        maxToRenderPerBatch={Platform.isTV ? 8 : 6}
+        windowSize={5}
+        // Phone: UIKit owns the vertical insets, because the transparent native header means the
+        // screen extends under it. TV pads by hand, its bar is this list's own header.
+        contentInsetAdjustmentBehavior={IS_TV ? "never" : "automatic"}
+        // Phone: detach off-screen cells so a long-scrolled grid doesn't unmount hundreds of
+        // native views in one commit on pop (same setting as the search results list).
+        // TV must keep everything mounted: the focus engine needs live cells to traverse.
+        removeClippedSubviews={!IS_TV}
+        onEndReached={handleLoadMore}
+        onEndReachedThreshold={0.5}
+        getItemLayout={getItemLayout}
+        // Known at mount whenever the target's page is already in hand (a cached folder, or a
+        // remount): the list opens ON the card instead of painting the top and scrolling off it.
+        initialScrollIndex={targetRowIndex >= 0 ? targetRowIndex : undefined}
+        onScrollToIndexFailed={handleScrollToIndexFailed}
+        onScrollBeginDrag={handleScrollBeginDrag}
+        ListFooterComponent={renderFooter}
+        viewabilityConfigCallbackPairs={liveChannels ? viewabilityPairs : undefined}
+      />
+    </CardZoomPinch>
   );
 
   const inner =

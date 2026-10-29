@@ -5,10 +5,11 @@ import { CardStand } from "@/components/card-stand";
 import { LevelBars } from "@/components/level-bars";
 import { LiveClip } from "@/components/live-tv/live-clip";
 import { LiveFreshnessBadge } from "@/components/live-tv/live-freshness-badge";
-import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, GRID, RAISED_EDGE, slotColumns, STAND_HEIGHT, STAND_ROW_ROOM, type SlotOrientation } from "@/constants/app";
+import { CARD_DEPTH, CARD_FOCUS, cardPosterHeight, cardSlotRatio, DESIGN, GRID, RAISED_EDGE, slotColumns, STAND_HEIGHT, STAND_ROW_ROOM, type SlotOrientation } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { useCardPalette } from "@/hooks/useCardPalette";
+import { useCardZoom } from "@/hooks/useCardZoom";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { useMinuteClock } from "@/hooks/useMinuteClock";
 import { useIsNowPlaying, useNowPlayingVideo, useOpenNowPlaying } from "@/hooks/useNowPlaying";
@@ -25,12 +26,11 @@ import { formatIndexBadge } from "@/utils/seasonEpisode";
 import { Ionicons } from "@expo/vector-icons";
 import { Image, type ImageLoadEventData } from "expo-image";
 import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
+import { PixelRatio, Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // Cache platform values at module level for better performance
 const IS_TV = Platform.isTV;
 const CARD_PADDING = IS_TV ? 16 : 8;
-const POSTER_SIZE = IS_TV ? 300 : 200; // Optimized for memory
 const BACKDROP_BLUR = IS_TV ? 24 : 16;
 
 /** Badge pill contents: "S01E05" alone, or the disc (when past the first) beside the track. */
@@ -217,7 +217,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   );
 
   // The server poster, or the keyframe the engine makes for a card the server left blank.
-  const posterSource = useItemPoster(video, POSTER_SIZE, { deferWhileVideo: true });
+  const posterSource = useItemPoster(video, cardPosterHeight(cardHeight, IS_TV, PixelRatio.get()), { deferWhileVideo: true });
 
   // Keyed on the parse inputs, not the item object: annotation passes rebuild
   // item objects without touching these fields, and must not re-parse every card.
@@ -296,12 +296,13 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   const channelNumber = video.ChannelNumber?.trim();
   const channelTab = channelNumber ? t("liveTv.channelNumber").replace("{number}", channelNumber) : t("liveTv.channel");
   const artBadge = channelNow ? [{ label: t("liveTv.now") }] : logoTab ? [{ label: channelTab }] : isChannel ? null : badgeSegments;
+  const zoom = useCardZoom();
   // One mark before the name: the playing bars, else a passed icon, else the favorite heart (a channel's is passed in).
   const nameIcon = leadingMark ?? (isChannel ? titleIcon : showsFavoriteHeart(video) ? "heart" : undefined);
   const metaMark = nowPlaying
-    ? (color: string) => <LevelBars size={IS_TV ? 16 : 10} playing={nowPlayingProgress.playing} color={color} />
+    ? (color: string) => <LevelBars size={(IS_TV ? 16 : 10) * zoom} playing={nowPlayingProgress.playing} color={color} />
     : nameIcon
-      ? (color: string) => <Ionicons name={nameIcon} size={IS_TV ? 15 : 9} color={color} />
+      ? (color: string) => <Ionicons name={nameIcon} size={(IS_TV ? 15 : 9) * zoom} color={color} />
       : undefined;
   const depth = [styles.depth, flat && styles.cardFlat, focused && [styles.cardFocused, { shadowColor: palette.accent }]];
   const posterImage = (

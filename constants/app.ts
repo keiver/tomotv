@@ -108,6 +108,8 @@ export const GRID = {
   CARD_ROW_SCALE_TV: 1.12,
   /** tvOS grid cards per row by shape: a grid justifies each row to the width, so its card size is this count. */
   TV_GRID_PER_ROW: { portrait: 7, square: 5, landscape: 4 },
+  /** Smallest card a pinch reaches, as a share of the density model's size. */
+  CARD_ZOOM_MIN: 0.75,
   /** Minimum horizontal screen padding around library grids (TV / phone). See
    * gridEdgePadding — this is a floor, not an addition to the safe-area inset. */
   SIDE_PADDING: { tv: 80, phone: 20 },
@@ -250,7 +252,8 @@ export function liveRowHeight(landscapeHeight: number, padding: number): number 
   return ((landscapeHeight - 2 * padding) * GRID.LANDSCAPE_RATIO) / GRID.LIVE_RATIO + 2 * padding;
 }
 
-export function slotRowHeights(windowWidth: number, windowHeight: number, insetLeft: number, insetRight: number, isTV: boolean, surface: "shelf" | "grid" = "shelf"): SlotRowHeights {
+/** `zoom` is the pinch's clamped card zoom (see cardZoomCeiling); TV ignores it. */
+export function slotRowHeights(windowWidth: number, windowHeight: number, insetLeft: number, insetRight: number, isTV: boolean, surface: "shelf" | "grid" = "shelf", zoom = 1): SlotRowHeights {
   const usable = windowWidth - gridEdgePadding(insetLeft, isTV) - gridEdgePadding(insetRight, isTV);
   const padding = slotCardPadding(isTV);
   if (isTV) {
@@ -295,8 +298,36 @@ export function slotRowHeights(windowWidth: number, windowHeight: number, insetL
     square: shapeHeight(per.square, 1),
     landscape: shapeHeight(surface === "grid" ? per.landscapeGrid : per.landscapeShelf, GRID.LANDSCAPE_RATIO),
   };
-  const scale = surface === "grid" ? 1 : shelfFillScale(rows, usable, padding, windowWidth, windowHeight);
+  const scale = (surface === "grid" ? 1 : shelfFillScale(rows, usable, padding, windowWidth, windowHeight)) * zoom;
   return { portrait: Math.round(rows.portrait * scale), square: Math.round(rows.square * scale), landscape: Math.round(rows.landscape * scale) };
+}
+
+/**
+ * The largest card zoom a window takes: where the tallest default shelf row puts a wide card at
+ * MAX_CARD_WIDTH_SHARE of the usable width, and never below 1, so no screen is shrunk to fit it.
+ */
+export function cardZoomCeiling(windowWidth: number, windowHeight: number, insetLeft: number, insetRight: number): number {
+  const rows = slotRowHeights(windowWidth, windowHeight, insetLeft, insetRight, false);
+  const tallest = Math.max(rows.portrait, rows.square, rows.landscape);
+  if (tallest <= 0) return 1;
+  const usable = windowWidth - gridEdgePadding(insetLeft, false) - gridEdgePadding(insetRight, false);
+  const padding = slotCardPadding(false);
+  const ceiling = (GRID.MAX_CARD_WIDTH_SHARE * usable - 2 * padding) / GRID.LANDSCAPE_RATIO + 2 * padding;
+  return Math.max(1, ceiling / tallest);
+}
+
+/** Server poster heights a card asks for, in pixels; few sizes, so a zoom reuses cached art. */
+const POSTER_HEIGHTS = [200, 400, 600, 900, 1200];
+
+/**
+ * The poster height a card requests: the smallest size covering its drawn height in pixels. TV keeps 300; a card
+ * with no known height (a column grid) keeps 200.
+ */
+export function cardPosterHeight(cardHeight: number | undefined, isTV: boolean, pixelRatio: number): number {
+  if (isTV) return 300;
+  if (cardHeight == null || !(cardHeight > 0)) return POSTER_HEIGHTS[0];
+  const pixels = cardHeight * pixelRatio;
+  return POSTER_HEIGHTS.find((height) => height >= pixels) ?? POSTER_HEIGHTS[POSTER_HEIGHTS.length - 1];
 }
 
 /**

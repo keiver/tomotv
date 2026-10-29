@@ -3,9 +3,10 @@ import { STAND_NAME_TEXT } from "@/components/card-stand";
 import { STAND_HEIGHT } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardPalette } from "@/hooks/useCardPalette";
+import { useCardZoom } from "@/hooks/useCardZoom";
 import { isLowContrast } from "@/services/cardTheme";
 import { Ionicons } from "@expo/vector-icons";
-import React from "react";
+import React, { useMemo } from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
 
 const IS_TV = Platform.isTV;
@@ -20,29 +21,52 @@ interface CardCornerNotchProps {
   focused?: boolean;
 }
 
+/** Every measure of the notch at a card zoom, so it grows with the card around it. */
+export function notchMetrics(zoom: number, live: boolean) {
+  const radius = NOTCH_RADIUS * zoom;
+  return {
+    body: {
+      height: STAND_HEIGHT * zoom,
+      paddingHorizontal: (live ? (IS_TV ? 12 : 7) : IS_TV ? 18 : 9) * zoom,
+      minWidth: (IS_TV ? 56 : 36) * zoom,
+      borderBottomRightRadius: radius,
+      gap: (IS_TV ? 9 : 5) * zoom,
+    },
+    fillet: { width: radius, height: radius },
+    // A ring around a hole of the radius, centred on the square's far corner: the square outside the hole is the notch's colour.
+    ring: { top: -radius, left: -radius, width: radius * 4, height: radius * 4, borderRadius: radius * 2, borderWidth: radius },
+    segmentGap: (IS_TV ? 4 : 2) * zoom,
+    fontSize: (live ? (IS_TV ? 13 : 8) : STAND_NAME_TEXT.fontSize) * zoom,
+    letterSpacing: STAND_NAME_TEXT.letterSpacing * zoom,
+    iconSize: STAND_NAME_TEXT.fontSize * zoom,
+  };
+}
+
 /** The art's top-left corner cut in the card's own colour. Render it inside the art's clipping slot, under the lit edge. */
 export function CardCornerNotch({ segments, tone = "plain", focused = false }: CardCornerNotchProps) {
   const { accent, ink } = useCardPalette();
+  const zoom = useCardZoom();
   const live = tone === "live";
   const lit = focused && !live;
+  const metrics = useMemo(() => notchMetrics(zoom, live), [zoom, live]);
   // Lettered like the name: the accent, white when the accent is too dark to read, the ink on the accent.
   const color = lit ? ink : live || isLowContrast(accent) ? COLORS.TEXT_PRIMARY : accent;
   const fill = live ? COLORS.DESTRUCTIVE_DEEP : lit ? accent : COLORS.SURFACE_SUNKEN;
   const fillet = (
-    <View style={styles.fillet}>
-      <View style={[styles.ring, { borderColor: fill }]} />
+    <View style={[styles.fillet, metrics.fillet]}>
+      <View style={[styles.ring, metrics.ring, { borderColor: fill }]} />
     </View>
   );
   return (
     <View style={styles.anchor} pointerEvents="none" testID="card-corner-notch">
       <View style={styles.row}>
-        <View style={[styles.body, live && styles.bodyLive, { backgroundColor: fill }]} testID="card-corner-notch-body">
+        <View style={[styles.body, metrics.body, { backgroundColor: fill }]} testID="card-corner-notch-body">
           {segments.map(({ icon, label }, index) => (
             // Index keys: the array is rebuilt whole on every render and never reordered.
-            <View key={index} style={styles.segment}>
-              {icon ? <Ionicons name={icon} size={STAND_NAME_TEXT.fontSize} color={color} /> : null}
+            <View key={index} style={[styles.segment, { gap: metrics.segmentGap }]}>
+              {icon ? <Ionicons name={icon} size={metrics.iconSize} color={color} /> : null}
               {label != null ? (
-                <Text style={[styles.label, live && styles.labelLive, { color }]} numberOfLines={1}>
+                <Text style={[styles.label, { fontSize: metrics.fontSize, letterSpacing: metrics.letterSpacing, color }]} numberOfLines={1}>
                   {label}
                 </Text>
               ) : null}
@@ -67,42 +91,21 @@ const styles = StyleSheet.create({
     flexDirection: "row",
   },
   body: {
-    height: STAND_HEIGHT,
-    paddingHorizontal: IS_TV ? 18 : 9,
-    minWidth: IS_TV ? 56 : 36,
-    borderBottomRightRadius: NOTCH_RADIUS,
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-    gap: IS_TV ? 9 : 5,
   },
-  bodyLive: {
-    paddingHorizontal: IS_TV ? 12 : 7,
-  },
-  // A square whose corner away from the notch is cut round, so the art's edge curves into the notch.
   fillet: {
-    width: NOTCH_RADIUS,
-    height: NOTCH_RADIUS,
     overflow: "hidden",
   },
   ring: {
     position: "absolute",
-    top: -NOTCH_RADIUS,
-    left: -NOTCH_RADIUS,
-    width: NOTCH_RADIUS * 4,
-    height: NOTCH_RADIUS * 4,
-    borderRadius: NOTCH_RADIUS * 2,
-    borderWidth: NOTCH_RADIUS,
   },
   segment: {
     flexDirection: "row",
     alignItems: "center",
-    gap: IS_TV ? 4 : 2,
   },
   label: {
     ...STAND_NAME_TEXT,
-  },
-  labelLive: {
-    fontSize: IS_TV ? 13 : 8,
   },
 });

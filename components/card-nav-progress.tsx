@@ -1,7 +1,8 @@
-import { STAND_NAME_TEXT } from "@/components/card-stand";
+import { STAND_NAME_TEXT, standNameText } from "@/components/card-stand";
 import { DESIGN, GRID } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardPalette } from "@/hooks/useCardPalette";
+import { useCardZoom } from "@/hooks/useCardZoom";
 import React, { useEffect } from "react";
 import { Dimensions, Platform, StyleSheet, Text, View } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
@@ -57,6 +58,7 @@ export function CardNavProgress({ active, title, startFraction, stand = false, b
   const opacity = useSharedValue(0);
   const reducedMotion = useReducedMotion();
   const { accent } = useCardPalette();
+  const zoom = useCardZoom();
 
   useEffect(() => {
     if (active) {
@@ -89,7 +91,7 @@ export function CardNavProgress({ active, title, startFraction, stand = false, b
       importantForAccessibility="no-hide-descendants">
       <Animated.View style={[styles.fill, { backgroundColor: accent }, fillStyle]} />
       <View style={styles.titleBlend}>
-        <Text style={[styles.title, stand && STAND_NAME_TEXT, { color: accent }]} numberOfLines={1}>
+        <Text style={[styles.title, stand && STAND_NAME_TEXT, stand && standNameText(zoom), { color: accent }]} numberOfLines={1}>
           {title}
         </Text>
       </View>

@@ -3,6 +3,7 @@ import { MarqueeText } from "@/components/MarqueeText";
 import { DESIGN, STAND_HEIGHT } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardPalette } from "@/hooks/useCardPalette";
+import { useCardZoom } from "@/hooks/useCardZoom";
 import { useLiveFrameAge } from "@/hooks/useLiveFrameAge";
 import { isLowContrast } from "@/services/cardTheme";
 import { LIVE_FRAME_REFRESH_MS, LIVE_FRAME_TRANSITION_MS } from "@/services/liveFrames";
@@ -18,6 +19,12 @@ export const STAND_NAME_TEXT = {
   letterSpacing: IS_TV ? 1.5 : 0.8,
   textTransform: "uppercase",
 } as const;
+
+/** The stand's lettering at a card zoom: its size and tracking grow with the card. */
+export function standNameText(zoom: number): { fontSize: number; letterSpacing: number } {
+  return { fontSize: STAND_NAME_TEXT.fontSize * zoom, letterSpacing: STAND_NAME_TEXT.letterSpacing * zoom };
+}
+const STAND_PADDING = IS_TV ? 18 : 9;
 const LEAD_GAP = IS_TV ? 8 : 4;
 const FADE_STEPS = 8;
 const FADE_STEP_MS = 1_000;
@@ -78,13 +85,15 @@ function LiveCardStand({ channelId, ...props }: CardStandProps & { channelId: st
 
 function StandBody({ name, icon, focused, offline = false, mark, progress, scrolls = false, fresh, red }: CardStandProps & { fresh: boolean; red?: React.ReactNode }) {
   const { accent, ink } = useCardPalette();
+  const zoom = useCardZoom();
   const filled = progress != null;
   const full = filled && standFillPercent(progress) === 100;
   const resting = isLowContrast(accent) ? COLORS.TEXT_PRIMARY : accent;
   // White on the LIVE red reads; gold on it does not. Over a partial fill the accent runs through a difference blend; a full one takes the ink.
   const text = full || (focused && !filled) ? ink : filled ? accent : fresh ? COLORS.TEXT_PRIMARY : resting;
-  const glyphSize = IS_TV ? 15 : 9;
-  const nameStyle = StyleSheet.flatten([styles.name, { color: text }]);
+  const glyphSize = (IS_TV ? 15 : 9) * zoom;
+  const leadGap = LEAD_GAP * zoom;
+  const nameStyle = StyleSheet.flatten([styles.name, standNameText(zoom), { color: text }]);
   const lead =
     offline || icon || mark ? (
       <>
@@ -96,7 +105,7 @@ function StandBody({ name, icon, focused, offline = false, mark, progress, scrol
     ) : null;
   const background = focused && !filled ? accent : COLORS.SURFACE_SUNKEN;
   return (
-    <View style={[styles.base, { backgroundColor: background }]} pointerEvents="none" testID="card-stand">
+    <View style={[styles.base, zoom !== 1 && { height: STAND_HEIGHT * zoom, paddingHorizontal: STAND_PADDING * zoom }, { backgroundColor: background }]} pointerEvents="none" testID="card-stand">
       {filled ? null : red}
       {/* An unpadded layer: an absolute child's percentage width resolves against its parent's padded inner width. */}
       {filled ? (
@@ -104,12 +113,12 @@ function StandBody({ name, icon, focused, offline = false, mark, progress, scrol
           <View style={[styles.fill, { width: `${standFillPercent(progress)}%`, backgroundColor: accent }]} testID="card-stand-fill" />
         </View>
       ) : null}
-      <View style={[styles.row, filled && !full && styles.blend]}>
+      <View style={[styles.row, zoom !== 1 && { gap: leadGap }, filled && !full && styles.blend]}>
         {scrolls ? (
           <>
             {/* The mark sits at the left edge and the name clears it on both sides, centred on TV. */}
-            {lead ? <View style={styles.leadSlot}>{lead}</View> : null}
-            <View style={[styles.scrollSlot, lead ? { marginHorizontal: glyphSize + LEAD_GAP } : null]}>
+            {lead ? <View style={[styles.leadSlot, zoom !== 1 && { gap: leadGap }]}>{lead}</View> : null}
+            <View style={[styles.scrollSlot, lead ? { marginHorizontal: glyphSize + leadGap } : null]}>
               <MarqueeText active={focused} style={StyleSheet.flatten([nameStyle, styles.scrollName])}>
                 {name}
               </MarqueeText>
@@ -132,7 +141,7 @@ const styles = StyleSheet.create({
   // The art's bottom corners go square, so the base carries the card's radius.
   base: {
     height: STAND_HEIGHT,
-    paddingHorizontal: IS_TV ? 18 : 9,
+    paddingHorizontal: STAND_PADDING,
     borderBottomLeftRadius: DESIGN.BORDER_RADIUS_CARD,
     borderBottomRightRadius: DESIGN.BORDER_RADIUS_CARD,
     overflow: "hidden",

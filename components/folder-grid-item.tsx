@@ -3,7 +3,7 @@ import { CardCornerNotch } from "@/components/card-corner-notch";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardStand } from "@/components/card-stand";
 import { PosterCollage } from "@/components/poster-collage";
-import { artworkSlotShape, CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, RAISED_EDGE, slotColumns, STAND_HEIGHT, STAND_ROW_ROOM, type SlotOrientation } from "@/constants/app";
+import { artworkSlotShape, CARD_DEPTH, CARD_FOCUS, cardPosterHeight, cardSlotRatio, DESIGN, RAISED_EDGE, slotColumns, STAND_HEIGHT, STAND_ROW_ROOM, type SlotOrientation } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { useCardPalette } from "@/hooks/useCardPalette";
@@ -17,11 +17,10 @@ import { JellyfinItem } from "@/types/jellyfin";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
+import { PixelRatio, Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 
 const IS_TV = Platform.isTV;
 const CARD_PADDING = IS_TV ? 16 : 8;
-const POSTER_SIZE = IS_TV ? 300 : 200;
 
 interface FolderGridItemProps {
   folder: JellyfinItem;
@@ -106,7 +105,8 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
   );
 
   // What the server gives the folder. With nothing, the card shows a collage of its first videos.
-  const thumbnailSource = useMemo(() => folderPosterSource(folder, POSTER_SIZE), [folder]);
+  const posterHeight = cardPosterHeight(cardHeight, IS_TV, PixelRatio.get());
+  const thumbnailSource = useMemo(() => folderPosterSource(folder, posterHeight), [folder, posterHeight]);
   const preview = useFolderPreview(folder, !thumbnailSource);
 
   // The card's slot ratio (see cardSlotRatio, shared with the row packer so rendered and
@@ -187,7 +187,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
           {thumbnailSource ? (
             <Image source={thumbnailSource} style={styles.poster} contentFit="cover" transition={0} priority={index < 10 ? "high" : "normal"} cachePolicy="memory-disk" recyclingKey={folder.Id} />
           ) : preview.length > 0 ? (
-            <PosterCollage items={preview} height={POSTER_SIZE} deferWhileVideo shape={artworkSlotShape(cardRatio)} />
+            <PosterCollage items={preview} height={posterHeight} deferWhileVideo shape={artworkSlotShape(cardRatio)} />
           ) : (
             <View style={styles.placeholderPoster}>
               <Ionicons name={isLiveTv ? "tv-outline" : "folder-outline"} size={IS_TV ? 90 : 56} color="rgba(255, 255, 255, 0.45)" />

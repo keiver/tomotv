@@ -17,6 +17,7 @@ describe("uiPreferences", () => {
       listenForLyrics: true,
       saveLyrics: true,
       autoSkip: { intro: false, recap: false, preview: false, commercial: true },
+      cardZoom: 1,
     });
     expect(getUiPreferences().devicePosters).toBe(true);
     expect(getUiPreferences().serverTranscoding).toBe("linkOrFile");
@@ -59,6 +60,16 @@ describe("uiPreferences", () => {
     expect(parseUiPreferences(JSON.stringify({ findLyrics: 0, listenForLyrics: "off", saveLyrics: null }))).toEqual(DEFAULT_UI_PREFERENCES);
     expect(parseUiPreferences("{not json")).toEqual(DEFAULT_UI_PREFERENCES);
     expect(parseUiPreferences(undefined)).toEqual(DEFAULT_UI_PREFERENCES);
+  });
+
+  it("reads the card zoom between 0.5 and 4, and 1 for anything else", () => {
+    expect(parseUiPreferences(JSON.stringify({ cardZoom: 1.35 }))).toEqual({ ...DEFAULT_UI_PREFERENCES, cardZoom: 1.35 });
+    expect(parseUiPreferences(JSON.stringify({ cardZoom: 0.5 })).cardZoom).toBe(0.5);
+    expect(parseUiPreferences(JSON.stringify({ cardZoom: 4 })).cardZoom).toBe(4);
+    expect(parseUiPreferences(JSON.stringify({ cardZoom: 0.2 })).cardZoom).toBe(1);
+    expect(parseUiPreferences(JSON.stringify({ cardZoom: 9 })).cardZoom).toBe(1);
+    expect(parseUiPreferences(JSON.stringify({ cardZoom: "1.5" })).cardZoom).toBe(1);
+    expect(parseUiPreferences(JSON.stringify({ cardZoom: null })).cardZoom).toBe(1);
   });
 
   it("persists a change and tells subscribers", () => {
