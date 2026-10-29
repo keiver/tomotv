@@ -105,7 +105,7 @@ describe("card palette", () => {
     const notch = tree.root.findByType(CardCornerNotch);
     expect(notch.props.segments).toEqual([{ label: "3" }]);
     expect(StyleSheet.flatten(notch.findByProps({ testID: "card-corner-notch" }).props.style)).toMatchObject({ position: "absolute", top: 0, left: 0 });
-    expect(StyleSheet.flatten(notch.findByProps({ testID: "card-corner-notch-body" }).props.style).backgroundColor).toBe(COLORS.SURFACE_SUNKEN);
+    expect(StyleSheet.flatten(notch.findByProps({ testID: "card-corner-notch-body" }).props.style).backgroundColor).toBe(COLORS.SURFACE);
     // The theme's accent is too dark to read on the card, so the count is white, like the name.
     expect(notch.findAll((n) => typeof n.type === "string" && n.props.children === "3").map((n) => StyleSheet.flatten(n.props.style).color)).toEqual([COLORS.TEXT_PRIMARY]);
     expect(tree.root.findByType(CardStand).props).toMatchObject({ name: "Shows", icon: "heart" });
@@ -153,14 +153,14 @@ describe("card palette", () => {
     };
     const bright = "#4F99FF";
     expect(isLowContrast(bright)).toBe(false);
-    expect(standColours(bright, false)).toEqual({ text: bright, base: COLORS.SURFACE_SUNKEN });
+    expect(standColours(bright, false)).toEqual({ text: bright, base: COLORS.SURFACE });
     expect(standColours(bright, true)).toEqual({ text: cardPalette(bright).ink, base: bright });
     expect(isLowContrast(ACCENT)).toBe(true);
     expect(standColours(ACCENT, false).text).toBe(COLORS.TEXT_PRIMARY);
   });
 
   it("a badge is the card's solid colour at rest and the accent with the ink on focus; live is solid red", () => {
-    expect(colours(<CardBadge segments={[{ label: 3 }]} />)).toEqual([COLORS.SURFACE_SUNKEN, COLORS.TEXT_PRIMARY]);
+    expect(colours(<CardBadge segments={[{ label: 3 }]} />)).toEqual([COLORS.SURFACE, COLORS.TEXT_PRIMARY]);
     expect(colours(<CardBadge segments={[{ label: 3 }]} focused />)).toEqual([ACCENT, palette.ink]);
     expect(colours(<CardBadge segments={[{ label: "LIVE" }]} tone="live" />)).toEqual(expect.arrayContaining([COLORS.DESTRUCTIVE_DEEP, COLORS.TEXT_PRIMARY]));
     expect(colours(<CardBadge segments={[{ label: "LIVE" }]} tone="live" focused />)).toContain(COLORS.DESTRUCTIVE_DEEP);
@@ -235,7 +235,7 @@ describe("card palette", () => {
       );
     });
     const body = tree.root.findByProps({ testID: "card-corner-notch-body" });
-    expect(StyleSheet.flatten(body.props.style).backgroundColor).toBe(COLORS.SURFACE_SUNKEN);
+    expect(StyleSheet.flatten(body.props.style).backgroundColor).toBe(COLORS.SURFACE);
     expect(StyleSheet.flatten(body.findAll((n) => typeof n.type === "string" && n.props.children === "S01E05")[0].props.style).color).toBe(bright);
     act(() => tree.unmount());
   });
@@ -255,7 +255,7 @@ describe("card palette", () => {
       act(() => tree.unmount());
       return { fill, rings };
     };
-    expect(drawn(false, "plain")).toEqual({ fill: COLORS.SURFACE_SUNKEN, rings: [COLORS.SURFACE_SUNKEN, COLORS.SURFACE_SUNKEN] });
+    expect(drawn(false, "plain")).toEqual({ fill: COLORS.SURFACE, rings: [COLORS.SURFACE, COLORS.SURFACE] });
     expect(drawn(true, "plain")).toEqual({ fill: ACCENT, rings: [ACCENT, ACCENT] });
     expect(drawn(true, "live")).toEqual({ fill: COLORS.DESTRUCTIVE_DEEP, rings: [COLORS.DESTRUCTIVE_DEEP, COLORS.DESTRUCTIVE_DEEP] });
   });

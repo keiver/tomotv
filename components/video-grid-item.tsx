@@ -5,7 +5,7 @@ import { CardStand } from "@/components/card-stand";
 import { LevelBars } from "@/components/level-bars";
 import { LiveClip } from "@/components/live-tv/live-clip";
 import { LiveFreshnessBadge } from "@/components/live-tv/live-freshness-badge";
-import { CARD_DEPTH, CARD_FOCUS, cardPosterHeight, cardSlotRatio, DESIGN, GRID, RAISED_EDGE, slotColumns, STAND_HEIGHT, STAND_ROW_ROOM, type SlotOrientation } from "@/constants/app";
+import { CARD_CHROME, CARD_DEPTH, CARD_FOCUS, cardPosterHeight, cardSlotRatio, DESIGN, GRID, RAISED_EDGE, slotColumns, STAND_HEIGHT, STAND_ROW_ROOM, type SlotOrientation } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { useCardPalette } from "@/hooks/useCardPalette";
@@ -300,9 +300,9 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // One mark before the name: the playing bars, else a passed icon, else the favorite heart (a channel's is passed in).
   const nameIcon = leadingMark ?? (isChannel ? titleIcon : showsFavoriteHeart(video) ? "heart" : undefined);
   const metaMark = nowPlaying
-    ? (color: string) => <LevelBars size={(IS_TV ? 16 : 10) * zoom} playing={nowPlayingProgress.playing} color={color} />
+    ? (color: string) => <LevelBars size={(IS_TV ? 16 : 14) * zoom} playing={nowPlayingProgress.playing} color={color} />
     : nameIcon
-      ? (color: string) => <Ionicons name={nameIcon} size={(IS_TV ? 15 : 9) * zoom} color={color} />
+      ? (color: string) => <Ionicons name={nameIcon} size={(IS_TV ? 15 : 13) * zoom} color={color} />
       : undefined;
   const depth = [styles.depth, flat && styles.cardFlat, focused && [styles.cardFocused, { shadowColor: palette.accent }]];
   const posterImage = (
@@ -424,14 +424,14 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
         {standed ? (
           <View>
             <CardStand name={cardTitle} icon={titleIcon} focused={focused} offline={offline} liveChannelId={liveFrame && liveMark ? video.Id : undefined} />
-            {navBarVisible ? <CardNavProgress active={navigating} title={cardTitle} stand baseColor={COLORS.SURFACE_SUNKEN} /> : null}
+            {navBarVisible ? <CardNavProgress active={navigating} title={cardTitle} stand baseColor={CARD_CHROME} /> : null}
           </View>
         ) : null}
         {/* Rendered regardless of poster: a posterless placeholder card still owes the user its progress. */}
         {liveCard ? null : (
           <View>
             <CardStand name={cardTitle} focused={focused} mark={metaMark} progress={standProgress} scrolls />
-            {navBarVisible ? <CardNavProgress active={navigating} title={cardTitle} startFraction={hasProgress ? watchedPercent / 100 : undefined} stand baseColor={COLORS.SURFACE_SUNKEN} /> : null}
+            {navBarVisible ? <CardNavProgress active={navigating} title={cardTitle} startFraction={hasProgress ? watchedPercent / 100 : undefined} stand baseColor={CARD_CHROME} /> : null}
           </View>
         )}
         {focused ? <View style={[styles.focusRing, { borderColor: palette.accent }, square && styles.square]} pointerEvents="none" /> : null}

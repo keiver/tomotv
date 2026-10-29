@@ -55,4 +55,13 @@ describe("card zoom on the name bar and the notch", () => {
       expect(ring.top).toBe(-fillet.width);
     }
   });
+
+  it("casts the notch's shadow from its unfilled outer view, growing with the card", () => {
+    mockZoom = 1.5;
+    const tree = render(<CardCornerNotch segments={[{ label: "S01E05" }]} />);
+    const anchor = StyleSheet.flatten(tree.root.findAll((n) => n.props.testID === "card-corner-notch" && typeof n.type === "string")[0].props.style);
+    expect(anchor.backgroundColor).toBeUndefined();
+    expect(anchor).toMatchObject({ shadowColor: "#000", shadowOpacity: 0.5, shadowRadius: 6, shadowOffset: { width: 2.25, height: 3.75 } });
+    act(() => tree.unmount());
+  });
 });

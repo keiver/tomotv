@@ -1,6 +1,6 @@
 import { type BadgeSegment } from "@/components/card-badge";
 import { STAND_NAME_TEXT } from "@/components/card-stand";
-import { STAND_HEIGHT } from "@/constants/app";
+import { CARD_CHROME, STAND_HEIGHT } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { useCardZoom } from "@/hooks/useCardZoom";
@@ -36,9 +36,11 @@ export function notchMetrics(zoom: number, live: boolean) {
     // A ring around a hole of the radius, centred on the square's far corner: the square outside the hole is the notch's colour.
     ring: { top: -radius, left: -radius, width: radius * 4, height: radius * 4, borderRadius: radius * 2, borderWidth: radius },
     segmentGap: (IS_TV ? 4 : 2) * zoom,
-    fontSize: (live ? (IS_TV ? 13 : 8) : STAND_NAME_TEXT.fontSize) * zoom,
+    fontSize: (live ? (IS_TV ? 13 : 12) : STAND_NAME_TEXT.fontSize) * zoom,
     letterSpacing: STAND_NAME_TEXT.letterSpacing * zoom,
     iconSize: STAND_NAME_TEXT.fontSize * zoom,
+    // The cap: a drop shadow onto the art. The anchor has no fill, so the shadow follows the notch's drawn shape.
+    shadow: { shadowColor: "#000", shadowOpacity: 0.5, shadowRadius: 4 * zoom, shadowOffset: { width: 1.5 * zoom, height: 2.5 * zoom } },
   };
 }
 
@@ -51,14 +53,14 @@ export function CardCornerNotch({ segments, tone = "plain", focused = false }: C
   const metrics = useMemo(() => notchMetrics(zoom, live), [zoom, live]);
   // Lettered like the name: the accent, white when the accent is too dark to read, the ink on the accent.
   const color = lit ? ink : live || isLowContrast(accent) ? COLORS.TEXT_PRIMARY : accent;
-  const fill = live ? COLORS.DESTRUCTIVE_DEEP : lit ? accent : COLORS.SURFACE_SUNKEN;
+  const fill = live ? COLORS.DESTRUCTIVE_DEEP : lit ? accent : CARD_CHROME;
   const fillet = (
     <View style={[styles.fillet, metrics.fillet]}>
       <View style={[styles.ring, metrics.ring, { borderColor: fill }]} />
     </View>
   );
   return (
-    <View style={styles.anchor} pointerEvents="none" testID="card-corner-notch">
+    <View style={[styles.anchor, metrics.shadow]} pointerEvents="none" testID="card-corner-notch">
       <View style={styles.row}>
         <View style={[styles.body, metrics.body, { backgroundColor: fill }]} testID="card-corner-notch-body">
           {segments.map(({ icon, label }, index) => (

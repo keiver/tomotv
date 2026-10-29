@@ -1,3 +1,4 @@
+import { CARD_CHROME } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { isLowContrast } from "@/services/cardTheme";
@@ -77,7 +78,7 @@ export function CardBadge({ segments, loading, focused, tone = "gold", compact =
   );
 
   return (
-    <View style={[sizing, live ? styles.badgeLive : { borderRadius: height / 2, backgroundColor: focused ? palette.accent : COLORS.SURFACE_SUNKEN }]} pointerEvents="none">
+    <View style={[sizing, live ? styles.badgeLive : { borderRadius: height / 2, backgroundColor: focused ? palette.accent : CARD_CHROME }]} pointerEvents="none">
       {content}
     </View>
   );

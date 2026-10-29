@@ -3,7 +3,20 @@ import { CardCornerNotch } from "@/components/card-corner-notch";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardStand } from "@/components/card-stand";
 import { PosterCollage } from "@/components/poster-collage";
-import { artworkSlotShape, CARD_DEPTH, CARD_FOCUS, cardPosterHeight, cardSlotRatio, DESIGN, RAISED_EDGE, slotColumns, STAND_HEIGHT, STAND_ROW_ROOM, type SlotOrientation } from "@/constants/app";
+import {
+  artworkSlotShape,
+  CARD_CHROME,
+  CARD_DEPTH,
+  CARD_FOCUS,
+  cardPosterHeight,
+  cardSlotRatio,
+  DESIGN,
+  RAISED_EDGE,
+  slotColumns,
+  STAND_HEIGHT,
+  STAND_ROW_ROOM,
+  type SlotOrientation,
+} from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { useCardPalette } from "@/hooks/useCardPalette";
@@ -206,7 +219,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
         </View>
         <View>
           <CardStand name={folderName || t("a11y.folder")} icon={showsFavoriteHeart(folder) ? "heart" : undefined} focused={focused} progress={folderWatchedProgress(folder)} scrolls />
-          {navBarVisible ? <CardNavProgress active={navigating} title={folderName || t("a11y.folder")} stand baseColor={COLORS.SURFACE_SUNKEN} /> : null}
+          {navBarVisible ? <CardNavProgress active={navigating} title={folderName || t("a11y.folder")} stand baseColor={CARD_CHROME} /> : null}
         </View>
         {focused ? <View style={[styles.focusRing, { borderColor: palette.accent }]} pointerEvents="none" /> : null}
       </View>
