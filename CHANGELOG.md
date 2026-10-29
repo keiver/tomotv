@@ -12,15 +12,19 @@ All notable changes to Tomo TV are documented here.
 - Filters is now Sort & Filter: a library sorts by any of the server's orders (name, date added, release date, year, community, critic and parental rating, runtime, date played and play count; episode added for shows; album, album artist and artist for music), ascending or descending. Each library's sort and filters are saved on the account, in its display preferences on the server, so they return on every device; the demo and an account the server refuses keep them on the device
 - A live channel's info panel gains Rename and Hide. A rename shows in every list, the guide, search, the player and the Top Shelf, and an empty name brings the server's own back. A hidden channel leaves all of them, favorites included, and channel flipping passes over it; Channel Settings > Hidden Channels lists them and a press shows one again. Both are kept per account
 - In the book reader a tap in the outer tenth of the screen turns the page, back on the left and forward on the right. A tap elsewhere wakes the controls as before, and a zoomed page keeps its pan
+- On iPhone, iPad and Mac a pinch over Home, a folder or search results makes the cards bigger or smaller, their names and corner text with them, from 0.75x up to a wide card at half the screen; the cards ease into the new size and pulse at either limit. On Mac, Command-plus and Command-minus do the same and Command-0 puts the cards back at their own size. The size lasts until the app quits, and each card asks the server for a poster as large as it is drawn
 
 ### Fixed
 
 - On a provider that allows one stream, a recording started right after Tomo closed its stream could still open into the stream the provider was counting and save its refusal. The recording now starts once the provider's own account API counts a stream free, read with no stream opened, for up to 30 s, and a recording made again after a refusal waits the same way. Measured on Dispatcharr, the count fell to 0 between 0.3 and 10.8 s after the close and every next open was admitted (5 of 5)
 - On Mac the left and right arrow keys turn pages in the book reader and step through photos; the focus system took them before
+- Show in Folder no longer shows on an episode opened from its own season screen. Jellyfin leaves a virtual season out of an episode's ancestors, so the panel also checks the folder it was opened from against the episode's parent
+- On Apple TV the info panel's title logo sits inside the card's 48 pt padding instead of running to its edges
 
 ### Changed
 
 - A Pluto TV link in a tuner playlist plays exactly as the playlist gives it, like any other link. Tomo no longer starts its own session with Pluto TV
+- A card's episode number, item count or NOW sits in a notch cut into the picture's top-left corner, in the card's own colour and casting a shadow onto the art, in place of the tab above the card. Card names and the notch text are SF Pro Rounded, 13 pt on iPhone, iPad and Mac and 18 pt on Apple TV; the name's base and the notch rest on the card surface colour, and card corners round at 14 pt, 23 pt on Apple TV
 
 ## [2.2.13]
 
