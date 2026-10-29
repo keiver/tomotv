@@ -19,8 +19,7 @@ import { accountTokenKey, API_TIMEOUTS } from "./constants";
 import { fetchWithTimeout } from "./http";
 import { rawLiveInput } from "./liveInput";
 import { recordClose, recordedOpens, recordOpen } from "./liveOpens";
-import { playlistPlayable, playlistStandIn, playlistStandInsAllowed, sessionRow, standInItem } from "./playlistItems";
-import { plutoStreamUrl } from "./plutoSession";
+import { playlistPlayable, playlistStandIn, playlistStandInsAllowed, standInItem } from "./playlistItems";
 import { didConfigReadFail, getAuthHeader, getConfig, throwRequestError } from "./session";
 import { lastKnownTunerData } from "./tunerGroups";
 import { type ChannelOrigin, clearOpenFailure, manifestDrm, mergeOriginHeaders, originKeyOf, originReach, playlistChannelById, splitPipeHeaders } from "@keiver/tomo-live";
@@ -326,7 +325,7 @@ async function describeChannel(
 }
 
 async function manifestOrigin(source: JellyfinMediaSource): Promise<ChannelOrigin> {
-  const url = await manifestInput(source, await plutoStreamUrl(source.Path!));
+  const url = await manifestInput(source, source.Path!);
   return { url, ...(source.RequiredHttpHeaders ? { headers: source.RequiredHttpHeaders } : {}) };
 }
 
@@ -343,8 +342,7 @@ export async function resolveChannelOrigin(channelId: string): Promise<ChannelOr
   const response = await fetchWithTimeout(`${config.server}/Items/${channelId}/PlaybackInfo?UserId=${config.userId}`, { headers }, API_TIMEOUTS.NORMAL);
   if (!response.ok) {
     // An id the server has not ingested yet: its origin is the playlist entry the device parsed.
-    const standIn = response.status === 404 ? await playlistStandIn(channelId) : null;
-    const row = standIn ? await sessionRow(standIn) : null;
+    const row = response.status === 404 ? await playlistStandIn(channelId) : null;
     if (row) return { url: row.streamUrl, originKey: row.originKey, ...(Object.keys(row.headers).length > 0 ? { headers: row.headers } : {}) };
     throwRequestError(response, `Failed to fetch channel playback info: ${response.status}`);
   }
@@ -357,7 +355,7 @@ export async function resolveChannelOrigin(channelId: string): Promise<ChannelOr
     return raw ? { url: raw.url, originKey: raw.originKey, ...(raw.headers ? { headers: raw.headers } : {}) } : null;
   }
   if (!source) return null;
-  return { url: await plutoStreamUrl(source.Path!), ...(source.RequiredHttpHeaders ? { headers: source.RequiredHttpHeaders } : {}) };
+  return { url: source.Path!, ...(source.RequiredHttpHeaders ? { headers: source.RequiredHttpHeaders } : {}) };
 }
 
 /**
@@ -412,7 +410,7 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
     } else if (source.Path && RELAY_PATH.test(source.Path)) {
       input = { url: liveStreamUrlFor(config.server, config.apiKey, source.Path), via: "relay" };
     } else if (isManifestSource(source)) {
-      input = { url: await manifestInput(source, await plutoStreamUrl(source.Path!)), headers: source.RequiredHttpHeaders, via: "manifest" };
+      input = { url: await manifestInput(source, source.Path!), headers: source.RequiredHttpHeaders, via: "manifest" };
     } else if (source.Path && /^https?$/i.test(source.Protocol ?? "")) {
       const { url, headers: own } = splitPipeHeaders(source.Path);
       if ((await originReach(url)) === "reachable") input = { url, headers: mergeOriginHeaders(source.RequiredHttpHeaders, own), originKey: originKeyOf(url), via: "origin" };

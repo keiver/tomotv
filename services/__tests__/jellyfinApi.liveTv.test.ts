@@ -479,36 +479,34 @@ describe("live TV client", () => {
     expect(remuxOf(SERVER, undefined)).toBeNull();
   });
 
-  describe("Pluto channels", () => {
-    const PLUTO = "5f4d878d3d19b30007d2e782";
-    const SESSION = `https://ipv4.pluto.tv/api/tn/video/playout/v2/stitch/hls/channel/${PLUTO}/master.m3u8?jwt=tok&masterJWTPassthrough=true`;
+  describe("a channel whose playlist link points at Pluto TV", () => {
+    const LINK = "https://jmp2.uk/plu-5f4d878d3d19b30007d2e782.m3u8";
     const respond = async (url: string) => {
       if (url.includes("/PlaybackInfo")) {
-        return { ok: true, json: async () => ({ MediaSources: [{ Id: "ms-p", Protocol: "Http", Container: "hls", Path: `https://jmp2.uk/plu-${PLUTO}.m3u8`, MediaStreams: [] }] }) };
-      }
-      if (url === "https://pluto.tv/api/tn/app-shell/graphql/") {
-        return { ok: true, headers: { get: () => "CBS_COM=c1; Path=/" }, json: async () => ({ data: { ptvStart: { deviceId: "d1", session: { id: "s1", jwt: "tok" }, refreshInSec: 28800 } } }) };
-      }
-      if (url === "https://pluto.tv/api/tn/video/graphql/") {
-        return {
-          ok: true,
-          headers: { get: () => null },
-          json: async () => ({ data: { streamingUrl: { success: true, stitcherPaths: [{ type: "hls", path: `/v2/stitch/hls/channel/${PLUTO}/master.m3u8` }] } } }),
-        };
+        return { ok: true, json: async () => ({ MediaSources: [{ Id: "ms-p", Protocol: "Http", Container: "hls", Path: LINK, IsInfiniteStream: true, LiveStreamId: "ls-p", MediaStreams: [] }] }) };
       }
       return { ok: true, url, text: async () => "#EXTM3U\n#EXTINF:6,\nseg1.ts\n" };
     };
+    const askedPluto = () => (global.fetch as jest.Mock).mock.calls.some(([url]) => /pluto\.tv/i.test(String(url)));
 
-    it("grabs a Pluto channel's frames on this device's session", async () => {
+    it("grabs frames from the link exactly as given and never calls Pluto", async () => {
       (global.fetch as jest.Mock).mockImplementation(respond);
-      expect(await resolveChannelOrigin("cp")).toEqual({ url: SESSION });
+      expect(await resolveChannelOrigin("cp")).toEqual({ url: LINK });
+      expect(askedPluto()).toBe(false);
     });
 
-    it("plays a Pluto channel on this device's session", async () => {
+    it("plays the link exactly as given and never calls Pluto", async () => {
       (global.fetch as jest.Mock).mockImplementation(respond);
       const channel = await resolveChannel("cp", { Id: "cp", Name: "Pluto", Type: "TvChannel", Path: "" });
-      expect(channel.liveStreamUrl).toBe(SESSION);
-      expect((global.fetch as jest.Mock).mock.calls.map(([url]) => String(url))).not.toContain(`https://jmp2.uk/plu-${PLUTO}.m3u8`);
+      expect(channel.liveStreamUrl).toBe(LINK);
+      expect(askedPluto()).toBe(false);
+    });
+
+    it("opens the link exactly as given and never calls Pluto", async () => {
+      (global.fetch as jest.Mock).mockImplementation(respond);
+      const channel = await openChannel("cp", { Id: "cp", Name: "Pluto", Type: "TvChannel", Path: "" });
+      expect(channel.liveStreamUrl).toBe(LINK);
+      expect(askedPluto()).toBe(false);
     });
   });
 

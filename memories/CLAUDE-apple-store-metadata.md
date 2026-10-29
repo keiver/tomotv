@@ -2342,13 +2342,14 @@ item names its source and licence, and the demo account is reset every night. An
 server works too (username and password or Jellyfin Quick Connect).
 
 5. EXTERNAL SERVICES
-Four, and no others: (1) the user's own Jellyfin server, at whatever address they enter; all
-library, search, playback, progress, and subtitle requests go directly there. (2)
-tomotv.cubita.studio, the developer's demo server, only in demo mode. (3) LRCLIB (lrclib.net), a
+Three, and no others: (1) the user's own Jellyfin server, at whatever address they enter; all
+library, search, playback, progress, and subtitle requests go directly there. Live TV channels
+from a tuner playlist the user added to that server play from, and read their playlist and guide
+at, the addresses that server lists. (2) tomotv.cubita.studio, the developer's demo server, only
+in demo mode. (3) LRCLIB (lrclib.net), a
 public lyrics database: when the user's server has no lyrics for a song, the app sends the song's
-artist, title and length to find them; "Find missing lyrics" in Settings turns this off. (4) Pluto TV: only when a
-Live TV channel on the user's own server streams from Pluto TV, the app starts that channel's
-session with Pluto TV. No analytics, crash reporting, advertising or tracking SDKs, payment
+artist, title and length to find them; "Find missing lyrics" in Settings turns this off. No
+analytics, crash reporting, advertising or tracking SDKs, payment
 processors, AI services, or other third-party metadata providers, other than Apple's
 own built-in App Store analytics and crash reporting. Credentials are
 stored only in the device Keychain. Media processing (remuxing and transcoding) happens on the

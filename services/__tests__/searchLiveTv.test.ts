@@ -282,7 +282,7 @@ describe("searchLiveTv", () => {
   });
 
   describe("guide sources", () => {
-    const GUIDE = "http://host:8000/pluto-guide.xml.gz";
+    const GUIDE = "http://host:8000/harbor-guide.xml.gz";
     const listing = (channelId: string, startOffsetMin: number, overview: string) => ({
       Id: `epg:${channelId}:${startOffsetMin}`,
       Name: "MLB Baseball",
@@ -393,15 +393,15 @@ describe("searchLiveTv", () => {
 
     it("asks the server for each term and joins the names, each once", async () => {
       serveNames({
-        pluto: [named("c1", "Pluto TV Animation"), named("c2", "Pluto TV News")],
-        animation: [named("c3", "Comedy Central Animation"), named("c1", "Pluto TV Animation")],
+        harbor: [named("c1", "Harbor TV Animation"), named("c2", "Harbor TV News")],
+        animation: [named("c3", "Comedy Central Animation"), named("c1", "Harbor TV Animation")],
       });
-      const result = await searchLiveTv("pluto + animation");
+      const result = await searchLiveTv("harbor + animation");
       expect(result.map((item) => item.Id)).toEqual(["c1", "c3", "c2"]);
       const asked = urls()
         .filter((url) => url.includes("/Items?"))
         .map((url) => new URL(url).searchParams.get("searchTerm"));
-      expect(asked.sort()).toEqual(["animation", "pluto"]);
+      expect(asked.sort()).toEqual(["animation", "harbor"]);
     });
 
     it("keeps a term's channel when the other term names nothing", async () => {
@@ -410,8 +410,8 @@ describe("searchLiveTv", () => {
     });
 
     it("gives every term a place under the cap when one term fills it alone", async () => {
-      serveNames({ pluto: Array.from({ length: 40 }, (_, i) => named(`p${i}`, `Pluto ${i}`)), veguitas: [named("v1", "Veguitas TV")] });
-      const result = (await searchLiveTv("pluto + veguitas")).map((item) => item.Id);
+      serveNames({ harbor: Array.from({ length: 40 }, (_, i) => named(`p${i}`, `Harbor ${i}`)), veguitas: [named("v1", "Veguitas TV")] });
+      const result = (await searchLiveTv("harbor + veguitas")).map((item) => item.Id);
       expect(result).toHaveLength(30);
       expect(result.slice(0, 2)).toEqual(["p0", "v1"]);
     });
@@ -440,9 +440,9 @@ describe("searchLiveTv", () => {
     });
 
     it("reports a partial only once every term has answered, holding each term's cards", async () => {
-      serveNames({ pluto: [named("c1", "Pluto TV")], veguitas: [named("c2", "Veguitas TV")] });
+      serveNames({ harbor: [named("c1", "Harbor TV")], veguitas: [named("c2", "Veguitas TV")] });
       const updates: string[][] = [];
-      const result = await searchLiveTv("pluto + veguitas", (items) => updates.push(items.map(({ Id }) => Id)));
+      const result = await searchLiveTv("harbor + veguitas", (items) => updates.push(items.map(({ Id }) => Id)));
       expect(updates.length).toBeGreaterThan(0);
       for (const update of updates) expect(update).toEqual(["c1", "c2"]);
       expect(result.map((item) => item.Id)).toEqual(["c1", "c2"]);
