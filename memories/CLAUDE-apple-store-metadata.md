@@ -2366,8 +2366,8 @@ Not applicable. Tomo TV ships no media content; the developer's demo server host
 library described in item 4, each item with its source and licence. It is an independent client for the
 open-source Jellyfin media server, not affiliated with the Jellyfin project; the name describes
 compatibility. All media comes from the user's own self-hosted server, the same model as VLC or
-the official Jellyfin client. The demo server's library is public domain, Creative Commons and
-the developer's own material, each item naming its source and licence.
+the official Jellyfin client. The demo server's library is public domain and Creative Commons
+material.
 ```
 
 Demo mode lives in `services/jellyfin/demo.ts`. Its entry points are the Demo face on the Who's
