@@ -95,6 +95,16 @@ final class MacKeyCommandsViewController: UIViewController {
                     discoverabilityTitle: entry.title
                 )
             }
+            #if DEBUG
+            // RCTKeyCommands.m skips its own ⌘R while any responder is first, and this controller always is.
+            commands.append(UIKeyCommand(
+                title: "Reload",
+                action: #selector(handleReloadKey(_:)),
+                input: "r",
+                modifierFlags: .command,
+                discoverabilityTitle: "Reload"
+            ))
+            #endif
             let context = MacKeyCommands.keyContext
             commands += Self.contextCommands(for: context).map { entry in
                 let command = UIKeyCommand(
@@ -185,6 +195,14 @@ final class MacKeyCommandsViewController: UIViewController {
         NSLog("[MacKeyCommands] \(key) pressed")
         MacKeyCommands.emit(key: key)
     }
+
+    #if DEBUG
+    @objc
+    private func handleReloadKey(_ sender: UIKeyCommand) {
+        NSLog("[MacKeyCommands] reload pressed")
+        RCTTriggerReloadCommandListeners("Command + R")
+    }
+    #endif
 
     /// The focused text input, if there is one. Walked rather than asked for:
     /// UIKit exposes no public accessor for the current first responder.
