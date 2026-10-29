@@ -24,6 +24,7 @@ export const MAC_KEYS = [
   "toggleVideoFill",
   "zoomIn",
   "zoomOut",
+  "zoomReset",
 ] as const;
 
 /** Which screen owns the contextual keys (bare arrows, Return). Nobody, by default. */

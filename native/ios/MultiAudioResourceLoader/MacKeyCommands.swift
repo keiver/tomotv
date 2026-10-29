@@ -42,6 +42,7 @@ final class MacKeyCommandsViewController: UIViewController {
         (",", .command, "settings", "Settings"),
         ("=", .command, "zoomIn", "Zoom In"),
         ("-", .command, "zoomOut", "Zoom Out"),
+        ("0", .command, "zoomReset", "Actual Size"),
     ]
 
     /// Keys offered only while a screen has claimed them. Registered unconditionally the bare

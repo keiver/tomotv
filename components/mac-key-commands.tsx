@@ -3,7 +3,7 @@ import { usePlayerSession, usePlayerSessionHost, type HostMode } from "@/context
 import { useCardZoomCeiling } from "@/hooks/useCardZoom";
 import { audioPlayerManager } from "@/services/audioPlayerManager";
 import { claimMacContextKeys, consumeMacEscape, MAC_SEEK_SECONDS, macKeyContext, subscribeMacKeyCommand, type MacKey, type MacKeyContext } from "@/services/macKeyCommands";
-import { getUiPreferences, updateUiPreferences } from "@/services/uiPreferences";
+import { getCardZoom, setCardZoom } from "@/services/cardZoom";
 import { clampCardZoom, steppedCardZoom } from "@/utils/cardZoom";
 import { IS_MAC } from "@/utils/hostEnvironment";
 import { logger } from "@/utils/logger";
@@ -15,7 +15,7 @@ export type EscapeAction = "leavePlayer" | "endSession" | "goBack" | "ignore";
 
 /** What any press means. Escape keeps its own rule; the rest fold into this one. */
 export type MacKeyAction =
-  EscapeAction | "openSearch" | "openSettings" | "togglePlay" | "previousTrack" | "nextTrack" | "seekBackward" | "seekForward" | "toggleVideoFill" | "zoomCardsIn" | "zoomCardsOut";
+  EscapeAction | "openSearch" | "openSettings" | "togglePlay" | "previousTrack" | "nextTrack" | "seekBackward" | "seekForward" | "toggleVideoFill" | "zoomCardsIn" | "zoomCardsOut" | "zoomCardsReset";
 
 /** What the rule reads: the session, the navigator, whether a queue is running, and who holds the contextual keys. */
 export interface MacKeyState {
@@ -75,6 +75,8 @@ export function macKeyAction(key: MacKey, state: MacKeyState): MacKeyAction {
       return state.hostMode === "idle" && state.keyContext !== "photo" ? "zoomCardsIn" : "ignore";
     case "zoomOut":
       return state.hostMode === "idle" && state.keyContext !== "photo" ? "zoomCardsOut" : "ignore";
+    case "zoomReset":
+      return state.hostMode === "idle" && state.keyContext !== "photo" ? "zoomCardsReset" : "ignore";
     case "previousPhoto":
     case "nextPhoto":
       return "ignore";
@@ -203,13 +205,16 @@ function MacKeyCommandsListener() {
         case "zoomCardsIn":
         case "zoomCardsOut": {
           const ceiling = zoomCeilingRef.current;
-          const current = clampCardZoom(getUiPreferences().cardZoom, ceiling);
+          const current = clampCardZoom(getCardZoom(), ceiling);
           const side = action === "zoomCardsIn" ? 1 : -1;
           const next = steppedCardZoom(current, side, ceiling);
           if (next === current) pulseCardZoomLimit(side);
-          else updateUiPreferences({ cardZoom: next });
+          else setCardZoom(next);
           return;
         }
+        case "zoomCardsReset":
+          setCardZoom(1);
+          return;
         case "ignore":
           return;
       }

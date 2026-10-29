@@ -1,6 +1,6 @@
 import { GRID } from "@/constants/app";
 import { useCardZoom, useCardZoomCeiling } from "@/hooks/useCardZoom";
-import { updateUiPreferences } from "@/services/uiPreferences";
+import { setCardZoom } from "@/services/cardZoom";
 import { pinchedCardZoom } from "@/utils/cardZoom";
 import React, { useEffect, useMemo, useState } from "react";
 import { Platform, StyleSheet, View } from "react-native";
@@ -121,7 +121,7 @@ function CardZoomPinchDetector({ children }: CardZoomPinchProps) {
         .onFinalize(() => {
           setPinching(false);
           const next = pinchedCardZoom(shownNow.get(), 1, ceiling);
-          if (next !== zoom) updateUiPreferences({ cardZoom: next });
+          if (next !== zoom) setCardZoom(next);
         }),
     [base, ceiling, shownNow, side, zoom],
   );

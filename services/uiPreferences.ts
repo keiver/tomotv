@@ -32,8 +32,6 @@ export interface UiPreferences {
   saveLyrics: boolean;
   /** Which of the server's Media Segments playback seeks past on its own. */
   autoSkip: AutoSkip;
-  /** The card size a pinch chose over the density model's own; each screen clamps it where it is read. */
-  cardZoom: number;
 }
 
 export type BackgroundMode = "clear" | "accent" | "artwork";
@@ -54,7 +52,6 @@ export const DEFAULT_UI_PREFERENCES: UiPreferences = {
   listenForLyrics: true,
   saveLyrics: true,
   autoSkip: { intro: false, recap: false, preview: false, commercial: true },
-  cardZoom: 1,
 };
 
 /** Before this document carried autoSkip, the commercial switch lived in the live TV preferences. */
@@ -107,7 +104,6 @@ export function parseUiPreferences(raw: unknown, legacySkipCommercials?: boolean
     listenForLyrics: typeof source.listenForLyrics === "boolean" ? source.listenForLyrics : DEFAULT_UI_PREFERENCES.listenForLyrics,
     saveLyrics: typeof source.saveLyrics === "boolean" ? source.saveLyrics : DEFAULT_UI_PREFERENCES.saveLyrics,
     autoSkip: parseAutoSkip(source.autoSkip, legacySkipCommercials),
-    cardZoom: typeof source.cardZoom === "number" && source.cardZoom >= 0.5 && source.cardZoom <= 4 ? source.cardZoom : DEFAULT_UI_PREFERENCES.cardZoom,
   };
 }
 

@@ -22,7 +22,7 @@ let mockZoom = 1;
 const mockCeiling = 1.6;
 jest.mock("@/hooks/useCardZoom", () => ({ useCardZoom: () => mockZoom, useCardZoomCeiling: () => mockCeiling }));
 const mockUpdate = jest.fn();
-jest.mock("@/services/uiPreferences", () => ({ updateUiPreferences: (patch: unknown) => mockUpdate(patch) }));
+jest.mock("@/services/cardZoom", () => ({ setCardZoom: (zoom: number) => mockUpdate(zoom) }));
 
 import { CardZoomPinch } from "@/components/card-zoom-pinch";
 
@@ -77,7 +77,7 @@ describe("CardZoomPinch", () => {
     const tree = mount();
     pinch(1.32);
     expect(mockUpdate).toHaveBeenCalledTimes(1);
-    expect(mockUpdate.mock.calls[0][0].cardZoom).toBeCloseTo(1.3, 10);
+    expect(mockUpdate.mock.calls[0][0]).toBeCloseTo(1.3, 10);
     act(() => tree.unmount());
   });
 
@@ -100,9 +100,9 @@ describe("CardZoomPinch", () => {
   it("stops at the ceiling and the floor", () => {
     const tree = mount();
     pinch(3);
-    expect(mockUpdate).toHaveBeenLastCalledWith({ cardZoom: mockCeiling });
+    expect(mockUpdate).toHaveBeenLastCalledWith(mockCeiling);
     pinch(0.2);
-    expect(mockUpdate).toHaveBeenLastCalledWith({ cardZoom: 0.75 });
+    expect(mockUpdate).toHaveBeenLastCalledWith(0.75);
     act(() => tree.unmount());
   });
 

@@ -90,17 +90,20 @@ describe("macKeyAction", () => {
   it("zooms the cards while browsing, with audio running too", () => {
     expect(macKeyAction("zoomIn", BROWSING)).toBe("zoomCardsIn");
     expect(macKeyAction("zoomOut", BROWSING)).toBe("zoomCardsOut");
+    expect(macKeyAction("zoomReset", BROWSING)).toBe("zoomCardsReset");
     expect(macKeyAction("zoomIn", { ...PLAYING_AUDIO, keyContext: "seek" })).toBe("zoomCardsIn");
   });
 
   it("leaves the zoom keys to the photo or book viewer while it holds the keys", () => {
     expect(macKeyAction("zoomIn", { ...BROWSING, keyContext: "photo" })).toBe("ignore");
     expect(macKeyAction("zoomOut", { ...BROWSING, keyContext: "photo" })).toBe("ignore");
+    expect(macKeyAction("zoomReset", { ...BROWSING, keyContext: "photo" })).toBe("ignore");
   });
 
   it("never zooms the cards under a live video session", () => {
     expect(macKeyAction("zoomIn", PLAYING_VIDEO)).toBe("ignore");
     expect(macKeyAction("zoomOut", PLAYING_VIDEO)).toBe("ignore");
+    expect(macKeyAction("zoomReset", PLAYING_VIDEO)).toBe("ignore");
   });
 
   it("answers every key the native side can send", () => {
