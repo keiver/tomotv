@@ -83,6 +83,13 @@ describe("card base and corner notch on TV", () => {
     act(() => lit.unmount());
   });
 
+  it("on TV the corner notch is rasterized", () => {
+    const tree = mount(<CardCornerNotch segments={[{ label: "S01E05" }]} />);
+    const anchor = tree.root.findAll((n) => n.props.testID === "card-corner-notch" && typeof n.type === "string")[0];
+    expect(anchor.props.shouldRasterizeIOS).toBe(true);
+    act(() => tree.unmount());
+  });
+
   it("the card has no fill of its own; a depth layer behind the art stops at the base at rest and covers the card on focus", () => {
     const depthLayer = (tree: TestRenderer.ReactTestRenderer) => {
       let card = tree.root.findByType(CardStand).parent!;

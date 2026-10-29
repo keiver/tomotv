@@ -60,7 +60,7 @@ export function CardCornerNotch({ segments, tone = "plain", focused = false }: C
     </View>
   );
   return (
-    <View style={[styles.anchor, metrics.shadow]} pointerEvents="none" testID="card-corner-notch">
+    <View style={[styles.anchor, metrics.shadow]} shouldRasterizeIOS={IS_TV} pointerEvents="none" testID="card-corner-notch">
       <View style={styles.row}>
         <View style={[styles.body, metrics.body, { backgroundColor: fill }]} testID="card-corner-notch-body">
           {segments.map(({ icon, label }, index) => (
