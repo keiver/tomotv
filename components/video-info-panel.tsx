@@ -717,8 +717,8 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   const footScrim = {
     experimental_backgroundImage: `linear-gradient(to bottom, ${HERO_FADE_RGB}0) ${footPct * 0.2}%, ${HERO_FADE_RGB}0.45) ${footPct * 0.55}%, ${HERO_FADE_RGB}0.85) ${footPct * 0.8}%, ${HERO_FADE_RGB}1) ${footPct}%)`,
   };
-  // Touch: the card's width less the wrap's 20pt gutters; the card already clears the safe area.
-  const logoWidth = Math.max(0, heroWidth - (IS_TV ? 0 : 40));
+  // The card's width less the wrap's gutters (48pt on TV, 20pt on touch); the card already clears the safe area.
+  const logoWidth = Math.max(0, heroWidth - (IS_TV ? 96 : 40));
   const heroCropStyle = heroArt
     ? {
         position: "absolute" as const,
@@ -1321,11 +1321,8 @@ const styles = StyleSheet.create({
   // left padding, off the card's axis. Height is what actually binds a wide logo's size.
   // Width comes measured, not as a percentage: contain then binds on width for a wide mark,
   // and the default centre position needs no string that could parse to an edge.
-  // Bleeds past the wrap's padding so the mark can use the card's full width; the context
-  // line beside it keeps its own inset.
   heroLogo: {
     height: IS_TV ? 190 : 84,
-    marginHorizontal: IS_TV ? -48 : 0,
   },
   // Interior padding for everything below the hero, on TV and inside the touch card.
   tvPad: {
