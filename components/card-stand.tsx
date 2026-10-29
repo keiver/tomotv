@@ -15,9 +15,9 @@ const IS_TV = Platform.isTV;
 /** The stand's lettering, shared with the press sweep drawn over it. */
 export const STAND_NAME_TEXT = {
   fontFamily: "ui-rounded",
-  fontSize: IS_TV ? 15 : 13,
+  fontSize: IS_TV ? 18 : 13,
   fontWeight: "800",
-  letterSpacing: IS_TV ? 1.5 : 1.2,
+  letterSpacing: IS_TV ? 1.7 : 1.2,
   textTransform: "uppercase",
 } as const;
 
@@ -92,7 +92,7 @@ function StandBody({ name, icon, focused, offline = false, mark, progress, scrol
   const resting = isLowContrast(accent) ? COLORS.TEXT_PRIMARY : accent;
   // White on the LIVE red reads; gold on it does not. Over a partial fill the accent runs through a difference blend; a full one takes the ink.
   const text = full || (focused && !filled) ? ink : filled ? accent : fresh ? COLORS.TEXT_PRIMARY : resting;
-  const glyphSize = (IS_TV ? 15 : 13) * zoom;
+  const glyphSize = (IS_TV ? 18 : 13) * zoom;
   const leadGap = LEAD_GAP * zoom;
   const nameStyle = StyleSheet.flatten([styles.name, standNameText(zoom), { color: text }]);
   const lead =

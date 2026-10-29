@@ -300,9 +300,9 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // One mark before the name: the playing bars, else a passed icon, else the favorite heart (a channel's is passed in).
   const nameIcon = leadingMark ?? (isChannel ? titleIcon : showsFavoriteHeart(video) ? "heart" : undefined);
   const metaMark = nowPlaying
-    ? (color: string) => <LevelBars size={(IS_TV ? 16 : 14) * zoom} playing={nowPlayingProgress.playing} color={color} />
+    ? (color: string) => <LevelBars size={(IS_TV ? 19 : 14) * zoom} playing={nowPlayingProgress.playing} color={color} />
     : nameIcon
-      ? (color: string) => <Ionicons name={nameIcon} size={(IS_TV ? 15 : 13) * zoom} color={color} />
+      ? (color: string) => <Ionicons name={nameIcon} size={(IS_TV ? 18 : 13) * zoom} color={color} />
       : undefined;
   const depth = [styles.depth, flat && styles.cardFlat, focused && [styles.cardFocused, { shadowColor: palette.accent }]];
   const posterImage = (

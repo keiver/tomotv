@@ -151,8 +151,8 @@ export function shelfSpacing(isTV: boolean, windowWidth: number, windowHeight: n
   return shortSide >= GRID.PHONE_WIDE_MIN_WIDTH ? SHELF_SPACING.tablet : SHELF_SPACING.phone;
 }
 
-/** The resting fill of a card's base, corner notch and pills: the card surface, so it stands off the canvas; TV keeps the well tone. */
-export const CARD_CHROME = Platform.isTV ? COLORS.SURFACE_SUNKEN : COLORS.SURFACE;
+/** The resting fill of a card's base, corner notch and pills: the card surface, so it stands off the canvas. */
+export const CARD_CHROME = COLORS.SURFACE;
 
 /** The base under a card's art that names it. */
 export const STAND_HEIGHT = Platform.isTV ? 34 : 24;
@@ -377,7 +377,7 @@ export function slotColumns(orientation: SlotOrientation, isTV: boolean, windowW
 // Design system values
 export const DESIGN = {
   /** Standard border radius for cards and grid items */
-  BORDER_RADIUS_CARD: Platform.isTV ? 20 : 14,
+  BORDER_RADIUS_CARD: Platform.isTV ? 23 : 14,
   /** Border radius for medium elements (settings rows, etc) */
   BORDER_RADIUS_MEDIUM: 12,
   /** Standard border radius for buttons */

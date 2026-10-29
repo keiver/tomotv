@@ -49,7 +49,7 @@ describe("card base and corner notch on TV", () => {
   it("a base is the card's colour with no glass at rest, and the accent on focus", () => {
     const resting = mount(<CardStand name="Pilot" focused={false} />);
     expect(glass(resting)).toHaveLength(0);
-    expect(StyleSheet.flatten(resting.root.findByProps({ testID: "card-stand" }).props.style).backgroundColor).toBe(COLORS.SURFACE_SUNKEN);
+    expect(StyleSheet.flatten(resting.root.findByProps({ testID: "card-stand" }).props.style).backgroundColor).toBe(COLORS.SURFACE);
     act(() => resting.unmount());
     const lit = mount(<CardStand name="Pilot" focused />);
     expect(glass(lit)).toHaveLength(0);
@@ -59,8 +59,8 @@ describe("card base and corner notch on TV", () => {
 
   it("a media card's base and corner notch are the same colour as a folder card's", () => {
     const tree = mount(<VideoGridItem video={episode} onPress={jest.fn()} index={0} />);
-    expect(StyleSheet.flatten(tree.root.findByProps({ testID: "card-stand" }).props.style).backgroundColor).toBe(COLORS.SURFACE_SUNKEN);
-    expect(notchFill(tree)).toBe(COLORS.SURFACE_SUNKEN);
+    expect(StyleSheet.flatten(tree.root.findByProps({ testID: "card-stand" }).props.style).backgroundColor).toBe(COLORS.SURFACE);
+    expect(notchFill(tree)).toBe(COLORS.SURFACE);
     act(() => tree.unmount());
   });
 
@@ -74,7 +74,7 @@ describe("card base and corner notch on TV", () => {
   it("the corner notch is the card's colour with no glass at rest, and the accent with the ink on focus", () => {
     const resting = mount(<CardCornerNotch segments={[{ label: "S01E05" }]} />);
     expect(glass(resting)).toHaveLength(0);
-    expect(notchFill(resting)).toBe(COLORS.SURFACE_SUNKEN);
+    expect(notchFill(resting)).toBe(COLORS.SURFACE);
     act(() => resting.unmount());
     const lit = mount(<CardCornerNotch segments={[{ label: "S01E05" }]} focused />);
     expect(glass(lit)).toHaveLength(0);
