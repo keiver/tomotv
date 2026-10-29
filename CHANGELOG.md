@@ -24,7 +24,7 @@ All notable changes to Tomo TV are documented here.
 ### Changed
 
 - A Pluto TV link in a tuner playlist plays exactly as the playlist gives it, like any other link. Tomo no longer starts its own session with Pluto TV
-- A card's episode number, item count or NOW sits in a notch cut into the picture's top-left corner, in the card's own colour and casting a shadow onto the art, in place of the tab above the card. Card names and the notch text are SF Pro Rounded, 13 pt on iPhone, iPad and Mac and 18 pt on Apple TV; the name's base and the notch rest on the card surface colour, and card corners round at 14 pt, 23 pt on Apple TV
+- A card's episode number, item count or NOW sits in a notch cut into the picture's top-left corner, in the card's own colour and casting a shadow onto the art, in place of the tab above the card. Card names and the notch text are SF Pro Rounded, 11 pt on iPhone, 13 pt on iPad and Mac and 18 pt on Apple TV; the name's base and the notch rest on the card surface colour, and card corners round at 14 pt, 23 pt on Apple TV
 
 ## [2.2.13]
 

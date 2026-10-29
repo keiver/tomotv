@@ -36,7 +36,7 @@ export function notchMetrics(zoom: number, live: boolean) {
     // A ring around a hole of the radius, centred on the square's far corner: the square outside the hole is the notch's colour.
     ring: { top: -radius, left: -radius, width: radius * 4, height: radius * 4, borderRadius: radius * 2, borderWidth: radius },
     segmentGap: (IS_TV ? 4 : 2) * zoom,
-    fontSize: (live ? (IS_TV ? 17 : 12) : STAND_NAME_TEXT.fontSize) * zoom,
+    fontSize: (live ? STAND_NAME_TEXT.fontSize - 1 : STAND_NAME_TEXT.fontSize) * zoom,
     letterSpacing: STAND_NAME_TEXT.letterSpacing * zoom,
     iconSize: STAND_NAME_TEXT.fontSize * zoom,
     // The cap: a drop shadow onto the art. The anchor has no fill, so the shadow follows the notch's drawn shape.
