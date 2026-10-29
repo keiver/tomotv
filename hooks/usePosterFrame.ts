@@ -3,7 +3,7 @@ import { useUiPreferences } from "@/hooks/useUiPreferences";
 import { wantsPosterFrame, type PosterItem } from "@/services/itemArtwork";
 import { cancelPosterFrame, posterFrameIfCached, requestPosterFrame } from "@/services/localRemux";
 import { isPlaybackHeld, onPlaybackHoldChange } from "@/services/playbackHold";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { startTransition, useEffect, useState, useSyncExternalStore } from "react";
 
 const NOT_WATCHING = () => () => {};
 
@@ -35,7 +35,7 @@ export function usePosterFrame(item: PosterItem | null, { deferWhileVideo = fals
     if (!eligible || failed || deferred) return;
     let cancelled = false;
     void requestPosterFrame({ Id: itemId, RunTimeTicks: runTimeTicks }).then((uri) => {
-      if (!cancelled) setResult({ key, uri });
+      if (!cancelled) startTransition(() => setResult({ key, uri }));
     });
     return () => {
       cancelled = true;
