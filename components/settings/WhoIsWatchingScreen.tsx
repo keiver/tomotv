@@ -87,7 +87,7 @@ export function WhoIsWatchingScreen({ title, onConnected }: WhoIsWatchingScreenP
     <View style={settingsStyles.screenContainer}>
       <AmbientBackground />
       <BrandCorners />
-      <View style={[styles.body, sideInsets(insets), !IS_TV && { paddingTop: insets.top + TAB_TITLE_TOP }]}>
+      <View style={[styles.body, sideInsets(insets, pick(0, 24, 16)), !IS_TV && { paddingTop: insets.top + TAB_TITLE_TOP }]}>
         {showTitle && <Text style={settingsStyles.screenTitle}>{title}</Text>}
         <View style={styles.center}>
           <Text style={styles.heading}>{t("connect.whoIsWatching")}</Text>
@@ -118,7 +118,6 @@ export function WhoIsWatchingScreen({ title, onConnected }: WhoIsWatchingScreenP
 const styles = StyleSheet.create({
   body: {
     flex: 1,
-    paddingHorizontal: pick(0, 24, 16),
   },
   // Sits a little above the middle, where a title and a row of faces read as centred.
   center: {
