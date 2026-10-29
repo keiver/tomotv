@@ -107,7 +107,7 @@ Tomo TV ships no media, channels, playlists or guides. It plays what your Jellyf
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
 ```
 
-### What's New (2.2.14), macOS (573 / 4000)
+### What's New (2.2.14), macOS (655 / 4000)
 
 ```text
 - Who's watching: the app opens on your saved accounts, with a Demo face when there are none
@@ -117,9 +117,10 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 - Hide or rename a live channel from its info panel
 - Book reader: tap the edge of the page to turn it
 - On Mac the arrow keys turn pages in books and photos
+- Pinch, or press Command-plus and Command-minus, to make cards bigger or smaller
 ```
 
-### What's New (2.2.14), iOS (518 / 4000)
+### What's New (2.2.14), iOS (558 / 4000)
 
 ```text
 - Who's watching: the app opens on your saved accounts, with a Demo face when there are none
@@ -128,6 +129,7 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 - Sort any library by name, date added, release date, rating, runtime and more; your sort and filters are saved per library and follow your account
 - Hide or rename a live channel from its info panel
 - Book reader: tap the edge of the page to turn it
+- Pinch to make cards bigger or smaller
 ```
 
 ### What's New (2.2.14), tvOS (541 / 4000)
