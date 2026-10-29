@@ -1,4 +1,4 @@
-/** On TV a media card's base and its tab are the card's own colour at rest and the accent on focus, and the card's depth sits on a layer behind the art. */
+/** On TV a media card's base and its episode pill are the card's own colour at rest and the accent on focus, and the card's depth sits on a layer behind the art. */
 import React from "react";
 import { Platform, StyleSheet } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
@@ -23,7 +23,7 @@ jest.mock("@/services/jellyfinApi", () => ({ isAudioItem: () => false, isBook: (
 Object.defineProperty(Platform, "isTV", { value: true, configurable: true });
 // Read after the flag: the components fix their platform at import.
 const { CardStand } = require("@/components/card-stand") as typeof import("@/components/card-stand");
-const { CardCornerTab } = require("@/components/card-corner-tab") as typeof import("@/components/card-corner-tab");
+const { CardBadge } = require("@/components/card-badge") as typeof import("@/components/card-badge");
 const { VideoGridItem } = require("@/components/video-grid-item") as typeof import("@/components/video-grid-item");
 const { STAND_HEIGHT } = require("@/constants/app") as typeof import("@/constants/app");
 const { COLORS } = require("@/constants/colors") as typeof import("@/constants/colors");
@@ -43,8 +43,10 @@ function mount(element: React.ReactElement) {
 }
 
 const glass = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAll((n) => (n.type as unknown) === "GlassSurface");
+const pillOf = (node: TestRenderer.ReactTestInstance) =>
+  StyleSheet.flatten(node.findAll((n) => typeof n.type === "string" && StyleSheet.flatten(n.props.style)?.backgroundColor !== undefined)[0].props.style);
 
-describe("card base and tab on TV", () => {
+describe("card base and episode pill on TV", () => {
   it("a base is the card's colour with no glass at rest, and the accent on focus", () => {
     const resting = mount(<CardStand name="Pilot" focused={false} />);
     expect(glass(resting)).toHaveLength(0);
@@ -56,11 +58,10 @@ describe("card base and tab on TV", () => {
     act(() => lit.unmount());
   });
 
-  it("a media card's base and tab are the same colour as a folder card's", () => {
+  it("a media card's base and episode pill are the same colour as a folder card's", () => {
     const tree = mount(<VideoGridItem video={episode} onPress={jest.fn()} index={0} />);
     expect(StyleSheet.flatten(tree.root.findByProps({ testID: "card-stand" }).props.style).backgroundColor).toBe(COLORS.SURFACE_SUNKEN);
-    const tab = tree.root.findAll((n) => n.props.testID === "card-corner-tab" && typeof n.type === "string")[0];
-    expect(StyleSheet.flatten(tab.props.style).backgroundColor).toBe(COLORS.SURFACE_SUNKEN);
+    expect(pillOf(tree.root.findByType(CardBadge)).backgroundColor).toBe(COLORS.SURFACE_SUNKEN);
     act(() => tree.unmount());
   });
 
@@ -71,24 +72,22 @@ describe("card base and tab on TV", () => {
     act(() => tree.unmount());
   });
 
-  it("the tab is the card's colour with no glass at rest, and the accent with the ink on focus", () => {
-    const resting = mount(<CardCornerTab segments={[{ label: "S01E05" }]} />);
+  it("the episode pill is the card's colour with no glass at rest, and the accent with the ink on focus", () => {
+    const resting = mount(<CardBadge segments={[{ label: "S01E05" }]} />);
     expect(glass(resting)).toHaveLength(0);
-    const restingTab = resting.root.findAll((n) => n.props.testID === "card-corner-tab" && typeof n.type === "string")[0];
-    expect(StyleSheet.flatten(restingTab.props.style).backgroundColor).toBe(COLORS.SURFACE_SUNKEN);
+    expect(pillOf(resting.root).backgroundColor).toBe(COLORS.SURFACE_SUNKEN);
     act(() => resting.unmount());
-    const lit = mount(<CardCornerTab segments={[{ label: "S01E05" }]} focused />);
+    const lit = mount(<CardBadge segments={[{ label: "S01E05" }]} focused />);
     expect(glass(lit)).toHaveLength(0);
-    const tab = lit.root.findAll((n) => n.props.testID === "card-corner-tab" && typeof n.type === "string")[0];
-    expect(StyleSheet.flatten(tab.props.style).backgroundColor).toBe(ACCENT);
+    expect(pillOf(lit.root).backgroundColor).toBe(ACCENT);
     expect(StyleSheet.flatten(lit.root.findAll((n) => typeof n.type === "string" && n.props.children === "S01E05")[0].props.style).color).toBe(palette.ink);
     act(() => lit.unmount());
   });
 
   it("the card has no fill of its own; a depth layer behind the art stops at the base at rest and covers the card on focus", () => {
     const depthLayer = (tree: TestRenderer.ReactTestRenderer) => {
-      const tab = tree.root.findByType(CardCornerTab);
-      const card = tab.parent!;
+      let card = tree.root.findByType(CardStand).parent!;
+      while (card.props.style === undefined) card = card.parent!;
       expect(StyleSheet.flatten(card.props.style).backgroundColor).toBeUndefined();
       return StyleSheet.flatten((card.children[0] as TestRenderer.ReactTestInstance).props.style);
     };

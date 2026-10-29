@@ -1,5 +1,4 @@
 import { type BadgeSegment, CARD_BADGE_INSET, CardBadge, showsFavoriteHeart } from "@/components/card-badge";
-import { CardCornerTab } from "@/components/card-corner-tab";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardStand } from "@/components/card-stand";
 import { LevelBars } from "@/components/level-bars";
@@ -361,8 +360,6 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
       <View style={[styles.card, IS_TV ? null : depth, square && styles.square, !liveCard && styles.cardOverhang]}>
         {/* TV: a solid layer behind the picture carries the depth, so the card stays clear for its base. */}
         {IS_TV ? <View style={[styles.depthLayer, depth, square && styles.square, !liveCard && !focused && styles.depthLayerArt]} pointerEvents="none" /> : null}
-        {/* A wall card's stand says offline with its glyph, so it skips the tab. */}
-        {artBadge && !offlinePill ? <CardCornerTab segments={artBadge} tone={video.Type === "Program" || channelNow ? "live" : "plain"} focused={focused} /> : null}
         <View style={[styles.imageContainer, { aspectRatio: cardRatio }, square && styles.square, (standed || !liveCard) && styles.squareBottom]}>
           {liveFrame || poster || posterSource ? (
             <>
@@ -403,7 +400,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
             </View>
           ) : null}
 
-          {offlinePill || (isChannel && (recording || (liveFrame ? liveMark : liveCard && airingName))) ? (
+          {offlinePill || artBadge || (isChannel && (recording || (liveFrame ? liveMark : liveCard && airingName))) ? (
             <View style={[styles.indexBadge, liveCard && styles.indexBadgeChannel]} pointerEvents="none">
               {offlinePill ? (
                 // A fact pill, not a broadcast mark: red stays for LIVE and REC.
@@ -412,6 +409,8 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
                 <CardBadge segments={[{ label: t("liveTv.rec") }]} focused={focused} tone="live" />
               ) : isChannel && liveFrame ? (
                 <LiveFreshnessBadge channelId={video.Id} />
+              ) : artBadge ? (
+                <CardBadge segments={artBadge} focused={focused} tone={video.Type === "Program" || channelNow ? "live" : "gold"} />
               ) : isChannel ? (
                 <CardBadge segments={[{ label: t("liveTv.now") }]} focused={focused} tone="live" />
               ) : null}

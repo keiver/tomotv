@@ -54,7 +54,7 @@ export function CardBadge({ segments, loading, focused, tone = "gold", compact =
   const small = compact && !IS_TV;
   const thin = live;
   const palette = useCardPalette();
-  // Lettered like the corner tab: the accent, white when the accent is too dark to read, the ink on the accent.
+  // Lettered like the name: the accent, white when the accent is too dark to read, the ink on the accent.
   const ink = live ? COLORS.TEXT_PRIMARY : focused ? palette.ink : isLowContrast(palette.accent) ? COLORS.TEXT_PRIMARY : palette.accent;
   const height = thin ? SLIM_BADGE_HEIGHT : small ? COMPACT_BADGE_HEIGHT : BADGE_HEIGHT;
   const sizing = [styles.badge, small && styles.badgeCompact, thin && styles.badgeSlim];

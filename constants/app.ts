@@ -137,7 +137,7 @@ export const SHELF_SPACING = {
   // it sits at the bottom. iPadOS puts the bar at the TOP, so a tablet clears far less.
   phone: { headingSize: 13, headingLine: 16, headingGap: 7, rowGap: 10, chrome: 180 },
   tablet: { headingSize: 16, headingLine: 20, headingGap: 14, rowGap: 22, chrome: 147 },
-  tv: { headingSize: 26, headingLine: 30, headingGap: 8, rowGap: 36, chrome: 250 },
+  tv: { headingSize: 26, headingLine: 30, headingGap: 0, rowGap: 44, chrome: 250 },
 } as const;
 
 export type ShelfSpacing = (typeof SHELF_SPACING)[keyof typeof SHELF_SPACING];

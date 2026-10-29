@@ -1,5 +1,4 @@
 import { CARD_BADGE_INSET, CardBadge, showsFavoriteHeart } from "@/components/card-badge";
-import { CardCornerTab } from "@/components/card-corner-tab";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardStand } from "@/components/card-stand";
 import { PosterCollage } from "@/components/poster-collage";
@@ -183,7 +182,6 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
       <View style={[styles.card, IS_TV ? null : depth, styles.cardOverhang]}>
         {/* TV: a solid layer behind the picture carries the depth, so the card stays clear for its base. */}
         {IS_TV ? <View style={[styles.depthLayer, depth, !focused && styles.depthLayerArt]} pointerEvents="none" /> : null}
-        {itemCount != null ? <CardCornerTab segments={[{ label: itemCount.toLocaleString(locale()) }]} focused={focused} /> : null}
         <View style={[styles.imageContainer, { aspectRatio: cardRatio }, styles.squareBottom]}>
           {thumbnailSource ? (
             <Image source={thumbnailSource} style={styles.poster} contentFit="cover" transition={0} priority={index < 10 ? "high" : "normal"} cachePolicy="memory-disk" recyclingKey={folder.Id} />
@@ -194,6 +192,12 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
               <Ionicons name={isLiveTv ? "tv-outline" : "folder-outline"} size={IS_TV ? 90 : 56} color="rgba(255, 255, 255, 0.45)" />
             </View>
           )}
+
+          {itemCount != null ? (
+            <View style={styles.countBadge} pointerEvents="none">
+              <CardBadge segments={[{ label: itemCount.toLocaleString(locale()) }]} focused={focused} />
+            </View>
+          ) : null}
 
           {recording ? (
             <View style={styles.recBadge} pointerEvents="none">
@@ -340,6 +344,11 @@ const styles = StyleSheet.create({
   // Where rows keep no room for it (TV), the base hangs into the card's own bottom padding and the row's.
   cardOverhang: {
     marginBottom: STAND_ROW_ROOM - STAND_HEIGHT,
+  },
+  countBadge: {
+    position: "absolute",
+    top: CARD_BADGE_INSET,
+    left: CARD_BADGE_INSET,
   },
   recBadge: {
     position: "absolute",

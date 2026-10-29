@@ -27,7 +27,6 @@ jest.mock("@/services/liveFrames", () => ({
 jest.mock("@/services/jellyfinApi", () => ({ isAudioItem: () => false, isBook: () => false }));
 
 import { CardBadge } from "@/components/card-badge";
-import { CardCornerTab } from "@/components/card-corner-tab";
 import { standRedOpacity } from "@/components/card-stand";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { DESIGN } from "@/constants/app";
@@ -83,8 +82,7 @@ describe("guide channel card without a title bar", () => {
     act(() => {
       tree = TestRenderer.create(<VideoGridItem video={airing} onPress={jest.fn()} index={0} slotOrientation="landscape" />);
     });
-    expect(tree.root.findByType(CardCornerTab).props).toMatchObject({ segments: [{ label: "NOW" }], tone: "live" });
-    expect(tree.root.findAllByType(CardBadge)).toHaveLength(0);
+    expect(tree.root.findByType(CardBadge).props).toMatchObject({ segments: [{ label: "NOW" }], tone: "live" });
     act(() => tree.unmount());
   });
 
