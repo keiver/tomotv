@@ -41,7 +41,7 @@ export function sortedPeople(servers: SavedServer[], accountsByServer: Record<st
 }
 
 /**
- * Who's watching: the saved accounts as faces, a Demo face while none is saved, and Add Server.
+ * Who's watching: the saved accounts as faces, a Demo face while none is saved, and Add Account.
  * The logged-out screen, as the root route and inside a tab that stays for its downloads.
  */
 export function WhoIsWatchingScreen({ title, onConnected }: WhoIsWatchingScreenProps) {
@@ -107,7 +107,7 @@ export function WhoIsWatchingScreen({ title, onConnected }: WhoIsWatchingScreenP
             {people !== null && people.length === 0 ? (
               <AccountAvatar size={FACE_SIZE} label={t("connect.demoPerson")} sublabel="Tomo TV" loading={connectingDemo} onPress={() => void connectDemo()} />
             ) : null}
-            <AccountAvatar size={FACE_SIZE} icon="add" label={t("settings.addServer")} disabled={connectingDemo} onPress={() => router.push("/connect/servers")} />
+            <AccountAvatar size={FACE_SIZE} icon="add" label={t("connect.addAccount")} disabled={connectingDemo} onPress={() => router.push("/connect/servers")} />
           </View>
         </View>
       </View>

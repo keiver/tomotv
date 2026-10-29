@@ -77,11 +77,11 @@ describe("sortedPeople", () => {
 });
 
 describe("WhoIsWatchingScreen", () => {
-  it("shows a Demo face and Add Server when no account is saved", async () => {
+  it("shows a Demo face and Add Account when no account is saved", async () => {
     mockApi.getSavedServersWithAccounts.mockResolvedValue({ servers: [], accountsByServer: {} });
     const renderer = await render();
     const props = cells(renderer);
-    expect(props.map((p) => p.label)).toEqual(["connect.demoPerson", "settings.addServer"]);
+    expect(props.map((p) => p.label)).toEqual(["connect.demoPerson", "connect.addAccount"]);
     expect(props[0].sublabel).toBe("Tomo TV");
     expect(props[1].icon).toBe("add");
   });
@@ -90,7 +90,7 @@ describe("WhoIsWatchingScreen", () => {
     mockApi.getSavedServersWithAccounts.mockResolvedValue({ servers: [home, office], accountsByServer: { [home.id]: [ben, ana], [office.id]: [cy] } });
     const renderer = await render();
     const props = cells(renderer);
-    expect(props.map((p) => p.label)).toEqual(["Ana", "Cy", "Ben", "settings.addServer"]);
+    expect(props.map((p) => p.label)).toEqual(["Ana", "Cy", "Ben", "connect.addAccount"]);
     expect(props.map((p) => p.sublabel)).toEqual(["Home", "10.0.0.5", "Home", undefined]);
   });
 
@@ -140,7 +140,7 @@ describe("WhoIsWatchingScreen", () => {
     alert.mockRestore();
   });
 
-  it("Add Server opens the connect screen", async () => {
+  it("Add Account opens the connect screen", async () => {
     mockApi.getSavedServersWithAccounts.mockResolvedValue({ servers: [], accountsByServer: {} });
     const renderer = await render();
     cells(renderer)[1].onPress();

@@ -351,6 +351,7 @@
   "connect.demoConnectionFailed": "Demo-Verbindung fehlgeschlagen",
   "connect.whoIsWatching": "Wer schaut?",
   "connect.demoPerson": "Demo",
+  "connect.addAccount": "Konto hinzufügen",
   "connect.unableToConnect": "Verbindung zum Server nicht möglich.",
   "connect.sessionExpired": "Sitzung abgelaufen",
   "connect.sessionExpiredBody": "{server} akzeptiert die gespeicherte Sitzung für {user} nicht mehr. Melde dich erneut an, um fortzufahren.",

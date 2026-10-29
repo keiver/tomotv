@@ -351,6 +351,7 @@
   "connect.demoConnectionFailed": "Falló la conexión con la demostración",
   "connect.whoIsWatching": "¿Quién está viendo?",
   "connect.demoPerson": "Demo",
+  "connect.addAccount": "Añadir cuenta",
   "connect.unableToConnect": "No se pudo conectar con el servidor.",
   "connect.sessionExpired": "Sesión caducada",
   "connect.sessionExpiredBody": "{server} ya no acepta la sesión guardada de {user}. Inicia sesión de nuevo para continuar.",

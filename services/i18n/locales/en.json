@@ -351,6 +351,7 @@
   "connect.demoConnectionFailed": "Demo Connection Failed",
   "connect.whoIsWatching": "Who's watching?",
   "connect.demoPerson": "Demo",
+  "connect.addAccount": "Add Account",
   "connect.unableToConnect": "Unable to connect to server.",
   "connect.sessionExpired": "Session Expired",
   "connect.sessionExpiredBody": "{server} no longer accepts the saved session for {user}. Sign in again to continue.",
