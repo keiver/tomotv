@@ -19,6 +19,7 @@ jest.mock("@/services/liveFrames", () => ({
 jest.mock("@/services/jellyfinApi", () => ({ isAudioItem: () => false, isBook: () => false }));
 
 import { CardBadge } from "@/components/card-badge";
+import { CardCornerNotch } from "@/components/card-corner-notch";
 import { t } from "@/services/i18n";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardStand, STAND_NAME_TEXT, standFillPercent } from "@/components/card-stand";
@@ -124,43 +125,45 @@ describe("media card base", () => {
     }
   });
 
-  it("wears the episode number on a pill over the picture and the favorite heart before the name, never an eye", () => {
+  it("wears the episode number in a notch cut into the picture's top-left corner and the favorite heart before the name, never an eye", () => {
     const episode = { Id: "e1", Name: "Pilot", Type: "Episode", IndexNumber: 5, ParentIndexNumber: 1, UserData: { Played: true, IsFavorite: true } } as JellyfinVideoItem;
     const tree = mount(<VideoGridItem video={episode} onPress={jest.fn()} index={0} />);
-    expect(tree.root.findAllByType(CardBadge)).toHaveLength(1);
-    expect(slotOf(tree).findByType(CardBadge).props).toMatchObject({ segments: [{ label: "S01E05" }], tone: "gold" });
+    expect(tree.root.findAllByType(CardBadge)).toHaveLength(0);
+    expect(slotOf(tree).findByType(CardCornerNotch).props).toMatchObject({ segments: [{ label: "S01E05" }], tone: "plain" });
     expect(tree.root.findByType(CardStand).props.name).toBe("Pilot");
     expect(tree.root.findByType(CardStand).findAll((n) => n.props.name === "heart")).not.toHaveLength(0);
     expect(tree.root.findAll((n) => n.props.name === "eye")).toHaveLength(0);
     act(() => tree.unmount());
   });
 
-  it("puts a programme's NOW on a pill over the picture in the live red", () => {
+  it("puts a programme's NOW in the corner notch in the live red", () => {
     const now = Date.now();
     const program = { Id: "p1", Name: "News", Type: "Program", StartDate: new Date(now - 60_000).toISOString(), EndDate: new Date(now + 60_000).toISOString() } as JellyfinVideoItem;
     const tree = mount(<VideoGridItem video={program} onPress={jest.fn()} index={0} />);
-    expect(slotOf(tree).findByType(CardBadge).props).toMatchObject({ segments: [{ label: t("liveTv.now") }], tone: "live" });
+    expect(slotOf(tree).findByType(CardCornerNotch).props).toMatchObject({ segments: [{ label: t("liveTv.now") }], tone: "live" });
+    expect(tree.root.findAllByType(CardBadge)).toHaveLength(0);
     act(() => tree.unmount());
   });
 
-  it("puts a shelf channel card's NOW on a pill over the picture in the live red", () => {
+  it("puts a shelf channel card's NOW in the corner notch in the live red", () => {
     const airing = { ...channel, CurrentProgram: { Name: "News" } } as JellyfinVideoItem;
     const tree = mount(<VideoGridItem video={airing} onPress={jest.fn()} index={0} titleIcon="heart" />);
-    expect(slotOf(tree).findByType(CardBadge).props).toMatchObject({ segments: [{ label: t("liveTv.now") }], tone: "live" });
+    expect(slotOf(tree).findByType(CardCornerNotch).props).toMatchObject({ segments: [{ label: t("liveTv.now") }], tone: "live" });
+    expect(tree.root.findAllByType(CardBadge)).toHaveLength(0);
     act(() => tree.unmount());
   });
 
   it("shows a passed channel heart before the name on a shelf channel card", () => {
     const tree = mount(<VideoGridItem video={channel} onPress={jest.fn()} index={0} titleIcon="heart" />);
     expect(tree.root.findByType(CardStand).findAll((n) => n.props.name === "heart")).not.toHaveLength(0);
-    expect(tree.root.findByType(CardBadge).props).toMatchObject({ segments: [{ label: t("liveTv.channel") }], tone: "gold" });
+    expect(tree.root.findByType(CardCornerNotch).props).toMatchObject({ segments: [{ label: t("liveTv.channel") }], tone: "plain" });
     act(() => tree.unmount());
   });
 
-  it("names a channel card by the channel and shows its number on a pill when the airing programme is hidden", () => {
+  it("names a channel card by the channel and shows its number in the corner notch when the airing programme is hidden", () => {
     const airing = { ...channel, ChannelNumber: "7", CurrentProgram: { Name: "News" } } as JellyfinVideoItem;
     const tree = mount(<VideoGridItem video={airing} onPress={jest.fn()} index={0} hideAiring />);
-    expect(tree.root.findByType(CardBadge).props).toMatchObject({ segments: [{ label: t("liveTv.channelNumber").replace("{number}", "7") }], tone: "gold" });
+    expect(tree.root.findByType(CardCornerNotch).props).toMatchObject({ segments: [{ label: t("liveTv.channelNumber").replace("{number}", "7") }], tone: "plain" });
     expect(tree.root.findByType(CardStand).props.name).toBe("Channel One");
     act(() => tree.unmount());
   });
@@ -168,7 +171,7 @@ describe("media card base", () => {
   it("keeps NOW on a channel card titled by its airing programme", () => {
     const airing = { ...channel, ChannelNumber: "7", CurrentProgram: { Name: "News" } } as JellyfinVideoItem;
     const tree = mount(<VideoGridItem video={airing} onPress={jest.fn()} index={0} />);
-    expect(tree.root.findByType(CardBadge).props).toMatchObject({ segments: [{ label: t("liveTv.now") }], tone: "live" });
+    expect(tree.root.findByType(CardCornerNotch).props).toMatchObject({ segments: [{ label: t("liveTv.now") }], tone: "live" });
     expect(tree.root.findByType(CardStand).props.name).toBe("News");
     act(() => tree.unmount());
   });

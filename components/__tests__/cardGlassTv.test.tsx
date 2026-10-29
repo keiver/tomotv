@@ -1,4 +1,4 @@
-/** On TV a media card's base and its episode pill are the card's own colour at rest and the accent on focus, and the card's depth sits on a layer behind the art. */
+/** On TV a media card's base and its corner notch are the card's own colour at rest and the accent on focus, and the card's depth sits on a layer behind the art. */
 import React from "react";
 import { Platform, StyleSheet } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
@@ -23,7 +23,7 @@ jest.mock("@/services/jellyfinApi", () => ({ isAudioItem: () => false, isBook: (
 Object.defineProperty(Platform, "isTV", { value: true, configurable: true });
 // Read after the flag: the components fix their platform at import.
 const { CardStand } = require("@/components/card-stand") as typeof import("@/components/card-stand");
-const { CardBadge } = require("@/components/card-badge") as typeof import("@/components/card-badge");
+const { CardCornerNotch } = require("@/components/card-corner-notch") as typeof import("@/components/card-corner-notch");
 const { VideoGridItem } = require("@/components/video-grid-item") as typeof import("@/components/video-grid-item");
 const { STAND_HEIGHT } = require("@/constants/app") as typeof import("@/constants/app");
 const { COLORS } = require("@/constants/colors") as typeof import("@/constants/colors");
@@ -43,10 +43,9 @@ function mount(element: React.ReactElement) {
 }
 
 const glass = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAll((n) => (n.type as unknown) === "GlassSurface");
-const pillOf = (node: TestRenderer.ReactTestInstance) =>
-  StyleSheet.flatten(node.findAll((n) => typeof n.type === "string" && StyleSheet.flatten(n.props.style)?.backgroundColor !== undefined)[0].props.style);
+const notchFill = (tree: TestRenderer.ReactTestRenderer) => StyleSheet.flatten(tree.root.findByProps({ testID: "card-corner-notch-body" }).props.style).backgroundColor;
 
-describe("card base and episode pill on TV", () => {
+describe("card base and corner notch on TV", () => {
   it("a base is the card's colour with no glass at rest, and the accent on focus", () => {
     const resting = mount(<CardStand name="Pilot" focused={false} />);
     expect(glass(resting)).toHaveLength(0);
@@ -58,10 +57,10 @@ describe("card base and episode pill on TV", () => {
     act(() => lit.unmount());
   });
 
-  it("a media card's base and episode pill are the same colour as a folder card's", () => {
+  it("a media card's base and corner notch are the same colour as a folder card's", () => {
     const tree = mount(<VideoGridItem video={episode} onPress={jest.fn()} index={0} />);
     expect(StyleSheet.flatten(tree.root.findByProps({ testID: "card-stand" }).props.style).backgroundColor).toBe(COLORS.SURFACE_SUNKEN);
-    expect(pillOf(tree.root.findByType(CardBadge)).backgroundColor).toBe(COLORS.SURFACE_SUNKEN);
+    expect(notchFill(tree)).toBe(COLORS.SURFACE_SUNKEN);
     act(() => tree.unmount());
   });
 
@@ -72,14 +71,14 @@ describe("card base and episode pill on TV", () => {
     act(() => tree.unmount());
   });
 
-  it("the episode pill is the card's colour with no glass at rest, and the accent with the ink on focus", () => {
-    const resting = mount(<CardBadge segments={[{ label: "S01E05" }]} />);
+  it("the corner notch is the card's colour with no glass at rest, and the accent with the ink on focus", () => {
+    const resting = mount(<CardCornerNotch segments={[{ label: "S01E05" }]} />);
     expect(glass(resting)).toHaveLength(0);
-    expect(pillOf(resting.root).backgroundColor).toBe(COLORS.SURFACE_SUNKEN);
+    expect(notchFill(resting)).toBe(COLORS.SURFACE_SUNKEN);
     act(() => resting.unmount());
-    const lit = mount(<CardBadge segments={[{ label: "S01E05" }]} focused />);
+    const lit = mount(<CardCornerNotch segments={[{ label: "S01E05" }]} focused />);
     expect(glass(lit)).toHaveLength(0);
-    expect(pillOf(lit.root).backgroundColor).toBe(ACCENT);
+    expect(notchFill(lit)).toBe(ACCENT);
     expect(StyleSheet.flatten(lit.root.findAll((n) => typeof n.type === "string" && n.props.children === "S01E05")[0].props.style).color).toBe(palette.ink);
     act(() => lit.unmount());
   });

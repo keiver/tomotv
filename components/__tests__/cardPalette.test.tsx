@@ -25,7 +25,8 @@ jest.mock("@/services/jellyfinApi", () => ({ isAudioItem: () => false, isBook: (
 jest.mock("@/contexts/PlayerSessionContext", () => ({ usePlayerSession: () => ({ sessionVideoId: null, hostMode: "idle", playbackState: { type: "IDLE" } }) }));
 jest.mock("@/services/audioPlayerManager", () => ({ audioPlayerManager: { getUIState: () => ({ playing: true, position: 0 }), subscribe: () => () => {} } }));
 
-import { CARD_BADGE_INSET, CardBadge } from "@/components/card-badge";
+import { CardBadge } from "@/components/card-badge";
+import { CardCornerNotch } from "@/components/card-corner-notch";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardStand } from "@/components/card-stand";
 import { FolderGridItem } from "@/components/folder-grid-item";
@@ -91,7 +92,7 @@ describe("card palette", () => {
     act(() => tree.unmount());
   });
 
-  it("a folder wears its count on a pill in the picture's top-left corner, cut from the card's own colour, and its heart before the name", () => {
+  it("a folder wears its count in a notch flush with the picture's top-left corner, cut from the card's own colour, and its heart before the name", () => {
     let tree!: TestRenderer.ReactTestRenderer;
     act(() => {
       tree = TestRenderer.create(
@@ -100,13 +101,13 @@ describe("card palette", () => {
         </CardPaletteOverride.Provider>,
       );
     });
-    const badge = tree.root.findByType(CardBadge);
-    expect(badge.props.segments).toEqual([{ label: "3" }]);
-    expect(StyleSheet.flatten(badge.parent!.props.style)).toMatchObject({ position: "absolute", top: CARD_BADGE_INSET, left: CARD_BADGE_INSET });
-    const pill = badge.findAll((n) => typeof n.type === "string" && StyleSheet.flatten(n.props.style)?.backgroundColor !== undefined)[0];
-    expect(StyleSheet.flatten(pill.props.style).backgroundColor).toBe(COLORS.SURFACE_SUNKEN);
+    expect(tree.root.findAllByType(CardBadge)).toHaveLength(0);
+    const notch = tree.root.findByType(CardCornerNotch);
+    expect(notch.props.segments).toEqual([{ label: "3" }]);
+    expect(StyleSheet.flatten(notch.findByProps({ testID: "card-corner-notch" }).props.style)).toMatchObject({ position: "absolute", top: 0, left: 0 });
+    expect(StyleSheet.flatten(notch.findByProps({ testID: "card-corner-notch-body" }).props.style).backgroundColor).toBe(COLORS.SURFACE_SUNKEN);
     // The theme's accent is too dark to read on the card, so the count is white, like the name.
-    expect(badge.findAll((n) => typeof n.type === "string" && n.props.children === "3").map((n) => StyleSheet.flatten(n.props.style).color)).toEqual([COLORS.TEXT_PRIMARY]);
+    expect(notch.findAll((n) => typeof n.type === "string" && n.props.children === "3").map((n) => StyleSheet.flatten(n.props.style).color)).toEqual([COLORS.TEXT_PRIMARY]);
     expect(tree.root.findByType(CardStand).props).toMatchObject({ name: "Shows", icon: "heart" });
     act(() => tree.unmount());
   });
@@ -120,7 +121,7 @@ describe("card palette", () => {
     act(() => {
       tree = TestRenderer.create(<FolderGridItem folder={{ ...folder, RecursiveItemCount: 11365 } as JellyfinItem} onPress={jest.fn()} index={0} />);
     });
-    expect(tree.root.findByType(CardBadge).props.segments).toEqual([{ label }]);
+    expect(tree.root.findByType(CardCornerNotch).props.segments).toEqual([{ label }]);
     act(() => tree.unmount());
     __setLocaleForTests("en");
   });
@@ -223,24 +224,40 @@ describe("card palette", () => {
     act(() => tree.unmount());
   });
 
-  it("an episode pill is cut from the card's colour and lettered in a readable accent", () => {
+  it("a corner notch is cut from the card's colour and lettered in a readable accent", () => {
     const bright = "#4F99FF";
     let tree!: TestRenderer.ReactTestRenderer;
     act(() => {
       tree = TestRenderer.create(
         <CardPaletteOverride.Provider value={cardPalette(bright)}>
-          <CardBadge segments={[{ label: "S01E05" }]} />
+          <CardCornerNotch segments={[{ label: "S01E05" }]} />
         </CardPaletteOverride.Provider>,
       );
     });
-    const pill = tree.root.findAll((n) => typeof n.type === "string" && StyleSheet.flatten(n.props.style)?.backgroundColor !== undefined)[0];
-    expect(StyleSheet.flatten(pill.props.style).backgroundColor).toBe(COLORS.SURFACE_SUNKEN);
-    expect(StyleSheet.flatten(pill.findAll((n) => typeof n.type === "string" && n.props.children === "S01E05")[0].props.style).color).toBe(bright);
+    const body = tree.root.findByProps({ testID: "card-corner-notch-body" });
+    expect(StyleSheet.flatten(body.props.style).backgroundColor).toBe(COLORS.SURFACE_SUNKEN);
+    expect(StyleSheet.flatten(body.findAll((n) => typeof n.type === "string" && n.props.children === "S01E05")[0].props.style).color).toBe(bright);
     act(() => tree.unmount());
   });
 
-  it("a focused card's programme pill stays red, never the accent", () => {
-    expect(colours(<CardBadge segments={[{ label: "NOW" }]} tone="live" focused />)).not.toContain(ACCENT);
+  it("the notch's curves into the art are drawn in the notch's own fill", () => {
+    const drawn = (focused: boolean, tone: "plain" | "live") => {
+      let tree!: TestRenderer.ReactTestRenderer;
+      act(() => {
+        tree = TestRenderer.create(
+          <CardPaletteOverride.Provider value={palette}>
+            <CardCornerNotch segments={[{ label: "S01E05" }]} focused={focused} tone={tone} />
+          </CardPaletteOverride.Provider>,
+        );
+      });
+      const fill = StyleSheet.flatten(tree.root.findByProps({ testID: "card-corner-notch-body" }).props.style).backgroundColor;
+      const rings = tree.root.findAll((n) => typeof n.type === "string" && StyleSheet.flatten(n.props.style)?.borderColor !== undefined).map((n) => StyleSheet.flatten(n.props.style).borderColor);
+      act(() => tree.unmount());
+      return { fill, rings };
+    };
+    expect(drawn(false, "plain")).toEqual({ fill: COLORS.SURFACE_SUNKEN, rings: [COLORS.SURFACE_SUNKEN, COLORS.SURFACE_SUNKEN] });
+    expect(drawn(true, "plain")).toEqual({ fill: ACCENT, rings: [ACCENT, ACCENT] });
+    expect(drawn(true, "live")).toEqual({ fill: COLORS.DESTRUCTIVE_DEEP, rings: [COLORS.DESTRUCTIVE_DEEP, COLORS.DESTRUCTIVE_DEEP] });
   });
 
   it("the base's progress fill and the folder loading bar fill in the theme", () => {

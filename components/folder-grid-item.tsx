@@ -1,4 +1,5 @@
 import { CARD_BADGE_INSET, CardBadge, showsFavoriteHeart } from "@/components/card-badge";
+import { CardCornerNotch } from "@/components/card-corner-notch";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardStand } from "@/components/card-stand";
 import { PosterCollage } from "@/components/poster-collage";
@@ -193,11 +194,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             </View>
           )}
 
-          {itemCount != null ? (
-            <View style={styles.countBadge} pointerEvents="none">
-              <CardBadge segments={[{ label: itemCount.toLocaleString(locale()) }]} focused={focused} />
-            </View>
-          ) : null}
+          {itemCount != null ? <CardCornerNotch segments={[{ label: itemCount.toLocaleString(locale()) }]} focused={focused} /> : null}
 
           {recording ? (
             <View style={styles.recBadge} pointerEvents="none">
@@ -344,11 +341,6 @@ const styles = StyleSheet.create({
   // Where rows keep no room for it (TV), the base hangs into the card's own bottom padding and the row's.
   cardOverhang: {
     marginBottom: STAND_ROW_ROOM - STAND_HEIGHT,
-  },
-  countBadge: {
-    position: "absolute",
-    top: CARD_BADGE_INSET,
-    left: CARD_BADGE_INSET,
   },
   recBadge: {
     position: "absolute",
