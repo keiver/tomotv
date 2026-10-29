@@ -2337,15 +2337,19 @@ No login credentials are needed to review the app. A fresh install opens on a "W
 screen; tap Demo to sign into the Tomo TV demo server (tomotv.cubita.studio, run by the
 developer), a shared account with no password. Go on the empty Add Server field signs into it
 too. It works over the public internet and needs no permissions. Its content is free to use: NASA and ESA space clips and photos,
-public-domain chill beats by HoliznaCC0, public-domain books and Blender open movies; each
+public-domain chill beats by HoliznaCC0, public-domain books and Blender open movies (CC BY and CC BY-SA); each
 item names its source and licence, and the demo account is reset every night. Any other Jellyfin
 server works too (username and password or Jellyfin Quick Connect).
 
 5. EXTERNAL SERVICES
-Two, and no others: (1) the user's own Jellyfin server, at whatever address they enter; all
+Four, and no others: (1) the user's own Jellyfin server, at whatever address they enter; all
 library, search, playback, progress, and subtitle requests go directly there. (2)
-tomotv.cubita.studio, the developer's demo server, only in demo mode. No analytics, crash reporting, advertising or tracking
-SDKs, payment processors, AI services, or third-party metadata providers, other than Apple's
+tomotv.cubita.studio, the developer's demo server, only in demo mode. (3) LRCLIB (lrclib.net), a
+public lyrics database: when the user's server has no lyrics for a song, the app sends the song's
+artist, title and length to find them; "Find missing lyrics" in Settings turns this off. (4) Pluto TV: only when a
+Live TV channel on the user's own server streams from Pluto TV, the app starts that channel's
+session with Pluto TV. No analytics, crash reporting, advertising or tracking SDKs, payment
+processors, AI services, or other third-party metadata providers, other than Apple's
 own built-in App Store analytics and crash reporting. Credentials are
 stored only in the device Keychain. Media processing (remuxing and transcoding) happens on the
 device using bundled open-source libraries (FFmpeg).
@@ -2355,7 +2359,8 @@ None. The app functions identically in all regions. No geo-gating, no region-spe
 or content.
 
 7. REGULATED INDUSTRY / PROTECTED THIRD-PARTY MATERIAL
-Not applicable. Tomo TV ships and hosts no media content. It is an independent client for the
+Not applicable. Tomo TV ships no media content; the developer's demo server hosts only the demo
+library described in item 4, each item with its source and licence. It is an independent client for the
 open-source Jellyfin media server, not affiliated with the Jellyfin project; the name describes
 compatibility. All media comes from the user's own self-hosted server, the same model as VLC or
 the official Jellyfin client. The demo server's library is public domain, Creative Commons and
