@@ -45,7 +45,7 @@ final class LiveVariantPickerTests: XCTestCase {
         XCTAssertNil(LiveVariantPicker.pick("#EXTM3U\n#EXTINF:6,\nseg1.ts\n", base: "https://o/live.m3u8"))
     }
 
-    /// The shape of a Pluto channel master: every variant hangs audio and subtitles off groups.
+    /// A live master whose every variant hangs audio and subtitles off groups.
     private let grouped = """
     #EXTM3U
     #EXT-X-VERSION:5

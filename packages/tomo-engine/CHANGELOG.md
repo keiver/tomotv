@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.1
+
+- Test comments describe the grouped live master by its shape alone (`LiveVariantPickerTests`, `LiveSelectiveOpenTests`). No code change.
+
 ## 1.4.0
 
 - `setOriginRecording(originKey, active)`: a server recording reads the provider. At a limit of 1, set or learned, every read on it ends (playback included) and none opens, failing with `live origin is held by a recording` (`isRecordingHoldFailure`, `PLAYBACK_ERROR_IDS.LIVE_RECORDING`). `originHeld`, `subscribeOriginHolds`, and `held` in `originConnections` (`LiveConnectionBrokerTests`).
