@@ -1029,6 +1029,14 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             viewerPickedAudioRef.current = remembered;
             audioStreamIndexForReportingRef.current = remembered;
             logger.info("🎵 Opening on the remembered audio language", { service: "useVideoPlayback", language, jellyfinStreamIndex: remembered });
+          } else if (playsFromDisk(videoId)) {
+            logger.info("🎵 Audio: no track matches the remembered language", {
+              service: "useVideoPlayback",
+              language,
+              jellyfin: getAudioTracks(details)
+                .map((stream) => `${stream.Index}:${stream.Language || "und"}`)
+                .join(", "),
+            });
           }
         }
 
@@ -2524,6 +2532,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         if (language && audioLanguageToStore(language) && audioLanguageToStore(language) !== getAudioPreferenceSync()) {
           logger.info("🎵 Remembering the viewer's audio language", { service: "useVideoPlayback", language });
           saveAudioPreference(language);
+        } else if (playsFromDisk(videoId)) {
+          // A download whose chosen track carries no language cannot be stored: the pick is lost.
+          logger.info("🎵 Audio: not storing the viewer's pick", { service: "useVideoPlayback", chosen, reported: data.audioTracks.map((track) => track.language || "und").join(", ") });
         }
       }
       if (plan.restartStreamIndex !== null) {
@@ -2531,7 +2542,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         handleAudioTrackSwitch(plan.restartStreamIndex);
       }
     },
-    [handleAudioTrackSwitch, videoDetails],
+    [handleAudioTrackSwitch, videoDetails, videoId],
   );
 
   // Callback: Text tracks (subtitles) discovered
@@ -2700,6 +2711,18 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       const languages = data.textTracks.map((track) => track.language || "und");
       reportedTextTracksRef.current = data.textTracks;
       setTextTrackLanguages((current) => (current.length === languages.length && current.every((tag, at) => tag === languages[at]) ? current : languages));
+
+      // On a download the track language decides whether a pick can be stored or matched again; a
+      // track AVKit reports as und breaks both. This compares it to the language Jellyfin holds.
+      if (playsFromDisk(videoId)) {
+        const stored = getSubtitlePreferenceSync();
+        logger.info("📝 Subtitles: download report", {
+          service: "useVideoPlayback",
+          reported: languages.join(", "),
+          jellyfin: subtitleRenditionsRef.current.map((rendition) => `${rendition.index}:${rendition.language || "und"}`).join(", "),
+          stored: stored.kind === "language" ? stored.tag : stored.kind,
+        });
+      }
 
       // Remember what the viewer settled on, so the next item opens the same way.
       // AVKit owns the picker, so this report is the only signal there is.
@@ -3021,7 +3044,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       defaultRenditionLanguage: subtitleRenditionsRef.current.find((rendition) => rendition.isDefault)?.language,
     });
     if (plan.kind === "leave") {
-      logger.debug("📝 Subtitles: leaving automatic selection alone", { service: "useVideoPlayback", reason: plan.reason, available: textTrackLanguages.join(", ") });
+      const stored = getSubtitlePreferenceSync(playingAudio);
+      const detail = { service: "useVideoPlayback", reason: plan.reason, stored: stored.kind === "language" ? stored.tag : stored.kind, available: textTrackLanguages.join(", ") };
+      // languageMissing on a download means the remembered language did not match any reported track.
+      if (playsFromDisk(videoId)) logger.info("📝 Subtitles: leaving automatic selection alone", detail);
+      else logger.debug("📝 Subtitles: leaving automatic selection alone", detail);
       return;
     }
     if (plan.kind === "autoDefault") autoAppliedDefaultRef.current = plan.tag;
@@ -3041,7 +3068,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     });
     appliedSubtitlePreferenceRef.current = plan.preference;
     setAppliedSubtitlePreference(plan.preference);
-  }, [hasStablePlayback, textTrackLanguages, videoDetails]);
+  }, [hasStablePlayback, textTrackLanguages, videoDetails, videoId]);
 
   /**
    * Start metadata fetch when in IDLE or FETCHING_METADATA state
