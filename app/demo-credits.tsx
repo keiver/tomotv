@@ -53,8 +53,8 @@ function PageLink({ label, url }: { label: string; url: string }) {
 }
 
 /**
- * Every item on the demo server with its maker, licence and source, pushed from the demo row on
- * the Settings tab. Opens on the manifest the app ships, then asks the server for its current one
+ * Every item on the demo server with its maker, licence and source, pushed from the Media Licenses
+ * row under About. Opens on the manifest the app ships, then asks the server for its current one
  * and swaps it in when it is newer; a server that does not answer changes nothing. Selecting a
  * row shows its licence and the pages it was read from. The Menu/back button pops the route.
  */
@@ -91,7 +91,7 @@ export default function DemoCreditsScreen() {
         showsVerticalScrollIndicator={false}>
         <View style={settingsStyles.contentContainer}>
           {/* Phone puts the title in the native bar; TV has no header. */}
-          {IS_TV && <Text style={styles.title}>{t("demo.creditsTitle")}</Text>}
+          {IS_TV && <Text style={styles.title}>{t("settings.mediaLicenses")}</Text>}
           <Text style={styles.intro}>{t("demo.creditsIntro")}</Text>
 
           {groups.map((group, groupIndex) => (

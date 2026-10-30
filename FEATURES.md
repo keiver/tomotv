@@ -193,7 +193,7 @@ Every feature needs a Jellyfin server. The Notes column says when a feature also
 | HTTP and HTTPS servers                      | Yes      | Yes          | Yes | HTTP sends your sign-in unencrypted: use HTTPS beyond your LAN                                     |
 | Who's watching when nothing is signed in    | Yes      | Yes          | Yes | Saved accounts as faces, Add Account beside them                                                   |
 | Demo server                                 | Yes      | Yes          | Yes | Tomo TV's own demo library: the Demo face while no account is saved, or the empty Add Server field |
-| Demo credits                                | Yes      | Yes          | Yes | While on the demo, the demo row in Settings opens every item with its maker, licence and source    |
+| Media Licenses                              | Yes      | Yes          | Yes | Settings, About Tomo TV, on any server: every demo item with its maker, licence and source         |
 | A moved server is found again               | Yes      | Yes          | Yes | On the local network, by server identity                                                           |
 
 ## Appearance and language

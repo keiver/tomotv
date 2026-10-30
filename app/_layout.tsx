@@ -529,7 +529,7 @@ function RootLayoutInner() {
                   />
                   <Stack.Screen name="dev-session" options={{ headerShown: false, animation: "none" }} />
                   <Stack.Screen name="dev-bench" options={{ headerShown: false, animation: "none" }} />
-                  {/* The three About destinations. Phone gets the native back bar, like
+                  {/* The four About destinations. Phone gets the native back bar, like
                       filters; TV shows no header and pops on Menu. */}
                   <Stack.Screen
                     name="licenses"
@@ -563,7 +563,6 @@ function RootLayoutInner() {
                           }
                     }
                   />
-                  {/* The demo server's credits, pushed from the demo row on the Settings tab. */}
                   <Stack.Screen
                     name="demo-credits"
                     options={
@@ -573,9 +572,9 @@ function RootLayoutInner() {
                             headerShown: true,
                             headerTransparent: true,
                             headerShadowVisible: false,
-                            headerTitle: t("demo.creditsTitle"),
+                            headerTitle: t("settings.mediaLicenses"),
                             headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
-                            headerBackTitle: t("tab.settings"),
+                            headerBackTitle: t("common.about"),
                             animation: "fade",
                           }
                     }

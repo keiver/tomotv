@@ -19,10 +19,12 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { t } from "@/services/i18n";
 
 /**
- * AboutSection — the app's two reference destinations.
+ * AboutSection: the app's three reference destinations.
  *
  * `app/licenses.tsx` carries the license texts and the LGPL source offer for FFmpeg and
- * GNU FriBidi (constants/licenses.ts); this row is its only entry point. `app/diagnostics.tsx`
+ * GNU FriBidi (constants/licenses.ts); this row is its only entry point. `app/demo-credits.tsx`
+ * (Media Licenses) carries the licence and source of every item on the demo server, on every
+ * server, so the credits stay reachable after the viewer leaves the demo. `app/diagnostics.tsx`
  * carries the version and the last playback's engine log, which a bug report needs.
  *
  * Labelled "Open Source" rather than "Acknowledgements" so it matches the title the
@@ -65,6 +67,7 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
   const lastSession = useLastSession();
   const own = showDiagnostics ? lastSession : null;
   const openLicenses = useCallback(() => router.push("/licenses"), [router]);
+  const openMediaLicenses = useCallback(() => router.push("/demo-credits"), [router]);
   const openDiagnostics = useCallback(() => router.push("/diagnostics"), [router]);
   // Slots belong to the account that was read; a screen with no connection lists none.
   const received = useSentSessions();
@@ -136,15 +139,16 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
         {/* The swipe on a diagnostics row needs a gesture root, and the Settings tab has none. Styled,
             because the root's default is flex: 1 and this sits in a content-sized card. */}
         <GestureHandlerRootView style={styles.gestureRoot}>
+          <ListRow icon="document-text" title={ABOUT_LABEL} subtitle={t("settings.licenses")} trailingIcon="chevron-forward" onPress={openLicenses} isFirst accessibilityLabel={ABOUT_LABEL} />
           <ListRow
-            icon="document-text"
-            title={ABOUT_LABEL}
-            subtitle={t("settings.licenses")}
+            icon="film-outline"
+            title={t("settings.mediaLicenses")}
+            subtitle={t("demo.creditsIntro")}
+            subtitleLines={2}
             trailingIcon="chevron-forward"
-            onPress={openLicenses}
-            isFirst
+            onPress={openMediaLicenses}
             isLast={!own && sends.length === 0}
-            accessibilityLabel={ABOUT_LABEL}
+            accessibilityHint={t("settings.demoCreditsHint")}
           />
           {ownRow}
           {sends.map((sent, index) => (
