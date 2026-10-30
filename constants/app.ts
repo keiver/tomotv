@@ -117,9 +117,11 @@ export const GRID = {
   SIDE_PADDING: { tv: 80, phone: 20 },
 } as const;
 
-/** The saved card sizes Settings offers, as a share of the cards' own size. */
+/** The card sizes the Apple TV pills offer, as a share of the cards' own size. */
 export const CARD_SIZES = [0.75, 1, 1.25, 1.5] as const;
 export type CardSize = (typeof CARD_SIZES)[number];
+/** The card sizes the Appearance picker draws on iPhone, iPad and Mac; the window's ceiling trims the top. */
+export const CARD_SIZE_PICKS = [0.75, 0.85, 1, 1.15, 1.3, 1.5] as const;
 
 /**
  * Horizontal edge padding for a library grid: the larger of the platform minimum and the

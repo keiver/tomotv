@@ -1,14 +1,19 @@
-import { cardSizeChoices, clampCardZoom, pinchedCardZoom, shownCardSize, steppedCardZoom } from "@/utils/cardZoom";
+import { cardSizePicks, clampCardZoom, nearestCardSize, pinchedCardZoom, shownCardSize, steppedCardZoom } from "@/utils/cardZoom";
 
 describe("card zoom", () => {
-  it("offers every saved size on TV, and elsewhere only the sizes the window takes", () => {
-    expect(cardSizeChoices(1, true)).toEqual([0.75, 1, 1.25, 1.5]);
-    expect(cardSizeChoices(1, false)).toEqual([0.75, 1]);
-    expect(cardSizeChoices(1.3, false)).toEqual([0.75, 1, 1.25]);
-    expect(cardSizeChoices(2, false)).toEqual([0.75, 1, 1.25, 1.5]);
+  it("offers the picks up to the window's ceiling", () => {
+    expect(cardSizePicks(1)).toEqual([0.75, 0.85, 1]);
+    expect(cardSizePicks(1.3)).toEqual([0.75, 0.85, 1, 1.15, 1.3]);
+    expect(cardSizePicks(2)).toEqual([0.75, 0.85, 1, 1.15, 1.3, 1.5]);
   });
 
-  it("highlights the largest offered size at or under the saved zoom", () => {
+  it("chooses the pick nearest the drawn zoom", () => {
+    expect(nearestCardSize(1.1, [0.75, 0.85, 1, 1.15, 1.3, 1.5])).toBe(1.15);
+    expect(nearestCardSize(0.9, [0.75, 0.85, 1])).toBe(0.85);
+    expect(nearestCardSize(1.6, [0.75, 0.85, 1, 1.15, 1.3, 1.5])).toBe(1.5);
+  });
+
+  it("lights the largest TV pill at or under the saved zoom", () => {
     expect(shownCardSize(1.5, [0.75, 1, 1.25])).toBe(1.25);
     expect(shownCardSize(1.15, [0.75, 1, 1.25, 1.5])).toBe(1);
     expect(shownCardSize(1, [0.75, 1])).toBe(1);
