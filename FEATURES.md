@@ -50,17 +50,17 @@ Every feature needs a Jellyfin server. The Notes column says when a feature also
 | AAC, ALAC, AC-3, E-AC-3 and well-formed FLAC copied untouched | Yes      | Yes          | Yes | Dolby Atmos in E-AC-3 is preserved                                                    |
 | TrueHD, DTS and other codecs decoded on the device            | Yes      | Yes          | Yes | To lossless FLAC, or AAC where FLAC cannot be used; not passed through as a bitstream |
 | Switch audio tracks during playback                           | Yes      | Yes          | Yes |                                                                                       |
-| Audio language remembered                                     | Yes      | Yes          | Yes | Saved to the Jellyfin account                                                         |
+| Audio language remembered                                     | Yes      | Yes          | Yes | Saved to the Jellyfin account; offline or signed out, kept on the device              |
 
 ## Subtitles
 
-| Feature                                             | Apple TV | iPhone, iPad | Mac | Notes                                     |
-| --------------------------------------------------- | -------- | ------------ | --- | ----------------------------------------- |
-| Text subtitles selectable in the player             | Yes      | Yes          | Yes |                                           |
-| Embedded text subtitles converted on the device     | Yes      | Yes          | Yes | SubRip, mov_text, ASS, SSA                |
-| Picture subtitles: PGS, VobSub, DVB, XSUB, teletext | Yes      | Yes          | Yes | Decoded and drawn on the device           |
-| Forced subtitles are selectable tracks              | Yes      | Yes          | Yes | Burned in only when the server transcodes |
-| Subtitle language remembered                        | Yes      | Yes          | Yes | Saved to the Jellyfin account             |
+| Feature                                             | Apple TV | iPhone, iPad | Mac | Notes                                                                    |
+| --------------------------------------------------- | -------- | ------------ | --- | ------------------------------------------------------------------------ |
+| Text subtitles selectable in the player             | Yes      | Yes          | Yes |                                                                          |
+| Embedded text subtitles converted on the device     | Yes      | Yes          | Yes | SubRip, mov_text, ASS, SSA                                               |
+| Picture subtitles: PGS, VobSub, DVB, XSUB, teletext | Yes      | Yes          | Yes | Decoded and drawn on the device                                          |
+| Forced subtitles are selectable tracks              | Yes      | Yes          | Yes | Burned in only when the server transcodes                                |
+| Subtitle language remembered                        | Yes      | Yes          | Yes | Saved to the Jellyfin account; offline or signed out, kept on the device |
 
 ## Quality and server transcoding
 

@@ -22,6 +22,7 @@ All notable changes to Tomo TV are documented here.
 - On Apple TV the info panel's title logo sits inside the card's 48 pt padding instead of running to its edges
 - A downloaded episode's row on the Downloads screen names its season and episode, S08E05, before its size
 - The channel wall showed Loading more items after its last channel while Tomo read the tuner playlists for channels only they carry; that read shows nothing now
+- Signed out, a subtitle or audio pick was forgotten: a downloaded episode opened with subtitles off every time. It is kept on the device now, through a relaunch. Signed in, a pick made offline was already kept on the device and sent to the account once the server is reachable
 
 ### Changed
 

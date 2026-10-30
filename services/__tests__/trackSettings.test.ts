@@ -131,6 +131,37 @@ describe("writing a pick", () => {
     expect(getTrackSettingsSync().audioLanguage).toBe("jpn");
   });
 
+  it("answers an offline pick on every later item and after a relaunch, with the server never reached", async () => {
+    fetchMock.mockRejectedValue(new Error("offline"));
+    recordSubtitlePick({ kind: "language", tag: "eng" });
+    recordAudioPick("jpn");
+    await settle();
+    await refreshTrackSettings();
+    expect(getTrackSettingsSync()).toMatchObject({ subtitleMode: "Always", subtitleLanguage: "eng", audioLanguage: "jpn", playDefaultAudio: false });
+    const onDisk = (SecureStore.setItemAsync as jest.Mock).mock.calls.filter(([key]) => key === STORAGE_KEYS.TRACK_SETTINGS).at(-1)?.[1];
+    resetTrackSettingsForTests(true);
+    (SecureStore.getItemAsync as jest.Mock).mockImplementation((key: string) => Promise.resolve(key === STORAGE_KEYS.TRACK_SETTINGS ? onDisk : null));
+    expect(await readTrackSettings()).toMatchObject({ subtitleMode: "Always", subtitleLanguage: "eng", audioLanguage: "jpn" });
+  });
+
+  it("keeps a signed-out pick on this device, through a relaunch, and never sends it", async () => {
+    const SIGNED_OUT = { server: "", userId: "", deviceId: "dev", apiKey: "" };
+    signIn(SIGNED_OUT);
+    recordSubtitlePick({ kind: "language", tag: "eng" });
+    recordAudioPick("jpn");
+    await settle();
+    await refreshTrackSettings();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(getTrackSettingsSync()).toMatchObject({ subtitleMode: "Always", subtitleLanguage: "eng", audioLanguage: "jpn", playDefaultAudio: false });
+    const onDisk = (SecureStore.setItemAsync as jest.Mock).mock.calls.filter(([key]) => key === STORAGE_KEYS.TRACK_SETTINGS).at(-1)?.[1];
+    resetTrackSettingsForTests(true);
+    (SecureStore.getItemAsync as jest.Mock).mockImplementation((key: string) => Promise.resolve(key === STORAGE_KEYS.TRACK_SETTINGS ? onDisk : null));
+    expect(await readTrackSettings()).toMatchObject({ subtitleMode: "Always", subtitleLanguage: "eng", audioLanguage: "jpn" });
+    // An account keeps its own settings: the signed-out pick is not laid over it.
+    signIn(ALICE);
+    expect(getTrackSettingsSync()).toEqual(JELLYFIN_DEFAULTS);
+  });
+
   it("keeps the pick on this device when the server refuses the user settings", async () => {
     const posts = server(serverConfiguration(), 403);
     recordAudioPick("jpn");

@@ -1,6 +1,6 @@
 /**
  * The account's audio and subtitle settings, Jellyfin's own Playback settings, so every device
- * signed in as the user shares the viewer's last pick. The last read answers offline.
+ * signed in as the user shares the viewer's last pick. The last read answers offline; signed out, picks stay on this device.
  */
 import * as SecureStore from "expo-secure-store";
 import { logger } from "@/utils/logger";
@@ -73,6 +73,9 @@ function currentAccount(): string | null {
   return accountKey(server, userId);
 }
 
+/** Signed out, picks are kept under this key, on this device only. */
+const SIGNED_OUT = "signedOut";
+
 function parse(raw: string | null): Stored {
   if (!raw) return {};
   try {
@@ -133,11 +136,10 @@ export function primeTrackSettings(): Promise<void> {
   return priming;
 }
 
-/** The signed-in account's settings as last known; Jellyfin's defaults before any read. */
+/** The signed-in account's settings as last known, or the signed-out picks; Jellyfin's defaults before any read. */
 export function getTrackSettingsSync(): TrackSettings {
   if (primeFailed && !priming) void primeTrackSettings();
-  const account = currentAccount();
-  return (account && stored[account]?.settings) || JELLYFIN_DEFAULTS;
+  return stored[currentAccount() ?? SIGNED_OUT]?.settings || JELLYFIN_DEFAULTS;
 }
 
 /** Waits for the Keychain and, briefly, for a refresh in flight: a slow server never holds up playback. */
@@ -212,7 +214,11 @@ function pushPending(account: string): Promise<void> {
 
 function record(change: Change): void {
   const account = currentAccount();
-  if (!account) return;
+  if (!account) {
+    const entry = stored[SIGNED_OUT] ?? { settings: JELLYFIN_DEFAULTS };
+    saveEntry(SIGNED_OUT, { settings: { ...entry.settings, ...change }, local: { ...entry.local, ...change } });
+    return;
+  }
   const entry = stored[account] ?? { settings: JELLYFIN_DEFAULTS };
   saveEntry(account, { ...entry, settings: { ...entry.settings, ...change }, pending: { ...entry.pending, ...change } });
   pushPending(account).catch((error) => logger.warn("Could not sync the track settings, retrying on the next refresh", { service: "TrackSettings", error }));
