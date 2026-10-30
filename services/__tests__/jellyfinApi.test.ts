@@ -1384,6 +1384,9 @@ describe("jellyfinApi", () => {
         expect(mockSecureStore.setItemAsync).toHaveBeenCalledWith("jellyfin_user_id", "demo-user-id-456");
         expect(mockSecureStore.setItemAsync).toHaveBeenCalledWith("jellyfin_is_demo_mode", "true");
 
+        // A demo connect measures the link like every other sign-in
+        expect(jest.requireMock("@/services/jellyfin/bitrateTest").warmBitrateMemory).toHaveBeenCalled();
+
         // Note: Cache clearing is wrapped in try-catch and uses dynamic imports,
         // so we don't assert on it in unit tests
       });

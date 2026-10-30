@@ -29,7 +29,7 @@ Runtime configuration backed by SecureStore, with demo mode support. Users conne
 2. Reached from the Demo face on the Who's watching screen (shown while no account is saved), the Add Server placeholder (Go on the empty field or the demo address typed) and "Try Demo Server" on the Search tab
 3. Stores demo credentials in SecureStore with the `IS_DEMO_MODE` flag; never saved as an account
 4. Users can disconnect from demo and configure their own server anytime
-5. The link to the demo is never measured (`bitrateTest.ts`); library views, themes and track settings stay on the device in demo mode
+5. The link to the demo is measured like any server's (`bitrateTest.ts`); library views, themes and track settings stay on the device in demo mode
 
 ### Demo Server Advanced Features
 

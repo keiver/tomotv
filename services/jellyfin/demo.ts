@@ -7,6 +7,7 @@
 import { logger } from "@/utils/logger";
 import { retryWithBackoff } from "@/utils/retry";
 import * as SecureStore from "expo-secure-store";
+import { warmBitrateMemory } from "./bitrateTest";
 import { API_TIMEOUTS, DEMO_ADDRESS, DEMO_PASSWORD, DEMO_SERVER_NAME, DEMO_SERVER_URL, DEMO_USERNAME, STORAGE_KEYS } from "./constants";
 import { notifyAuthChange } from "./events";
 import { fetchWithTimeout } from "./http";
@@ -235,6 +236,9 @@ export async function connectToDemoServer(clearCaches: boolean = true): Promise<
     });
 
     notifyAuthChange();
+
+    // A fresh connect only: the mid-playback credential refresh passes clearCaches false.
+    if (clearCaches) warmBitrateMemory();
   } catch (error) {
     logger.error("Failed to connect to demo server", error, {
       service: "JellyfinAPI",
