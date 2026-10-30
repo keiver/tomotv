@@ -23,6 +23,9 @@ All notable changes to Tomo TV are documented here.
 - A downloaded episode's row on the Downloads screen names its season and episode, S08E05, before its size
 - The channel wall showed Loading more items after its last channel while Tomo read the tuner playlists for channels only they carry; that read shows nothing now
 - Signed out, a subtitle or audio pick was forgotten: a downloaded episode opened with subtitles off every time. It is kept on the device now, through a relaunch. Signed in, a pick made offline was already kept on the device and sent to the account once the server is reachable
+- Resuming a 4K HDR10 MP4 whose sync table lists few of its keyframes read the file from its first sample to the resume point and the open timed out: an 8.6 GB HEVC film read 4.15 GB in 106 s (issue 109). A seek that lands more than 18 s before its target now reads around the target for the keyframe the table did not list, found in the packets' own NAL units; a replica of that file with its table cut to one entry resumed in 5.6 s (`@keiver/tomo-engine@1.4.2`)
+- On a provider that allows one stream, the hold a recording put on the provider could outlast the recording: the app counted a clear as done whether or not the engine applied it, so every channel on that provider kept showing the recording screen until a relaunch. The hold now follows the engine's own held state, and a hold or clear the engine did not take is sent again on the next sync
+- A recording that started between a channel's hold check and its open showed the generic error; it shows the Limited Connections screen with Watch Recording
 
 ### Changed
 

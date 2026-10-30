@@ -107,7 +107,7 @@ Tomo TV ships no media, channels, playlists or guides. It plays what your Jellyf
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
 ```
 
-### What's New (2.2.14), macOS (655 / 4000)
+### What's New (2.2.14), macOS (864 / 4000)
 
 ```text
 - Who's watching: the app opens on your saved accounts, with a Demo face when there are none
@@ -115,12 +115,15 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 - Skip intros, recaps, previews and commercials automatically, each one your choice
 - Sort any library by name, date added, release date, rating, runtime and more; your sort and filters are saved per library and follow your account
 - Hide or rename a live channel from its info panel
+- Lose the connection and Tomo says so and opens your Downloads
 - Book reader: tap the edge of the page to turn it
 - On Mac the arrow keys turn pages in books and photos
 - Pinch, or press Command-plus and Command-minus, to make cards bigger or smaller
+- Resuming a big 4K film no longer reads the whole file first
+- Live TV: a channel held by a recording plays again as soon as the recording ends
 ```
 
-### What's New (2.2.14), iOS (558 / 4000)
+### What's New (2.2.14), iOS (767 / 4000)
 
 ```text
 - Who's watching: the app opens on your saved accounts, with a Demo face when there are none
@@ -128,11 +131,14 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 - Skip intros, recaps, previews and commercials automatically, each one your choice
 - Sort any library by name, date added, release date, rating, runtime and more; your sort and filters are saved per library and follow your account
 - Hide or rename a live channel from its info panel
+- Lose the connection and Tomo says so and opens your Downloads
 - Book reader: tap the edge of the page to turn it
 - Pinch to make cards bigger or smaller
+- Resuming a big 4K film no longer reads the whole file first
+- Live TV: a channel held by a recording plays again as soon as the recording ends
 ```
 
-### What's New (2.2.14), tvOS (541 / 4000)
+### What's New (2.2.14), tvOS (686 / 4000)
 
 ```text
 - Who's watching: the app opens on your saved accounts, with a Demo face when there are none
@@ -141,6 +147,8 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 - Sort any library by name, date added, release date, rating, runtime and more; your sort and filters are saved per library and follow your account
 - Hide or rename a live channel from its info panel
 - Apple TV shows a skip button only for what you don't skip automatically
+- Resuming a big 4K film no longer reads the whole file first
+- Live TV: a channel held by a recording plays again as soon as the recording ends
 ```
 
 ### What's New (2.2.13), macOS (536 / 4000)
@@ -560,7 +568,7 @@ Tomo TV enthält keine Medien, Kanäle, Wiedergabelisten oder Fernsehprogramme. 
 Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin und steht in keiner Verbindung zum Jellyfin-Projekt und wird von ihm nicht unterstützt. Jellyfin ist eine Marke des jeweiligen Inhabers.
 ```
 
-#### What's New (2.2.14), macOS (780 / 4000)
+#### What's New (2.2.14), macOS (1012 / 4000)
 
 ```text
 - Wer schaut?: die App startet mit deinen gespeicherten Konten, und mit einem Demo-Gesicht, wenn es noch keine gibt
@@ -568,12 +576,15 @@ Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin
 - Intros, Rückblicke, Vorschauen und Werbung automatisch überspringen, jedes nach deiner Wahl
 - Sortiere jede Bibliothek nach Name, Hinzugefügt, Erscheinungsdatum, Bewertung, Laufzeit und mehr; Sortierung und Filter bleiben pro Bibliothek gespeichert und folgen deinem Konto
 - Blende einen Live-Kanal aus oder benenne ihn um, direkt in seinen Infos
+- Fällt die Verbindung weg, sagt Tomo Bescheid und öffnet deine Downloads
 - Lesen: tippe auf den Rand der Seite, um umzublättern
 - Auf dem Mac blättern die Pfeiltasten durch Bücher und Fotos
 - Karten per Fingerzoom oder mit Befehl-Plus und Befehl-Minus vergrößern oder verkleinern
+- Ein großer 4K-Film setzt fort, ohne vorher die ganze Datei zu lesen
+- Live-TV: ein Kanal, den eine Aufnahme belegt, läuft wieder, sobald die Aufnahme endet
 ```
 
-#### What's New (2.2.14), iOS (680 / 4000 chars)
+#### What's New (2.2.14), iOS (912 / 4000 chars)
 
 ```text
 - Wer schaut?: die App startet mit deinen gespeicherten Konten, und mit einem Demo-Gesicht, wenn es noch keine gibt
@@ -581,11 +592,14 @@ Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin
 - Intros, Rückblicke, Vorschauen und Werbung automatisch überspringen, jedes nach deiner Wahl
 - Sortiere jede Bibliothek nach Name, Hinzugefügt, Erscheinungsdatum, Bewertung, Laufzeit und mehr; Sortierung und Filter bleiben pro Bibliothek gespeichert und folgen deinem Konto
 - Blende einen Live-Kanal aus oder benenne ihn um, direkt in seinen Infos
+- Fällt die Verbindung weg, sagt Tomo Bescheid und öffnet deine Downloads
 - Lesen: tippe auf den Rand der Seite, um umzublättern
 - Karten per Fingerzoom vergrößern oder verkleinern
+- Ein großer 4K-Film setzt fort, ohne vorher die ganze Datei zu lesen
+- Live-TV: ein Kanal, den eine Aufnahme belegt, läuft wieder, sobald die Aufnahme endet
 ```
 
-#### What's New (2.2.14), tvOS (665 / 4000 chars)
+#### What's New (2.2.14), tvOS (823 / 4000 chars)
 
 ```text
 - Wer schaut?: die App startet mit deinen gespeicherten Konten, und mit einem Demo-Gesicht, wenn es noch keine gibt
@@ -594,6 +608,8 @@ Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin
 - Sortiere jede Bibliothek nach Name, Hinzugefügt, Erscheinungsdatum, Bewertung, Laufzeit und mehr; Sortierung und Filter bleiben pro Bibliothek gespeichert und folgen deinem Konto
 - Blende einen Live-Kanal aus oder benenne ihn um, direkt in seinen Infos
 - Apple TV zeigt eine Überspringen-Taste nur für das, was du nicht automatisch überspringst
+- Ein großer 4K-Film setzt fort, ohne vorher die ganze Datei zu lesen
+- Live-TV: ein Kanal, den eine Aufnahme belegt, läuft wieder, sobald die Aufnahme endet
 ```
 
 #### What's New (2.2.13), macOS (584 / 4000)
@@ -991,7 +1007,7 @@ Tomo TV ne fournit aucun média, chaîne, liste de lecture ni guide. L'app lit c
 Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'est ni affilié au projet Jellyfin ni approuvé par lui. Jellyfin est une marque de son détenteur respectif.
 ```
 
-#### What's New (2.2.14), macOS (748 / 4000)
+#### What's New (2.2.14), macOS (980 / 4000)
 
 ```text
 - Qui regarde ? : l'app s'ouvre sur vos comptes enregistrés, avec un visage Démo quand il n'y en a aucun
@@ -999,12 +1015,15 @@ Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'e
 - Passez automatiquement les intros, résumés, aperçus et publicités, chacun selon votre choix
 - Triez chaque médiathèque par nom, date d'ajout, date de sortie, note, durée et plus ; le tri et les filtres sont gardés par médiathèque et suivent votre compte
 - Masquez ou renommez une chaîne en direct depuis ses infos
+- Sans connexion, Tomo vous le dit et ouvre vos Téléchargements
 - Lecture : touchez le bord de la page pour la tourner
 - Sur Mac, les flèches tournent les pages des livres et des photos
 - Pincez, ou appuyez sur Commande-plus et Commande-moins, pour agrandir ou réduire les cartes
+- Un grand film 4K reprend sans relire tout le fichier d'abord
+- TV en direct : une chaîne retenue par un enregistrement se relance dès que l'enregistrement se termine
 ```
 
-#### What's New (2.2.14), iOS (632 / 4000 chars)
+#### What's New (2.2.14), iOS (864 / 4000 chars)
 
 ```text
 - Qui regarde ? : l'app s'ouvre sur vos comptes enregistrés, avec un visage Démo quand il n'y en a aucun
@@ -1012,11 +1031,14 @@ Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'e
 - Passez automatiquement les intros, résumés, aperçus et publicités, chacun selon votre choix
 - Triez chaque médiathèque par nom, date d'ajout, date de sortie, note, durée et plus ; le tri et les filtres sont gardés par médiathèque et suivent votre compte
 - Masquez ou renommez une chaîne en direct depuis ses infos
+- Sans connexion, Tomo vous le dit et ouvre vos Téléchargements
 - Lecture : touchez le bord de la page pour la tourner
 - Pincez pour agrandir ou réduire les cartes
+- Un grand film 4K reprend sans relire tout le fichier d'abord
+- TV en direct : une chaîne retenue par un enregistrement se relance dès que l'enregistrement se termine
 ```
 
-#### What's New (2.2.14), tvOS (621 / 4000 chars)
+#### What's New (2.2.14), tvOS (789 / 4000 chars)
 
 ```text
 - Qui regarde ? : l'app s'ouvre sur vos comptes enregistrés, avec un visage Démo quand il n'y en a aucun
@@ -1025,6 +1047,8 @@ Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'e
 - Triez chaque médiathèque par nom, date d'ajout, date de sortie, note, durée et plus ; le tri et les filtres sont gardés par médiathèque et suivent votre compte
 - Masquez ou renommez une chaîne en direct depuis ses infos
 - Apple TV n'affiche un bouton Passer que pour ce que vous ne passez pas automatiquement
+- Un grand film 4K reprend sans relire tout le fichier d'abord
+- TV en direct : une chaîne retenue par un enregistrement se relance dès que l'enregistrement se termine
 ```
 
 #### What's New (2.2.13), macOS (645 / 4000)
@@ -1422,7 +1446,7 @@ Tomo TV no incluye contenido, canales, listas de reproducción ni guías. Reprod
 Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin, y no está afiliado al proyecto Jellyfin ni respaldado por él. Jellyfin es una marca de su titular correspondiente.
 ```
 
-#### What's New (2.2.14), macOS (742 / 4000)
+#### What's New (2.2.14), macOS (965 / 4000)
 
 ```text
 - ¿Quién está viendo?: la app se abre con tus cuentas guardadas, y con una cara Demo cuando no hay ninguna
@@ -1430,12 +1454,15 @@ Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin
 - Salta intros, resúmenes, avances y comerciales automáticamente, cada uno a tu elección
 - Ordena cualquier biblioteca por nombre, fecha de adición, fecha de estreno, valoración, duración y más; el orden y los filtros se guardan por biblioteca y siguen a tu cuenta
 - Oculta o renombra un canal en vivo desde su información
+- Sin conexión, Tomo te lo dice y abre tus Descargas
 - Lectura: toca el borde de la página para pasarla
 - En el Mac, las flechas pasan las páginas de libros y fotos
 - Pellizca, o pulsa Comando-más y Comando-menos, para agrandar o reducir las tarjetas
+- Una película 4K grande se reanuda sin leer antes todo el archivo
+- TV en vivo: un canal retenido por una grabación vuelve a reproducirse en cuanto termina la grabación
 ```
 
-#### What's New (2.2.14), iOS (643 / 4000 chars)
+#### What's New (2.2.14), iOS (866 / 4000 chars)
 
 ```text
 - ¿Quién está viendo?: la app se abre con tus cuentas guardadas, y con una cara Demo cuando no hay ninguna
@@ -1443,11 +1470,14 @@ Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin
 - Salta intros, resúmenes, avances y comerciales automáticamente, cada uno a tu elección
 - Ordena cualquier biblioteca por nombre, fecha de adición, fecha de estreno, valoración, duración y más; el orden y los filtros se guardan por biblioteca y siguen a tu cuenta
 - Oculta o renombra un canal en vivo desde su información
+- Sin conexión, Tomo te lo dice y abre tus Descargas
 - Lectura: toca el borde de la página para pasarla
 - Pellizca para agrandar o reducir las tarjetas
+- Una película 4K grande se reanuda sin leer antes todo el archivo
+- TV en vivo: un canal retenido por una grabación vuelve a reproducirse en cuanto termina la grabación
 ```
 
-#### What's New (2.2.14), tvOS (625 / 4000 chars)
+#### What's New (2.2.14), tvOS (795 / 4000 chars)
 
 ```text
 - ¿Quién está viendo?: la app se abre con tus cuentas guardadas, y con una cara Demo cuando no hay ninguna
@@ -1456,6 +1486,8 @@ Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin
 - Ordena cualquier biblioteca por nombre, fecha de adición, fecha de estreno, valoración, duración y más; el orden y los filtros se guardan por biblioteca y siguen a tu cuenta
 - Oculta o renombra un canal en vivo desde su información
 - Apple TV muestra un botón de saltar solo para lo que no saltas automáticamente
+- Una película 4K grande se reanuda sin leer antes todo el archivo
+- TV en vivo: un canal retenido por una grabación vuelve a reproducirse en cuanto termina la grabación
 ```
 
 #### What's New (2.2.13), macOS (634 / 4000)
