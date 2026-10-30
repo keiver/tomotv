@@ -1,4 +1,5 @@
-import { BUNDLED_DEMO_CREDITS, DEMO_CREDITS_URL, fetchDemoCredits, groupCredits, newerManifest, parseDemoCredits, type DemoCredit } from "../demoCredits";
+import bundledJson from "@/constants/demo-credits.json";
+import { BUNDLED_DEMO_CREDITS, creditSections, DEMO_CREDITS_URL, fetchDemoCredits, newerManifest, parseDemoCredits, type DemoCredit } from "../demoCredits";
 
 const mockFetchWithTimeout = jest.fn();
 jest.mock("@/services/jellyfin/http", () => ({ fetchWithTimeout: (...args: unknown[]) => mockFetchWithTimeout(...args) }));
@@ -12,19 +13,25 @@ const credit = (library: string, title: string, more: Partial<DemoCredit> = {}):
   licence: "CC0",
   licenceUrl: "https://creativecommons.org/publicdomain/zero/1.0/",
   source: `https://example.org/${title}`,
+  image: `https://example.org/${title}.jpg`,
   ...more,
 });
 
 describe("parseDemoCredits", () => {
-  it("keeps a manifest with the full shape and fills a missing year with null", () => {
-    const parsed = parseDemoCredits({ generated: "2026-10-24T00:00:00Z", items: [credit("Space", "A clip"), { ...credit("Books", "Short Fiction"), year: undefined }] });
-    expect(parsed?.items.map((item) => item.year)).toEqual([2000, null]);
+  it("keeps a manifest with the full shape and fills a missing year or image with null", () => {
+    const parsed = parseDemoCredits({
+      generated: "2026-10-24T00:00:00Z",
+      items: [credit("Space", "A clip"), { ...credit("Books", "Short Fiction"), year: undefined, image: undefined }, credit("Live TV", "Sintel", { image: null })],
+    });
+    expect(parsed?.items.map((item) => item.year)).toEqual([2000, null, 2000]);
+    expect(parsed?.items.map((item) => item.image)).toEqual(["https://example.org/A clip.jpg", null, null]);
   });
 
-  it("rejects a manifest missing a field, a licence or the generated stamp", () => {
+  it("rejects a manifest missing a field, a licence, the generated stamp or with an empty image", () => {
     expect(parseDemoCredits(null)).toBeNull();
     expect(parseDemoCredits({ items: [credit("Space", "A clip")] })).toBeNull();
     expect(parseDemoCredits({ generated: "now", items: [credit("Space", "A clip", { licence: "" })] })).toBeNull();
+    expect(parseDemoCredits({ generated: "now", items: [credit("Space", "A clip", { image: "" })] })).toBeNull();
     expect(parseDemoCredits({ generated: "now", items: [{ title: "No source" }] })).toBeNull();
   });
 });
@@ -42,11 +49,27 @@ describe("newerManifest", () => {
   });
 });
 
-describe("groupCredits", () => {
-  it("groups by library in the demo's order, unknown libraries last, items in their given order", () => {
-    const groups = groupCredits([credit("Live TV", "Sintel"), credit("Books", "Dracula"), credit("Extras", "Thing"), credit("Space", "Aurora"), credit("Books", "Jane Eyre")]);
-    expect(groups.map((group) => group.library)).toEqual(["Space", "Books", "Live TV", "Extras"]);
-    expect(groups[1].items.map((item) => item.title)).toEqual(["Dracula", "Jane Eyre"]);
+describe("creditSections", () => {
+  it("orders libraries as the demo lists them, unknown libraries last", () => {
+    const sections = creditSections([credit("Live TV", "Sintel"), credit("Books", "Dracula"), credit("Extras", "Thing"), credit("Space", "Aurora")]);
+    expect(sections.map((section) => section.library)).toEqual(["Space", "Books", "Live TV", "Extras"]);
+  });
+
+  it("groups a library's items by maker and licence in first-seen order, items in their given order", () => {
+    const nasa = { by: "NASA", licence: "Public domain", licenceUrl: "https://nasa.example/licence" };
+    const esa = { by: "ESA", licence: "CC BY 4.0", licenceUrl: "https://creativecommons.org/licenses/by/4.0/" };
+    const [photos] = creditSections([
+      credit("Photos", "Earthrise", nasa),
+      credit("Photos", "Carina", esa),
+      credit("Photos", "Pillars", nasa),
+      credit("Photos", "Webb mirror", { ...nasa, licence: "CC BY 4.0" }),
+    ]);
+    expect(photos.groups.map((group) => [group.by, group.licence, group.licenceUrl])).toEqual([
+      ["NASA", "Public domain", "https://nasa.example/licence"],
+      ["ESA", "CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/"],
+      ["NASA", "CC BY 4.0", "https://nasa.example/licence"],
+    ]);
+    expect(photos.groups[0].items.map((item) => item.title)).toEqual(["Earthrise", "Pillars"]);
   });
 });
 
@@ -72,8 +95,9 @@ describe("fetchDemoCredits", () => {
 });
 
 describe("the bundled manifest", () => {
-  it("has the full shape and lists every demo library", () => {
-    expect(parseDemoCredits(BUNDLED_DEMO_CREDITS)).not.toBeNull();
-    expect(groupCredits(BUNDLED_DEMO_CREDITS.items).map((group) => group.library)).toEqual(["Space", "Music", "Books", "Photos", "Shows", "Live TV"]);
+  it("has the full shape, keeps every item and lists every demo library", () => {
+    expect(BUNDLED_DEMO_CREDITS.items).toHaveLength(bundledJson.items.length);
+    expect(BUNDLED_DEMO_CREDITS.items.length).toBeGreaterThan(0);
+    expect(creditSections(BUNDLED_DEMO_CREDITS.items).map((section) => section.library)).toEqual(["Space", "Music", "Books", "Photos", "Shows", "Live TV"]);
   });
 });

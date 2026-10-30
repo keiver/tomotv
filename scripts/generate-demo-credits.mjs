@@ -31,6 +31,8 @@ function validate(manifest) {
   if (typeof manifest?.generated !== "string" || !Array.isArray(manifest.items)) throw new Error(`${URL}: not a manifest with generated and items`);
   const incomplete = manifest.items.filter((item) => FIELDS.some((field) => typeof item?.[field] !== "string" || item[field].length === 0));
   if (incomplete.length) throw new Error(`${URL}: ${incomplete.length} items without a ${FIELDS.join(", ")}: ${incomplete.map((item) => item?.title).join("; ")}`);
+  const badImage = manifest.items.filter((item) => !(item.image === null || item.image === undefined || (typeof item.image === "string" && item.image.length > 0)));
+  if (badImage.length) throw new Error(`${URL}: ${badImage.length} items whose image is neither a URL nor null: ${badImage.map((item) => item.title).join("; ")}`);
   return manifest;
 }
 

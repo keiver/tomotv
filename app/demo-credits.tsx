@@ -1,20 +1,27 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { ListRow } from "@/components/settings/ListRow";
+import { PosterMark } from "@/components/settings/PosterMark";
 import { settingsStyles, sideInsets } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
-import { BUNDLED_DEMO_CREDITS, DEMO_CREDITS_URL, fetchDemoCredits, groupCredits, newerManifest, type DemoCredit, type DemoCredits } from "@/services/demoCredits";
+import { BUNDLED_DEMO_CREDITS, creditSections, DEMO_CREDITS_URL, fetchDemoCredits, newerManifest, type DemoCredit, type DemoCreditGroup, type DemoCredits } from "@/services/demoCredits";
 import { t } from "@/services/i18n";
 import { logger } from "@/utils/logger";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Linking, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
 
-/** The row's second line: maker, year when the item has one, licence. */
-export function creditSubtitle(item: DemoCredit): string {
-  return [item.by, item.year ? String(item.year) : null, item.licence].filter(Boolean).join(" · ");
+/** The group row's second line: the licence, and on TV the page it is read from, since the row cannot open it. */
+export function groupSubtitle(group: DemoCreditGroup, isTV: boolean): string {
+  return isTV ? `${group.licence} · ${group.licenceUrl}` : group.licence;
+}
+
+/** An item row's second line: on TV its source page, elsewhere its year when it has one. */
+export function itemSubtitle(item: DemoCredit, isTV: boolean): string | undefined {
+  if (isTV) return item.source;
+  return item.year ? String(item.year) : undefined;
 }
 
 /** The footer line: when the server listed the items and where it publishes the list. */
@@ -24,45 +31,22 @@ export function generatedLine(credits: DemoCredits): string {
   return t("demo.creditsGenerated").replace("{date}", when).replace("{url}", DEMO_CREDITS_URL);
 }
 
-/**
- * A source or licence page under an expanded row. On TV it is a focus stop the remote can
- * read, with nothing behind it; on phone and Mac it opens the page.
- */
-function PageLink({ label, url }: { label: string; url: string }) {
-  const open = useCallback(() => {
-    void Linking.openURL(url).catch((error) => logger.warn("Credits link failed to open", error, { service: "DemoCreditsScreen" }));
-  }, [url]);
-  if (IS_TV) {
-    return (
-      <Pressable isTVSelectable={true} accessibilityRole="text" style={({ focused }) => [styles.link, focused && styles.linkFocused]}>
-        {({ focused }) => (
-          <Text style={[styles.linkText, focused && styles.linkTextFocused]}>
-            {label}: {url}
-          </Text>
-        )}
-      </Pressable>
-    );
-  }
-  return (
-    <Pressable accessibilityRole="link" accessibilityLabel={`${label}: ${url}`} accessibilityHint={t("demo.sourceHint")} onPress={open} style={styles.link}>
-      <Text style={[styles.linkText, styles.linkTextPhone]}>
-        {label}: {url}
-      </Text>
-    </Pressable>
-  );
+function openPage(url: string) {
+  void Linking.openURL(url).catch((error) => logger.warn("Credits link failed to open", error, { service: "DemoCreditsScreen" }));
 }
 
 /**
- * Every item on the demo server with its maker, licence and source, pushed from the Media Licenses
- * row under About. Opens on the manifest the app ships, then asks the server for its current one
- * and swaps it in when it is newer; a server that does not answer changes nothing. Selecting a
- * row shows its licence and the pages it was read from. The Menu/back button pops the route.
+ * Every item on the demo server with its maker, licence, source and picture, pushed from the
+ * Media Licenses row under About. Each library is a header; under it one card per maker and
+ * licence, led by a row that opens the licence page, then a nested row per item that opens its
+ * source page. Opens on the manifest the app ships, then asks the server for its current one and
+ * swaps it in when it is newer; a server that does not answer changes nothing. The Menu/back
+ * button pops the route.
  */
 export default function DemoCreditsScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const [credits, setCredits] = useState<DemoCredits>(BUNDLED_DEMO_CREDITS);
-  const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -74,8 +58,9 @@ export default function DemoCreditsScreen() {
     };
   }, []);
 
-  const groups = useMemo(() => groupCredits(credits.items), [credits]);
-  const toggle = useCallback((key: string) => setExpandedKey((previous) => (previous === key ? null : key)), []);
+  const sections = useMemo(() => creditSections(credits.items), [credits]);
+  const openLicence = useCallback((group: DemoCreditGroup) => openPage(group.licenceUrl), []);
+  const openSource = useCallback((item: DemoCredit) => openPage(item.source), []);
 
   return (
     <View style={settingsStyles.screenContainer}>
@@ -94,41 +79,40 @@ export default function DemoCreditsScreen() {
           {IS_TV && <Text style={styles.title}>{t("settings.mediaLicenses")}</Text>}
           <Text style={styles.intro}>{t("demo.creditsIntro")}</Text>
 
-          {groups.map((group, groupIndex) => (
-            <View key={group.library}>
+          {sections.map((section, sectionIndex) => (
+            <View key={section.library}>
               <View style={settingsStyles.sectionHeader}>
-                <Text style={settingsStyles.sectionHeaderText}>{group.library}</Text>
+                <Text style={settingsStyles.sectionHeaderText}>{section.library}</Text>
               </View>
-              <View style={settingsStyles.section}>
-                {group.items.map((item, index) => {
-                  const key = `${item.library}/${item.title}`;
-                  const expanded = expandedKey === key;
-                  return (
-                    <View key={key}>
-                      <ListRow
-                        title={item.title}
-                        subtitle={creditSubtitle(item)}
-                        subtitleLines={2}
-                        trailingIcon={expanded ? "chevron-up" : "chevron-down"}
-                        onPress={() => toggle(key)}
-                        hasTVPreferredFocus={groupIndex === 0 && index === 0}
-                        isFirst={index === 0}
-                        isLast={index === group.items.length - 1 && !expanded}
-                        accessibilityLabel={`${item.title}, ${creditSubtitle(item)}`}
-                        accessibilityState={{ expanded }}
-                        accessibilityHint={t("demo.creditsRowHint")}
-                      />
-                      {expanded && (
-                        <View style={styles.body}>
-                          <Text style={styles.licence}>{item.licence}</Text>
-                          <PageLink label={t("demo.source")} url={item.source} />
-                          {item.licenceUrl !== item.source && <PageLink label={t("demo.licence")} url={item.licenceUrl} />}
-                        </View>
-                      )}
-                    </View>
-                  );
-                })}
-              </View>
+              {section.groups.map((group, groupIndex) => (
+                <View key={`${section.library}/${group.by}/${group.licence}`} style={settingsStyles.section}>
+                  <ListRow
+                    icon="ribbon-outline"
+                    title={group.by}
+                    subtitle={groupSubtitle(group, IS_TV)}
+                    trailingIcon={IS_TV ? undefined : "open-outline"}
+                    onPress={() => openLicence(group)}
+                    hasTVPreferredFocus={sectionIndex === 0 && groupIndex === 0}
+                    isFirst
+                    accessibilityLabel={`${group.by}, ${group.licence}`}
+                    accessibilityHint={t("demo.licenceHint")}
+                  />
+                  {group.items.map((item, index) => (
+                    <ListRow
+                      key={`${item.library}/${item.title}`}
+                      nested
+                      icon={item.image ? () => <PosterMark uri={item.image} /> : "film-outline"}
+                      title={item.title}
+                      subtitle={itemSubtitle(item, IS_TV)}
+                      trailingIcon={IS_TV ? undefined : "open-outline"}
+                      onPress={() => openSource(item)}
+                      isLast={index === group.items.length - 1}
+                      accessibilityLabel={item.year ? `${item.title}, ${item.year}` : item.title}
+                      accessibilityHint={t("demo.sourceHint")}
+                    />
+                  ))}
+                </View>
+              ))}
             </View>
           ))}
 
@@ -154,38 +138,6 @@ const styles = StyleSheet.create({
     lineHeight: IS_TV ? 30 : 20,
     marginBottom: IS_TV ? 12 : 6,
     marginHorizontal: IS_TV ? 16 : 8,
-  },
-  body: {
-    backgroundColor: "rgba(0, 0, 0, 0.25)",
-    paddingVertical: IS_TV ? 16 : 10,
-    paddingHorizontal: IS_TV ? 24 : 16,
-  },
-  licence: {
-    fontSize: IS_TV ? 22 : 13,
-    lineHeight: IS_TV ? 30 : 18,
-    color: COLORS.TEXT_BODY,
-    marginBottom: IS_TV ? 10 : 6,
-  },
-  // TV: a focus stop so the remote can reach the address; phone: a link.
-  link: {
-    borderRadius: 12,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    marginHorizontal: -12,
-  },
-  linkFocused: {
-    backgroundColor: "rgba(255, 255, 255, 0.08)",
-  },
-  linkText: {
-    fontSize: IS_TV ? 20 : 12,
-    lineHeight: IS_TV ? 28 : 17,
-    color: COLORS.TEXT_SECONDARY,
-  },
-  linkTextFocused: {
-    color: COLORS.TEXT_BRIGHT,
-  },
-  linkTextPhone: {
-    color: COLORS.ACCENT,
   },
   footer: {
     fontSize: IS_TV ? 18 : 12,
