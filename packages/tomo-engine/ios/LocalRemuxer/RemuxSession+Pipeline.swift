@@ -21,6 +21,7 @@ private let SWIFT_AV_NOPTS_VALUE = Int64(bitPattern: 0x8000_0000_0000_0000)
 private let SWIFT_AV_TIME_BASE: Int32 = 1_000_000
 private let SWIFT_AVSEEK_FLAG_BACKWARD: Int32 = 1
 private let SWIFT_AVSEEK_FLAG_BYTE: Int32 = 2
+private let SWIFT_AVSEEK_FLAG_ANY: Int32 = 4
 private let SWIFT_AVSEEK_SIZE: Int32 = 0x10000
 private let SWIFT_AVFMT_FLAG_CUSTOM_IO: Int32 = 0x0080
 private let SWIFT_AVERROR_EIO: Int32 = -5
@@ -321,6 +322,10 @@ extension RemuxSession {
     /// A landing further than this before the target seeks again rather than reading forward to it.
     static let byteSeekSlack = 18.0
     static let byteSeekTries = 3
+    /// A seek that landed short reads from this far before its target for the last keyframe at or
+    /// before it, then this far past it for the first one after, before the session fails.
+    static let keyframeScanBackSeconds = 15.0
+    static let keyframeScanSeconds = 30.0
 
     static func restartSeekSegment(for segment: Int, partialOpens: Int, prerolls: Bool = false) -> Int {
         max(0, segment - min(partialOpens + (prerolls ? 1 : 0), partialOpenLookback))
@@ -2141,6 +2146,13 @@ extension RemuxSession {
         var timelineAnchorUs: Int64 = 0
         /// A restart that seeked an MPEG-TS input by byte estimate: its target (source seconds) and tries.
         var byteSeek: (target: Double, tries: Int)?
+        /// The last restart's index seek target in source time, nil after a byte seek.
+        var indexSeekTargetUs: Int64?
+        /// An index seek that landed short reads for a keyframe the index did not list: the target, the source
+        /// time the read gives up at, the last keyframe seen at or before the target, and whether the next one opens.
+        var keyframeScan: (targetUs: Int64, untilUs: Int64, lastUs: Int64?, opensNext: Bool)?
+        /// The generation opened on a keyframe that read found.
+        var scanOpened = false
 
         // Segment this generation was restarted for. The generation opens on
         // the keyframe at or before it, which can belong to an earlier segment.
@@ -2635,12 +2647,16 @@ extension RemuxSession {
             stateLock.lock()
             let map = byteMap
             stateLock.unlock()
+            keyframeScan = nil
+            scanOpened = false
             if let pos = map?.position(forSeconds: targetSeconds - Self.byteSeekLead) {
                 seekRet = avformat_seek_file(input, -1, Int64.min, pos, pos, SWIFT_AVSEEK_FLAG_BYTE)
                 byteSeek = (targetSeconds, 1)
+                indexSeekTargetUs = nil
             } else {
                 seekRet = seekBackward(input, stream: -1, to: targetUs)
                 byteSeek = nil
+                indexSeekTargetUs = targetUs
             }
             if seekRet < 0 {
                 if !failOnSeekError {
@@ -2854,6 +2870,10 @@ extension RemuxSession {
                 break
             }
             if ret == SWIFT_AVERROR_EOF {
+                if keyframeScan != nil {
+                    fail("seek for segment \(generationRequestSegment) landed short and the file ended before a keyframe")
+                    break
+                }
                 // Audio that stopped short of the last frame runs on in silence to it. Before the
                 // flush: a transcoder queues the silence behind its own samples, then flushes both.
                 if hasVideo { padSilence(upTo: pictureReadEnd, atEnd: true) }
@@ -3043,7 +3063,7 @@ extension RemuxSession {
             // An inactive track's packets are demuxed with the rest and go no further: no decode,
             // no encode, no mux, until a pick or the ramp brings the track up.
             if !isVideo, !rendition.active { continue }
-            let isKey = pkt.pointee.flags & SWIFT_AV_PKT_FLAG_KEY != 0
+            var isKey = pkt.pointee.flags & SWIFT_AV_PKT_FLAG_KEY != 0
             if isVideo, isKey, !awaitingKeyframe, let map = byteMap, pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE {
                 map.record(pos: pkt.pointee.pos, seconds: Double(pkt.pointee.pts) * av_q2d(inStream.pointee.time_base))
             }
@@ -3105,6 +3125,42 @@ extension RemuxSession {
             }
 
             if awaitingKeyframe {
+                // A sync table that missed its keyframes leaves them unflagged: the read finds them in
+                // the NAL units, the last one at or before the target first, else the first one after.
+                if var scan = keyframeScan, isVideo, pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE, let par = inStream.pointee.codecpar {
+                    let ptsUs = av_rescale_q(pkt.pointee.pts, inStream.pointee.time_base, microTb)
+                    let opens = isKey || RandomAccessPacket.opens(pkt, hevc: par.pointee.codec_id == AV_CODEC_ID_HEVC,
+                                                                 lengthSize: RandomAccessPacket.lengthSize(par))
+                    if !scan.opensNext, ptsUs <= scan.targetUs {
+                        if opens { scan.lastUs = ptsUs }
+                        keyframeScan = scan
+                        continue
+                    }
+                    if !scan.opensNext {
+                        scan.opensNext = true
+                        keyframeScan = scan
+                        if let last = scan.lastUs {
+                            let back = last - Int64(SWIFT_AV_TIME_BASE)
+                            guard avformat_seek_file(input, -1, Int64.min, back, back, SWIFT_AVSEEK_FLAG_BACKWARD | SWIFT_AVSEEK_FLAG_ANY) >= 0 else {
+                                fail("seek for segment \(generationRequestSegment) landed short and the seek back to its keyframe failed")
+                                break
+                            }
+                            restartLinkSample()
+                            continue
+                        }
+                    }
+                    if opens {
+                        pkt.pointee.flags |= SWIFT_AV_PKT_FLAG_KEY
+                        isKey = true
+                        keyframeScan = nil
+                        scanOpened = true
+                        NSLog("[LocalRemuxer] keyframe read at %.2fs for segment %d, unlisted by the index",
+                              Double(ptsUs) / Double(SWIFT_AV_TIME_BASE), generationRequestSegment)
+                    } else if ptsUs > scan.untilUs {
+                        fail("seek for segment \(generationRequestSegment) landed short and no keyframe follows within \(Int(Self.keyframeScanSeconds))s of it")
+                        break
+                    }
+                }
                 // Every audio frame is independently decodable, so any packet of
                 // the timing stream opens an audio-only generation.
                 if !(isTimingStream && (isKey || !hasVideo)) { continue }
@@ -3149,6 +3205,24 @@ extension RemuxSession {
                 // before it and that segment still ends up fully covered.
                 let openSeconds = Double(keyframeUs - anchor) / Double(SWIFT_AV_TIME_BASE)
                 let openSegment = segmentIndex(atSeconds: openSeconds)
+                // An index seek that landed further before its segment than the slack has no nearer
+                // keyframe in the demuxer's table: the read seeks to any sample before the target and
+                // opens on a keyframe its NAL units name, instead of reading forward to the segment from here.
+                if let targetUs = indexSeekTargetUs, byteSeek == nil, keyframeScan == nil,
+                   Double(targetUs - keyframeUs) / Double(SWIFT_AV_TIME_BASE) > Self.byteSeekSlack {
+                    let short = Double(targetUs - keyframeUs) / Double(SWIFT_AV_TIME_BASE)
+                    let containerStartUs = input.pointee.start_time == SWIFT_AV_NOPTS_VALUE ? 0 : input.pointee.start_time
+                    let from = max(containerStartUs, targetUs - Int64(Self.keyframeScanBackSeconds * Double(SWIFT_AV_TIME_BASE)))
+                    guard avformat_seek_file(input, -1, Int64.min, from, from, SWIFT_AVSEEK_FLAG_BACKWARD | SWIFT_AVSEEK_FLAG_ANY) >= 0 else {
+                        fail("seek for segment \(generationRequestSegment) landed \(Int(short))s before it and a seek to any sample near it failed")
+                        break
+                    }
+                    restartLinkSample()
+                    keyframeScan = (targetUs, targetUs + Int64(Self.keyframeScanSeconds * Double(SWIFT_AV_TIME_BASE)), nil, false)
+                    NSLog("[LocalRemuxer] Seek for segment %d landed %.1fs before it: reading from %.0fs before the target for a keyframe",
+                          generationRequestSegment, short, Double(targetUs - from) / Double(SWIFT_AV_TIME_BASE))
+                    continue
+                }
                 // A byte-estimated seek that landed past its segment, or far before it, seeks again on a
                 // map the landing just sharpened; after three tries FFmpeg's own search finds it.
                 if let landing = byteSeek {
@@ -3180,6 +3254,15 @@ extension RemuxSession {
                     byteSeek = nil
                 }
                 if openSegment > generationRequestSegment {
+                    // A keyframe read past the requested segment: the next restart seeks earlier, as
+                    // one that opened past its start does, until the lookback is spent.
+                    if scanOpened, Self.withholdsPartialOpen(partialOpens: (partialOpens[generationRequestSegment] ?? 0) + 1) {
+                        partialOpens[generationRequestSegment, default: 0] += 1
+                        lateOpenRestart = generationRequestSegment
+                        scanOpened = false
+                        NSLog("[LocalRemuxer] keyframe for segment %d read in segment %d: seeking earlier", generationRequestSegment, openSegment)
+                        continue
+                    }
                     // Only reachable through a defective index that seeks past
                     // the target. Producing from here would stamp the wrong
                     // content with the requested segment's timestamps, so die
@@ -3200,6 +3283,7 @@ extension RemuxSession {
                 // Now, not at the waiter's re-assert 2s later (measured 2.0s vs 0.8s between restarts).
                 if partialOpenSegment == generationRequestSegment, openSegment > 0 { lateOpenRestart = openSegment }
                 awaitingKeyframe = false
+                scanOpened = false
                 }
             }
 

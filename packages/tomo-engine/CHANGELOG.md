@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.2
+
+- A VOD seek whose keyframe lands more than 18 s before its target no longer reads the file forward from there to the requested segment. The read seeks to any sample 15 s before the target and takes the last packet at or before it whose NAL units are a keyframe (H.264 IDR; HEVC BLA, IDR or CRA, the types FFmpeg's own HEVC parser flags), else the first one within 30 s after; a keyframe found past the requested segment takes the partial-open lookback (one segment earlier, three times); none at all, or the end of the file, fails the session with a `landed short` reason instead of reading on. A seek that lands on the file's first sample read the file to the resume point while the request timed out at 20 s (issue 109: an 8.6 GB HEVC Main 10 HDR10 MP4 read 4.15 GB in 106 s). Measured on a replica of that file (3840x2160 hvc1, PQ `colr`, open GOP with sync sample groups, AAC and E-AC3, 206 on every range, read over the 2 MiB ranged reader): with its `stss` intact it resumes on one restart; with the table cut to one entry it resumed from the CRA at 40 s in 5.6 s (`SparseSyncTableSeekTests`). `RandomAccessPacket` reads the keyframe from a packet's NAL units with the prefix width from avcC or hvcC, or Annex B start codes (`RandomAccessPacketTests`).
+
 ## 1.4.1
 
 - Test comments describe the grouped live master by its shape alone (`LiveVariantPickerTests`, `LiveSelectiveOpenTests`). No code change.
