@@ -81,7 +81,7 @@ Every feature needs a Jellyfin server. The Notes column says when a feature also
 | Movies, shows, music videos, trailers and home videos                   | Yes      | Yes          | Yes |                                                           |
 | Collections and playlists                                               | Yes      | Yes          | Yes |                                                           |
 | Cards show progress, watched, favorite and episode numbers              | Yes      | Yes          | Yes |                                                           |
-| Pinch to make cards bigger or smaller                                   | No       | iPad         | Yes | Home, folders and search; Command-plus and minus on Mac   |
+| Pinch to make cards bigger or smaller                                   | No       | Yes          | Yes | Home, folders and search; Command-plus and minus on Mac   |
 | A folder with no picture shows a collage of what it holds               | Yes      | Yes          | Yes |                                                           |
 | Info panel: cast, ratings, plot, technical details                      | Yes      | Yes          | Yes | Hold a card to open it                                    |
 | Info panel shows how the file will play                                 | Yes      | Yes          | Yes | On the device, re-encoded on the device, or by the server |
@@ -203,6 +203,7 @@ Every feature needs a Jellyfin server. The Notes column says when a feature also
 | Themes: Tomo, Green, Blue, Purple, or your own          | Yes      | Yes          | Yes | Saved themes follow the Jellyfin account |
 | Theme editor: hue, saturation, brightness or a hex code | Yes      | Yes          | Yes |                                          |
 | Background: Folder artwork, Theme color, Clear          | Yes      | Yes          | Yes |                                          |
+| Card size, saved on the device                          | Yes      | Yes          | Yes | Appearance; a pinch sets it off Apple TV |
 | English, German, French, Spanish                        | Yes      | Yes          | Yes | Follows the device or picked in Settings |
 | Reduce Motion is honored                                | Yes      | Yes          | Yes |                                          |
 

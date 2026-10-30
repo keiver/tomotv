@@ -61,7 +61,7 @@ Free and open source, no ads, no account. Plays Live TV, 4K, Dolby Vision and Do
 player,downloads,server,nas,atmos,dolby,surround,hevc,mkv,subtitle,selfhosted,audiobook,comics,epub
 ```
 
-### Description (2,177 / 4000)
+### Description (2,198 / 4000)
 
 ```text
 Tomo TV plays your Jellyfin library on Apple TV, iPhone, iPad and Mac. Your device plays the file itself: H.264 and HEVC in any container, including 4K, HDR10, HLG and Dolby Vision. Most other formats are converted on the device. Your server transcodes only when the connection is too slow or the device cannot play the file.
@@ -81,11 +81,11 @@ WHAT YOU GET
 - Search across your library and Live TV
 - Continue Watching in sync with your server, and Up Next between episodes
 - Top Shelf on Apple TV with Continue Watching and your recent channels
-- Skip Intro and Skip Credits on Apple TV, when your server has the markers
+- Skips intros, recaps, previews and commercials for you, when your server has the markers
 - Audio tracks and subtitles you can switch while watching
 - SyncPlay: watch together with others on your server
 - Several servers and users, with no password to retype
-- Filters, favorites and shuffle
+- Sort & Filter, favorites and shuffle
 - Themes you pick or make yourself
 
 SET UP IN SECONDS
@@ -107,7 +107,7 @@ Tomo TV ships no media, channels, playlists or guides. It plays what your Jellyf
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
 ```
 
-### What's New (2.2.14), macOS (864 / 4000)
+### What's New (2.2.14), macOS (919 / 4000)
 
 ```text
 - Who's watching: the app opens on your saved accounts, with a Demo face when there are none
@@ -119,11 +119,12 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 - Book reader: tap the edge of the page to turn it
 - On Mac the arrow keys turn pages in books and photos
 - Pinch, or press Command-plus and Command-minus, to make cards bigger or smaller
+- Pick a card size under Appearance; Tomo remembers it
 - Resuming a big 4K film no longer reads the whole file first
 - Live TV: a channel held by a recording plays again as soon as the recording ends
 ```
 
-### What's New (2.2.14), iOS (767 / 4000)
+### What's New (2.2.14), iOS (822 / 4000)
 
 ```text
 - Who's watching: the app opens on your saved accounts, with a Demo face when there are none
@@ -134,11 +135,12 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 - Lose the connection and Tomo says so and opens your Downloads
 - Book reader: tap the edge of the page to turn it
 - Pinch to make cards bigger or smaller
+- Pick a card size under Appearance; Tomo remembers it
 - Resuming a big 4K film no longer reads the whole file first
 - Live TV: a channel held by a recording plays again as soon as the recording ends
 ```
 
-### What's New (2.2.14), tvOS (686 / 4000)
+### What's New (2.2.14), tvOS (741 / 4000)
 
 ```text
 - Who's watching: the app opens on your saved accounts, with a Demo face when there are none
@@ -147,6 +149,7 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 - Sort any library by name, date added, release date, rating, runtime and more; your sort and filters are saved per library and follow your account
 - Hide or rename a live channel from its info panel
 - Apple TV shows a skip button only for what you don't skip automatically
+- Pick a card size under Appearance; Tomo remembers it
 - Resuming a big 4K film no longer reads the whole file first
 - Live TV: a channel held by a recording plays again as soon as the recording ends
 ```
@@ -522,7 +525,7 @@ Kostenlos, quelloffen, ohne Werbung und ohne Konto. Spielt Live-TV, 4K, Dolby Vi
 player,download,server,nas,atmos,dolby,surround,hevc,mkv,untertitel,heimkino,hörbuch,comics,epub
 ```
 
-#### Description (2461 / 4000 chars)
+#### Description (2492 / 4000 chars)
 
 ```text
 Tomo TV spielt deine Jellyfin-Bibliothek auf Apple TV, iPhone, iPad und Mac. Dein Gerät spielt die Datei selbst ab: H.264 und HEVC in jedem Container, auch in 4K, HDR10, HLG und Dolby Vision. Die meisten anderen Formate wandelt das Gerät um. Dein Server wandelt nur um, wenn die Verbindung zu langsam ist oder das Gerät die Datei nicht abspielen kann.
@@ -542,11 +545,11 @@ WAS DU BEKOMMST
 - Suche in deiner Bibliothek und im Live-TV
 - Weiterschauen, synchron mit deinem Server, und Als Nächstes zwischen den Folgen
 - Top Shelf auf dem Apple TV mit Weiterschauen und deinen letzten Kanälen
-- Intro und Abspann überspringen auf dem Apple TV, wenn dein Server die Marker hat
+- Überspringt Intros, Rückblicke, Vorschauen und Werbung für dich, wenn dein Server die Marker hat
 - Tonspuren und Untertitel, die du beim Schauen wechseln kannst
 - SyncPlay: gemeinsam schauen mit anderen auf deinem Server
 - Mehrere Server und Benutzer, ohne das Passwort erneut einzugeben
-- Filter, Favoriten und Zufallswiedergabe
+- Sortieren und Filtern, Favoriten und Zufallswiedergabe
 - Themen, die du auswählst oder selbst erstellst
 
 IN SEKUNDEN EINGERICHTET
@@ -568,7 +571,7 @@ Tomo TV enthält keine Medien, Kanäle, Wiedergabelisten oder Fernsehprogramme. 
 Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin und steht in keiner Verbindung zum Jellyfin-Projekt und wird von ihm nicht unterstützt. Jellyfin ist eine Marke des jeweiligen Inhabers.
 ```
 
-#### What's New (2.2.14), macOS (1012 / 4000)
+#### What's New (2.2.14), macOS (1076 / 4000)
 
 ```text
 - Wer schaut?: die App startet mit deinen gespeicherten Konten, und mit einem Demo-Gesicht, wenn es noch keine gibt
@@ -580,11 +583,12 @@ Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin
 - Lesen: tippe auf den Rand der Seite, um umzublättern
 - Auf dem Mac blättern die Pfeiltasten durch Bücher und Fotos
 - Karten per Fingerzoom oder mit Befehl-Plus und Befehl-Minus vergrößern oder verkleinern
+- Wähle unter Darstellung eine Kartengröße; Tomo merkt sie sich
 - Ein großer 4K-Film setzt fort, ohne vorher die ganze Datei zu lesen
 - Live-TV: ein Kanal, den eine Aufnahme belegt, läuft wieder, sobald die Aufnahme endet
 ```
 
-#### What's New (2.2.14), iOS (912 / 4000 chars)
+#### What's New (2.2.14), iOS (976 / 4000 chars)
 
 ```text
 - Wer schaut?: die App startet mit deinen gespeicherten Konten, und mit einem Demo-Gesicht, wenn es noch keine gibt
@@ -595,11 +599,12 @@ Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin
 - Fällt die Verbindung weg, sagt Tomo Bescheid und öffnet deine Downloads
 - Lesen: tippe auf den Rand der Seite, um umzublättern
 - Karten per Fingerzoom vergrößern oder verkleinern
+- Wähle unter Darstellung eine Kartengröße; Tomo merkt sie sich
 - Ein großer 4K-Film setzt fort, ohne vorher die ganze Datei zu lesen
 - Live-TV: ein Kanal, den eine Aufnahme belegt, läuft wieder, sobald die Aufnahme endet
 ```
 
-#### What's New (2.2.14), tvOS (823 / 4000 chars)
+#### What's New (2.2.14), tvOS (887 / 4000 chars)
 
 ```text
 - Wer schaut?: die App startet mit deinen gespeicherten Konten, und mit einem Demo-Gesicht, wenn es noch keine gibt
@@ -608,6 +613,7 @@ Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin
 - Sortiere jede Bibliothek nach Name, Hinzugefügt, Erscheinungsdatum, Bewertung, Laufzeit und mehr; Sortierung und Filter bleiben pro Bibliothek gespeichert und folgen deinem Konto
 - Blende einen Live-Kanal aus oder benenne ihn um, direkt in seinen Infos
 - Apple TV zeigt eine Überspringen-Taste nur für das, was du nicht automatisch überspringst
+- Wähle unter Darstellung eine Kartengröße; Tomo merkt sie sich
 - Ein großer 4K-Film setzt fort, ohne vorher die ganze Datei zu lesen
 - Live-TV: ein Kanal, den eine Aufnahme belegt, läuft wieder, sobald die Aufnahme endet
 ```
@@ -961,7 +967,7 @@ Gratuit, open source, sans pub ni compte. Lit la TV en direct, la 4K, le Dolby V
 lecteur,téléchargement,serveur,nas,atmos,dolby,hevc,mkv,sous-titres,cinéma,bd,epub
 ```
 
-#### Description (2466 / 4000 chars)
+#### Description (2488 / 4000 chars)
 
 ```text
 Tomo TV lit votre médiathèque Jellyfin sur Apple TV, iPhone, iPad et Mac. Votre appareil lit lui-même le fichier : H.264 et HEVC dans n'importe quel conteneur, 4K, HDR10, HLG et Dolby Vision compris. La plupart des autres formats sont convertis sur l'appareil. Votre serveur ne convertit que si la connexion est trop lente ou si l'appareil ne peut pas lire le fichier.
@@ -981,11 +987,11 @@ CE QUE VOUS AVEZ
 - Recherche dans votre médiathèque et la TV en direct
 - Continuer de regarder, synchronisé avec votre serveur, et À suivre entre les épisodes
 - Top Shelf sur l'Apple TV avec Continuer de regarder et vos chaînes récentes
-- Passer l'intro et le générique sur l'Apple TV, quand votre serveur a les marqueurs
+- Passe les intros, résumés, aperçus et publicités pour vous, quand votre serveur a les marqueurs
 - Pistes audio et sous-titres à changer en cours de lecture
 - SyncPlay : regardez en même temps que d'autres sur votre serveur
 - Plusieurs serveurs et utilisateurs, sans ressaisir de mot de passe
-- Filtres, favoris et lecture aléatoire
+- Trier et filtrer, favoris et lecture aléatoire
 - Thèmes à choisir ou à créer vous-même
 
 CONFIGURÉ EN QUELQUES SECONDES
@@ -1007,7 +1013,7 @@ Tomo TV ne fournit aucun média, chaîne, liste de lecture ni guide. L'app lit c
 Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'est ni affilié au projet Jellyfin ni approuvé par lui. Jellyfin est une marque de son détenteur respectif.
 ```
 
-#### What's New (2.2.14), macOS (980 / 4000)
+#### What's New (2.2.14), macOS (1050 / 4000)
 
 ```text
 - Qui regarde ? : l'app s'ouvre sur vos comptes enregistrés, avec un visage Démo quand il n'y en a aucun
@@ -1019,11 +1025,12 @@ Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'e
 - Lecture : touchez le bord de la page pour la tourner
 - Sur Mac, les flèches tournent les pages des livres et des photos
 - Pincez, ou appuyez sur Commande-plus et Commande-moins, pour agrandir ou réduire les cartes
+- Choisissez une taille de cartes dans Apparence ; Tomo s'en souvient
 - Un grand film 4K reprend sans relire tout le fichier d'abord
 - TV en direct : une chaîne retenue par un enregistrement se relance dès que l'enregistrement se termine
 ```
 
-#### What's New (2.2.14), iOS (864 / 4000 chars)
+#### What's New (2.2.14), iOS (934 / 4000 chars)
 
 ```text
 - Qui regarde ? : l'app s'ouvre sur vos comptes enregistrés, avec un visage Démo quand il n'y en a aucun
@@ -1034,11 +1041,12 @@ Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'e
 - Sans connexion, Tomo vous le dit et ouvre vos Téléchargements
 - Lecture : touchez le bord de la page pour la tourner
 - Pincez pour agrandir ou réduire les cartes
+- Choisissez une taille de cartes dans Apparence ; Tomo s'en souvient
 - Un grand film 4K reprend sans relire tout le fichier d'abord
 - TV en direct : une chaîne retenue par un enregistrement se relance dès que l'enregistrement se termine
 ```
 
-#### What's New (2.2.14), tvOS (789 / 4000 chars)
+#### What's New (2.2.14), tvOS (859 / 4000 chars)
 
 ```text
 - Qui regarde ? : l'app s'ouvre sur vos comptes enregistrés, avec un visage Démo quand il n'y en a aucun
@@ -1047,6 +1055,7 @@ Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'e
 - Triez chaque médiathèque par nom, date d'ajout, date de sortie, note, durée et plus ; le tri et les filtres sont gardés par médiathèque et suivent votre compte
 - Masquez ou renommez une chaîne en direct depuis ses infos
 - Apple TV n'affiche un bouton Passer que pour ce que vous ne passez pas automatiquement
+- Choisissez une taille de cartes dans Apparence ; Tomo s'en souvient
 - Un grand film 4K reprend sans relire tout le fichier d'abord
 - TV en direct : une chaîne retenue par un enregistrement se relance dès que l'enregistrement se termine
 ```
@@ -1400,7 +1409,7 @@ Gratis, código abierto, sin anuncios ni cuenta. Reproduce TV en vivo, 4K, Dolby
 reproductor,descargas,servidor,nas,atmos,dolby,hevc,mkv,subtitulos,audiolibro,cine,comics,epub
 ```
 
-#### Description (2409 / 4000 chars)
+#### Description (2427 / 4000 chars)
 
 ```text
 Tomo TV reproduce tu biblioteca de Jellyfin en Apple TV, iPhone, iPad y Mac. Tu dispositivo reproduce el archivo por sí mismo: H.264 y HEVC en cualquier contenedor, con 4K, HDR10, HLG y Dolby Vision incluidos. La mayoría de los demás formatos se convierten en el dispositivo. Tu servidor solo convierte si la conexión es demasiado lenta o el dispositivo no puede reproducir el archivo.
@@ -1420,11 +1429,11 @@ QUÉ INCLUYE
 - Búsqueda en tu biblioteca y en Televisión en vivo
 - Seguir viendo sincronizado con tu servidor, y A continuación entre episodios
 - Top Shelf en el Apple TV con Seguir viendo y tus canales recientes
-- Saltar intro y saltar créditos en el Apple TV, cuando tu servidor tiene los marcadores
+- Salta intros, resúmenes, avances y comerciales por ti, cuando tu servidor tiene los marcadores
 - Pistas de audio y subtítulos que puedes cambiar al reproducir
 - SyncPlay: ve lo mismo al mismo tiempo con otras personas de tu servidor
 - Varios servidores y usuarios, sin volver a escribir la contraseña
-- Filtros, favoritos y modo aleatorio
+- Ordenar y filtrar, favoritos y modo aleatorio
 - Temas que eliges o creas tú
 
 LISTO EN SEGUNDOS
@@ -1446,7 +1455,7 @@ Tomo TV no incluye contenido, canales, listas de reproducción ni guías. Reprod
 Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin, y no está afiliado al proyecto Jellyfin ni respaldado por él. Jellyfin es una marca de su titular correspondiente.
 ```
 
-#### What's New (2.2.14), macOS (965 / 4000)
+#### What's New (2.2.14), macOS (1027 / 4000)
 
 ```text
 - ¿Quién está viendo?: la app se abre con tus cuentas guardadas, y con una cara Demo cuando no hay ninguna
@@ -1458,11 +1467,12 @@ Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin
 - Lectura: toca el borde de la página para pasarla
 - En el Mac, las flechas pasan las páginas de libros y fotos
 - Pellizca, o pulsa Comando-más y Comando-menos, para agrandar o reducir las tarjetas
+- Elige un tamaño de tarjetas en Apariencia; Tomo lo recuerda
 - Una película 4K grande se reanuda sin leer antes todo el archivo
 - TV en vivo: un canal retenido por una grabación vuelve a reproducirse en cuanto termina la grabación
 ```
 
-#### What's New (2.2.14), iOS (866 / 4000 chars)
+#### What's New (2.2.14), iOS (928 / 4000 chars)
 
 ```text
 - ¿Quién está viendo?: la app se abre con tus cuentas guardadas, y con una cara Demo cuando no hay ninguna
@@ -1473,11 +1483,12 @@ Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin
 - Sin conexión, Tomo te lo dice y abre tus Descargas
 - Lectura: toca el borde de la página para pasarla
 - Pellizca para agrandar o reducir las tarjetas
+- Elige un tamaño de tarjetas en Apariencia; Tomo lo recuerda
 - Una película 4K grande se reanuda sin leer antes todo el archivo
 - TV en vivo: un canal retenido por una grabación vuelve a reproducirse en cuanto termina la grabación
 ```
 
-#### What's New (2.2.14), tvOS (795 / 4000 chars)
+#### What's New (2.2.14), tvOS (857 / 4000 chars)
 
 ```text
 - ¿Quién está viendo?: la app se abre con tus cuentas guardadas, y con una cara Demo cuando no hay ninguna
@@ -1486,6 +1497,7 @@ Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin
 - Ordena cualquier biblioteca por nombre, fecha de adición, fecha de estreno, valoración, duración y más; el orden y los filtros se guardan por biblioteca y siguen a tu cuenta
 - Oculta o renombra un canal en vivo desde su información
 - Apple TV muestra un botón de saltar solo para lo que no saltas automáticamente
+- Elige un tamaño de tarjetas en Apariencia; Tomo lo recuerda
 - Una película 4K grande se reanuda sin leer antes todo el archivo
 - TV en vivo: un canal retenido por una grabación vuelve a reproducirse en cuanto termina la grabación
 ```
@@ -1878,11 +1890,11 @@ WHAT YOU GET
 - Search across your library and Live TV
 - Continue Watching in sync with your server, and Up Next between episodes
 - Top Shelf on Apple TV with Continue Watching and your recent channels
-- Skip Intro and Skip Credits on Apple TV, when your server has the markers
+- Skips intros, recaps, previews and commercials for you, when your server has the markers
 - Audio tracks and subtitles you can switch while watching
 - SyncPlay: watch together with others on your server
 - Several servers and users, with no password to retype
-- Filters, favorites and shuffle
+- Sort & Filter, favorites and shuffle
 - Themes you pick or make yourself
 
 SET UP IN SECONDS
