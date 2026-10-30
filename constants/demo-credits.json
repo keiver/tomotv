@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-24T20:56:59Z",
+  "generated": "2026-10-30T01:05:35Z",
   "items": [
     {
       "library": "Space",
@@ -63,15 +63,6 @@
       "licence": "Public domain",
       "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
       "source": "http://svs.gsfc.nasa.gov/5634/"
-    },
-    {
-      "library": "Space",
-      "title": "NASA's Fermi Spies a Supercharged Supernova",
-      "by": "NASA Scientific Visualization Studio",
-      "year": 2026,
-      "licence": "Public domain",
-      "licenceUrl": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
-      "source": "http://svs.gsfc.nasa.gov/15041/"
     },
     {
       "library": "Space",
@@ -489,15 +480,6 @@
     },
     {
       "library": "Live TV",
-      "title": "Charlie Chaplin Festival",
-      "by": "Charlie Chaplin; Mutual Film Corporation (1917), compilation 1938",
-      "year": 1938,
-      "licence": "Public domain (four Mutual comedies of 1917, The Adventurer, The Cure, Easy Street and The Immigrant, published in the United States before 1930)",
-      "licenceUrl": "https://commons.wikimedia.org/wiki/Template:PD-US-expired",
-      "source": "https://archive.org/details/charlie_chaplin_film_fest"
-    },
-    {
-      "library": "Live TV",
       "title": "Cosmos Laundromat: First Cycle",
       "by": "Blender Foundation",
       "year": 2015,
@@ -513,33 +495,6 @@
       "licence": "CC BY 2.5",
       "licenceUrl": "https://creativecommons.org/licenses/by/2.5/",
       "source": "https://orange.blender.org"
-    },
-    {
-      "library": "Live TV",
-      "title": "His Girl Friday",
-      "by": "Howard Hawks; Columbia Pictures",
-      "year": 1940,
-      "licence": "Public domain in the United States (copyright not renewed)",
-      "licenceUrl": "https://commons.wikimedia.org/wiki/Template:PD-US-not_renewed",
-      "source": "https://commons.wikimedia.org/wiki/File:His_Girl_Friday_(1940).webm"
-    },
-    {
-      "library": "Live TV",
-      "title": "House on Haunted Hill",
-      "by": "William Castle; William Castle Productions, Allied Artists",
-      "year": 1959,
-      "licence": "Public domain in the United States (copyright not renewed)",
-      "licenceUrl": "https://commons.wikimedia.org/wiki/Template:PD-US-not_renewed",
-      "source": "https://archive.org/details/The_House_On_Haunted_Hill/"
-    },
-    {
-      "library": "Live TV",
-      "title": "Jungle Book",
-      "by": "Zoltan Korda; Alexander Korda Films, United Artists",
-      "year": 1942,
-      "licence": "Public domain in the United States (copyright not renewed)",
-      "licenceUrl": "https://commons.wikimedia.org/wiki/Template:PD-US-not_renewed",
-      "source": "https://commons.wikimedia.org/wiki/File:The_Jungle_Book_(1942).webm"
     },
     {
       "library": "Live TV",
@@ -567,33 +522,6 @@
       "licence": "CC BY-SA 4.0",
       "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
       "source": "https://studio.blender.org/films/dailydweebs/"
-    },
-    {
-      "library": "Live TV",
-      "title": "The Fast and the Furious",
-      "by": "John Ireland, Edward Sampson; Palo Alto Productions, American Releasing Corporation",
-      "year": 1954,
-      "licence": "Public domain in the United States (copyright not renewed)",
-      "licenceUrl": "https://commons.wikimedia.org/wiki/Template:PD-US-not_renewed",
-      "source": "https://commons.wikimedia.org/wiki/File:The_Fast_and_the_Furious_(1954)_by_John_Ireland.webm"
-    },
-    {
-      "library": "Live TV",
-      "title": "The General",
-      "by": "Buster Keaton, Clyde Bruckman; United Artists",
-      "year": 1926,
-      "licence": "Public domain (published in the United States before 1930, copyright term expired)",
-      "licenceUrl": "https://commons.wikimedia.org/wiki/Template:PD-US-expired",
-      "source": "https://commons.wikimedia.org/wiki/File:The_General_(1926).webm"
-    },
-    {
-      "library": "Live TV",
-      "title": "Voyage to the Planet of Prehistoric Women",
-      "by": "Peter Bogdanovich; American International Pictures",
-      "year": 1968,
-      "licence": "Public domain in the United States (copyright not renewed)",
-      "licenceUrl": "https://commons.wikimedia.org/wiki/Template:PD-US-not_renewed",
-      "source": "https://archive.org/details/VoyagetothePlanetofPrehistoricWomen"
     }
   ]
 }
