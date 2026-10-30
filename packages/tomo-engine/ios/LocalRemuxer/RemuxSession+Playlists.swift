@@ -178,6 +178,30 @@ extension RemuxSession {
         return chosen
     }
 
+    /// The longest the master build waits for the opening rung to prove it can serve before leading
+    /// with the copy instead. A rung segment is small, so any link that carries it delivers well
+    /// inside this; a dead or fake transcode endpoint fails far faster.
+    static let openingRungLeadBudget = 4.0
+
+    /// Whether the opening rung has delivered its opening segment, waited for within the master's
+    /// budget (capped). `chooseOpeningRung` has already started the fetch; this reads its result. A
+    /// rung that cannot serve its first segment returns false, so the copy leads the master instead.
+    func openingRungDelivers(_ rung: Int) -> Bool {
+        let target = segmentIndex(atSeconds: config.startOffsetSeconds)
+        let deadline = min(masterBudgetLeft(), Self.openingRungLeadBudget)
+        _ = waitUntil(deadline: deadline) { [weak self] in
+            guard let self else { return true }
+            self.stateLock.lock()
+            defer { self.stateLock.unlock() }
+            return self.failed || self.cancelled || self.rungsUnavailable.contains(rung)
+                || self.tierMaterialized[rung]?.contains(target) == true
+                || (self.supplierRecovery[.rung(rung)]?.failures ?? 0) > 0
+        }
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return tierMaterialized[rung]?.contains(target) == true
+    }
+
     func masterPlaylist() -> String {
         awaitGrid()
         // Live and self-described: the tracks and the captions come off the open input, not from a probe.
@@ -479,7 +503,12 @@ extension RemuxSession {
         let linkBps = testLinkBps ?? wireLinkBps ?? playlistLinkBps ?? 0
         let rungs = (0..<config.tiers.count).filter { !rungsUnavailable.contains($0) }
         stateLock.unlock()
-        let startRung = chooseOpeningRung(linkBps: linkBps)
+        let chosenRung = chooseOpeningRung(linkBps: linkBps)
+        // A rung leads the master only once it has delivered its opening segment. A server that
+        // advertises transcoding but cannot serve it (a static file host, a broken transcoder)
+        // would otherwise lead AVPlayer onto a rung that 404s, and AVPlayer fails the item instead
+        // of falling to the copy. When the copy can carry the session, an unproven rung never leads.
+        let startRung = (copyFirst && chosenRung != nil && !openingRungDelivers(chosenRung!)) ? nil : chosenRung
         let listed = rungs
 
         func rungLine(_ index: Int) -> String {

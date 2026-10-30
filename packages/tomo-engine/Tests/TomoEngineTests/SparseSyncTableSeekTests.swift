@@ -241,6 +241,12 @@ final class RangedFileServer {
     private let bytesPerSecond: Int
     private let queue = DispatchQueue(label: "ranged-file-server")
     private let ready = DispatchSemaphore(value: 0)
+    /// Seconds before the first byte of an open-ended range request (`bytes=N-`), the shape the link probe sends.
+    var openEndedFirstByteDelay: TimeInterval = 0
+    /// Pace of an open-ended range request's body; bounded ranges keep `bytesPerSecond`.
+    var openEndedBytesPerSecond: Int?
+    /// Every range served, as its start and end bytes.
+    var onRange: ((Int, Int) -> Void)?
 
     init(data: Data, bytesPerSecond: Int) throws {
         self.data = data
@@ -276,14 +282,22 @@ final class RangedFileServer {
     private func respond(_ connection: NWConnection, request: String) {
         var start = 0
         var end = data.count - 1
+        var openEnded = true
         if let line = request.split(separator: "\r\n").first(where: { $0.lowercased().hasPrefix("range: bytes=") }) {
             let parts = line.dropFirst("range: bytes=".count).split(separator: "-", omittingEmptySubsequences: false)
             if let from = Int(parts.first ?? "") { start = min(max(0, from), data.count) }
-            if parts.count > 1, let to = Int(parts[1]) { end = min(to, data.count - 1) }
+            if parts.count > 1, let to = Int(parts[1]) {
+                end = min(to, data.count - 1)
+                openEnded = false
+            }
         }
+        onRange?(start, end)
         let body = data.subdata(in: start ..< end + 1)
         let head = "HTTP/1.1 206 Partial Content\r\nContent-Type: video/mp4\r\nAccept-Ranges: bytes\r\nContent-Range: bytes \(start)-\(end)/\(data.count)\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"
+        let delay = openEnded ? openEndedFirstByteDelay : 0
+        let pace = openEnded ? (openEndedBytesPerSecond ?? bytesPerSecond) : bytesPerSecond
         DispatchQueue.global(qos: .utility).async { [self] in
+            if delay > 0 { Thread.sleep(forTimeInterval: delay) }
             send(connection, Data(head.utf8))
             let started = Date()
             var sent = 0
@@ -292,7 +306,7 @@ final class RangedFileServer {
                 let next = min(sent + chunk, body.count)
                 guard send(connection, body.subdata(in: sent ..< next)) else { return }
                 sent = next
-                let due = Double(sent) / Double(bytesPerSecond)
+                let due = Double(sent) / Double(pace)
                 let elapsed = Date().timeIntervalSince(started)
                 if due > elapsed { Thread.sleep(forTimeInterval: due - elapsed) }
             }

@@ -169,6 +169,15 @@ extension RemuxSession {
         return true
     }
 
+    /// A rung that can actually carry playback right now: offered, not retired, and not in
+    /// failure-recovery. A rung whose playlist or segments keep failing (a static file host has no
+    /// transcode endpoint, so its rung URLs 404 for the whole session) is not a live alternative, so
+    /// gating the copy behind it leaves nothing to play. Caller holds stateLock.
+    func hasLiveRungAlternativeLocked() -> Bool {
+        rungLeads && !copyOnlyMaster && !adoptedStarts.isEmpty
+            && config.tiers.indices.contains { !rungsUnavailable.contains($0) && supplierRecovery[.rung($0)] == nil }
+    }
+
     func copyResponseDeferral() -> LocalHTTPResponse? {
         stateLock.lock()
         defer { stateLock.unlock() }
@@ -178,7 +187,7 @@ extension RemuxSession {
         if sourceState == .dormant || sourceState == .retryWait || !sourceReady { return .temporarilyUnavailable }
         if copyOnlyMaster { return nil }
         let wire = testLinkBps ?? wireLinkBps ?? 0
-        if sourceBandwidth > 0 && wire < Double(sourceBandwidth) * 1.2 && !copyBufferHoldsLocked() { return .temporarilyUnavailable }
+        if hasLiveRungAlternativeLocked() && sourceBandwidth > 0 && wire < Double(sourceBandwidth) * 1.2 && !copyBufferHoldsLocked() { return .temporarilyUnavailable }
         return nil
     }
 
