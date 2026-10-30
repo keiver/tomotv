@@ -9,6 +9,7 @@ import { ListRow } from "@/components/settings/ListRow";
 import { SERVER_GLYPH } from "@/components/settings/ServerRow";
 import { settingsStyles as styles, sideInsets } from "@/components/settings/styles";
 import { transcodingRowSubtitle } from "@/components/settings/transcodingCopy";
+import { PlaybackSection } from "@/components/settings/PlaybackSection";
 import { UiSection } from "@/components/settings/UiSection";
 import { WhoIsWatchingScreen } from "@/components/settings/WhoIsWatchingScreen";
 import { useTranscodePermissions } from "@/hooks/useTranscodePermissions";
@@ -279,6 +280,7 @@ function SettingsScreen() {
           </View>
 
           <UiSection signedIn />
+          <PlaybackSection />
           {/* No version line under this: the Open Source page carries it. */}
           <AboutSection showDiagnostics />
         </View>

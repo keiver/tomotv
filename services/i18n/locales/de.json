@@ -266,6 +266,7 @@
   "settings.transcoding.quality": "TRANSCODIERUNGSQUALITÄT",
   "settings.measureAgain": "Misst die Verbindung zum Server erneut",
   "settings.ui": "UI",
+  "settings.playback": "WIEDERGABE",
   "settings.devicePosters": "Fehlende Poster erzeugen",
   "settings.showLyrics": "Liedtext anzeigen",
   "settings.skipAutomatically": "Automatisch überspringen",

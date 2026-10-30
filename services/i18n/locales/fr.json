@@ -266,6 +266,7 @@
   "settings.transcoding.quality": "QUALITÉ DE TRANSCODAGE",
   "settings.measureAgain": "Mesure à nouveau la connexion au serveur",
   "settings.ui": "UI",
+  "settings.playback": "LECTURE",
   "settings.devicePosters": "Générer les affiches manquantes",
   "settings.showLyrics": "Afficher les paroles",
   "settings.skipAutomatically": "Passer automatiquement",

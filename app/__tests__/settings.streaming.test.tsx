@@ -32,6 +32,7 @@ jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn()
 jest.mock("@/components/ambient-background", () => ({ AmbientBackground: () => null }));
 jest.mock("@/components/brand-corners", () => ({ BrandCorners: () => null }));
 jest.mock("@/components/settings/AboutSection", () => ({ AboutSection: () => null }));
+jest.mock("@/components/settings/PlaybackSection", () => ({ PlaybackSection: () => null }));
 jest.mock("@/components/settings/UiSection", () => ({ UiSection: () => null }));
 jest.mock("@/components/settings/ServerConnectFlow", () => ({ ServerConnectFlow: () => null }));
 jest.mock("@/components/settings/ConnectedSection", () => ({ ConnectedSection: () => null }));
