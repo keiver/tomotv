@@ -2,6 +2,7 @@
  * The viewer's choices for this device: one JSON document in the device's defaults, apart from any
  * server or account.
  */
+import { GRID } from "@/constants/app";
 import { type CardTheme, DEFAULT_CARD_THEME, parseCardTheme } from "@/services/cardTheme";
 import { logger } from "@/utils/logger";
 import { Settings } from "react-native";
@@ -32,6 +33,8 @@ export interface UiPreferences {
   saveLyrics: boolean;
   /** Which of the server's Media Segments playback seeks past on its own. */
   autoSkip: AutoSkip;
+  /** Every card's size as a share of its own, written by the Appearance stepper, a pinch or the Mac keys. */
+  cardSize: number;
 }
 
 export type BackgroundMode = "clear" | "accent" | "artwork";
@@ -52,6 +55,7 @@ export const DEFAULT_UI_PREFERENCES: UiPreferences = {
   listenForLyrics: true,
   saveLyrics: true,
   autoSkip: { intro: false, recap: false, preview: false, commercial: true },
+  cardSize: 1,
 };
 
 /** Before this document carried autoSkip, the commercial switch lived in the live TV preferences. */
@@ -104,6 +108,10 @@ export function parseUiPreferences(raw: unknown, legacySkipCommercials?: boolean
     listenForLyrics: typeof source.listenForLyrics === "boolean" ? source.listenForLyrics : DEFAULT_UI_PREFERENCES.listenForLyrics,
     saveLyrics: typeof source.saveLyrics === "boolean" ? source.saveLyrics : DEFAULT_UI_PREFERENCES.saveLyrics,
     autoSkip: parseAutoSkip(source.autoSkip, legacySkipCommercials),
+    cardSize:
+      typeof source.cardSize === "number" && Number.isFinite(source.cardSize) && source.cardSize >= GRID.CARD_ZOOM_MIN && source.cardSize <= GRID.CARD_ZOOM_MAX
+        ? source.cardSize
+        : DEFAULT_UI_PREFERENCES.cardSize,
   };
 }
 

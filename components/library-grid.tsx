@@ -11,7 +11,7 @@ import { LibraryHeader, type HeaderAction } from "@/components/library-header";
 import { sideInsets } from "@/components/settings/styles";
 import { GuideChannelCard } from "@/components/live-tv/guide-channel-card";
 import { VideoGridItem } from "@/components/video-grid-item";
-import { GRID, gridEdgePadding, itemSlotRatio, itemSlotShape, liveRowHeight, slotCardPadding, slotRatio, slotRowHeights, STAND_HEIGHT, STAND_ROW_ROOM } from "@/constants/app";
+import { GRID, gridEdgePadding, itemSlotRatio, itemSlotShape, liveRowHeight, slotCardPadding, slotRatio, slotRowHeights, STAND_HEIGHT, STAND_ROW_ROOM, tvGridColumns } from "@/constants/app";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { useCardZoom } from "@/hooks/useCardZoom";
 import { useLiveFrameViewport } from "@/hooks/useLiveFrameViewport";
@@ -304,7 +304,7 @@ export function LibraryGrid({
         ? packColumnRows(
             items,
             windowWidth - edgeLeft - edgeRight,
-            GRID.TV_GRID_PER_ROW.portrait,
+            tvGridColumns(zoom),
             (item) => (item.Type === "Episode" || itemSlotShape(item.PrimaryImageAspectRatio) === "landscape" ? 2 : 1),
             GRID.PORTRAIT_RATIO,
             CARD_PADDING,
@@ -325,7 +325,7 @@ export function LibraryGrid({
             },
             CARD_PADDING,
           ),
-    [items, windowWidth, edgeLeft, edgeRight, rowHeights, liveChannels, columnGrid],
+    [items, windowWidth, edgeLeft, edgeRight, rowHeights, liveChannels, columnGrid, zoom],
   );
   const { viewabilityPairs, visibleChannelIds } = useLiveFrameViewport("wall", liveChannels && liveFramesEnabled, packedRows, rowChannelIds);
   const lastRowWidth = packedRows.length > 0 ? packedRows[packedRows.length - 1].width : 0;

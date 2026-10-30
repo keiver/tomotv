@@ -17,9 +17,19 @@ describe("uiPreferences", () => {
       listenForLyrics: true,
       saveLyrics: true,
       autoSkip: { intro: false, recap: false, preview: false, commercial: true },
+      cardSize: 1,
     });
     expect(getUiPreferences().devicePosters).toBe(true);
     expect(getUiPreferences().serverTranscoding).toBe("linkOrFile");
+  });
+
+  it("reads the card size as any zoom from the smallest card up to the trusted largest, and falls back on 1 otherwise", () => {
+    expect(parseUiPreferences(JSON.stringify({ cardSize: 1.25 }))).toEqual({ ...DEFAULT_UI_PREFERENCES, cardSize: 1.25 });
+    expect(parseUiPreferences(JSON.stringify({ cardSize: 1.15 }))).toEqual({ ...DEFAULT_UI_PREFERENCES, cardSize: 1.15 });
+    expect(parseUiPreferences(JSON.stringify({ cardSize: 0.75 }))).toEqual({ ...DEFAULT_UI_PREFERENCES, cardSize: 0.75 });
+    expect(parseUiPreferences(JSON.stringify({ cardSize: 0.5 }))).toEqual(DEFAULT_UI_PREFERENCES);
+    expect(parseUiPreferences(JSON.stringify({ cardSize: 9 }))).toEqual(DEFAULT_UI_PREFERENCES);
+    expect(parseUiPreferences(JSON.stringify({ cardSize: "1.5" }))).toEqual(DEFAULT_UI_PREFERENCES);
   });
 
   it("reads the automatic skips field by field, and the old live TV commercial switch when the document has none", () => {

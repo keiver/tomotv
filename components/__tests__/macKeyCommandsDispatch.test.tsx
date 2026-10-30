@@ -10,6 +10,7 @@ import { MacKeyCommands } from "@/components/mac-key-commands";
 import { audioPlayerManager } from "@/services/audioPlayerManager";
 import type { MacKey } from "@/services/macKeyCommands";
 import { getCardZoom, setCardZoom } from "@/services/cardZoom";
+import { getUiPreferences } from "@/services/uiPreferences";
 import { router } from "expo-router";
 
 jest.mock("@/utils/hostEnvironment", () => ({ IS_MAC: true }));
@@ -161,11 +162,13 @@ describe("Mac key dispatch", () => {
     setCardZoom(1);
   });
 
-  it("puts the cards back at their own size on Command-0", () => {
+  it("puts the cards back at their own size on Command-0, and saves it", () => {
     setCardZoom(0.85);
+    expect(getUiPreferences().cardSize).toBe(0.85);
     mount();
     act(() => mockPress?.("zoomReset"));
     expect(getCardZoom()).toBe(1);
+    expect(getUiPreferences().cardSize).toBe(1);
   });
 
   it("changes track only while a queue is running", () => {

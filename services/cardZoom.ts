@@ -1,20 +1,13 @@
-/** The card zoom a pinch or key chose, for this run of the app only: a relaunch opens at 1. */
-let zoom = 1;
-const listeners = new Set<() => void>();
+import { getUiPreferences, subscribeUiPreferences, updateUiPreferences } from "@/services/uiPreferences";
 
+/** The card zoom every card surface draws at: the saved card size, written by the Appearance stepper, a pinch or the Mac keys. */
 export function getCardZoom(): number {
-  return zoom;
+  return getUiPreferences().cardSize;
 }
 
 export function setCardZoom(next: number): void {
-  if (next === zoom) return;
-  zoom = next;
-  for (const listener of listeners) listener();
+  if (next === getCardZoom()) return;
+  updateUiPreferences({ cardSize: next });
 }
 
-export function subscribeCardZoom(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-}
+export const subscribeCardZoom = subscribeUiPreferences;

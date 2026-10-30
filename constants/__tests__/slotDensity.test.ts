@@ -1,4 +1,4 @@
-import { cardPosterHeight, cardZoomCeiling, GRID, gridEdgePadding, itemSlotRatio, shelfHeadingBlock, shelfSpacing, slotCardPadding, slotRowHeights } from "../app";
+import { cardPosterHeight, cardZoomCeiling, GRID, gridEdgePadding, itemSlotRatio, shelfHeadingBlock, shelfSpacing, slotCardPadding, slotRowHeights, tvGridColumns } from "../app";
 
 const PAD = slotCardPadding(false);
 /** The width a card renders at for a given row height (video-grid-item / folder-grid-item). */
@@ -160,9 +160,18 @@ describe("card zoom", () => {
     }
   });
 
-  it("leaves TV heights alone", () => {
-    expect(slotRowHeights(1920, 1080, 80, 80, true, "shelf", 1.5)).toEqual(slotRowHeights(1920, 1080, 80, 80, true, "shelf"));
-    expect(slotRowHeights(1920, 1080, 80, 80, true, "grid", 0.75)).toEqual(slotRowHeights(1920, 1080, 80, 80, true, "grid"));
+  it("multiplies TV shelf and grid heights by the zoom too", () => {
+    for (const surface of ["shelf", "grid"] as const) {
+      for (const zoom of [0.75, 1.5]) {
+        const base = slotRowHeights(1920, 1080, 80, 80, true, surface);
+        const zoomed = slotRowHeights(1920, 1080, 80, 80, true, surface, zoom);
+        for (const { key } of SHAPES) expect(Math.abs(zoomed[key] - base[key] * zoom)).toBeLessThanOrEqual(1.25);
+      }
+    }
+  });
+
+  it("gives a TV column grid fewer columns as the cards grow: 9, 7, 6 and 5", () => {
+    expect([0.75, 1, 1.25, 1.5].map(tvGridColumns)).toEqual([9, 7, 6, 5]);
   });
 
   it("gives an iPhone in portrait no room to grow, its wide shelf card already past half the width", () => {
@@ -191,9 +200,10 @@ describe("cardPosterHeight", () => {
     expect(cardPosterHeight(90, false, 2)).toBe(200);
   });
 
-  it("stops at 1200, keeps 300 on TV and 200 for a card with no known height", () => {
+  it("stops at 1200, keeps 300 on TV at the cards' own size and 450 at 1.5, and 200 for a card with no known height", () => {
     expect(cardPosterHeight(900, false, 2)).toBe(1200);
     expect(cardPosterHeight(400, true, 1)).toBe(300);
+    expect(cardPosterHeight(600, true, 1, 1.5)).toBe(450);
     expect(cardPosterHeight(undefined, false, 2)).toBe(200);
   });
 });

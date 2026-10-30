@@ -20,6 +20,7 @@ import {
 import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { useCardPalette } from "@/hooks/useCardPalette";
+import { useCardZoom } from "@/hooks/useCardZoom";
 import { useFolderPreview } from "@/hooks/useFolderPreview";
 import { useViewItemCount } from "@/hooks/useViewItemCount";
 import { folderPosterSource } from "@/services/itemArtwork";
@@ -117,8 +118,9 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
     [],
   );
 
+  const zoom = useCardZoom();
   // What the server gives the folder. With nothing, the card shows a collage of its first videos.
-  const posterHeight = cardPosterHeight(cardHeight, IS_TV, PixelRatio.get());
+  const posterHeight = cardPosterHeight(cardHeight, IS_TV, PixelRatio.get(), zoom);
   const thumbnailSource = useMemo(() => folderPosterSource(folder, posterHeight), [folder, posterHeight]);
   const preview = useFolderPreview(folder, !thumbnailSource);
 

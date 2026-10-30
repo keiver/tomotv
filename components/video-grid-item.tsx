@@ -214,8 +214,9 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     [],
   );
 
+  const zoom = useCardZoom();
   // The server poster, or the keyframe the engine makes for a card the server left blank.
-  const posterSource = useItemPoster(video, cardPosterHeight(cardHeight, IS_TV, PixelRatio.get()), { deferWhileVideo: true });
+  const posterSource = useItemPoster(video, cardPosterHeight(cardHeight, IS_TV, PixelRatio.get(), zoom), { deferWhileVideo: true });
 
   // Keyed on the parse inputs, not the item object: annotation passes rebuild
   // item objects without touching these fields, and must not re-parse every card.
@@ -283,7 +284,6 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   const channelNumber = video.ChannelNumber?.trim();
   const channelTab = channelNumber ? t("liveTv.channelNumber").replace("{number}", channelNumber) : t("liveTv.channel");
   const artBadge = channelNow ? [{ label: t("liveTv.now") }] : logoTab ? [{ label: channelTab }] : isChannel ? null : badgeSegments;
-  const zoom = useCardZoom();
   // One mark before the name: the playing bars, else a passed icon, else the favorite heart (a channel's is passed in).
   const nameIcon = leadingMark ?? (isChannel ? titleIcon : showsFavoriteHeart(video) ? "heart" : undefined);
   const metaMark = nowPlaying

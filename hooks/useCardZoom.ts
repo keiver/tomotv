@@ -14,9 +14,9 @@ export function useCardZoomCeiling(): number {
   return useMemo(() => (IS_TV ? 1 : cardZoomCeiling(width, height, insets.left, insets.right)), [width, height, insets.left, insets.right]);
 }
 
-/** The card zoom to draw at: the pinch's choice clamped to this window; always 1 on TV. */
+/** The card zoom to draw at: the saved size on TV; elsewhere the saved size or the pinch's choice, clamped to this window. */
 export function useCardZoom(): number {
   const stored = useSyncExternalStore(subscribeCardZoom, getCardZoom);
   const ceiling = useCardZoomCeiling();
-  return IS_TV ? 1 : clampCardZoom(stored, ceiling);
+  return IS_TV ? stored : clampCardZoom(stored, ceiling);
 }
