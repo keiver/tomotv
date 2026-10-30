@@ -594,6 +594,21 @@ describe("useVideoPlayback (mounted)", () => {
         jest.useRealTimers();
       });
 
+      it("re-selects a track the player dropped on its own instead of storing subtitles off", async () => {
+        const { ref, renderer, request } = await playing(false);
+        await request(6);
+        const { observedFromReport } = jest.requireMock("@/services/subtitlePreference") as { observedFromReport: jest.Mock };
+        observedFromReport.mockReturnValueOnce({ kind: "off" });
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onTextTracks({ textTracks: tracks(null) } as never);
+        });
+        await settle();
+        expect(saveSubtitlePreference).not.toHaveBeenCalledWith({ kind: "off" });
+        expect(saveSubtitlePreference).toHaveBeenCalledWith({ kind: "language", tag: "eng" });
+        expect(ref.current!.get().selectedTextTrack).toEqual({ type: "index", value: "1" });
+        await act(async () => renderer.unmount());
+      });
+
       it("stores a choice the viewer made when the item changes before the settle", async () => {
         const { ref, renderer, request } = await playing(false);
         await request(6);

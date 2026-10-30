@@ -196,6 +196,8 @@ const deviceBusy = () => downloadManager.getState().entries.some((entry) => entr
 
 /** Every item starts here; the remembered choice is applied once its tracks exist. */
 const SUBTITLES_UNSET: SubtitlePreference = { kind: "system" };
+/** How long after applying the stored subtitle choice a bare deselect still counts as the player's, not the viewer's. */
+const SUBTITLE_APPLY_WINDOW_MS = 5000;
 
 /** AVKit's subtitles On/Off row follows the app's caption display type, never a track selected in code. Synchronous. */
 const showCaptionsAlways = () => (NativeModules.DeviceEnvironment as { showCaptionsAlways?: () => void } | undefined)?.showCaptionsAlways?.();
@@ -559,6 +561,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // choice, and storing it would turn one file's default flag into a library-wide
   // preference.
   const autoAppliedDefaultRef = useRef<string | null>(null);
+  // When the stored preference was applied to this item, and whether a deselect of it was already re-asserted.
+  const subtitleAppliedAtRef = useRef(0);
+  const subtitleWipeReassertedRef = useRef(false);
 
   // Store mapping from react-native-video track index to Jellyfin stream index
   const audioTrackMappingRef = useRef<number[]>([]);
@@ -2612,6 +2617,20 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
    */
   const weighSubtitleChoice = useCallback(
     (observed: ObservedSubtitle, ordinal: number | null, rendition: number | null | undefined, repeatExtends: boolean) => {
+      // A deselect this soon after this session applied a language undoes that apply, not the
+      // viewer (device log 2026-08-13: a track selected and deselected 17 ms apart, untouched).
+      // Re-selected once per item; a second deselect, or one past the window, is the viewer's.
+      if (
+        observed.kind === "off" &&
+        appliedSubtitlePreferenceRef.current.kind === "language" &&
+        !subtitleWipeReassertedRef.current &&
+        Date.now() - subtitleAppliedAtRef.current < SUBTITLE_APPLY_WINDOW_MS
+      ) {
+        subtitleWipeReassertedRef.current = true;
+        const held = lastObservedOrdinalRef.current;
+        if (held !== null) setSelectedSubtitleTrack({ type: "index", value: String(held) } as SelectedTrack);
+        return;
+      }
       lastObservedSubtitleRef.current = observed;
       lastObservedOrdinalRef.current = ordinal;
       const observedKey = `${observed.kind === "language" ? observed.tag : "off"}:${lastObservedOrdinalRef.current ?? "-"}`;
@@ -3017,6 +3036,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     // the prop already holds would not reach the lib at all.
     subtitlesAppliedForItemRef.current = false;
     autoAppliedDefaultRef.current = null;
+    subtitleAppliedAtRef.current = 0;
+    subtitleWipeReassertedRef.current = false;
     appliedSubtitlePreferenceRef.current = SUBTITLES_UNSET;
     setTextTrackLanguages([]);
     setAppliedSubtitlePreference(SUBTITLES_UNSET);
@@ -3060,6 +3081,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       fromFileDefault: plan.kind === "autoDefault",
     });
     appliedSubtitlePreferenceRef.current = plan.preference;
+    subtitleAppliedAtRef.current = Date.now();
     setAppliedSubtitlePreference(plan.preference);
   }, [hasStablePlayback, textTrackLanguages, videoDetails]);
 
