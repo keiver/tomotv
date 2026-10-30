@@ -23,11 +23,18 @@ jest.mock("@/services/recordingStatus", () => {
   };
 });
 jest.mock("@/services/jellyfin/session", () => ({ getCachedConfig: jest.fn(() => ({ server: "", apiKey: "", userId: "", deviceId: "" })) }));
+// Mirrors the engine: a successful call updates the held set and returns it; a simulated failure resolves without
+// touching the set (the real setOriginRecording swallows engine errors and resolves, never rejecting).
+const mockHeld = new Set<string>();
 jest.mock("@keiver/tomo-engine", () => ({
-  setOriginRecording: jest.fn(async () => true),
+  setOriginRecording: jest.fn(async (originKey: string, active: boolean) => {
+    if (active) mockHeld.add(originKey);
+    else mockHeld.delete(originKey);
+    return active;
+  }),
   originConnections: jest.fn(async () => ({ budget: 1, active: 0, held: false })),
   originConnectionLimit: jest.fn(() => 1),
-  originHeld: jest.fn(() => false),
+  originHeld: jest.fn((originKey: string) => mockHeld.has(originKey)),
 }));
 jest.mock("@keiver/tomo-live", () => ({
   playlistChannelById: (id: string) =>
@@ -100,6 +107,7 @@ beforeEach(() => {
   (providerStreamsInUse as jest.Mock).mockReset().mockResolvedValue(null);
   (cancelTimer as jest.Mock).mockReset().mockResolvedValue(undefined);
   (createTimer as jest.Mock).mockReset().mockResolvedValue(undefined);
+  mockHeld.clear();
   resetRecordingHoldsForTests();
   mockStatus.running = [];
   mockStatus.active = [];
@@ -143,7 +151,7 @@ describe("syncRecordingHolds", () => {
     expect(setOriginRecording).toHaveBeenLastCalledWith("a.example", false);
   });
 
-  it("retries the clear on the next sync when the engine rejects it, holding the provider meanwhile", async () => {
+  it("retries the clear on the next sync when the engine does not apply it, holding the provider meanwhile", async () => {
     const running = timer("t", "ch-a", -1_000, 60_000, "InProgress");
     mockStatus.running = [running];
     mockStatus.active = [running];
@@ -152,7 +160,8 @@ describe("syncRecordingHolds", () => {
     expect(setOriginRecording).toHaveBeenCalledWith("a.example", true);
     mockStatus.running = [];
     mockStatus.active = [];
-    (setOriginRecording as jest.Mock).mockRejectedValueOnce(new Error("engine offline"));
+    // The engine resolves but leaves the origin held (the real failure mode): the clear did not take.
+    (setOriginRecording as jest.Mock).mockImplementationOnce(async () => true);
     syncRecordingHolds(NOW + 1_000);
     await jest.advanceTimersByTimeAsync(0);
     expect(setOriginRecording).toHaveBeenLastCalledWith("a.example", false);
@@ -160,19 +169,23 @@ describe("syncRecordingHolds", () => {
     syncRecordingHolds(NOW + 2_000);
     await jest.advanceTimersByTimeAsync(0);
     expect(setOriginRecording).toHaveBeenCalledWith("a.example", false);
+    expect(mockHeld.has("a.example")).toBe(false);
   });
 
-  it("retries the hold on the next sync when the engine rejects it", async () => {
+  it("retries the hold on the next sync when the engine does not apply it", async () => {
     const running = timer("t", "ch-a", -1_000, 60_000, "InProgress");
     mockStatus.running = [running];
     mockStatus.active = [running];
-    (setOriginRecording as jest.Mock).mockRejectedValueOnce(new Error("engine offline"));
+    // The engine resolves but does not hold the origin: the hold did not take.
+    (setOriginRecording as jest.Mock).mockImplementationOnce(async () => false);
     syncRecordingHolds(NOW);
     await jest.advanceTimersByTimeAsync(0);
+    expect(mockHeld.has("a.example")).toBe(false);
     (setOriginRecording as jest.Mock).mockClear();
     syncRecordingHolds(NOW + 1_000);
     await jest.advanceTimersByTimeAsync(0);
     expect(setOriginRecording).toHaveBeenCalledWith("a.example", true);
+    expect(mockHeld.has("a.example")).toBe(true);
   });
 
   it("warns once a minute ahead of a recording on a one-connection provider, and not on another", async () => {

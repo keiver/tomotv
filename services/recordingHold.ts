@@ -169,29 +169,33 @@ async function holdOrigin(originKey: string, starting: JellyfinTimer | null): Pr
   void checkRecording(originKey, starting, () => recreateTimer(starting));
 }
 
-/** Pushes a hold to the engine and records it as pushed only once the engine confirms it; a rejection is retried on the next sync. */
+// The engine resolves setOriginRecording even when it could not apply the change, so its own held state, not the
+// promise settling, decides whether the push took. A hold it did not take, or a clear it did not apply, is left
+// for the next sync to retry.
+function reconcilePushed(originKey: string): void {
+  if (originHeld(originKey)) pushed.add(originKey);
+  else pushed.delete(originKey);
+}
+
+/** Pushes a hold to the engine and records it as pushed only if the engine then reports the origin held; else the next sync retries. */
 function pushHold(originKey: string, starting: JellyfinTimer | null): void {
   inflight.add(originKey);
   holdOrigin(originKey, starting)
-    .then(() => {
-      pushed.add(originKey);
-    })
     .catch((error) => logger.warn("Recording hold push failed", error, { service: "RecordingHold" }))
     .finally(() => {
       inflight.delete(originKey);
+      reconcilePushed(originKey);
     });
 }
 
-/** Clears a hold on the engine and drops it from pushed only once the engine confirms it; a rejection keeps it pushed so the next sync retries. */
+/** Clears a hold on the engine and drops it from pushed only if the engine then reports the origin free; else it stays and the next sync retries. */
 function pushClear(originKey: string): void {
   inflight.add(originKey);
   setOriginRecording(originKey, false)
-    .then(() => {
-      pushed.delete(originKey);
-    })
     .catch((error) => logger.warn("Recording hold clear failed", error, { service: "RecordingHold" }))
     .finally(() => {
       inflight.delete(originKey);
+      reconcilePushed(originKey);
     });
 }
 
