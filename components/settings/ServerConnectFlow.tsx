@@ -10,7 +10,6 @@ import {
   getStoredServerId,
   getStoredUserId,
   isAuthenticated,
-  isDemoAddress,
   isDemoMode,
   removeAccount,
   removeSavedServerAndAccounts,
@@ -104,8 +103,8 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
     setIsValidating(true);
     try {
       // An empty field takes its placeholder, the demo server, which signs in on its own
-      // credential path; the same for the demo address typed out.
-      if (!trimmed || isDemoAddress(trimmed)) {
+      // credential path. The demo address typed out goes through the sign-in screen.
+      if (!trimmed) {
         await handleConnectDemo();
         return;
       }
