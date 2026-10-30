@@ -178,10 +178,11 @@ extension RemuxSession {
         return chosen
     }
 
-    /// Whether the opening rung cannot serve: retired, or its opening segment answered 404 or 410 (a
-    /// host with no transcode endpoint). Waits within the master's budget for the fetch started by
-    /// `chooseOpeningRung` to deliver or fail. A fetch still running, a 5xx, a transport error or an
-    /// unreadable body is not a failure here: the rung leads and its retry runs under AVPlayer's wait.
+    /// Whether the opening rung cannot serve: retired, or its opening segment answered a 4xx other
+    /// than 408 or 429 (a host with no transcode endpoint). Waits within the master's budget for the
+    /// fetch started by `chooseOpeningRung` to deliver or fail. A fetch still running, a 5xx, a
+    /// transport error or an unreadable body is not a failure here: the rung leads and its retry runs
+    /// under AVPlayer's wait.
     func openingRungFailed(_ rung: Int) -> Bool {
         let target = segmentIndex(atSeconds: config.startOffsetSeconds)
         _ = waitUntil(deadline: masterBudgetLeft()) { [weak self] in
@@ -197,7 +198,7 @@ extension RemuxSession {
         if rungsUnavailable.contains(rung) { return true }
         switch supplierRecovery[.rung(rung)]?.failure {
         case .unsupported?: return true
-        case .http(let status)?: return status == 404 || status == 410
+        case .http(let status)?: return (400..<500).contains(status) && status != 408 && status != 429
         default: return false
         }
     }
