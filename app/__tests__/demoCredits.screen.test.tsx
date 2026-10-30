@@ -98,10 +98,16 @@ describe("the Media Licenses screen", () => {
     act(() => tree.unmount());
   });
 
-  it("writes the maker under an item off TV; on TV maker and licence, and the source page while focused", () => {
+  it("writes the maker under an item; on TV the source page while focused", () => {
     expect(itemSubtitle(mockItems[1], false, false)).toBe("ESA");
     expect(itemSubtitle(mockItems[1], false, true)).toBe("ESA");
-    expect(itemSubtitle(mockItems[1], true, false)).toBe("ESA · CC BY 4.0");
+    expect(itemSubtitle(mockItems[1], true, false)).toBe("ESA");
     expect(itemSubtitle(mockItems[1], true, true)).toBe("https://example.org/Carina");
+  });
+
+  it("off TV the rows carry no plain trailing text", () => {
+    const tree = render();
+    expect(tree.root.findAllByType(ListRow).map((row) => row.props.trailingText)).toEqual([undefined, undefined, undefined]);
+    act(() => tree.unmount());
   });
 });

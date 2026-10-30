@@ -54,6 +54,8 @@ interface ListRowProps {
   trailingIcon?: IoniconName | LeadingMark;
   /** A second press target before the trailing mark, a glyph or a short thin-lettered word. Phone and iPad only: on tvOS it would be a focusable of its own. */
   trailingAction?: ({ icon: IoniconName; text?: undefined } | { text: string; icon?: undefined }) & { label: string; hint?: string; onPress: () => void };
+  /** A short thin-lettered word before the trailing mark that only states something (a licence name on tvOS). Ignored when trailingAction is set. */
+  trailingText?: string;
   /** A folder member: stepped in from the rows around it (Downloads). */
   nested?: boolean;
   /** Trailing mark in the row's accent ink rather than grey: a play or pause that acts, not a chevron that points. */
@@ -134,6 +136,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
     unread = false,
     trailingIcon,
     trailingAction,
+    trailingText,
     nested = false,
     trailingAccent = false,
     moreBelow,
@@ -265,6 +268,12 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
                   <Ionicons name={trailingAction.icon} size={TRAILING_SIZE} color={accentInk} />
                 )}
               </Pressable>
+            ) : trailingText ? (
+              <View style={styles.trailingWord} collapsable={false}>
+                <Text style={[styles.actionWord, { color: accentInk }]} numberOfLines={1}>
+                  {trailingText}
+                </Text>
+              </View>
             ) : null}
             {isLoading || trailingIcon ? (
               <View style={styles.trailing} collapsable={false}>
@@ -362,9 +371,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: (ACTION_WIDTH - TRAILING_SIZE) / 2,
   },
   actionWord: {
-    fontSize: IS_PAD ? 14 : 13,
+    fontSize: IS_TV ? 22 : IS_PAD ? 14 : 13,
     fontWeight: "300",
     letterSpacing: 0.4,
+  },
+  trailingWord: {
+    alignSelf: "stretch",
+    justifyContent: "center",
+    marginLeft: LEFT_GAP,
   },
   // Alone at the trailing edge, its glyph centres on the trailing mark's column: the target
   // box overhangs into the row's padding by the difference.

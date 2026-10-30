@@ -23,13 +23,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
 
-/**
- * An item row's second line. Phone and Mac: the maker, the licence sits at the row's edge. TV:
- * maker and licence, and the source page while the row is focused.
- */
+/** An item row's second line: the maker, and on TV the source page while the row is focused. */
 export function itemSubtitle(item: DemoCredit, isTV: boolean, focused: boolean): string {
-  if (!isTV) return item.by;
-  return focused ? item.source : `${item.by} · ${item.licence}`;
+  return isTV && focused ? item.source : item.by;
 }
 
 /** The footer line: when the server listed the items and where it publishes the list. */
@@ -49,7 +45,8 @@ const itemKey = (item: DemoCredit) => `${item.library}/${item.title}`;
  * Every item on the demo server with its maker, licence, source and picture, pushed from the
  * Media Licenses row under About: one card per library, one row per item. On phone and Mac a
  * row opens its source page and its trailing button the licence page. On TV nothing opens: the
- * focused row shows its source address, and a last card lists each licence with its page. Opens
+ * licence name sits at the row's edge as plain text, the focused row shows its source address,
+ * and a last card lists each licence with its page. Opens
  * on the manifest the app ships, then asks the server for its current one and swaps it in when
  * it is newer; a server that does not answer changes nothing. The Menu/back button pops the route.
  */
@@ -107,6 +104,7 @@ export default function DemoCreditsScreen() {
                         ? undefined
                         : { text: licenceShortName(item.licence), label: `${t("demo.licence")}: ${item.licence}`, hint: t("demo.licenceHint"), onPress: () => openPage(item.licenceUrl) }
                     }
+                    trailingText={IS_TV ? licenceShortName(item.licence) : undefined}
                     onPress={IS_TV ? undefined : () => openPage(item.source)}
                     onFocus={IS_TV ? () => setFocusedKey(itemKey(item)) : undefined}
                     onBlur={IS_TV ? blur : undefined}
