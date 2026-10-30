@@ -12,7 +12,7 @@
       "supportsTablet": true,
       "appleTeamId": "64QR53M8C9",
       "bundleIdentifier": "dev.keiver.tomotv",
-      "buildNumber": "32",
+      "buildNumber": "33",
       "config": {
         "usesNonExemptEncryption": false
       },
