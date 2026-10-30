@@ -230,6 +230,7 @@
   "demo.creditsGenerated": "Listed by the demo server on {date}. The list is published at {url}.",
   "search.demoLoadFailed": "Connected to demo server, but couldn't load the library. Please check your internet connection and try navigating again.",
   "downloads.title": "Downloads",
+  "downloads.offline": "You're offline",
   "downloads.onThisDevice": "ON THIS DEVICE",
   "downloads.downloadingAt": "Downloading at {rate}",
   "downloads.removeAll": "Remove all downloads",

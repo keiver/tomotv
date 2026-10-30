@@ -148,6 +148,7 @@ Every feature needs a Jellyfin server. The Notes column says when a feature also
 | Pause and resume a download                                             | No       | Yes          | Yes | Originals only                                      |
 | Download speed and storage used                                         | No       | Yes          | Yes |                                                     |
 | Offline playback                                                        | No       | Yes          | Yes | Progress syncs when the app next reaches the server |
+| Losing the connection says so and opens Downloads                       | No       | Yes          | Yes | Downloads opens when a finished download can play   |
 | Shuffle a downloaded folder                                             | No       | Yes          | Yes |                                                     |
 | Remove one, a folder, or everything                                     | No       | Yes          | Yes | Hold the storage gauge to remove everything         |
 

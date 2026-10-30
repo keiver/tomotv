@@ -6,8 +6,10 @@
 //
 
 #import <React/RCTBridgeModule.h>
+#import <React/RCTEventEmitter.h>
 
-@interface RCT_EXTERN_MODULE(NetworkInfo, NSObject)
+// RCTEventEmitter: `onNetworkPath` reports the network path while JS listens.
+@interface RCT_EXTERN_MODULE(NetworkInfo, RCTEventEmitter)
 
 // Resolve { ip, netmask, interfaceName } for the active IPv4 interface, or null.
 RCT_EXTERN_METHOD(getLocalNetworkInfo:(RCTPromiseResolveBlock)resolve

@@ -230,6 +230,7 @@
   "demo.creditsGenerated": "Liste établie par le serveur de démo le {date}. Elle est publiée à {url}.",
   "search.demoLoadFailed": "Connecté au serveur de démo, mais la médiathèque n'a pas pu être chargée. Vérifie ta connexion Internet et réessaie.",
   "downloads.title": "Téléchargements",
+  "downloads.offline": "Tu es hors ligne",
   "downloads.onThisDevice": "SUR CET APPAREIL",
   "downloads.downloadingAt": "Téléchargement à {rate}",
   "downloads.removeAll": "Supprimer tous les téléchargements",

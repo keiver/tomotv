@@ -13,6 +13,7 @@ All notable changes to Tomo TV are documented here.
 - A live channel's info panel gains Rename and Hide. A rename shows in every list, the guide, search, the player and the Top Shelf, and an empty name brings the server's own back. A hidden channel leaves all of them, favorites included, and channel flipping passes over it; Channel Settings > Hidden Channels lists them and a press shows one again. Both are kept per account
 - In the book reader a tap in the outer tenth of the screen turns the page, back on the left and forward on the right. A tap elsewhere wakes the controls as before, and a zoomed page keeps its pan
 - On iPad and Mac a pinch over Home, a folder or search results makes the cards bigger or smaller, their names and corner text with them, from 0.75x up to a wide card at half the screen; the cards ease into the new size and pulse at either limit. On Mac, Command-plus and Command-minus do the same and Command-0 puts the cards back at their own size. The size lasts until the app quits, and each card asks the server for a poster as large as it is drawn
+- On iPhone, iPad and Mac, losing the connection, at launch or while the app runs, shows You're offline and switches to the Downloads tab when a finished download can play. Nothing happens while the player or an item screen is open over the tabs
 
 ### Fixed
 

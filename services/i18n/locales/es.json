@@ -230,6 +230,7 @@
   "demo.creditsGenerated": "Lista preparada por el servidor de demostración el {date}. Está publicada en {url}.",
   "search.demoLoadFailed": "Conectado al servidor de demostración, pero no se pudo cargar la biblioteca. Comprueba tu conexión a Internet e inténtalo de nuevo.",
   "downloads.title": "Descargas",
+  "downloads.offline": "Estás sin conexión",
   "downloads.onThisDevice": "EN ESTE DISPOSITIVO",
   "downloads.downloadingAt": "Descargando a {rate}",
   "downloads.removeAll": "Eliminar todas las descargas",
