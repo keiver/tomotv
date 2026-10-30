@@ -4,7 +4,7 @@ import { t } from "@/services/i18n";
 import { subscribeNetworkPath } from "@/services/localNetworkIdentity";
 import { showToast } from "@/services/toast";
 import { useNavigation, useRouter } from "expo-router";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 export interface OfflineCheck {
   wasOffline: boolean;
@@ -24,23 +24,28 @@ export function offlineResponse({ wasOffline, available, hasReady, onTabs }: Off
 export function useOfflineOpensDownloads(): void {
   const router = useRouter();
   const rootNavigation = useNavigation();
+  // Survives an effect re-subscribe: the native monitor re-emits the current path on every new listener,
+  // so a reset-to-false here would toast a second time while already offline.
+  const wasOffline = useRef(false);
 
   useEffect(() => {
     if (!downloadsSupported()) return;
-    let wasOffline = false;
     let stale = false;
     const unsubscribe = subscribeNetworkPath((available) => {
+      // Captured before the await: events arrive in order, so the transition is read and recorded here, not
+      // across the hydrate, where two in-flight events could resolve out of order and set the flag backwards.
+      const previously = wasOffline.current;
+      wasOffline.current = !available;
       void (async () => {
         await downloadManager.hydrate();
         if (stale) return;
         const root = rootNavigation.getState();
         const response = offlineResponse({
-          wasOffline,
+          wasOffline: previously,
           available,
           hasReady: downloadManager.getState().entries.some((entry) => entry.state === "ready"),
           onTabs: root?.routes[root.index]?.name === "(tabs)",
         });
-        wasOffline = !available;
         if (response.notify) showToast(t("downloads.offline"));
         if (response.openDownloads) router.navigate("/downloads");
       })();
