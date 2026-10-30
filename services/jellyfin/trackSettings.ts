@@ -138,11 +138,15 @@ export function primeTrackSettings(): Promise<void> {
   return priming;
 }
 
-/** The signed-in account's settings as last known, or the signed-out picks; the latest device selection when neither is known (offline, unsynced); Jellyfin's defaults before any read. */
+/** The signed-in account's settings as last known, or the signed-out picks; the latest device selection when neither is known (offline, unsynced); Jellyfin's defaults before any read. An account with no subtitle setting of its own takes the device's last subtitle pick. */
 export function getTrackSettingsSync(): TrackSettings {
   if (primeFailed && !priming) void primeTrackSettings();
   const key = currentAccount() ?? SIGNED_OUT;
-  return stored[key]?.settings || stored[LATEST]?.settings || JELLYFIN_DEFAULTS;
+  const own = stored[key]?.settings;
+  const latest = stored[LATEST]?.settings;
+  if (!own) return latest || JELLYFIN_DEFAULTS;
+  if (latest && own.subtitleMode === "Default" && !own.subtitleLanguage) return { ...own, subtitleMode: latest.subtitleMode, subtitleLanguage: latest.subtitleLanguage };
+  return own;
 }
 
 /** Waits for the Keychain and, briefly, for a refresh in flight: a slow server never holds up playback. */

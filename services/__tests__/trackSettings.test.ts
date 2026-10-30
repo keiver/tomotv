@@ -96,6 +96,26 @@ describe("refresh", () => {
     signIn(BOB);
     expect(getTrackSettingsSync()).toEqual(JELLYFIN_DEFAULTS);
   });
+
+  it("uses the device's last subtitle pick for an account whose server settings hold none", async () => {
+    server(serverConfiguration());
+    recordSubtitlePick({ kind: "language", tag: "eng" });
+    await settle();
+    signIn(BOB);
+    server(serverConfiguration({ AudioLanguagePreference: "jpn" }));
+    await refreshTrackSettings();
+    expect(getTrackSettingsSync()).toMatchObject({ subtitleMode: "Always", subtitleLanguage: "eng", audioLanguage: "jpn" });
+  });
+
+  it("keeps an account's own subtitle setting over the device's last pick", async () => {
+    server(serverConfiguration());
+    recordSubtitlePick({ kind: "language", tag: "eng" });
+    await settle();
+    signIn(BOB);
+    server(serverConfiguration({ SubtitleMode: "None" }));
+    await refreshTrackSettings();
+    expect(getTrackSettingsSync().subtitleMode).toBe("None");
+  });
 });
 
 describe("writing a pick", () => {
