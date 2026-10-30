@@ -143,6 +143,38 @@ describe("syncRecordingHolds", () => {
     expect(setOriginRecording).toHaveBeenLastCalledWith("a.example", false);
   });
 
+  it("retries the clear on the next sync when the engine rejects it, holding the provider meanwhile", async () => {
+    const running = timer("t", "ch-a", -1_000, 60_000, "InProgress");
+    mockStatus.running = [running];
+    mockStatus.active = [running];
+    syncRecordingHolds(NOW);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(setOriginRecording).toHaveBeenCalledWith("a.example", true);
+    mockStatus.running = [];
+    mockStatus.active = [];
+    (setOriginRecording as jest.Mock).mockRejectedValueOnce(new Error("engine offline"));
+    syncRecordingHolds(NOW + 1_000);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(setOriginRecording).toHaveBeenLastCalledWith("a.example", false);
+    (setOriginRecording as jest.Mock).mockClear();
+    syncRecordingHolds(NOW + 2_000);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(setOriginRecording).toHaveBeenCalledWith("a.example", false);
+  });
+
+  it("retries the hold on the next sync when the engine rejects it", async () => {
+    const running = timer("t", "ch-a", -1_000, 60_000, "InProgress");
+    mockStatus.running = [running];
+    mockStatus.active = [running];
+    (setOriginRecording as jest.Mock).mockRejectedValueOnce(new Error("engine offline"));
+    syncRecordingHolds(NOW);
+    await jest.advanceTimersByTimeAsync(0);
+    (setOriginRecording as jest.Mock).mockClear();
+    syncRecordingHolds(NOW + 1_000);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(setOriginRecording).toHaveBeenCalledWith("a.example", true);
+  });
+
   it("warns once a minute ahead of a recording on a one-connection provider, and not on another", async () => {
     mockStatus.active = [timer("soon", "ch-a", 50_000, 300_000)];
     syncRecordingHolds(NOW);

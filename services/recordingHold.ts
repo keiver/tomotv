@@ -99,6 +99,8 @@ async function oneConnection(originKey: string): Promise<boolean> {
 }
 
 let pushed = new Set<string>();
+// Origins with a hold or clear in flight to the engine, so a second sync does not issue the same call twice.
+const inflight = new Set<string>();
 const pending = new Map<string, number>();
 const warned = new Set<string>();
 /** Providers whose new recording is being checked for the stream, with the run that checks it. */
@@ -135,12 +137,13 @@ export function syncRecordingHolds(nowMs = Date.now()): void {
   for (const originKey of pending.keys()) next.add(originKey);
   for (const originKey of checking.keys()) next.add(originKey);
   for (const originKey of next) {
-    if (pushed.has(originKey)) continue;
+    if (pushed.has(originKey) || inflight.has(originKey)) continue;
     const starting = pending.has(originKey) || checking.has(originKey) ? null : active.find((timer) => channelOrigin(timer.ChannelId) === originKey && holdsNow(timer, nowMs));
-    void holdOrigin(originKey, starting ?? null);
+    pushHold(originKey, starting ?? null);
   }
-  for (const originKey of pushed) if (!next.has(originKey)) void setOriginRecording(originKey, false);
-  pushed = next;
+  for (const originKey of [...pushed]) {
+    if (!next.has(originKey) && !inflight.has(originKey)) pushClear(originKey);
+  }
 
   for (const timer of active) {
     if (!isActiveTimer(timer) || timer.Status === "InProgress" || warned.has(timer.Id)) continue;
@@ -164,6 +167,32 @@ async function holdOrigin(originKey: string, starting: JellyfinTimer | null): Pr
   await setOriginRecording(originKey, true);
   if (!starting || !before || before.active === 0 || before.budget !== 1) return;
   void checkRecording(originKey, starting, () => recreateTimer(starting));
+}
+
+/** Pushes a hold to the engine and records it as pushed only once the engine confirms it; a rejection is retried on the next sync. */
+function pushHold(originKey: string, starting: JellyfinTimer | null): void {
+  inflight.add(originKey);
+  holdOrigin(originKey, starting)
+    .then(() => {
+      pushed.add(originKey);
+    })
+    .catch((error) => logger.warn("Recording hold push failed", error, { service: "RecordingHold" }))
+    .finally(() => {
+      inflight.delete(originKey);
+    });
+}
+
+/** Clears a hold on the engine and drops it from pushed only once the engine confirms it; a rejection keeps it pushed so the next sync retries. */
+function pushClear(originKey: string): void {
+  inflight.add(originKey);
+  setOriginRecording(originKey, false)
+    .then(() => {
+      pushed.delete(originKey);
+    })
+    .catch((error) => logger.warn("Recording hold clear failed", error, { service: "RecordingHold" }))
+    .finally(() => {
+      inflight.delete(originKey);
+    });
 }
 
 export function watchRecordingHolds(): () => void {
@@ -402,6 +431,7 @@ export async function stopRecordingAndPlay(timer: JellyfinTimer, channelId: stri
 export function resetRecordingHoldsForTests(): void {
   clearEdge();
   pushed = new Set();
+  inflight.clear();
   pending.clear();
   warned.clear();
   checking.clear();
