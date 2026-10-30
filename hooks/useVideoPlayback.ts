@@ -828,7 +828,13 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     try {
       await readDetails();
     } catch (err) {
-      failed(err);
+      // A recording that took the one-connection provider between the hold check and the open rejects here
+      // generically; re-check so the viewer gets the Watch Recording screen, not the plain error.
+      if (isLiveRef.current && classifyPlaybackError(err) !== PlaybackErrorType.RECORDING_HOLD && (await isChannelHeld(videoId))) {
+        failed(new IdentifiedError(PLAYBACK_ERROR_IDS.LIVE_RECORDING, "live origin is held by a recording"));
+      } else {
+        failed(err);
+      }
     }
   }, [videoId, startPositionTicks, playedAtStart, hasTriedTranscoding, retryingForMs, liveChannel]);
 
