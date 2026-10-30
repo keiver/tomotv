@@ -29,7 +29,7 @@ const { CardStand } = require("@/components/card-stand") as typeof import("@/com
 const { CardCornerNotch } = require("@/components/card-corner-notch") as typeof import("@/components/card-corner-notch");
 const { VideoGridItem } = require("@/components/video-grid-item") as typeof import("@/components/video-grid-item");
 const { FolderGridItem } = require("@/components/folder-grid-item") as typeof import("@/components/folder-grid-item");
-const { CARD_FOCUS, STAND_HEIGHT } = require("@/constants/app") as typeof import("@/constants/app");
+const { CARD_DEPTH, CARD_FOCUS } = require("@/constants/app") as typeof import("@/constants/app");
 const { COLORS } = require("@/constants/colors") as typeof import("@/constants/colors");
 const { CardPaletteOverride } = require("@/hooks/useCardPalette") as typeof import("@/hooks/useCardPalette");
 const { cardPalette } = require("@/services/cardTheme") as typeof import("@/services/cardTheme");
@@ -112,7 +112,7 @@ describe("card base and corner notch on TV", () => {
     act(() => tree.unmount());
   });
 
-  it("the card has no fill of its own; a depth layer behind the art stops at the base at rest and covers the card on focus", () => {
+  it("the card has no fill of its own; a depth layer behind it covers the whole card at rest and on focus, so its shadow falls below the base", () => {
     const depthLayer = (tree: TestRenderer.ReactTestRenderer) => {
       let card = tree.root.findByType(CardStand).parent!;
       while (card.props.style === undefined) card = card.parent!;
@@ -120,7 +120,7 @@ describe("card base and corner notch on TV", () => {
       return StyleSheet.flatten((card.children[0] as TestRenderer.ReactTestInstance).props.style);
     };
     const resting = mount(<VideoGridItem video={episode} onPress={jest.fn()} index={0} />);
-    expect(depthLayer(resting)).toMatchObject({ position: "absolute", bottom: STAND_HEIGHT, backgroundColor: COLORS.SURFACE_SUNKEN });
+    expect(depthLayer(resting)).toMatchObject({ position: "absolute", bottom: 1, backgroundColor: COLORS.SURFACE_SUNKEN, shadowOpacity: CARD_DEPTH.SHADOW_OPACITY });
     act(() => resting.unmount());
     const lit = mount(<VideoGridItem video={episode} onPress={jest.fn()} index={0} highlighted />);
     expect(depthLayer(lit)).toMatchObject({ bottom: 1, shadowColor: ACCENT });
@@ -141,7 +141,7 @@ describe("card base and corner notch on TV", () => {
     expect(depthLayer(litVideo)).toMatchObject({ ...inside, bottom: 1 });
     act(() => litVideo.unmount());
     const folderCard = mount(<FolderGridItem folder={folder} onPress={jest.fn()} index={0} />);
-    expect(depthLayer(folderCard)).toMatchObject({ ...inside, bottom: STAND_HEIGHT });
+    expect(depthLayer(folderCard)).toMatchObject({ ...inside, bottom: 1, shadowOpacity: CARD_DEPTH.SHADOW_OPACITY });
     act(() => folderCard.unmount());
     const litFolder = mount(<FolderGridItem folder={folder} onPress={jest.fn()} index={0} highlighted />);
     expect(depthLayer(litFolder)).toMatchObject({ ...inside, bottom: 1 });

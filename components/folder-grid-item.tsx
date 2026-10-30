@@ -196,8 +196,8 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
           : t("a11y.folderNav").replace("{name}", folderName)
       }>
       <View style={[styles.card, IS_TV ? null : depth, styles.cardOverhang]}>
-        {/* TV: a solid layer behind the picture carries the depth, so the card stays clear for its base. */}
-        {IS_TV ? <View style={[styles.depthLayer, depth, !focused && styles.depthLayerArt]} pointerEvents="none" /> : null}
+        {/* TV: a solid layer behind the card carries the depth, so the card itself needs no fill. */}
+        {IS_TV ? <View style={[styles.depthLayer, depth]} pointerEvents="none" /> : null}
         <View style={[styles.imageContainer, { aspectRatio: cardRatio }, styles.squareBottom]}>
           {thumbnailSource ? (
             <Image source={thumbnailSource} style={styles.poster} contentFit="cover" transition={0} priority={index < 10 ? "high" : "normal"} cachePolicy="memory-disk" recyclingKey={folder.Id} />
@@ -291,10 +291,6 @@ const styles = StyleSheet.create({
     left: 1,
     right: 1,
     bottom: 1,
-  },
-  // At rest the layer stops at the art, leaving the base over the canvas.
-  depthLayerArt: {
-    bottom: STAND_HEIGHT,
   },
   // Overrides every resting shadow prop: a leftover depth offset would smear the glow downward.
   // The glow's colour is the theme's, set inline.

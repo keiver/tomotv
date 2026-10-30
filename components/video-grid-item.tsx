@@ -346,8 +346,8 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
         inset && { paddingVertical: inset.vertical, paddingHorizontal: inset.horizontal },
       ]}>
       <View style={[styles.card, IS_TV ? null : depth, square && styles.square, !liveCard && styles.cardOverhang]}>
-        {/* TV: a solid layer behind the picture carries the depth, so the card stays clear for its base. */}
-        {IS_TV ? <View style={[styles.depthLayer, depth, square && styles.square, !liveCard && !focused && styles.depthLayerArt]} pointerEvents="none" /> : null}
+        {/* TV: a solid layer behind the card carries the depth, so the card itself needs no fill. */}
+        {IS_TV ? <View style={[styles.depthLayer, depth, square && styles.square]} pointerEvents="none" /> : null}
         <View style={[styles.imageContainer, { aspectRatio: cardRatio }, square && styles.square, (standed || !liveCard) && styles.squareBottom]}>
           {liveFrame || poster || posterSource ? (
             <>
@@ -502,10 +502,6 @@ const styles = StyleSheet.create({
     left: 1,
     right: 1,
     bottom: 1,
-  },
-  // At rest the layer stops at the art, leaving the base over the canvas.
-  depthLayerArt: {
-    bottom: STAND_HEIGHT,
   },
   // Overrides every resting shadow prop: a leftover depth offset would smear the glow downward.
   // The glow's colour is the theme's, set inline.
