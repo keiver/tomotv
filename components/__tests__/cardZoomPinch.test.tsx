@@ -23,6 +23,13 @@ const mockCeiling = 1.6;
 jest.mock("@/hooks/useCardZoom", () => ({ useCardZoom: () => mockZoom, useCardZoomCeiling: () => mockCeiling }));
 const mockUpdate = jest.fn();
 jest.mock("@/services/cardZoom", () => ({ setCardZoom: (zoom: number) => mockUpdate(zoom) }));
+let mockDevice = "iPad";
+jest.mock("@/utils/hostEnvironment", () => ({
+  __esModule: true,
+  get THIS_DEVICE() {
+    return mockDevice;
+  },
+}));
 
 import { CardZoomPinch } from "@/components/card-zoom-pinch";
 
@@ -53,7 +60,16 @@ function pinch(scale: number) {
 describe("CardZoomPinch", () => {
   beforeEach(() => {
     mockZoom = 1;
+    mockDevice = "iPad";
     mockUpdate.mockClear();
+  });
+
+  it("gives iPhone no pinch: the cards render alone", () => {
+    mockDevice = "iPhone";
+    const tree = mount();
+    expect(tree.root.findAll((n) => n.props.testID === "card-zoom-surface")).toHaveLength(0);
+    expect(tree.root.findAllByType(Text)).toHaveLength(1);
+    act(() => tree.unmount());
   });
 
   it("draws the cards with no transform at rest, at any zoom", () => {

@@ -2,6 +2,7 @@ import { GRID } from "@/constants/app";
 import { useCardZoom, useCardZoomCeiling } from "@/hooks/useCardZoom";
 import { setCardZoom } from "@/services/cardZoom";
 import { pinchedCardZoom } from "@/utils/cardZoom";
+import { THIS_DEVICE } from "@/utils/hostEnvironment";
 import React, { useEffect, useMemo, useState } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
@@ -39,9 +40,9 @@ interface CardZoomPinchProps {
   children: React.ReactNode;
 }
 
-/** A pinch over the cards it wraps sets the card zoom every card surface draws at. TV has no pinch and gets the children alone. */
+/** A pinch over the cards it wraps sets the card zoom every card surface draws at. TV and iPhone have no pinch and get the children alone. */
 export function CardZoomPinch({ children }: CardZoomPinchProps) {
-  if (Platform.isTV) return <>{children}</>;
+  if (Platform.isTV || THIS_DEVICE === "iPhone") return <>{children}</>;
   return <CardZoomPinchDetector>{children}</CardZoomPinchDetector>;
 }
 
