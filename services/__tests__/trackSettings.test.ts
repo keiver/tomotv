@@ -157,9 +157,24 @@ describe("writing a pick", () => {
     resetTrackSettingsForTests(true);
     (SecureStore.getItemAsync as jest.Mock).mockImplementation((key: string) => Promise.resolve(key === STORAGE_KEYS.TRACK_SETTINGS ? onDisk : null));
     expect(await readTrackSettings()).toMatchObject({ subtitleMode: "Always", subtitleLanguage: "eng", audioLanguage: "jpn" });
-    // An account keeps its own settings: the signed-out pick is not laid over it.
+    // A signed-in account with no state of its own falls back to the latest selection on this device.
     signIn(ALICE);
-    expect(getTrackSettingsSync()).toEqual(JELLYFIN_DEFAULTS);
+    expect(getTrackSettingsSync()).toMatchObject({ subtitleMode: "Always", subtitleLanguage: "eng", audioLanguage: "jpn" });
+  });
+
+  it("answers an account's own unknown state with the latest device selection, offline and through a relaunch", async () => {
+    fetchMock.mockRejectedValue(new Error("offline"));
+    recordSubtitlePick({ kind: "language", tag: "eng" });
+    recordAudioPick("jpn");
+    await settle();
+    // Another account, never synced on this device: its own state is unknown, so the latest selection answers.
+    signIn(BOB);
+    expect(getTrackSettingsSync()).toMatchObject({ subtitleMode: "Always", subtitleLanguage: "eng", audioLanguage: "jpn" });
+    const onDisk = (SecureStore.setItemAsync as jest.Mock).mock.calls.filter(([key]) => key === STORAGE_KEYS.TRACK_SETTINGS).at(-1)?.[1];
+    resetTrackSettingsForTests(true);
+    (SecureStore.getItemAsync as jest.Mock).mockImplementation((key: string) => Promise.resolve(key === STORAGE_KEYS.TRACK_SETTINGS ? onDisk : null));
+    signIn(BOB);
+    expect(await readTrackSettings()).toMatchObject({ subtitleMode: "Always", subtitleLanguage: "eng", audioLanguage: "jpn" });
   });
 
   it("keeps the pick on this device when the server refuses the user settings", async () => {
