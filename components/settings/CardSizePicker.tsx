@@ -1,3 +1,4 @@
+import { AVATAR_CAPTION_LINE, AVATAR_CELL_WIDTH, STRIP_INSET } from "@/components/settings/styles";
 import { GRID } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { themedStyles } from "@/hooks/useCardPalette";
@@ -62,12 +63,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "flex-end",
-    gap: 18,
-    paddingHorizontal: 20,
-    paddingTop: 22,
-    paddingBottom: 16,
+    gap: 4,
+    paddingHorizontal: STRIP_INSET,
+    paddingTop: STRIP_INSET + 8,
+    paddingBottom: STRIP_INSET,
   },
   option: {
+    width: AVATAR_CELL_WIDTH,
     alignItems: "center",
     gap: 8,
   },
@@ -86,7 +88,10 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.TEXT_SECONDARY,
   },
   label: {
+    width: AVATAR_CELL_WIDTH,
+    textAlign: "center",
     fontSize: 13,
+    lineHeight: AVATAR_CAPTION_LINE,
     fontWeight: "500",
     color: COLORS.TEXT_TERTIARY,
   },
