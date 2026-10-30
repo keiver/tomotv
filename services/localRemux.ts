@@ -619,7 +619,8 @@ function buildSubtitleRenditions(videoItem: JellyfinVideoItem, imageOnly: boolea
       // follow, and handing it one loses the whole asset, not just the subtitle.
       const localVtt = isImage ? "" : (localSubtitleUri(videoItem.Id, index) ?? "");
       const isEngineText = !isImage && !localVtt && stream.IsExternal !== true;
-      const vttUrl = isImage || isEngineText || localVtt ? "" : getSubtitleUrl(videoItem.Id, index, "vtt");
+      // A held file's session carries no server URL: a sidecar missing from disk is dropped below.
+      const vttUrl = isImage || isEngineText || localVtt || playsFromDisk(videoItem.Id) ? "" : getSubtitleUrl(videoItem.Id, index, "vtt");
       const serverSupUrl = isImage && stream.IsExternal === true ? externalImageSubtitleUrl(videoItem, stream) : "";
       if (isImage && stream.IsExternal === true && !serverSupUrl) return dropped("no bitmap subtitle supplier", index);
       if (!isImage && !isEngineText && !localVtt && !isRemoteSubtitleUrl(vttUrl)) return dropped("no text subtitle supplier", index);

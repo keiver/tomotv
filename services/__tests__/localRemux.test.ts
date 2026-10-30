@@ -87,6 +87,14 @@ jest.mock("@/services/jellyfin/session", () => ({
 const mockRememberedVerdict = jest.fn(async (): Promise<object | null> => null);
 jest.mock("@/services/engineVerdicts", () => ({ rememberedVerdict: () => mockRememberedVerdict() }));
 
+// Nothing on disk unless a test says so.
+const mockPlaysFromDisk = jest.fn(() => false);
+jest.mock("@/services/downloads/localSource", () => ({
+  playsFromDisk: () => mockPlaysFromDisk(),
+  localMediaUri: jest.fn(() => null),
+  localSubtitleUri: jest.fn(() => null),
+}));
+
 // Measured-slow link: the tier is declared only when measured < source.
 jest.mock("@/services/jellyfin/bitrateTest", () => ({
   rememberedBitrate: async () => 3_000_000,
@@ -677,6 +685,22 @@ describe("startLocalRemux source positions (issue 84)", () => {
 });
 
 describe("startLocalRemux", () => {
+  it("leaves a sidecar that is not on disk out of a held file's session instead of pointing it at the server", async () => {
+    mockPlaysFromDisk.mockReturnValue(true);
+    const source = item({
+      streams: [
+        { Type: "Video", Codec: "h264", Index: 0 },
+        { Type: "Audio", Codec: "aac", Index: 1 },
+        { Type: "Subtitle", Codec: "subrip", Index: 2, Language: "eng", IsExternal: true, Path: "/media/movie.eng.srt" },
+        { Type: "Subtitle", Codec: "subrip", Index: 3, Language: "spa" },
+      ],
+    });
+    await startLocalRemux(source);
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.subtitles.map((sub: { index: number }) => sub.index)).toEqual([3]);
+    mockPlaysFromDisk.mockReturnValue(false);
+  });
+
   it("marks the subtitle track the stored choice lands on, and no other, for decoding from the start", async () => {
     const source = item({
       streams: [
