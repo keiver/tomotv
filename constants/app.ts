@@ -99,6 +99,8 @@ export const GRID = {
   /** Ceiling on that growth: the widest card a row can hold stays under this share of the
    * usable width, so filling a tall screen never brings back the landscape billboard. */
   MAX_CARD_WIDTH_SHARE: 0.5,
+  /** The share a pinch may take a wide card to on a phone, where the card at its own size is already past the half. */
+  MAX_CARD_WIDTH_SHARE_PHONE: 0.8,
   /** Bump to every mixed-row card height, per device class (tablet from the short side).
    * Posters grow with it; landscape cards grow taller but stay width-capped by LANDSCAPE_RATIO
    * and crop the sides. The tablet bump fills its taller screen; the phone holds its size. */
@@ -315,7 +317,8 @@ export function slotRowHeights(windowWidth: number, windowHeight: number, insetL
 
 /**
  * The largest card zoom a window takes: where the tallest default shelf row puts a wide card at
- * MAX_CARD_WIDTH_SHARE of the usable width, and never below 1, so no screen is shrunk to fit it.
+ * MAX_CARD_WIDTH_SHARE of the usable width (MAX_CARD_WIDTH_SHARE_PHONE on a phone), and never below 1, so no
+ * screen is shrunk to fit it.
  */
 export function cardZoomCeiling(windowWidth: number, windowHeight: number, insetLeft: number, insetRight: number): number {
   const rows = slotRowHeights(windowWidth, windowHeight, insetLeft, insetRight, false);
@@ -323,7 +326,8 @@ export function cardZoomCeiling(windowWidth: number, windowHeight: number, inset
   if (tallest <= 0) return 1;
   const usable = windowWidth - gridEdgePadding(insetLeft, false) - gridEdgePadding(insetRight, false);
   const padding = slotCardPadding(false);
-  const ceiling = (GRID.MAX_CARD_WIDTH_SHARE * usable - 2 * padding) / GRID.LANDSCAPE_RATIO + 2 * padding;
+  const share = Math.min(windowWidth, windowHeight) >= GRID.PHONE_WIDE_MIN_WIDTH ? GRID.MAX_CARD_WIDTH_SHARE : GRID.MAX_CARD_WIDTH_SHARE_PHONE;
+  const ceiling = (share * usable - 2 * padding) / GRID.LANDSCAPE_RATIO + 2 * padding;
   return Math.max(1, ceiling / tallest);
 }
 

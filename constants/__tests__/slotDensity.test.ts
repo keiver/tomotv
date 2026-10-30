@@ -174,11 +174,16 @@ describe("card zoom", () => {
     expect([0.75, 1, 1.25, 1.5].map(tvGridColumns)).toEqual([9, 7, 6, 5]);
   });
 
-  it("gives an iPhone in portrait no room to grow, its wide shelf card already past half the width", () => {
-    expect(cardZoomCeiling(393, 852, 0, 0)).toBe(1);
+  it("lets an iPhone in portrait grow until its tallest shelf card puts a wide card at the phone share of the usable width", () => {
+    const ceiling = cardZoomCeiling(393, 852, 0, 0);
+    expect(ceiling).toBeGreaterThan(1.1);
+    const heights = slotRowHeights(393, 852, 0, 0, false, "shelf", ceiling);
+    const tallest = Math.max(heights.portrait, heights.square, heights.landscape);
+    const usable = 393 - 2 * gridEdgePadding(0, false);
+    expect(Math.abs(cardWidth(tallest, GRID.LANDSCAPE_RATIO) / usable - GRID.MAX_CARD_WIDTH_SHARE_PHONE)).toBeLessThan(0.01);
   });
 
-  it("lets a wider window grow until its tallest shelf card puts a wide card at half the usable width", () => {
+  it("lets a tablet or desktop window grow until its tallest shelf card puts a wide card at half the usable width", () => {
     for (const [w, h] of [
       [1194, 834],
       [1400, 900],

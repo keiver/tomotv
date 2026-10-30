@@ -2,13 +2,12 @@ import { GRID } from "@/constants/app";
 import { useCardZoom, useCardZoomCeiling } from "@/hooks/useCardZoom";
 import { setCardZoom } from "@/services/cardZoom";
 import { pinchedCardZoom } from "@/utils/cardZoom";
-import { THIS_DEVICE } from "@/utils/hostEnvironment";
-import React, { useEffect, useMemo, useState } from "react";
-import { Platform, StyleSheet, View } from "react-native";
+import React, { useCallback, useEffect, useMemo } from "react";
+import { Platform, StyleSheet } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
-import { useReducedMotion, useSharedValue } from "react-native-reanimated";
+import Animated, { Easing, runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withSequence, withTiming } from "react-native-reanimated";
 
-const SETTLE_MS = 180;
+const SETTLE = { duration: 180, easing: Easing.out(Easing.cubic) };
 /** How far the cards swell (or shrink) when a pinch or key runs into a limit. */
 const PULSE = 0.03;
 const PULSE_OUT_MS = 70;
@@ -22,119 +21,97 @@ export function pulseCardZoomLimit(side: LimitSide): void {
   for (const listener of limitListeners) listener(side);
 }
 
-const easeOut = (t: number) => 1 - (1 - t) ** 3;
-
-/** Calls `step` with the eased progress (0 to 1) on each frame for `ms`; returns the cancel. */
-function tween(ms: number, step: (progress: number) => void): () => void {
-  let start = -1;
-  let frame = requestAnimationFrame(function tick(now: number) {
-    if (start < 0) start = now;
-    const t = Math.min((now - start) / ms, 1);
-    step(easeOut(t));
-    if (t < 1) frame = requestAnimationFrame(tick);
-  });
-  return () => cancelAnimationFrame(frame);
+/** The swell toward a limit and back. */
+function limitPulse(side: LimitSide) {
+  "worklet";
+  return withSequence(withTiming(1 + PULSE * side, { duration: PULSE_OUT_MS }), withTiming(1, { duration: PULSE_BACK_MS }));
 }
 
 interface CardZoomPinchProps {
   children: React.ReactNode;
 }
 
-/** A pinch over the cards it wraps sets the card zoom every card surface draws at. TV and iPhone have no pinch and get the children alone. */
+/** A pinch over the cards it wraps sets the card zoom every card surface draws at. TV has no pinch and gets the children alone. */
 export function CardZoomPinch({ children }: CardZoomPinchProps) {
-  if (Platform.isTV || THIS_DEVICE === "iPhone") return <>{children}</>;
+  if (Platform.isTV) return <>{children}</>;
   return <CardZoomPinchDetector>{children}</CardZoomPinchDetector>;
 }
 
 /**
- * `shown` is the zoom on screen; the cards are laid out at the committed zoom and scaled by shown / committed. Both live in
- * React, so a new layout and its scale land in one commit, and at rest the scale is exactly 1 and no transform is drawn.
+ * The cards are laid out at the committed zoom and scaled on the UI thread by shown / committed, so a moving
+ * finger never re-renders them; at rest the scale is exactly 1.
  */
 function CardZoomPinchDetector({ children }: CardZoomPinchProps) {
   const zoom = useCardZoom();
   const ceiling = useCardZoomCeiling();
   const reducedMotion = useReducedMotion();
-  const [shown, setShown] = useState(zoom);
-  const [pinching, setPinching] = useState(false);
-  const [pulse, setPulse] = useState(1);
-  const [limitHit, setLimitHit] = useState({ side: 1 as LimitSide, count: 0 });
-  // Mutable gesture state for the handlers; the children never read it.
-  const shownNow = useSharedValue(zoom);
+  // The zoom the fingers hold, the zoom the layout is at, and the limit swell.
+  const shown = useSharedValue(zoom);
+  const committed = useSharedValue(zoom);
+  const pulse = useSharedValue(1);
   const base = useSharedValue(zoom);
   const side = useSharedValue(0);
 
-  // Released, or a new zoom committed: the cards ease from where they are on screen to the layout's own size.
+  // The layout has committed at a new zoom: the cards ease from where the fingers left them to their own size.
   useEffect(() => {
-    if (pinching) return;
-    const from = shownNow.get();
-    if (from === zoom) return;
-    const show = (value: number) => {
-      shownNow.set(value);
-      setShown(value);
-    };
-    if (reducedMotion) {
-      show(zoom);
+    committed.set(zoom);
+    if (reducedMotion || shown.get() === zoom) {
+      shown.set(zoom);
       return;
     }
-    return tween(SETTLE_MS, (progress) => show(progress === 1 ? zoom : from + (zoom - from) * progress));
-  }, [pinching, zoom, reducedMotion, shownNow]);
+    shown.set(withTiming(zoom, SETTLE));
+  }, [zoom, reducedMotion, shown, committed]);
 
   useEffect(() => {
-    if (limitHit.count === 0 || reducedMotion) return;
-    const peak = 1 + PULSE * limitHit.side;
-    const total = PULSE_OUT_MS + PULSE_BACK_MS;
-    const cancel = tween(total, (progress) => {
-      const elapsed = progress * total;
-      setPulse(progress === 1 ? 1 : elapsed < PULSE_OUT_MS ? 1 + (peak - 1) * (elapsed / PULSE_OUT_MS) : peak + (1 - peak) * ((elapsed - PULSE_OUT_MS) / PULSE_BACK_MS));
-    });
-    return () => {
-      cancel();
-      setPulse(1);
+    const listener = (at: LimitSide) => {
+      if (!reducedMotion) pulse.set(limitPulse(at));
     };
-  }, [limitHit, reducedMotion]);
-
-  useEffect(() => {
-    const listener = (at: LimitSide) => setLimitHit((hit) => ({ side: at, count: hit.count + 1 }));
     limitListeners.add(listener);
     return () => {
       limitListeners.delete(listener);
     };
-  }, []);
+  }, [pulse, reducedMotion]);
+
+  const commit = useCallback(
+    (value: number) => {
+      const next = pinchedCardZoom(value, 1, ceiling);
+      if (next !== zoom) setCardZoom(next);
+      else shown.set(reducedMotion ? zoom : withTiming(zoom, SETTLE));
+    },
+    [ceiling, zoom, shown, reducedMotion],
+  );
 
   const pinch = useMemo(
     () =>
       Gesture.Pinch()
-        .runOnJS(true)
         .onStart(() => {
-          base.set(shownNow.get());
+          "worklet";
+          base.set(shown.get());
           side.set(0);
-          setPinching(true);
         })
         .onUpdate((e) => {
+          "worklet";
           const raw = base.get() * e.scale;
-          const value = Math.min(Math.max(raw, GRID.CARD_ZOOM_MIN), ceiling);
-          shownNow.set(value);
-          setShown(value);
+          shown.set(Math.min(Math.max(raw, GRID.CARD_ZOOM_MIN), ceiling));
           const at = raw > ceiling ? 1 : raw < GRID.CARD_ZOOM_MIN ? -1 : 0;
-          if (at !== 0 && side.get() !== at) setLimitHit((hit) => ({ side: at, count: hit.count + 1 }));
+          if (at !== 0 && side.get() !== at && !reducedMotion) pulse.set(limitPulse(at));
           side.set(at);
         })
         .onFinalize(() => {
-          setPinching(false);
-          const next = pinchedCardZoom(shownNow.get(), 1, ceiling);
-          if (next !== zoom) setCardZoom(next);
+          "worklet";
+          runOnJS(commit)(shown.get());
         }),
-    [base, ceiling, shownNow, side, zoom],
+    [base, ceiling, commit, pulse, reducedMotion, shown, side],
   );
 
-  const scale = (shown * pulse) / zoom;
+  const surface = useAnimatedStyle(() => ({ transform: [{ scale: (shown.get() / committed.get()) * pulse.get() }] }));
 
   return (
     <GestureHandlerRootView style={styles.fill}>
       <GestureDetector gesture={pinch}>
-        <View style={[styles.fill, scale !== 1 && { transformOrigin: "0 0", transform: [{ scale }] }]} collapsable={false} testID="card-zoom-surface">
+        <Animated.View style={[styles.fill, styles.surface, surface]} collapsable={false} testID="card-zoom-surface">
           {children}
-        </View>
+        </Animated.View>
       </GestureDetector>
     </GestureHandlerRootView>
   );
@@ -143,5 +120,8 @@ function CardZoomPinchDetector({ children }: CardZoomPinchProps) {
 const styles = StyleSheet.create({
   fill: {
     flex: 1,
+  },
+  surface: {
+    transformOrigin: "0 0",
   },
 });

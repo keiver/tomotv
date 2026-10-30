@@ -1,4 +1,4 @@
-/** A pinch scales the cards while the fingers move, writes the zoom once on release, and leaves no transform on the cards at rest. */
+/** A pinch scales the cards on the UI thread while the fingers move, writes the zoom once on release, and draws them at scale 1 at rest. */
 import React from "react";
 import { StyleSheet, Text } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
@@ -7,11 +7,10 @@ type Handler = (e?: { scale: number }) => void;
 const mockHandlers: Record<string, Handler> = {};
 jest.mock("react-native-gesture-handler", () => {
   const { View } = require("react-native");
-  const chain: Record<string, (f: Handler | boolean) => unknown> = {};
-  chain.runOnJS = () => chain;
+  const chain: Record<string, (f: Handler) => unknown> = {};
   for (const name of ["onStart", "onUpdate", "onFinalize"]) {
     chain[name] = (f) => {
-      mockHandlers[name] = f as Handler;
+      mockHandlers[name] = f;
       return chain;
     };
   }
@@ -23,13 +22,6 @@ const mockCeiling = 1.6;
 jest.mock("@/hooks/useCardZoom", () => ({ useCardZoom: () => mockZoom, useCardZoomCeiling: () => mockCeiling }));
 const mockUpdate = jest.fn();
 jest.mock("@/services/cardZoom", () => ({ setCardZoom: (zoom: number) => mockUpdate(zoom) }));
-let mockDevice = "iPad";
-jest.mock("@/utils/hostEnvironment", () => ({
-  __esModule: true,
-  get THIS_DEVICE() {
-    return mockDevice;
-  },
-}));
 
 import { CardZoomPinch } from "@/components/card-zoom-pinch";
 
@@ -48,6 +40,7 @@ function mount() {
 }
 
 const surfaceStyle = (tree: TestRenderer.ReactTestRenderer) => StyleSheet.flatten(tree.root.findAll((n) => n.props.testID === "card-zoom-surface" && typeof n.type === "string")[0].props.style);
+const surfaceScale = (tree: TestRenderer.ReactTestRenderer) => (surfaceStyle(tree).transform as { scale: number }[])[0].scale;
 
 function pinch(scale: number) {
   act(() => {
@@ -60,32 +53,15 @@ function pinch(scale: number) {
 describe("CardZoomPinch", () => {
   beforeEach(() => {
     mockZoom = 1;
-    mockDevice = "iPad";
     mockUpdate.mockClear();
   });
 
-  it("gives iPhone no pinch: the cards render alone", () => {
-    mockDevice = "iPhone";
-    const tree = mount();
-    expect(tree.root.findAll((n) => n.props.testID === "card-zoom-surface")).toHaveLength(0);
-    expect(tree.root.findAllByType(Text)).toHaveLength(1);
-    act(() => tree.unmount());
-  });
-
-  it("draws the cards with no transform at rest, at any zoom", () => {
+  it("wraps the cards in the pinch surface, scaled from the top-left corner and at exactly 1 at rest, at any zoom", () => {
     mockZoom = 1.25;
     const tree = mount();
-    expect(surfaceStyle(tree).transform).toBeUndefined();
-    act(() => tree.unmount());
-  });
-
-  it("scales the cards from the top-left corner with the fingers", () => {
-    const tree = mount();
-    act(() => {
-      mockHandlers.onStart();
-      mockHandlers.onUpdate({ scale: 1.3 });
-    });
-    expect(surfaceStyle(tree)).toMatchObject({ transformOrigin: "0 0", transform: [{ scale: 1.3 }] });
+    expect(tree.root.findAllByType(Text)).toHaveLength(1);
+    expect(surfaceStyle(tree).transformOrigin).toBe("0 0");
+    expect(surfaceScale(tree)).toBe(1);
     act(() => tree.unmount());
   });
 
@@ -97,7 +73,7 @@ describe("CardZoomPinch", () => {
     act(() => tree.unmount());
   });
 
-  it("keeps the cards' size on screen in the commit that lays them out at the new zoom", () => {
+  it("draws the cards at scale 1 again once the layout is at the new zoom", () => {
     const tree = mount();
     act(() => {
       mockHandlers.onStart();
@@ -108,8 +84,8 @@ describe("CardZoomPinch", () => {
       mockHandlers.onFinalize();
       tree.update(cards);
     });
-    const transform = surfaceStyle(tree).transform as { scale: number }[] | undefined;
-    expect(transform === undefined || Math.abs(transform[0].scale - 1) < 1e-9).toBe(true);
+    act(() => tree.update(cards));
+    expect(Math.abs(surfaceScale(tree) - 1)).toBeLessThan(1e-9);
     act(() => tree.unmount());
   });
 
