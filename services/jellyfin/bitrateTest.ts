@@ -15,7 +15,7 @@ import { describeSubnet, getLocalNetworkInfo } from "@/services/localNetworkIden
 import { isPlaybackHeld, onPlaybackHoldTaken } from "@/services/playbackHold";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
-import { DEMO_SERVER_URL, STORAGE_KEYS } from "./constants";
+import { STORAGE_KEYS } from "./constants";
 import { fetchLibraryVideos } from "./items";
 import { isLiveSource } from "./media";
 import { getAuthHeader, getConfig, type JellyfinConfig } from "./session";
@@ -74,8 +74,6 @@ function serverHost(server: string): string {
     return server;
   }
 }
-
-const DEMO_HOST = serverHost(DEMO_SERVER_URL);
 
 /** The subnet the device is on, or null when it cannot be read. */
 async function currentNetworkId(): Promise<string | null> {
@@ -212,8 +210,6 @@ export async function measureServerBitrate(): Promise<number | null> {
   const config = await getConfig();
   if (!config.server || !config.apiKey) return null;
   const host = serverHost(config.server);
-  // The demo account has no server transcoding, so no lane pick there reads a link figure.
-  if (host === DEMO_HOST) return null;
 
   const failed = failedAt.get(host);
   if (failed != null && Date.now() - failed < FAILURE_BACKOFF_MS) return null;
