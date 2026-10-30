@@ -560,7 +560,7 @@ Tomo TV enthält keine Medien, Kanäle, Wiedergabelisten oder Fernsehprogramme. 
 Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin und steht in keiner Verbindung zum Jellyfin-Projekt und wird von ihm nicht unterstützt. Jellyfin ist eine Marke des jeweiligen Inhabers.
 ```
 
-#### What's New (2.2.14), macOS (690 / 4000)
+#### What's New (2.2.14), macOS (780 / 4000)
 
 ```text
 - Wer schaut?: die App startet mit deinen gespeicherten Konten, und mit einem Demo-Gesicht, wenn es noch keine gibt
@@ -570,9 +570,10 @@ Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin
 - Blende einen Live-Kanal aus oder benenne ihn um, direkt in seinen Infos
 - Lesen: tippe auf den Rand der Seite, um umzublättern
 - Auf dem Mac blättern die Pfeiltasten durch Bücher und Fotos
+- Karten per Fingerzoom oder mit Befehl-Plus und Befehl-Minus vergrößern oder verkleinern
 ```
 
-#### What's New (2.2.14), iOS (628 / 4000 chars)
+#### What's New (2.2.14), iOS (680 / 4000 chars)
 
 ```text
 - Wer schaut?: die App startet mit deinen gespeicherten Konten, und mit einem Demo-Gesicht, wenn es noch keine gibt
@@ -581,6 +582,7 @@ Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin
 - Sortiere jede Bibliothek nach Name, Hinzugefügt, Erscheinungsdatum, Bewertung, Laufzeit und mehr; Sortierung und Filter bleiben pro Bibliothek gespeichert und folgen deinem Konto
 - Blende einen Live-Kanal aus oder benenne ihn um, direkt in seinen Infos
 - Lesen: tippe auf den Rand der Seite, um umzublättern
+- Karten per Fingerzoom vergrößern oder verkleinern
 ```
 
 #### What's New (2.2.14), tvOS (665 / 4000 chars)
@@ -989,7 +991,7 @@ Tomo TV ne fournit aucun média, chaîne, liste de lecture ni guide. L'app lit c
 Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'est ni affilié au projet Jellyfin ni approuvé par lui. Jellyfin est une marque de son détenteur respectif.
 ```
 
-#### What's New (2.2.14), macOS (654 / 4000)
+#### What's New (2.2.14), macOS (748 / 4000)
 
 ```text
 - Qui regarde ? : l'app s'ouvre sur vos comptes enregistrés, avec un visage Démo quand il n'y en a aucun
@@ -999,9 +1001,10 @@ Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'e
 - Masquez ou renommez une chaîne en direct depuis ses infos
 - Lecture : touchez le bord de la page pour la tourner
 - Sur Mac, les flèches tournent les pages des livres et des photos
+- Pincez, ou appuyez sur Commande-plus et Commande-moins, pour agrandir ou réduire les cartes
 ```
 
-#### What's New (2.2.14), iOS (587 / 4000 chars)
+#### What's New (2.2.14), iOS (632 / 4000 chars)
 
 ```text
 - Qui regarde ? : l'app s'ouvre sur vos comptes enregistrés, avec un visage Démo quand il n'y en a aucun
@@ -1010,6 +1013,7 @@ Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'e
 - Triez chaque médiathèque par nom, date d'ajout, date de sortie, note, durée et plus ; le tri et les filtres sont gardés par médiathèque et suivent votre compte
 - Masquez ou renommez une chaîne en direct depuis ses infos
 - Lecture : touchez le bord de la page pour la tourner
+- Pincez pour agrandir ou réduire les cartes
 ```
 
 #### What's New (2.2.14), tvOS (621 / 4000 chars)
@@ -1418,7 +1422,7 @@ Tomo TV no incluye contenido, canales, listas de reproducción ni guías. Reprod
 Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin, y no está afiliado al proyecto Jellyfin ni respaldado por él. Jellyfin es una marca de su titular correspondiente.
 ```
 
-#### What's New (2.2.14), macOS (656 / 4000)
+#### What's New (2.2.14), macOS (742 / 4000)
 
 ```text
 - ¿Quién está viendo?: la app se abre con tus cuentas guardadas, y con una cara Demo cuando no hay ninguna
@@ -1428,9 +1432,10 @@ Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin
 - Oculta o renombra un canal en vivo desde su información
 - Lectura: toca el borde de la página para pasarla
 - En el Mac, las flechas pasan las páginas de libros y fotos
+- Pellizca, o pulsa Comando-más y Comando-menos, para agrandar o reducir las tarjetas
 ```
 
-#### What's New (2.2.14), iOS (595 / 4000 chars)
+#### What's New (2.2.14), iOS (643 / 4000 chars)
 
 ```text
 - ¿Quién está viendo?: la app se abre con tus cuentas guardadas, y con una cara Demo cuando no hay ninguna
@@ -1439,6 +1444,7 @@ Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin
 - Ordena cualquier biblioteca por nombre, fecha de adición, fecha de estreno, valoración, duración y más; el orden y los filtros se guardan por biblioteca y siguen a tu cuenta
 - Oculta o renombra un canal en vivo desde su información
 - Lectura: toca el borde de la página para pasarla
+- Pellizca para agrandar o reducir las tarjetas
 ```
 
 #### What's New (2.2.14), tvOS (625 / 4000 chars)
