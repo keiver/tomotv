@@ -222,6 +222,8 @@
   "settings.mediaLicensesSubtitle": "Demo media credits and licenses",
   "settings.demoCreditsHint": "Opens the list of everything on the demo server with its licence and source",
   "demo.creditsIntro": "Everything on the demo server, who made it, its licence and where it came from.",
+  "demo.licence": "Licence",
+  "demo.licencesHeader": "LICENCES",
   "demo.licenceHint": "Opens the licence page in the browser",
   "demo.sourceHint": "Opens the page in the browser",
   "demo.creditsGenerated": "Listed by the demo server on {date}. The list is published at {url}.",

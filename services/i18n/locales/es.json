@@ -222,6 +222,8 @@
   "settings.mediaLicensesSubtitle": "Créditos y licencias de la demo",
   "settings.demoCreditsHint": "Abre la lista de todo el contenido del servidor de demostración con su licencia y su fuente",
   "demo.creditsIntro": "Todo lo que hay en el servidor de demostración: quién lo hizo, con qué licencia y de dónde viene.",
+  "demo.licence": "Licencia",
+  "demo.licencesHeader": "LICENCIAS",
   "demo.licenceHint": "Abre la página de la licencia en el navegador",
   "demo.sourceHint": "Abre la página en el navegador",
   "demo.creditsGenerated": "Lista preparada por el servidor de demostración el {date}. Está publicada en {url}.",

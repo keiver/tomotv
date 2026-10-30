@@ -1,5 +1,5 @@
 import bundledJson from "@/constants/demo-credits.json";
-import { BUNDLED_DEMO_CREDITS, creditSections, DEMO_CREDITS_URL, fetchDemoCredits, newerManifest, parseDemoCredits, type DemoCredit } from "../demoCredits";
+import { BUNDLED_DEMO_CREDITS, creditLibraries, DEMO_CREDITS_URL, distinctLicences, fetchDemoCredits, licenceShortName, newerManifest, parseDemoCredits, type DemoCredit } from "../demoCredits";
 
 const mockFetchWithTimeout = jest.fn();
 jest.mock("@/services/jellyfin/http", () => ({ fetchWithTimeout: (...args: unknown[]) => mockFetchWithTimeout(...args) }));
@@ -49,27 +49,28 @@ describe("newerManifest", () => {
   });
 });
 
-describe("creditSections", () => {
-  it("orders libraries as the demo lists them, unknown libraries last", () => {
-    const sections = creditSections([credit("Live TV", "Sintel"), credit("Books", "Dracula"), credit("Extras", "Thing"), credit("Space", "Aurora")]);
-    expect(sections.map((section) => section.library)).toEqual(["Space", "Books", "Live TV", "Extras"]);
+describe("creditLibraries", () => {
+  it("groups by library in the demo's order, unknown libraries last, items in their given order", () => {
+    const libraries = creditLibraries([credit("Live TV", "Sintel"), credit("Books", "Dracula"), credit("Extras", "Thing"), credit("Space", "Aurora"), credit("Books", "Jane Eyre")]);
+    expect(libraries.map((group) => group.library)).toEqual(["Space", "Books", "Live TV", "Extras"]);
+    expect(libraries[1].items.map((item) => item.title)).toEqual(["Dracula", "Jane Eyre"]);
   });
+});
 
-  it("groups a library's items by maker and licence in first-seen order, items in their given order", () => {
-    const nasa = { by: "NASA", licence: "Public domain", licenceUrl: "https://nasa.example/licence" };
-    const esa = { by: "ESA", licence: "CC BY 4.0", licenceUrl: "https://creativecommons.org/licenses/by/4.0/" };
-    const [photos] = creditSections([
-      credit("Photos", "Earthrise", nasa),
-      credit("Photos", "Carina", esa),
-      credit("Photos", "Pillars", nasa),
-      credit("Photos", "Webb mirror", { ...nasa, licence: "CC BY 4.0" }),
-    ]);
-    expect(photos.groups.map((group) => [group.by, group.licence, group.licenceUrl])).toEqual([
-      ["NASA", "Public domain", "https://nasa.example/licence"],
-      ["ESA", "CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/"],
-      ["NASA", "CC BY 4.0", "https://nasa.example/licence"],
-    ]);
-    expect(photos.groups[0].items.map((item) => item.title)).toEqual(["Earthrise", "Pillars"]);
+describe("licenceShortName", () => {
+  it("keeps the licence's first clause and drops a trailing 'text'", () => {
+    expect(licenceShortName("CC BY 4.0")).toBe("CC BY 4.0");
+    expect(licenceShortName("Public domain")).toBe("Public domain");
+    expect(licenceShortName("CC0 1.0, public domain dedication")).toBe("CC0 1.0");
+    expect(licenceShortName("Public domain text; this edition by Standard Ebooks released under CC0")).toBe("Public domain");
+  });
+});
+
+describe("distinctLicences", () => {
+  it("names each licence once with its page, in first-seen order", () => {
+    const nasa = { licence: "Public domain", licenceUrl: "https://nasa.example/licence" };
+    const cc = { licence: "CC BY 4.0", licenceUrl: "https://creativecommons.org/licenses/by/4.0/" };
+    expect(distinctLicences([credit("Photos", "Earthrise", nasa), credit("Photos", "Carina", cc), credit("Space", "Pillars", nasa)])).toEqual([nasa, cc]);
   });
 });
 
@@ -98,6 +99,6 @@ describe("the bundled manifest", () => {
   it("has the full shape, keeps every item and lists every demo library", () => {
     expect(BUNDLED_DEMO_CREDITS.items).toHaveLength(bundledJson.items.length);
     expect(BUNDLED_DEMO_CREDITS.items.length).toBeGreaterThan(0);
-    expect(creditSections(BUNDLED_DEMO_CREDITS.items).map((section) => section.library)).toEqual(["Space", "Music", "Books", "Photos", "Shows", "Live TV"]);
+    expect(creditLibraries(BUNDLED_DEMO_CREDITS.items).map((group) => group.library)).toEqual(["Space", "Music", "Books", "Photos", "Shows", "Live TV"]);
   });
 });

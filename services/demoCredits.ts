@@ -27,17 +27,14 @@ export interface DemoCredits {
   items: DemoCredit[];
 }
 
-/** The items of one library that share a maker and a licence. */
-export interface DemoCreditGroup {
-  by: string;
-  licence: string;
-  licenceUrl: string;
+export interface DemoCreditLibrary {
+  library: string;
   items: DemoCredit[];
 }
 
-export interface DemoCreditSection {
-  library: string;
-  groups: DemoCreditGroup[];
+export interface DemoLicence {
+  licence: string;
+  licenceUrl: string;
 }
 
 export const DEMO_CREDITS_URL = `${DEMO_SERVER_URL}/credits.json`;
@@ -68,21 +65,27 @@ export function newerManifest(current: DemoCredits, fetched: DemoCredits | null)
   return fetched && fetched.generated > current.generated ? fetched : current;
 }
 
-/**
- * Items by library, in the order the demo lists them (a library the order does not name comes
- * last), each library's items grouped by maker and licence in the order they first appear.
- */
-export function creditSections(items: DemoCredit[]): DemoCreditSection[] {
-  const sections = new Map<string, DemoCreditGroup[]>();
-  for (const item of items) {
-    const groups = sections.get(item.library) ?? [];
-    const group = groups.find((candidate) => candidate.by === item.by && candidate.licence === item.licence);
-    if (group) group.items.push(item);
-    else groups.push({ by: item.by, licence: item.licence, licenceUrl: item.licenceUrl, items: [item] });
-    sections.set(item.library, groups);
-  }
+/** Items by library, in the order the demo lists them; a library the order does not name comes last. */
+export function creditLibraries(items: DemoCredit[]): DemoCreditLibrary[] {
+  const libraries = new Map<string, DemoCredit[]>();
+  for (const item of items) libraries.set(item.library, [...(libraries.get(item.library) ?? []), item]);
   const rank = (library: string) => (LIBRARY_ORDER.includes(library) ? LIBRARY_ORDER.indexOf(library) : LIBRARY_ORDER.length);
-  return [...sections.entries()].sort(([a], [b]) => rank(a) - rank(b)).map(([library, groups]) => ({ library, groups }));
+  return [...libraries.entries()].sort(([a], [b]) => rank(a) - rank(b)).map(([library, group]) => ({ library, items: group }));
+}
+
+/** The licence's short name for a row's edge: its first clause, "CC BY 4.0", "Public domain", "CC0 1.0". */
+export function licenceShortName(licence: string): string {
+  return licence
+    .split(/[;,]/)[0]
+    .replace(/\s+text$/i, "")
+    .trim();
+}
+
+/** Each licence the items name once, with its page, in the order it first appears. */
+export function distinctLicences(items: DemoCredit[]): DemoLicence[] {
+  const seen = new Map<string, string>();
+  for (const item of items) if (!seen.has(item.licence)) seen.set(item.licence, item.licenceUrl);
+  return [...seen.entries()].map(([licence, licenceUrl]) => ({ licence, licenceUrl }));
 }
 
 /** The server's manifest, or null when it cannot be read; the caller keeps what it has. */

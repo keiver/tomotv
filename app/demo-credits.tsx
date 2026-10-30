@@ -3,7 +3,17 @@ import { ListRow } from "@/components/settings/ListRow";
 import { PosterMark } from "@/components/settings/PosterMark";
 import { settingsStyles, sideInsets } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
-import { BUNDLED_DEMO_CREDITS, creditSections, DEMO_CREDITS_URL, fetchDemoCredits, newerManifest, type DemoCredit, type DemoCreditGroup, type DemoCredits } from "@/services/demoCredits";
+import {
+  BUNDLED_DEMO_CREDITS,
+  creditLibraries,
+  DEMO_CREDITS_URL,
+  distinctLicences,
+  fetchDemoCredits,
+  licenceShortName,
+  newerManifest,
+  type DemoCredit,
+  type DemoCredits,
+} from "@/services/demoCredits";
 import { t } from "@/services/i18n";
 import { logger } from "@/utils/logger";
 import { useHeaderHeight } from "expo-router/react-navigation";
@@ -13,15 +23,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
 
-/** The group row's second line: the licence, and on TV the page it is read from, since the row cannot open it. */
-export function groupSubtitle(group: DemoCreditGroup, isTV: boolean): string {
-  return isTV ? `${group.licence} · ${group.licenceUrl}` : group.licence;
-}
-
-/** An item row's second line: on TV its source page, elsewhere its year when it has one. */
-export function itemSubtitle(item: DemoCredit, isTV: boolean): string | undefined {
-  if (isTV) return item.source;
-  return item.year ? String(item.year) : undefined;
+/**
+ * An item row's second line. Phone and Mac: the maker, the licence sits at the row's edge. TV:
+ * maker and licence, and the source page while the row is focused.
+ */
+export function itemSubtitle(item: DemoCredit, isTV: boolean, focused: boolean): string {
+  if (!isTV) return item.by;
+  return focused ? item.source : `${item.by} · ${item.licence}`;
 }
 
 /** The footer line: when the server listed the items and where it publishes the list. */
@@ -35,18 +43,21 @@ function openPage(url: string) {
   void Linking.openURL(url).catch((error) => logger.warn("Credits link failed to open", error, { service: "DemoCreditsScreen" }));
 }
 
+const itemKey = (item: DemoCredit) => `${item.library}/${item.title}`;
+
 /**
  * Every item on the demo server with its maker, licence, source and picture, pushed from the
- * Media Licenses row under About. Each library is a header; under it one card per maker and
- * licence, led by a row that opens the licence page, then a nested row per item that opens its
- * source page. Opens on the manifest the app ships, then asks the server for its current one and
- * swaps it in when it is newer; a server that does not answer changes nothing. The Menu/back
- * button pops the route.
+ * Media Licenses row under About: one card per library, one row per item. On phone and Mac a
+ * row opens its source page and its trailing button the licence page. On TV nothing opens: the
+ * focused row shows its source address, and a last card lists each licence with its page. Opens
+ * on the manifest the app ships, then asks the server for its current one and swaps it in when
+ * it is newer; a server that does not answer changes nothing. The Menu/back button pops the route.
  */
 export default function DemoCreditsScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const [credits, setCredits] = useState<DemoCredits>(BUNDLED_DEMO_CREDITS);
+  const [focusedKey, setFocusedKey] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -58,9 +69,9 @@ export default function DemoCreditsScreen() {
     };
   }, []);
 
-  const sections = useMemo(() => creditSections(credits.items), [credits]);
-  const openLicence = useCallback((group: DemoCreditGroup) => openPage(group.licenceUrl), []);
-  const openSource = useCallback((item: DemoCredit) => openPage(item.source), []);
+  const libraries = useMemo(() => creditLibraries(credits.items), [credits]);
+  const licences = useMemo(() => distinctLicences(credits.items), [credits]);
+  const blur = useCallback(() => setFocusedKey(null), []);
 
   return (
     <View style={settingsStyles.screenContainer}>
@@ -79,42 +90,57 @@ export default function DemoCreditsScreen() {
           {IS_TV && <Text style={styles.title}>{t("settings.mediaLicenses")}</Text>}
           <Text style={styles.intro}>{t("demo.creditsIntro")}</Text>
 
-          {sections.map((section, sectionIndex) => (
-            <View key={section.library}>
+          {libraries.map((group, groupIndex) => (
+            <View key={group.library}>
               <View style={settingsStyles.sectionHeader}>
-                <Text style={settingsStyles.sectionHeaderText}>{section.library}</Text>
+                <Text style={settingsStyles.sectionHeaderText}>{group.library}</Text>
               </View>
-              {section.groups.map((group, groupIndex) => (
-                <View key={`${section.library}/${group.by}/${group.licence}`} style={settingsStyles.section}>
+              <View style={settingsStyles.section}>
+                {group.items.map((item, index) => (
                   <ListRow
-                    icon="ribbon-outline"
-                    title={group.by}
-                    subtitle={groupSubtitle(group, IS_TV)}
-                    trailingIcon={IS_TV ? undefined : "open-outline"}
-                    onPress={() => openLicence(group)}
-                    hasTVPreferredFocus={sectionIndex === 0 && groupIndex === 0}
-                    isFirst
-                    accessibilityLabel={`${group.by}, ${group.licence}`}
-                    accessibilityHint={t("demo.licenceHint")}
+                    key={itemKey(item)}
+                    icon={item.image ? () => <PosterMark uri={item.image} /> : "film-outline"}
+                    title={item.title}
+                    subtitle={itemSubtitle(item, IS_TV, focusedKey === itemKey(item))}
+                    trailingAction={
+                      IS_TV
+                        ? undefined
+                        : { text: licenceShortName(item.licence), label: `${t("demo.licence")}: ${item.licence}`, hint: t("demo.licenceHint"), onPress: () => openPage(item.licenceUrl) }
+                    }
+                    onPress={IS_TV ? undefined : () => openPage(item.source)}
+                    onFocus={IS_TV ? () => setFocusedKey(itemKey(item)) : undefined}
+                    onBlur={IS_TV ? blur : undefined}
+                    hasTVPreferredFocus={groupIndex === 0 && index === 0}
+                    isFirst={index === 0}
+                    isLast={index === group.items.length - 1}
+                    accessibilityLabel={`${item.title}, ${item.by}, ${item.licence}`}
+                    accessibilityHint={IS_TV ? undefined : t("demo.sourceHint")}
                   />
-                  {group.items.map((item, index) => (
-                    <ListRow
-                      key={`${item.library}/${item.title}`}
-                      nested
-                      icon={item.image ? () => <PosterMark uri={item.image} /> : "film-outline"}
-                      title={item.title}
-                      subtitle={itemSubtitle(item, IS_TV)}
-                      trailingIcon={IS_TV ? undefined : "open-outline"}
-                      onPress={() => openSource(item)}
-                      isLast={index === group.items.length - 1}
-                      accessibilityLabel={item.year ? `${item.title}, ${item.year}` : item.title}
-                      accessibilityHint={t("demo.sourceHint")}
-                    />
-                  ))}
-                </View>
-              ))}
+                ))}
+              </View>
             </View>
           ))}
+
+          {IS_TV && (
+            <>
+              <View style={settingsStyles.sectionHeader}>
+                <Text style={settingsStyles.sectionHeaderText}>{t("demo.licencesHeader")}</Text>
+              </View>
+              <View style={settingsStyles.section}>
+                {licences.map((entry, index) => (
+                  <ListRow
+                    key={entry.licence}
+                    icon="ribbon-outline"
+                    title={entry.licence}
+                    subtitle={entry.licenceUrl}
+                    isFirst={index === 0}
+                    isLast={index === licences.length - 1}
+                    accessibilityLabel={`${entry.licence}, ${entry.licenceUrl}`}
+                  />
+                ))}
+              </View>
+            </>
+          )}
 
           <Text style={styles.footer}>{generatedLine(credits)}</Text>
         </View>
