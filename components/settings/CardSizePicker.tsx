@@ -1,4 +1,4 @@
-import { CARD_CHROME, GRID } from "@/constants/app";
+import { GRID } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { themedStyles } from "@/hooks/useCardPalette";
 import React from "react";
@@ -7,7 +7,8 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 /** A poster card at 100%, in points; every pick scales from it. */
 const CARD_H = 48;
 const RADIUS = 7;
-const STAND_H = 11;
+/** The base under the art, in the real card's share of its height. */
+const STAND_H = 9;
 const RING = 2;
 
 /** The miniature card's box for a size: a poster shape, its corners and stand scaled with it. */
@@ -17,7 +18,6 @@ export function previewMetrics(size: number) {
     height: Math.round(CARD_H * size),
     borderRadius: RADIUS * size,
     standHeight: Math.round(STAND_H * size),
-    nameHeight: Math.max(1, Math.round(2 * size)),
   };
 }
 
@@ -46,9 +46,8 @@ export function CardSizePicker({ sizes, selected, format, onSelect }: CardSizePi
             style={styles.option}
             testID={`card-size-${Math.round(size * 100)}`}>
             <View style={[styles.card, { width: metrics.width, height: metrics.height, borderRadius: metrics.borderRadius }, chosen && [styles.cardChosen, themed.ring]]}>
-              <View style={[styles.stand, { height: metrics.standHeight }]}>
-                <View style={[styles.name, { height: metrics.nameHeight }]} />
-              </View>
+              <View style={styles.art} />
+              <View style={[styles.stand, { height: metrics.standHeight }]} />
             </View>
             <Text style={[styles.label, chosen && [styles.labelChosen, themed.accent]]}>{format(size)}</Text>
           </Pressable>
@@ -72,24 +71,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
-  // The art: a muted block, the stand on the card surface under it, as the real cards draw.
+  // The art over its stand, as the real cards draw. The stand is lighter than the real one: the section card is the card surface, which would swallow it.
   card: {
-    backgroundColor: COLORS.SURFACE_MUTED,
     overflow: "hidden",
-    justifyContent: "flex-end",
   },
   cardChosen: {
     borderWidth: RING,
   },
-  stand: {
-    backgroundColor: CARD_CHROME,
-    justifyContent: "center",
-    paddingHorizontal: "18%",
+  art: {
+    flex: 1,
+    backgroundColor: COLORS.SURFACE_MUTED,
   },
-  name: {
-    width: "70%",
-    borderRadius: 1,
-    backgroundColor: COLORS.TEXT_TERTIARY,
+  stand: {
+    backgroundColor: COLORS.TEXT_SECONDARY,
   },
   label: {
     fontSize: 13,

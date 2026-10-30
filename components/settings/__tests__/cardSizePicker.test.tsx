@@ -9,7 +9,7 @@ describe("CardSizePicker", () => {
     const small = previewMetrics(0.75);
     const own = previewMetrics(1);
     const large = previewMetrics(1.5);
-    expect(own).toEqual({ width: 32, height: 48, borderRadius: 7, standHeight: 11, nameHeight: 2 });
+    expect(own).toEqual({ width: 32, height: 48, borderRadius: 7, standHeight: 9 });
     expect(large.width).toBe(2 * small.width);
     expect(large.height).toBe(2 * small.height);
     expect(large.borderRadius).toBeCloseTo(2 * small.borderRadius, 10);
