@@ -25,7 +25,7 @@ Object.defineProperty(Platform, "isTV", { value: true, configurable: true });
 const { CardStand } = require("@/components/card-stand") as typeof import("@/components/card-stand");
 const { CardCornerNotch } = require("@/components/card-corner-notch") as typeof import("@/components/card-corner-notch");
 const { VideoGridItem } = require("@/components/video-grid-item") as typeof import("@/components/video-grid-item");
-const { STAND_HEIGHT } = require("@/constants/app") as typeof import("@/constants/app");
+const { CARD_FOCUS, STAND_HEIGHT } = require("@/constants/app") as typeof import("@/constants/app");
 const { COLORS } = require("@/constants/colors") as typeof import("@/constants/colors");
 const { CardPaletteOverride } = require("@/hooks/useCardPalette") as typeof import("@/hooks/useCardPalette");
 const { cardPalette } = require("@/services/cardTheme") as typeof import("@/services/cardTheme");
@@ -81,6 +81,23 @@ describe("card base and corner notch on TV", () => {
     expect(notchFill(lit)).toBe(ACCENT);
     expect(StyleSheet.flatten(lit.root.findAll((n) => typeof n.type === "string" && n.props.children === "S01E05")[0].props.style).color).toBe(palette.ink);
     act(() => lit.unmount());
+  });
+
+  it("on focus the notch's fillets start inside the focus ring's width, and at rest they start at the card edge", () => {
+    const filletMargins = (tree: TestRenderer.ReactTestRenderer) => {
+      const top = StyleSheet.flatten(tree.root.findByProps({ testID: "card-corner-notch-fillet-top" }).props.style);
+      const left = StyleSheet.flatten(tree.root.findByProps({ testID: "card-corner-notch-fillet-left" }).props.style);
+      return { top: top.marginTop, left: left.marginLeft };
+    };
+    const resting = mount(<CardCornerNotch segments={[{ label: "S01E05" }]} />);
+    expect(filletMargins(resting)).toEqual({ top: 0, left: 0 });
+    act(() => resting.unmount());
+    const lit = mount(<CardCornerNotch segments={[{ label: "S01E05" }]} focused />);
+    expect(filletMargins(lit)).toEqual({ top: CARD_FOCUS.BORDER_WIDTH_FOCUSED, left: CARD_FOCUS.BORDER_WIDTH_FOCUSED });
+    act(() => lit.unmount());
+    const live = mount(<CardCornerNotch segments={[{ label: "NOW" }]} tone="live" focused />);
+    expect(filletMargins(live)).toEqual({ top: CARD_FOCUS.BORDER_WIDTH_FOCUSED, left: CARD_FOCUS.BORDER_WIDTH_FOCUSED });
+    act(() => live.unmount());
   });
 
   it("on TV the corner notch is rasterized", () => {

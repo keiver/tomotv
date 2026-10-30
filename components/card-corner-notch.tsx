@@ -1,6 +1,6 @@
 import { type BadgeSegment } from "@/components/card-badge";
 import { STAND_NAME_TEXT } from "@/components/card-stand";
-import { CARD_CHROME, STAND_HEIGHT } from "@/constants/app";
+import { CARD_CHROME, CARD_FOCUS, STAND_HEIGHT } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { useCardZoom } from "@/hooks/useCardZoom";
@@ -54,8 +54,10 @@ export function CardCornerNotch({ segments, tone = "plain", focused = false }: C
   // Lettered like the name: the accent, white when the accent is too dark to read, the ink on the accent.
   const color = lit ? ink : live || isLowContrast(accent) ? COLORS.TEXT_PRIMARY : accent;
   const fill = live ? COLORS.DESTRUCTIVE_DEEP : lit ? accent : CARD_CHROME;
-  const fillet = (
-    <View style={[styles.fillet, metrics.fillet]}>
+  // The focus ring covers the card's outer edge, so each fillet flattens out on the ring's inner edge instead.
+  const inset = focused ? CARD_FOCUS.BORDER_WIDTH_FOCUSED : 0;
+  const fillet = (side: "top" | "left") => (
+    <View style={[styles.fillet, metrics.fillet, side === "top" ? { marginTop: inset } : { marginLeft: inset }]} testID={`card-corner-notch-fillet-${side}`}>
       <View style={[styles.ring, metrics.ring, { borderColor: fill }]} />
     </View>
   );
@@ -75,9 +77,9 @@ export function CardCornerNotch({ segments, tone = "plain", focused = false }: C
             </View>
           ))}
         </View>
-        {fillet}
+        {fillet("top")}
       </View>
-      {fillet}
+      {fillet("left")}
     </View>
   );
 }
