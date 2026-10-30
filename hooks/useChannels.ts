@@ -40,6 +40,8 @@ export function useChannels(
   const [attempt, setAttempt] = useState(0);
   // The last page landed before the tuner playlists did: the next one is asked for here, since the grid may never reach its end.
   const [tailWaiting, setTailWaiting] = useState(false);
+  // A read while the tail waits is the tuner-playlist check, not a page: it shows no loading footer.
+  const tailWaitingRef = useRef(false);
   const itemsRef = useRef<JellyfinItem[]>([]);
   // Where the next page starts: ids the server does not know leave fewer items than ids consumed.
   const loadedRef = useRef(0);
@@ -100,6 +102,7 @@ export function useChannels(
     setIsLoading(true);
     setHasMore(false);
     setTailWaiting(false);
+    tailWaitingRef.current = false;
     setError(null);
     // The ids still loading: the returned isLoading covers it without a state write.
     if (ids === "loading") return;
@@ -111,6 +114,7 @@ export function useChannels(
         setItems(page);
         setHasMore(more);
         setTailWaiting(waiting);
+        tailWaitingRef.current = waiting;
         setError(null);
       })
       .catch((err) => {
@@ -135,7 +139,7 @@ export function useChannels(
     if (isLoading || !hasMore || busyRef.current) return;
     const generation = generationRef.current;
     busyRef.current = true;
-    setIsLoadingMore(true);
+    if (!tailWaitingRef.current) setIsLoadingMore(true);
     loadPage(loadedRef.current)
       .then(({ page, hasMore: more, consumed, waiting }) => {
         if (generationRef.current !== generation) return;
@@ -143,6 +147,7 @@ export function useChannels(
         loadedRef.current += consumed;
         setHasMore(more);
         setTailWaiting(waiting);
+        tailWaitingRef.current = waiting;
         // A channel the server ingested since its stand-in landed comes back in a later page.
         const seen = new Set(itemsRef.current.map((item) => item.Id));
         const fresh = page.filter((item) => !seen.has(item.Id));

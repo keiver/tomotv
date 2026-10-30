@@ -79,6 +79,26 @@ describe("useChannels", () => {
     expect(mockPending.mock.calls[1][1].map((item: { Id: string }) => item.Id)).toEqual(["c0", "c1"]);
   });
 
+  it("shows no loading footer while it reads the tuner playlists after the server's last channel, whoever asks", async () => {
+    mockFetch.mockImplementation(async ({ startIndex }: { startIndex: number }) => ({ items: channels(startIndex, Math.max(0, 2 - startIndex)), total: 2 }));
+    let finishTail!: (value: typeof NOTHING_PENDING) => void;
+    mockPending.mockResolvedValueOnce({ pending: [], hasMore: true, waiting: true }).mockReturnValueOnce(new Promise((resolve) => (finishTail = resolve)));
+    const ref = React.createRef<HookRef>();
+    await act(async () => {
+      TestRenderer.create(<Harness ref={ref} sort="number" />);
+    });
+    await settle();
+    expect(mockPending).toHaveBeenCalledTimes(2);
+    expect(ref.current?.get()).toMatchObject({ isLoadingMore: false, hasMore: true });
+    // The grid reaching its end during the read asks again: still no footer.
+    act(() => ref.current?.get().loadMore());
+    expect(ref.current?.get().isLoadingMore).toBe(false);
+    await act(async () => finishTail(NOTHING_PENDING));
+    await settle();
+    expect(ref.current?.get()).toMatchObject({ isLoadingMore: false, hasMore: false });
+    expect(ref.current?.get().items.map((item) => item.Id)).toEqual(["c0", "c1"]);
+  });
+
   it("reloads the wall with the playlist-only channels after a tuner playlist held back by playback downloads", async () => {
     mockFetch.mockResolvedValue({ items: channels(0, 1), total: 1 });
     const ref = React.createRef<HookRef>();

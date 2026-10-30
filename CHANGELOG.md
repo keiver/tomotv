@@ -20,6 +20,7 @@ All notable changes to Tomo TV are documented here.
 - Show in Folder no longer shows on an episode opened from its own season screen. Jellyfin leaves a virtual season out of an episode's ancestors, so the panel also checks the folder it was opened from against the episode's parent
 - On Apple TV the info panel's title logo sits inside the card's 48 pt padding instead of running to its edges
 - A downloaded episode's row on the Downloads screen names its season and episode, S08E05, before its size
+- The channel wall showed Loading more items after its last channel while Tomo read the tuner playlists for channels only they carry; that read shows nothing now
 
 ### Changed
 
