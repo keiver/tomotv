@@ -495,12 +495,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0,
     elevation: 0,
   },
+  // One point inside the art: a second rounded edge on the art's own curve darkens its corner pixels.
   depthLayer: {
     position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    top: 1,
+    left: 1,
+    right: 1,
+    bottom: 1,
   },
   // At rest the layer stops at the art, leaving the base over the canvas.
   depthLayerArt: {

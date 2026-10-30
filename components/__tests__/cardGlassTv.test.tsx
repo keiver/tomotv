@@ -16,7 +16,10 @@ jest.mock("@/hooks/useItemPoster", () => ({ useItemPoster: () => ({ uri: "https:
 jest.mock("@/hooks/useMinuteClock", () => ({ useMinuteClock: () => 0 }));
 jest.mock("@/hooks/useNowPlaying", () => ({ useIsNowPlaying: () => false, useNowPlayingVideo: () => ({ active: false, playing: false }), useOpenNowPlaying: () => jest.fn() }));
 jest.mock("@/hooks/useCardNavProgress", () => ({ useCardNavProgress: () => ({ navigating: false, visible: false, startNavProgress: jest.fn(), resetNavProgress: jest.fn() }) }));
-jest.mock("@/services/itemArtwork", () => ({ showsChannelLogo: () => false }));
+jest.mock("@/services/itemArtwork", () => ({ showsChannelLogo: () => false, folderPosterSource: () => undefined }));
+jest.mock("@/components/poster-collage", () => ({ PosterCollage: () => null }));
+jest.mock("@/hooks/useFolderPreview", () => ({ useFolderPreview: () => [] }));
+jest.mock("@/hooks/useViewItemCount", () => ({ useViewItemCount: () => ({ count: 3, loading: false }) }));
 jest.mock("@/services/liveFrames", () => ({ LIVE_FRAME_TRANSITION_MS: 0, LIVE_FRAME_REFRESH_MS: 120_000, liveFrameReel: () => undefined, subscribeLiveFrame: () => () => undefined }));
 jest.mock("@/services/jellyfinApi", () => ({ isAudioItem: () => false, isBook: () => false }));
 
@@ -25,6 +28,7 @@ Object.defineProperty(Platform, "isTV", { value: true, configurable: true });
 const { CardStand } = require("@/components/card-stand") as typeof import("@/components/card-stand");
 const { CardCornerNotch } = require("@/components/card-corner-notch") as typeof import("@/components/card-corner-notch");
 const { VideoGridItem } = require("@/components/video-grid-item") as typeof import("@/components/video-grid-item");
+const { FolderGridItem } = require("@/components/folder-grid-item") as typeof import("@/components/folder-grid-item");
 const { CARD_FOCUS, STAND_HEIGHT } = require("@/constants/app") as typeof import("@/constants/app");
 const { COLORS } = require("@/constants/colors") as typeof import("@/constants/colors");
 const { CardPaletteOverride } = require("@/hooks/useCardPalette") as typeof import("@/hooks/useCardPalette");
@@ -33,6 +37,7 @@ const { cardPalette } = require("@/services/cardTheme") as typeof import("@/serv
 const ACCENT = "#4F99FF";
 const palette = cardPalette(ACCENT);
 const episode = { Id: "e1", Name: "Pilot", Type: "Episode", IndexNumber: 5, ParentIndexNumber: 1 } as import("@/types/jellyfin").JellyfinVideoItem;
+const folder = { Id: "f1", Name: "Shows", Type: "Folder", RecursiveItemCount: 3 } as unknown as import("@/types/jellyfin").JellyfinItem;
 
 function mount(element: React.ReactElement) {
   let tree!: TestRenderer.ReactTestRenderer;
@@ -118,7 +123,28 @@ describe("card base and corner notch on TV", () => {
     expect(depthLayer(resting)).toMatchObject({ position: "absolute", bottom: STAND_HEIGHT, backgroundColor: COLORS.SURFACE_SUNKEN });
     act(() => resting.unmount());
     const lit = mount(<VideoGridItem video={episode} onPress={jest.fn()} index={0} highlighted />);
-    expect(depthLayer(lit)).toMatchObject({ bottom: 0, shadowColor: ACCENT });
+    expect(depthLayer(lit)).toMatchObject({ bottom: 1, shadowColor: ACCENT });
     act(() => lit.unmount());
+  });
+
+  it("the depth layer sits one point inside the art on both cards, so its rounded edge never shares a curve with the art's clip", () => {
+    const depthLayer = (tree: TestRenderer.ReactTestRenderer) => {
+      let card = tree.root.findByType(CardStand).parent!;
+      while (card.props.style === undefined) card = card.parent!;
+      return StyleSheet.flatten((card.children[0] as TestRenderer.ReactTestInstance).props.style);
+    };
+    const inside = { top: 1, left: 1, right: 1 };
+    const video = mount(<VideoGridItem video={episode} onPress={jest.fn()} index={0} />);
+    expect(depthLayer(video)).toMatchObject(inside);
+    act(() => video.unmount());
+    const litVideo = mount(<VideoGridItem video={episode} onPress={jest.fn()} index={0} highlighted />);
+    expect(depthLayer(litVideo)).toMatchObject({ ...inside, bottom: 1 });
+    act(() => litVideo.unmount());
+    const folderCard = mount(<FolderGridItem folder={folder} onPress={jest.fn()} index={0} />);
+    expect(depthLayer(folderCard)).toMatchObject({ ...inside, bottom: STAND_HEIGHT });
+    act(() => folderCard.unmount());
+    const litFolder = mount(<FolderGridItem folder={folder} onPress={jest.fn()} index={0} highlighted />);
+    expect(depthLayer(litFolder)).toMatchObject({ ...inside, bottom: 1 });
+    act(() => litFolder.unmount());
   });
 });
