@@ -594,6 +594,17 @@ describe("useVideoPlayback (mounted)", () => {
         jest.useRealTimers();
       });
 
+      it("stores a choice the viewer made when the item changes before the settle", async () => {
+        const { ref, renderer, request } = await playing(false);
+        await request(6);
+        expect(saveSubtitlePreference).not.toHaveBeenCalled();
+        await act(async () => {
+          renderer.update(<Harness ref={ref} videoId="video-2" />);
+        });
+        expect(saveSubtitlePreference).toHaveBeenCalledWith({ kind: "language", tag: "eng" });
+        await act(async () => renderer.unmount());
+      });
+
       it("holds and remembers it once it settles, and ignores the opening track's repeat requests", async () => {
         const { ref, renderer, request } = await playing(true);
         await request(4);
