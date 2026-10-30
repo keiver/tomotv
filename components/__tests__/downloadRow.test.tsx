@@ -99,6 +99,12 @@ describe("DownloadRow", () => {
     expect(subtitle({})).toBe("2 KB");
   });
 
+  it("puts an episode's season and episode number before its size, and while it downloads", () => {
+    const episode = { Id: "a", Name: "Assault on the Leaf Village!", Type: "Episode", ParentIndexNumber: 8, IndexNumber: 5, MediaStreams: [{ Index: 0, Type: "Video" }] } as never;
+    expect(actionTarget(render(ENTRY("ready", { item: episode, totalBytes: 2048 }), jest.fn())).props.subtitle).toBe("S08E05 · Original · 2 KB");
+    expect(actionTarget(render(ENTRY("queued", { item: episode }), jest.fn())).props.subtitle).toBe("S08E05 · Waiting");
+  });
+
   // A server conversion streams with no ranges, so it cannot resume: no pause glyph, no pause hint.
   it("offers no pause on a transfer the server is converting", () => {
     const RUNG = { label: "720p", bitrate: 4000000, width: 1280, height: 720 };
