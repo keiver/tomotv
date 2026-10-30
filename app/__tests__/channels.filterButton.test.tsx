@@ -1,11 +1,11 @@
-/** The wall's filter button only clears: it shows while a group holds the list and a press shows every channel. */
+/** The wall's filter button: always in the bar, filled while a group holds the list, a press opens the Groups picker. */
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 
-let mockScreenOptions: { unstable_headerRightItems?: () => { label: string; onPress: () => void }[] } = {};
+let mockScreenOptions: { unstable_headerRightItems?: () => { label: string; icon: { name: string }; onPress: () => void }[] } = {};
 let mockGridProps: Record<string, unknown> = {};
 let mockFilter = "all";
-const mockUpdate = jest.fn();
+const mockPush = jest.fn();
 
 jest.mock("expo-router", () => ({
   Stack: {
@@ -15,7 +15,7 @@ jest.mock("expo-router", () => ({
     },
   },
   useIsFocused: () => false,
-  useRouter: () => ({ push: jest.fn(), navigate: jest.fn() }),
+  useRouter: () => ({ push: mockPush, navigate: jest.fn() }),
 }));
 jest.mock("@/components/ambient-background", () => ({ AmbientBackground: () => null }));
 jest.mock("@/components/library-grid", () => ({
@@ -25,7 +25,6 @@ jest.mock("@/components/library-grid", () => ({
   },
 }));
 jest.mock("@/components/live-tv/show-all-channels", () => ({ ShowAllChannels: () => null }));
-jest.mock("@/components/live-tv/wall-groups-band", () => ({ WallGroupsBand: () => null }));
 jest.mock("@/components/sf-symbol-icon", () => ({ SfSymbolIcon: () => null }));
 jest.mock("@/components/header-search-reveal", () => ({ HeaderSearchReveal: () => null }));
 jest.mock("@/contexts/LoadingContext", () => ({ useLoadingActions: () => ({ showGlobalLoader: jest.fn() }) }));
@@ -38,12 +37,6 @@ jest.mock("@/hooks/useChannels", () => ({
 }));
 jest.mock("@/hooks/useLiveTvPreferences", () => ({ useLiveTvPreferences: () => ({ filter: mockFilter, sort: "number", hideOffline: false, autoUpdate: true }) }));
 jest.mock("@/hooks/useOpenShelfItem", () => ({ useOpenShelfItem: () => jest.fn() }));
-jest.mock("@/hooks/useChannelFilterChoices", () => ({
-  useChannelFilterChoices: () => [
-    { filter: "all", label: "All" },
-    { filter: "group:g1", label: "News" },
-  ],
-}));
 jest.mock("@/hooks/useTunerGroups", () => ({ usePlaylistChannelIds: () => null }));
 jest.mock("@/hooks/useChannelHealth", () => ({ useHealthGeneration: () => 0 }));
 jest.mock("@/services/channelHealth", () => ({ healthFor: () => undefined }));
@@ -55,7 +48,6 @@ jest.mock("@/services/liveTvPreferences", () => ({
   activeCategory: () => null,
   activeChannelList: () => null,
   isFavoriteChannel: () => false,
-  updateLiveTvPreferences: (...args: unknown[]) => mockUpdate(...args),
 }));
 jest.mock("@/utils/guide", () => ({ activeRecordTimer: () => undefined, programRecording: () => false }));
 jest.mock("@/utils/logger", () => ({ logger: { warn: jest.fn() } }));
@@ -75,32 +67,26 @@ function render(filter: string) {
   return { labels: items.map((item) => item.label), items, tvAction };
 }
 
-beforeEach(() => mockUpdate.mockClear());
+beforeEach(() => mockPush.mockClear());
 
-test("with every channel shown, the bar has no filter button on either platform", () => {
-  const { labels, tvAction } = render("all");
-  expect(labels).toEqual(["tab.search", "settings.title"]);
-  expect(tvAction).toBeUndefined();
+test("with every channel shown, the filter button sits before Settings with its outline symbol", () => {
+  const { labels, items, tvAction } = render("all");
+  expect(labels).toEqual(["tab.search", "liveTv.groups", "settings.title"]);
+  expect(items[1].icon.name).toBe("line.3.horizontal.decrease.circle");
+  expect(tvAction).toBeDefined();
 });
 
-test("with a group picked, the filter button sits before Settings and a press shows every channel", () => {
-  const { labels, items, tvAction } = render("group:g1");
-  expect(labels).toEqual(["tab.search", "liveTv.showAll", "settings.title"]);
+test("with a group picked, the symbol fills and a press opens the Groups picker on both platforms", () => {
+  const { items, tvAction } = render("group:g1");
+  expect(items[1].icon.name).toBe("line.3.horizontal.decrease.circle.fill");
   items[1].onPress();
-  expect(mockUpdate).toHaveBeenLastCalledWith({ filter: "all" });
+  expect(mockPush).toHaveBeenLastCalledWith("/channel-groups");
   tvAction?.onPress();
-  expect(mockUpdate).toHaveBeenCalledTimes(2);
-  expect(mockUpdate).toHaveBeenLastCalledWith({ filter: "all" });
+  expect(mockPush).toHaveBeenCalledTimes(2);
 });
 
-test("the wall hands the grid its groups band", () => {
+test("the wall heads its grid with no band", () => {
   render("all");
-  expect(mockGridProps.listBand).toBeTruthy();
-});
-
-test("the loading bar names the picked group, and the folder's own name with every channel shown", () => {
-  render("group:g1");
-  expect(mockGridProps.loadingTitle).toBe("News");
-  render("all");
-  expect(mockGridProps.loadingTitle).toBeUndefined();
+  expect(mockGridProps.listBand).toBeUndefined();
+  expect(mockGridProps.headerTrailingTarget).toBeUndefined();
 });
