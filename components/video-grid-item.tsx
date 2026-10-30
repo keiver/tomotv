@@ -21,17 +21,15 @@ import { LIVE_FRAME_TRANSITION_MS, type LiveFrame } from "@/services/liveFrames"
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
 import { formatClock, formatDayLabel } from "@/utils/guide";
-import { liveFrameBox, livePictureAspect, rememberLivePictureAspect } from "@/utils/liveFrameFit";
 import { formatIndexBadge } from "@/utils/seasonEpisode";
 import { Ionicons } from "@expo/vector-icons";
-import { Image, type ImageLoadEventData } from "expo-image";
+import { Image } from "expo-image";
 import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PixelRatio, Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // Cache platform values at module level for better performance
 const IS_TV = Platform.isTV;
 const CARD_PADDING = IS_TV ? 16 : 8;
-const BACKDROP_BLUR = IS_TV ? 24 : 16;
 
 /** Badge pill contents: "S01E05" alone, or the disc (when past the first) beside the track. */
 export function indexBadgeSegments(video: JellyfinVideoItem, nowMs: number = Date.now(), recording = false): BadgeSegment[] | null {
@@ -237,23 +235,12 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   const cardTitle = cleanLabel(airingName) || (video.Type === "Program" ? programCardTitle(video) || t("common.unknown") : videoName || t("common.unknown"));
 
   // The card's slot ratio, shared with the row packer so rendered and allocated widths agree. The art
-  // cover-fills the slot, except a live picture liveFrameBox keeps whole.
+  // cover-fills the slot.
   const cardRatio = liveCard
     ? GRID.LIVE_RATIO
     : cardWidth != null && cardHeight != null
       ? (cardWidth - 2 * CARD_PADDING) / (cardHeight - 2 * CARD_PADDING)
       : cardSlotRatio(fitArtwork, video.PrimaryImageAspectRatio, slotOrientation);
-  // The live picture's own shape, remembered per channel so a remounted card starts in place.
-  const [pictureAspect, setPictureAspect] = useState(() => (liveCard ? livePictureAspect(video.Id) : undefined));
-  const handleLiveFrameLoad = useCallback(
-    ({ source }: ImageLoadEventData) => {
-      if (source.width <= 0 || source.height <= 0) return;
-      rememberLivePictureAspect(video.Id, source.width / source.height);
-      setPictureAspect(source.width / source.height);
-    },
-    [video.Id],
-  );
-  const liveBox = liveCard && liveFrame ? liveFrameBox(pictureAspect, cardRatio) : null;
   const standed = liveCard && stand;
   const offlinePill = offline && !standed;
 
@@ -308,8 +295,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   const posterImage = (
     <Image
       source={liveFrame ?? poster ?? posterSource}
-      style={[styles.poster, liveBox, logoPoster && styles.posterLogo, offline && styles.posterOffline]}
-      onLoad={liveCard && liveFrame ? handleLiveFrameLoad : undefined}
+      style={[styles.poster, logoPoster && styles.posterLogo, offline && styles.posterOffline]}
       contentFit={logoPoster ? "contain" : "cover"}
       // A newer grab's frame fades in; at rest the card holds still.
       transition={liveFrame ? LIVE_FRAME_TRANSITION_MS : 0}
@@ -365,23 +351,8 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
         <View style={[styles.imageContainer, { aspectRatio: cardRatio }, square && styles.square, (standed || !liveCard) && styles.squareBottom]}>
           {liveFrame || poster || posterSource ? (
             <>
-              {liveBox ? (
-                <>
-                  <Image
-                    source={liveFrame}
-                    style={StyleSheet.absoluteFill}
-                    contentFit="cover"
-                    blurRadius={BACKDROP_BLUR}
-                    transition={LIVE_FRAME_TRANSITION_MS}
-                    cachePolicy="none"
-                    recyclingKey={`${video.Id}-backdrop`}
-                    accessible={false}
-                  />
-                  <View style={styles.backdropDim} pointerEvents="none" />
-                </>
-              ) : null}
               {posterImage}
-              {(focused || clipActive) && liveFrame && liveClip ? <LiveClip clip={liveClip} style={liveBox ?? undefined} /> : null}
+              {(focused || clipActive) && liveFrame && liveClip ? <LiveClip clip={liveClip} /> : null}
             </>
           ) : (
             // No artwork: a glyph for the item's kind on the dark card fill. The title
@@ -613,15 +584,6 @@ const styles = StyleSheet.create({
   // Where rows keep no room for it (TV), the base hangs into the card's own bottom padding and the row's.
   cardOverhang: {
     marginBottom: STAND_ROW_ROOM - STAND_HEIGHT,
-  },
-  // Holds the blurred fill behind a whole picture under the sharp one.
-  backdropDim: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(0, 0, 0, 0.35)",
   },
   placeholderPoster: {
     width: "100%",
