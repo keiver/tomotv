@@ -219,6 +219,7 @@
   "search.connectedToDemo": "Mit Demo verbunden",
   "search.demoBody": "Du siehst jetzt die Demo-Bibliothek von Tomo TV. In den Einstellungen kannst du zu deinem eigenen Server wechseln.",
   "settings.mediaLicenses": "Medienlizenzen",
+  "settings.mediaLicensesSubtitle": "Nachweise und Lizenzen der Demo",
   "settings.demoCreditsHint": "Öffnet die Liste aller Inhalte des Demo-Servers mit Lizenz und Quelle",
   "demo.creditsIntro": "Alles auf dem Demo-Server: wer es gemacht hat, unter welcher Lizenz und woher es stammt.",
   "demo.creditsRowHint": "Zeigt die Lizenz und die Seiten, von denen sie abgelesen wurde",

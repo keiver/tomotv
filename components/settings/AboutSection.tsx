@@ -143,8 +143,7 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
           <ListRow
             icon="film-outline"
             title={t("settings.mediaLicenses")}
-            subtitle={t("demo.creditsIntro")}
-            subtitleLines={2}
+            subtitle={t("settings.mediaLicensesSubtitle")}
             trailingIcon="chevron-forward"
             onPress={openMediaLicenses}
             isLast={!own && sends.length === 0}
