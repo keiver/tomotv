@@ -169,12 +169,11 @@ extension RemuxSession {
         return true
     }
 
-    /// A rung that can actually carry playback right now: offered, not retired, and not in
-    /// failure-recovery. A rung whose playlist or segments keep failing (a static file host has no
-    /// transcode endpoint, so its rung URLs 404 for the whole session) is not a live alternative, so
-    /// gating the copy behind it leaves nothing to play. Caller holds stateLock.
+    /// A rung that can carry playback right now: listed by the master, not retired, and not in
+    /// failure-recovery. Gating the copy behind a rung whose segments are failing leaves nothing to
+    /// play. Caller holds stateLock.
     func hasLiveRungAlternativeLocked() -> Bool {
-        rungLeads && !copyOnlyMaster && !adoptedStarts.isEmpty
+        !copyOnlyMaster && !adoptedStarts.isEmpty
             && config.tiers.indices.contains { !rungsUnavailable.contains($0) && supplierRecovery[.rung($0)] == nil }
     }
 
