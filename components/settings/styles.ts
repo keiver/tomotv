@@ -111,6 +111,12 @@ export function downloadsListHeight(fontScale: number): number {
 
 export const DOWNLOADS_LIST_HEIGHT = downloadsListHeight(1);
 
+// Demo credits rows are poster-led like downloads rows and pin the same lines, so the
+// artwork is the content height. The screen fits whole rows to the measured height; this
+// count only sizes the first frame, before the screen has measured itself.
+const VISIBLE_DEMO_CREDIT_ROWS = Platform.isTV ? 6 : 8;
+export const POSTER_ROW_HEIGHT = ROW_PADDING_V * 2 + POSTER_MARK_SIDE;
+
 // Parts of the section card's inset shadow (see `section`), split out so an
 // opaquely-filled row can re-paint exactly the parts it covers. The side
 // shading uses x-offsets with a negative spread so it stays off the row's
@@ -279,6 +285,10 @@ export const settingsStyles = StyleSheet.create({
   // The Downloads list, capped on the same rule: see VISIBLE_DOWNLOAD_ROWS.
   downloadsScrollable: {
     maxHeight: DOWNLOADS_LIST_HEIGHT,
+  },
+  // The Demo credits list, capped on the same rule: see VISIBLE_DEMO_CREDIT_ROWS.
+  demoCreditsScrollable: {
+    maxHeight: Math.round(POSTER_ROW_HEIGHT * VISIBLE_DEMO_CREDIT_ROWS),
   },
   // Overlay variant of the section's inset shadow, for cards whose content
   // paints an opaque background above the container (the sunken text input's

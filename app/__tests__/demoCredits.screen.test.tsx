@@ -1,7 +1,7 @@
 import React from "react";
-import { Linking } from "react-native";
+import { Linking, Text } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
-import DemoCreditsScreen, { itemSubtitle } from "@/app/demo-credits";
+import DemoCreditsScreen, { visibleCreditRows } from "@/app/demo-credits";
 import { ListRow } from "@/components/settings/ListRow";
 import { PosterMark } from "@/components/settings/PosterMark";
 import type { DemoCredit } from "@/services/demoCredits";
@@ -48,8 +48,10 @@ describe("the Demo credits screen", () => {
   const openURL = jest.spyOn(Linking, "openURL").mockResolvedValue(true);
   beforeEach(() => openURL.mockClear());
 
-  it("lists one row per item under its library: the maker below the title, the licence's short name at the edge, no trailing glyph, no licence rows off TV", () => {
+  it("lists one row per item under its library heading in one card: the maker below the title, the licence's short name at the edge, no trailing glyph, no licence rows off TV", () => {
     const tree = render();
+    const headers = tree.root.findAllByType(Text).map((text) => text.props.children);
+    expect(headers).toEqual(expect.arrayContaining(["Space", "Live TV"]));
     const rows = tree.root.findAllByType(ListRow).map((row) => ({
       title: row.props.title,
       subtitle: row.props.subtitle,
@@ -59,10 +61,12 @@ describe("the Demo credits screen", () => {
       last: !!row.props.isLast,
     }));
     expect(rows).toEqual([
-      { title: "Aurora", subtitle: "NASA", edge: "Public domain", trailingIcon: undefined, first: true, last: false },
-      { title: "Carina", subtitle: "ESA", edge: "CC BY 4.0", trailingIcon: undefined, first: false, last: true },
-      { title: "Sintel", subtitle: "Blender Foundation", edge: "CC BY 3.0", trailingIcon: undefined, first: true, last: true },
+      { title: "Aurora", subtitle: "NASA", edge: "Public domain", trailingIcon: undefined, first: false, last: false },
+      { title: "Carina", subtitle: "ESA", edge: "CC BY 4.0", trailingIcon: undefined, first: false, last: false },
+      { title: "Sintel", subtitle: "Blender Foundation", edge: "CC BY 3.0", trailingIcon: undefined, first: false, last: false },
     ]);
+    const footers = tree.root.findAllByType(Text).map((text) => text.props.children);
+    expect(footers.join("")).toContain("2026");
     expect(
       tree.root
         .findAllByType(ListRow)
@@ -98,11 +102,12 @@ describe("the Demo credits screen", () => {
     act(() => tree.unmount());
   });
 
-  it("writes the maker under an item; on TV the source page while focused", () => {
-    expect(itemSubtitle(mockItems[1], false, false)).toBe("ESA");
-    expect(itemSubtitle(mockItems[1], false, true)).toBe("ESA");
-    expect(itemSubtitle(mockItems[1], true, false)).toBe("ESA");
-    expect(itemSubtitle(mockItems[1], true, true)).toBe("https://example.org/Carina");
+  it("fits whole rows to the measured height, the first subgroup header and the footer budgeted, never below one", () => {
+    // Phone in jest: 66pt rows, 38pt subgroup header.
+    expect(visibleCreditRows(700, 50, 60)).toBe(8);
+    expect(visibleCreditRows(1400, 50, 60)).toBe(18);
+    expect(visibleCreditRows(400, 50, 60)).toBe(3);
+    expect(visibleCreditRows(120, 50, 60)).toBe(1);
   });
 
   it("off TV the rows carry no plain trailing text", () => {

@@ -220,7 +220,7 @@
   "search.demoBody": "You're now browsing the Tomo TV demo library. You can switch to your own server in Settings.",
   "settings.mediaLicenses": "Demo credits",
   "settings.demoCreditsHint": "Opens the list of everything on the demo server with its license and source",
-  "demo.creditsIntro": "The demo library is made of public domain and Creative Commons works. Each is listed here with its creator, its source and its license. Tomo TV includes no media of its own, and credit does not mean the creators endorse the app.",
+  "demo.creditsIntro": "Demo media are public domain or Creative Commons works, listed with creator, source and license. Tomo TV includes no media of its own, and credit is not endorsement.",
   "demo.licence": "License",
   "demo.licencesHeader": "LICENSES",
   "demo.licenceHint": "Opens the license page in the browser",

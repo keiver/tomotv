@@ -220,7 +220,7 @@
   "search.demoBody": "Ahora estás viendo la biblioteca de demostración de Tomo TV. Puedes cambiar a tu propio servidor en Ajustes.",
   "settings.mediaLicenses": "Créditos de demo",
   "settings.demoCreditsHint": "Abre la lista de todo el contenido del servidor de demostración con su licencia y su fuente",
-  "demo.creditsIntro": "La biblioteca de demostración se compone de obras de dominio público y Creative Commons. Cada una aparece aquí con su creador, su fuente y su licencia. Tomo TV no incluye medios propios, y el crédito no significa que los creadores respalden la app.",
+  "demo.creditsIntro": "Los medios de demostración son obras de dominio público o Creative Commons, listados con creador, fuente y licencia. Tomo TV no incluye medios propios, y el crédito no implica respaldo.",
   "demo.licence": "Licencia",
   "demo.licencesHeader": "LICENCIAS",
   "demo.licenceHint": "Abre la página de la licencia en el navegador",

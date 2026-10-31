@@ -1,6 +1,6 @@
 /** The Demo credits screen on Apple TV: nothing opens, the licence name sits at the row's edge as plain text. */
 import React from "react";
-import { Platform } from "react-native";
+import { Platform, Text } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 import { ListRow } from "@/components/settings/ListRow";
 import type { DemoCredit } from "@/services/demoCredits";
@@ -44,7 +44,7 @@ describe("the Demo credits screen on TV", () => {
     act(() => {
       tree = TestRenderer.create(<DemoCreditsScreen />);
     });
-    const items = tree.root.findAllByType(ListRow).filter((row) => row.props.onFocus);
+    const items = tree.root.findAllByType(ListRow).filter((row) => row.props.icon !== "ribbon-outline");
     expect(items.map((row) => ({ title: row.props.title, subtitle: row.props.subtitle, edge: row.props.trailingText, action: row.props.trailingAction, press: row.props.onPress }))).toEqual([
       { title: "Aurora", subtitle: "NASA", edge: "Public domain", action: undefined, press: undefined },
       { title: "Carina", subtitle: "ESA", edge: "CC BY 4.0", action: undefined, press: undefined },
@@ -53,17 +53,19 @@ describe("the Demo credits screen on TV", () => {
     act(() => tree.unmount());
   });
 
-  it("lists each licence once in a last card, with its page below and no edge text", () => {
+  it("lists each licence once in a last subgroup, with its page below, no edge text, and the footer closing the card", () => {
     let tree!: TestRenderer.ReactTestRenderer;
     act(() => {
       tree = TestRenderer.create(<DemoCreditsScreen />);
     });
-    const licences = tree.root.findAllByType(ListRow).filter((row) => !row.props.onFocus);
-    expect(licences.map((row) => ({ title: row.props.title, subtitle: row.props.subtitle, edge: row.props.trailingText }))).toEqual([
-      { title: "Public domain", subtitle: "https://nasa.example/licence", edge: undefined },
-      { title: "CC BY 4.0", subtitle: "https://creativecommons.org/licenses/by/4.0/", edge: undefined },
-      { title: "CC BY 3.0; Blender Foundation", subtitle: "https://creativecommons.org/licenses/by/3.0/", edge: undefined },
+    const licences = tree.root.findAllByType(ListRow).filter((row) => row.props.icon === "ribbon-outline");
+    expect(licences.map((row) => ({ title: row.props.title, subtitle: row.props.subtitle, edge: row.props.trailingText, last: !!row.props.isLast }))).toEqual([
+      { title: "Public domain", subtitle: "https://nasa.example/licence", edge: undefined, last: false },
+      { title: "CC BY 4.0", subtitle: "https://creativecommons.org/licenses/by/4.0/", edge: undefined, last: false },
+      { title: "CC BY 3.0; Blender Foundation", subtitle: "https://creativecommons.org/licenses/by/3.0/", edge: undefined, last: false },
     ]);
+    const texts = tree.root.findAllByType(Text).map((text) => text.props.children);
+    expect(texts.join("")).toContain("2026");
     act(() => tree.unmount());
   });
 });
