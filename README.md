@@ -147,7 +147,7 @@ When nothing is signed in, Tomo opens on Who's watching: your saved accounts as
 faces, a Demo face while none is saved, and Add Account. From Add Account (or
 **Settings → Switch Server**), scan the network or type an address;
 reverse-proxy paths work. Sign in with Quick Connect or a password. Submitting
-the empty Add Server field opens Tomo TV's demo library.
+the empty Add account field opens Tomo TV's demo library.
 
 ## Development
 

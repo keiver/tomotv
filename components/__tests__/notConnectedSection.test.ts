@@ -41,14 +41,14 @@ const found = (url: string) => ({ url, name: "s", id: url, version: "1" });
 describe("scanRowLabels", () => {
   it("names the network it can scan from, or that there is none yet", () => {
     expect(scanRowLabels(scan({ status: "IDLE", local: { ip: "192.168.1.5", netmask: "255.255.255.0", interfaceName: "en0" } }))).toEqual({
-      name: "Scan Network",
+      name: "Scan network",
       subtitle: "Find servers from 192.168.1.5",
     });
-    expect(scanRowLabels(scan({ status: "UNSUPPORTED" }))).toEqual({ name: "Scan Network", subtitle: "No network connection yet" });
+    expect(scanRowLabels(scan({ status: "UNSUPPORTED" }))).toEqual({ name: "Scan network", subtitle: "No network connection yet" });
   });
 
   it("reports progress per phase while scanning", () => {
-    expect(scanRowLabels(scan({ status: "SCANNING" }))).toEqual({ name: "Stop Scanning", subtitle: "Starting…" });
+    expect(scanRowLabels(scan({ status: "SCANNING" }))).toEqual({ name: "Stop scanning", subtitle: "Starting…" });
     expect(scanRowLabels(scan({ status: "SCANNING", progress: { done: 32, total: 254, phase: "sweep" } })).subtitle).toBe("32 of 254 addresses");
     expect(scanRowLabels(scan({ status: "SCANNING", progress: { done: 1, total: 2, phase: "probe" } })).subtitle).toBe("1 of 2 that answered");
   });
@@ -60,9 +60,9 @@ describe("scanRowLabels", () => {
 
   it("counts new finds against the saved list when done", () => {
     const done = scan({ status: "DONE", found: [found("http://a"), found("http://b")] });
-    expect(scanRowLabels(done, 0)).toEqual({ name: "Scan Again", subtitle: "2 new servers found" });
-    expect(scanRowLabels(done, 1)).toEqual({ name: "Scan Again", subtitle: "1 new server found" });
-    expect(scanRowLabels(done, 2)).toEqual({ name: "Scan Again", subtitle: "Found 2 servers, already in your list" });
+    expect(scanRowLabels(done, 0)).toEqual({ name: "Scan again", subtitle: "2 new servers found" });
+    expect(scanRowLabels(done, 1)).toEqual({ name: "Scan again", subtitle: "1 new server found" });
+    expect(scanRowLabels(done, 2)).toEqual({ name: "Scan again", subtitle: "Found 2 servers, already in your list" });
     expect(scanRowLabels(scan({ status: "DONE", found: [found("http://a")] }), 1).subtitle).toBe("Found 1 server, already in your list");
   });
 

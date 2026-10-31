@@ -574,7 +574,7 @@
   "settings.connected": "Verbunden",
   "settings.switchSignedInAs": "Server wechseln. Angemeldet als {user}",
   "settings.continueAs": "Weiter als {label}",
-  "settings.addServer": "Server hinzufügen",
+  "settings.addServer": "Konto hinzufügen",
   "settings.checking": "Wird geprüft…",
   "settings.notMeasured": "Nicht gemessen",
   "settings.linkBusy": "Leitung belegt",
