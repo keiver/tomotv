@@ -2,7 +2,7 @@ import { AddServerRow } from "@/components/settings/AddServerRow";
 import { AccountStrip, AccountStripHandle, StripPerson } from "@/components/settings/AccountStrip";
 import { ServerRow } from "@/components/settings/ServerRow";
 import { settingsStyles as styles } from "./styles";
-import { getUserImageUrl, isAddressTitle } from "@/services/jellyfinApi";
+import { DEMO_USERNAME, getUserImageUrl, isAddressTitle } from "@/services/jellyfinApi";
 import { describeSubnet } from "@/services/networkDiscovery";
 import { t } from "@/services/i18n";
 import type { UseNetworkScanReturn } from "@/hooks/useNetworkScan";
@@ -47,6 +47,10 @@ interface NotConnectedSectionProps {
   onAccountOptions?: (server: SavedServer, account: SavedAccount) => void;
   /** Open the edit/remove menu for a saved server (long-press). */
   onServerOptions: (server: SavedServer) => void;
+  /** Sign in to the demo server: the Demo face in the strip. */
+  onConnectDemo?: () => void;
+  /** Phone: the band the card ends in, under the people. */
+  footer?: React.ReactNode;
   /** Local-subnet scan state and controls. */
   scan: UseNetworkScanReturn;
   /** Run the login flow for a server found by the scan. */
@@ -114,7 +118,7 @@ export function scanRowLabels(scan: UseNetworkScanReturn, alreadySavedCount = 0)
 /**
  * Whether a row is the live session. Both sides with an Id compare by Id, so a moved address
  * still matches and a reused one does not; the url decides only when either side has no Id.
- * The demo session matches no server row, only the demo row.
+ * The demo session matches no server row; it is the Demo face in the strip.
  */
 export function isConnectedDestination(connected: ConnectedDestination | null, serverId: string | undefined, url: string): boolean {
   if (connected === null || connected.demo) return false;
@@ -133,6 +137,20 @@ export function serverHost(address: string): string {
     .trim()
     .replace(/^[a-z][a-z0-9+.-]*:\/\//i, "")
     .replace(/[:/?#].*$/, "");
+}
+
+/** The Demo face: first and ringed while the demo session is live, last otherwise. */
+export function demoStripPerson(demoActive: boolean, loading: boolean, onPress: () => void): StripPerson {
+  return {
+    key: "demo",
+    serverKey: "demo",
+    label: DEMO_USERNAME,
+    sublabel: "Tomo TV",
+    connected: demoActive,
+    loading,
+    lastUsedAt: demoActive ? Number.MAX_SAFE_INTEGER : 0,
+    onPress,
+  };
 }
 
 /** One destination row in the capped list: a discovered server or a saved one. */
@@ -166,6 +184,8 @@ export function NotConnectedSection({
   onContinueAs,
   onAccountOptions,
   onServerOptions,
+  onConnectDemo,
+  footer,
   scan,
   onSelectDiscovered,
 }: NotConnectedSectionProps) {
@@ -253,7 +273,7 @@ export function NotConnectedSection({
 
   // Everyone who can continue without a login, across servers, most recent first.
   const people: StripPerson[] = savedServers
-    .flatMap((server) =>
+    .flatMap<StripPerson>((server) =>
       (savedServerAccounts?.[server.id] ?? []).map((account) => ({
         key: `${server.id}:${account.userId}`,
         serverKey: server.id,
@@ -269,6 +289,7 @@ export function NotConnectedSection({
         onLongPress: onAccountOptions && releasing(() => onAccountOptions(server, account)),
       })),
     )
+    .concat(onConnectDemo ? [demoStripPerson(!!connected?.demo, isConnectingDemo, releasing(onConnectDemo))] : [])
     .sort((a, b) => b.lastUsedAt - a.lastUsedAt);
 
   // tvOS can only move focus out of a ScrollView while its offset is at the matching end:
@@ -414,6 +435,7 @@ export function NotConnectedSection({
           nextFocusLeft={leadRowHandle}
         />
       ) : null}
+      {footer}
     </View>
   );
 }

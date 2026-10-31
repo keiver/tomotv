@@ -1,14 +1,15 @@
 import { AboutSection } from "@/components/settings/AboutSection";
 import { ConnectStepScreen } from "@/components/settings/ConnectStepScreen";
 import { ListRow } from "@/components/settings/ListRow";
+import { SectionActionBand } from "@/components/settings/SectionActionBand";
 import { ServerConnectFlow } from "@/components/settings/ServerConnectFlow";
 import { settingsStyles } from "@/components/settings/styles";
 import { UiSection } from "@/components/settings/UiSection";
-import { getStoredUserName, isAuthenticated, signOut } from "@/services/jellyfinApi";
+import { getStoredUserName, isAuthenticated, isDemoMode, signOut } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
 import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useState } from "react";
-import { Alert, View } from "react-native";
+import { Alert, Platform, View } from "react-native";
 import { t } from "@/services/i18n";
 
 /**
@@ -27,10 +28,10 @@ export default function ServersScreen() {
     useCallback(() => {
       let cancelled = false;
       void (async () => {
-        const name = await getStoredUserName();
+        const [name, demo] = await Promise.all([getStoredUserName(), isDemoMode()]);
         if (cancelled) return;
         setSignedIn(isAuthenticated());
-        setUserName(name);
+        setUserName(demo ? t("connect.demoPerson") : name);
       })();
       return () => {
         cancelled = true;
@@ -63,8 +64,19 @@ export default function ServersScreen() {
 
   return (
     <ConnectStepScreen header={t("settings.jellyfinServer")} pushed>
-      <ServerConnectFlow />
-      {signedIn && (
+      <ServerConnectFlow
+        footer={
+          signedIn && !Platform.isTV ? (
+            <SectionActionBand
+              icon="log-out-outline"
+              label={userName ? t("connect.signOutUser").replace("{user}", userName) : t("connect.signOut")}
+              onPress={confirmSignOut}
+              hint={t("connect.signOutHint")}
+            />
+          ) : undefined
+        }
+      />
+      {signedIn && Platform.isTV && (
         <View style={settingsStyles.section}>
           <ListRow
             icon="log-out"

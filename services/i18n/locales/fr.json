@@ -368,6 +368,7 @@
   "connect.removeServer": "Supprimer le serveur",
   "connect.removeServerBody": "Supprimer ce serveur enregistré et ses connexions enregistrées ?",
   "connect.signOut": "Se déconnecter",
+  "connect.signOutUser": "Déconnecter {user}",
   "connect.signOutConfirm": "Veux-tu vraiment te déconnecter ?",
   "connect.signOutHint": "Termine la session en cours ; les connexions enregistrées restent",
   "connect.signOutFailed": "La déconnexion a échoué.",

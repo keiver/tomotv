@@ -368,6 +368,7 @@
   "connect.removeServer": "Server entfernen",
   "connect.removeServerBody": "Diesen gespeicherten Server und seine gespeicherten Anmeldungen entfernen?",
   "connect.signOut": "Abmelden",
+  "connect.signOutUser": "{user} abmelden",
   "connect.signOutConfirm": "Möchtest du dich wirklich abmelden?",
   "connect.signOutHint": "Beendet die aktuelle Sitzung; gespeicherte Anmeldungen bleiben",
   "connect.signOutFailed": "Abmelden fehlgeschlagen.",

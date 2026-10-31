@@ -368,6 +368,7 @@
   "connect.removeServer": "Eliminar servidor",
   "connect.removeServerBody": "¿Eliminar este servidor guardado y sus sesiones guardadas?",
   "connect.signOut": "Cerrar sesión",
+  "connect.signOutUser": "Cerrar la sesión de {user}",
   "connect.signOutConfirm": "¿Seguro que quieres cerrar sesión?",
   "connect.signOutHint": "Termina la sesión actual; las sesiones guardadas se mantienen",
   "connect.signOutFailed": "No se pudo cerrar la sesión.",

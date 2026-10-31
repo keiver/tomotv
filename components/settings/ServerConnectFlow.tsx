@@ -32,6 +32,8 @@ interface ServerConnectFlowProps {
    * this: their gates flip on the auth change and AuthContext routes to the Library root.
    */
   onConnected?: () => void | Promise<void>;
+  /** Phone: the band the server card ends in. */
+  footer?: React.ReactNode;
 }
 
 /**
@@ -44,7 +46,7 @@ interface ServerConnectFlowProps {
  * (app/connect). Those steps used to be sections swapped in by a flowStep state machine,
  * which left Menu nothing to pop: it moved focus to the tab bar, then quit the app.
  */
-export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
+export function ServerConnectFlow({ onConnected, footer }: ServerConnectFlowProps) {
   const router = useRouter();
   const finishLogin = useFinishLogin();
 
@@ -221,6 +223,8 @@ export function ServerConnectFlow({ onConnected }: ServerConnectFlowProps) {
       onContinueAs={continueAs}
       onAccountOptions={handleAccountOptions}
       onServerOptions={handleServerOptions}
+      onConnectDemo={() => void handleConnectDemo()}
+      footer={footer}
       scan={scan}
       onSelectDiscovered={handleSelectDiscovered}
     />

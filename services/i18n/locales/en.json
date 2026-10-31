@@ -368,6 +368,7 @@
   "connect.removeServer": "Remove Server",
   "connect.removeServerBody": "Remove this saved server and its saved sign-ins?",
   "connect.signOut": "Sign Out",
+  "connect.signOutUser": "Sign Out {user}",
   "connect.signOutConfirm": "Are you sure you want to sign out?",
   "connect.signOutHint": "Ends the current session; saved sign-ins stay",
   "connect.signOutFailed": "Failed to sign out.",
