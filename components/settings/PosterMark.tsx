@@ -33,7 +33,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.SURFACE,
   },
   art: {
-    width: "100%",
-    height: "100%",
+    flex: 1,
+    borderRadius: IS_TV ? 6 : 5,
   },
 });
