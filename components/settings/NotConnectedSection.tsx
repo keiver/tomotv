@@ -139,6 +139,11 @@ export function serverHost(address: string): string {
     .replace(/[:/?#].*$/, "");
 }
 
+/** A press on the person already signed in does nothing, so it never signs in again. */
+export function ignorePressOnSignedIn(person: StripPerson): StripPerson {
+  return person.connected ? { ...person, onPress: () => undefined } : person;
+}
+
 /** The Demo face: first and ringed while the demo session is live, last otherwise. */
 export function demoStripPerson(demoActive: boolean, loading: boolean, onPress: () => void): StripPerson {
   return {
@@ -290,6 +295,7 @@ export function NotConnectedSection({
       })),
     )
     .concat(onConnectDemo ? [demoStripPerson(!!connected?.demo, isConnectingDemo, releasing(onConnectDemo))] : [])
+    .map(ignorePressOnSignedIn)
     .sort((a, b) => b.lastUsedAt - a.lastUsedAt);
 
   // tvOS can only move focus out of a ScrollView while its offset is at the matching end:

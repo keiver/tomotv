@@ -1,4 +1,4 @@
-import { demoStripPerson } from "../NotConnectedSection";
+import { demoStripPerson, ignorePressOnSignedIn } from "../NotConnectedSection";
 
 jest.mock("@/services/i18n", () => ({ t: (key: string) => key }));
 
@@ -16,5 +16,19 @@ describe("demoStripPerson", () => {
     expect(person.connected).toBe(false);
     expect(person.loading).toBe(true);
     expect(person.lastUsedAt).toBe(0);
+  });
+});
+
+describe("ignorePressOnSignedIn", () => {
+  it("does not sign in again when the signed-in person is pressed", () => {
+    const onPress = jest.fn();
+    ignorePressOnSignedIn(demoStripPerson(true, false, onPress)).onPress();
+    expect(onPress).not.toHaveBeenCalled();
+  });
+
+  it("still signs in as anyone else", () => {
+    const onPress = jest.fn();
+    ignorePressOnSignedIn(demoStripPerson(false, false, onPress)).onPress();
+    expect(onPress).toHaveBeenCalledTimes(1);
   });
 });
