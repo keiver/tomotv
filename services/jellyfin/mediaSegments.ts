@@ -1,7 +1,7 @@
 /**
  * Media Segments (server 10.10+): typed timeline markers (Intro/Outro/Recap/
  * Preview/Commercial) that server-side plugins attach to items. There is no
- * "Credits" type — Outro is the credits marker.
+ * "Credits" type: Outro is the credits marker.
  *
  * Consumers: the tvOS Up Next content proposal (Outro start = when the
  * proposal appears), the tvOS skip pills, and the automatic skips.
@@ -41,7 +41,7 @@ export interface ItemMediaSegments {
 const NO_SEGMENTS: ItemMediaSegments = { intro: null, outro: null, recaps: [], previews: [], commercials: [] };
 
 /**
- * The item's first Intro and Outro segments and its Recap, Preview and Commercial windows, in seconds.
+ * The item's Intro and Outro windows and its Recap, Preview and Commercial windows, in seconds.
  * Empty when the server has no markers (no segments plugin, pre-10.10 → 404, network failure).
  */
 export async function fetchMediaSegments(itemId: string): Promise<ItemMediaSegments> {
@@ -80,16 +80,25 @@ export async function fetchMediaSegments(itemId: string): Promise<ItemMediaSegme
         endSeconds: segment.EndTicks / JELLYFIN_TIME.TICKS_PER_SECOND,
       };
     };
-    const windowsOf = (type: string): MediaSegmentWindow[] =>
-      segments
+    const windowsOf = (type: string): MediaSegmentWindow[] => {
+      const windows = segments
         .filter((segment) => segment.Type === type)
         .map(toWindow)
         .filter((window): window is MediaSegmentWindow => window !== null)
         .sort((a, b) => a.startSeconds - b.startSeconds);
+      // Several server plugins can mark the same span; overlapping windows of a type collapse to their union.
+      const merged: MediaSegmentWindow[] = [];
+      for (const window of windows) {
+        const last = merged[merged.length - 1];
+        if (last && window.startSeconds <= last.endSeconds) last.endSeconds = Math.max(last.endSeconds, window.endSeconds);
+        else merged.push({ ...window });
+      }
+      return merged;
+    };
 
     return {
-      intro: toWindow(segments.find((segment) => segment.Type === "Intro")),
-      outro: toWindow(segments.find((segment) => segment.Type === "Outro")),
+      intro: windowsOf("Intro")[0] ?? null,
+      outro: windowsOf("Outro")[0] ?? null,
       recaps: windowsOf("Recap"),
       previews: windowsOf("Preview"),
       commercials: windowsOf("Commercial"),

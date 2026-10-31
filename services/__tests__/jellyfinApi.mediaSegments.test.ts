@@ -130,6 +130,30 @@ describe("fetchMediaSegments", () => {
     ]);
   });
 
+  it("merges overlapping windows of the same type into one, so two segment plugins never make two pills", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        Items: [
+          // Two providers marking the same recap and the same credits, slightly offset.
+          { Id: "r1", ItemId: "item-1", Type: "Recap", StartTicks: 0, EndTicks: 108 * TICKS },
+          { Id: "r2", ItemId: "item-1", Type: "Recap", StartTicks: 0, EndTicks: 106 * TICKS },
+          { Id: "o1", ItemId: "item-1", Type: "Outro", StartTicks: 1279 * TICKS, EndTicks: 1312 * TICKS },
+          { Id: "o2", ItemId: "item-1", Type: "Outro", StartTicks: 1282 * TICKS, EndTicks: 1317 * TICKS },
+          // A separate later recap stays its own window.
+          { Id: "r3", ItemId: "item-1", Type: "Recap", StartTicks: 300 * TICKS, EndTicks: 360 * TICKS },
+        ],
+      }),
+    });
+
+    const segments = await fetchMediaSegments("item-1");
+    expect(segments.recaps).toEqual([
+      { startSeconds: 0, endSeconds: 108 },
+      { startSeconds: 300, endSeconds: 360 },
+    ]);
+    expect(segments.outro).toEqual({ startSeconds: 1279, endSeconds: 1317 });
+  });
+
   it("returns nulls on 404 (pre-10.10 server)", async () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: false, status: 404 });
 
