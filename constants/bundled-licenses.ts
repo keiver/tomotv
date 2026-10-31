@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: 0c148fbc7bf80156
+ * fingerprint: 1ed6e8bf1991fcff
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -419,7 +419,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "negotiator", version: "0.6.3", license: "MIT", body: "L8", copyright: ["Copyright (c) 2012-2014 Federico Romero","Copyright (c) 2012-2014 Isaac Z. Schlueter","Copyright (c) 2014-2015 Douglas Christopher Wilson"] },
   { name: "negotiator", version: "0.6.4", license: "MIT", body: "L8", copyright: ["Copyright (c) 2012-2014 Federico Romero","Copyright (c) 2012-2014 Isaac Z. Schlueter","Copyright (c) 2014-2015 Douglas Christopher Wilson"] },
   { name: "negotiator", version: "1.1.0", license: "MIT", body: "L8", copyright: ["Copyright (c) 2012-2014 Federico Romero","Copyright (c) 2012-2014 Isaac Z. Schlueter","Copyright (c) 2014-2015 Douglas Christopher Wilson"] },
-  { name: "node-forge", version: "1.4.0", license: "(BSD-3-Clause OR GPL-2.0)", body: "L36", copyright: ["Copyright (c) 2010, Digital Bazaar, Inc.","Copyright (C) 1989, 1991 Free Software Foundation, Inc."] },
+  { name: "node-forge", version: "1.4.2", license: "(BSD-3-Clause OR GPL-2.0)", body: "L36", copyright: ["Copyright (c) 2010, Digital Bazaar, Inc.","Copyright (C) 1989, 1991 Free Software Foundation, Inc."] },
   { name: "node-int64", version: "0.4.0", license: "MIT", body: "L2", copyright: ["Copyright (c) 2014 Robert Kieffer"] },
   { name: "node-releases", version: "2.0.57", license: "MIT", body: "L37", copyright: ["Copyright (c) 2017 Sergey Rubanov (https://github.com/chicoxyzzy)"] },
   { name: "npm-package-arg", version: "11.0.3", license: "ISC", body: "L4", copyright: ["Copyright (c) npm, Inc."] },
