@@ -1,4 +1,4 @@
-/** The Demo Media Credits screen on Apple TV: nothing opens, the licence name sits at the row's edge as plain text. */
+/** The Demo credits screen on Apple TV: nothing opens, the licence name sits at the row's edge as plain text. */
 import React from "react";
 import { Platform } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
@@ -38,7 +38,7 @@ Object.defineProperty(Platform, "isTV", { value: true, configurable: true });
 // Read after the flag: the screen fixes its platform at import.
 const DemoCreditsScreen = (require("@/app/demo-credits") as typeof import("@/app/demo-credits")).default;
 
-describe("the Demo Media Credits screen on TV", () => {
+describe("the Demo credits screen on TV", () => {
   it("puts the licence's short name at every item row's edge as plain text, with no trailing button and no press", () => {
     let tree!: TestRenderer.ReactTestRenderer;
     act(() => {

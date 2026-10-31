@@ -81,7 +81,7 @@ export default function ServersScreen() {
       {!signedIn && (
         <>
           <UiSection signedIn={false} />
-          <AboutSection showDiagnostics={false} />
+          <AboutSection />
         </>
       )}
     </ConnectStepScreen>

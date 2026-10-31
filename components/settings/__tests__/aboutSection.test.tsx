@@ -5,17 +5,13 @@ import { ListRow } from "@/components/settings/ListRow";
 import { t } from "@/services/i18n";
 
 const mockPush = jest.fn();
-jest.mock("expo-router", () => ({ useRouter: () => ({ push: mockPush }), useFocusEffect: () => {} }));
+jest.mock("expo-router", () => ({ useRouter: () => ({ push: mockPush }) }));
 jest.mock("@/components/settings/ListRow", () => ({ ListRow: () => null }));
-jest.mock("@/components/settings/SwipeToRemove", () => ({ SwipeToRemove: ({ children }: { children: React.ReactNode }) => children }));
-jest.mock("react-native-gesture-handler", () => ({ GestureHandlerRootView: ({ children }: { children: React.ReactNode }) => children }));
-jest.mock("@/hooks/useLastSession", () => ({ useLastSession: () => null }));
-jest.mock("@/hooks/useSentSessions", () => ({ useSentSessions: () => [] }));
 
-function rows(showDiagnostics: boolean) {
+function rows() {
   let tree!: TestRenderer.ReactTestRenderer;
   act(() => {
-    tree = TestRenderer.create(<AboutSection showDiagnostics={showDiagnostics} />);
+    tree = TestRenderer.create(<AboutSection />);
   });
   const found = tree.root.findAllByType(ListRow);
   const summary = found.map((row) => ({ title: row.props.title, isFirst: !!row.props.isFirst, isLast: !!row.props.isLast }));
@@ -25,8 +21,8 @@ function rows(showDiagnostics: boolean) {
 describe("AboutSection", () => {
   beforeEach(() => mockPush.mockClear());
 
-  it("lists Demo Media Credits under About on any server, after Open Source and last when nothing played", () => {
-    const { summary, unmount } = rows(true);
+  it("lists the Demo credits row under About on any server, after Licenses and last", () => {
+    const { summary, unmount } = rows();
     expect(summary).toEqual([
       { title: t("common.openSource"), isFirst: true, isLast: false },
       { title: t("settings.mediaLicenses"), isFirst: false, isLast: true },
@@ -34,14 +30,14 @@ describe("AboutSection", () => {
     unmount();
   });
 
-  it("keeps the Demo Media Credits row when diagnostics are hidden", () => {
-    const { summary, unmount } = rows(false);
-    expect(summary.map((row) => row.title)).toEqual([t("common.openSource"), t("settings.mediaLicenses")]);
+  it("gives neither row a subtitle", () => {
+    const { found, unmount } = rows();
+    expect(found.map((row) => row.props.subtitle)).toEqual([undefined, undefined]);
     unmount();
   });
 
-  it("opens the demo credits screen from the Demo Media Credits row", () => {
-    const { found, unmount } = rows(true);
+  it("opens the demo credits screen from the Demo credits row", () => {
+    const { found, unmount } = rows();
     act(() => found[1].props.onPress());
     expect(mockPush).toHaveBeenCalledWith("/demo-credits");
     unmount();

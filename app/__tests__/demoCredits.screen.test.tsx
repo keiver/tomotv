@@ -44,7 +44,7 @@ function render() {
   return tree;
 }
 
-describe("the Demo Media Credits screen", () => {
+describe("the Demo credits screen", () => {
   const openURL = jest.spyOn(Linking, "openURL").mockResolvedValue(true);
   beforeEach(() => openURL.mockClear());
 

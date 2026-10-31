@@ -4,6 +4,7 @@ import { localeScreen } from "@/components/locale-boundary";
 import { LoadingRow } from "@/components/loading-row";
 import { AboutSection } from "@/components/settings/AboutSection";
 import { ConnectedSection } from "@/components/settings/ConnectedSection";
+import { DiagnosticsSection } from "@/components/settings/DiagnosticsSection";
 import { LinkSpeedHeading, linkRateOutcome, type LinkRateOutcome } from "@/components/settings/LinkSpeedHeading";
 import { ListRow } from "@/components/settings/ListRow";
 import { SERVER_GLYPH } from "@/components/settings/ServerRow";
@@ -267,8 +268,9 @@ function SettingsScreen() {
 
           <UiSection signedIn />
           <PlaybackSection />
-          {/* No version line under this: the Open Source page carries it. */}
-          <AboutSection showDiagnostics />
+          {/* No version line under this: the Licenses page carries it. */}
+          <AboutSection />
+          <DiagnosticsSection />
         </View>
       </ScrollView>
     </View>

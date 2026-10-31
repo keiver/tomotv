@@ -82,3 +82,8 @@ export function logText(session: PlaybackSession, story: string | null = null): 
   if (story) document.summary.description = story;
   return JSON.stringify(document, null, 2);
 }
+
+/** The played item by name, or by its id when no source event named it. */
+export function itemName(session: PlaybackSession): string {
+  return String(lastEvent(session, "source")?.name ?? session.playback.itemId);
+}
