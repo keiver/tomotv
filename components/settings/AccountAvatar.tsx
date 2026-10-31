@@ -106,7 +106,9 @@ export const AccountAvatar = forwardRef<View, AccountAvatarProps>(function Accou
                 </View>
               ) : null}
             </View>
-            <Text style={[styles.caption, large && styles.captionLarge, (connected || focused) && styles.captionStrong, inkOnGold && themed.captionOnGold]} numberOfLines={1}>
+            <Text
+              style={[styles.caption, large && styles.captionLarge, large && !icon && styles.captionName, (connected || focused) && styles.captionStrong, inkOnGold && themed.captionOnGold]}
+              numberOfLines={1}>
               {label}
             </Text>
             {sublabel ? (
@@ -182,6 +184,9 @@ const styles = StyleSheet.create({
     fontSize: IS_TV ? 28 : IS_PAD ? 17 : 15,
     lineHeight: IS_TV ? 34 : IS_PAD ? 22 : 20,
     maxWidth: undefined,
+  },
+  captionName: {
+    color: COLORS.TEXT_PRIMARY,
   },
   captionStrong: {
     color: COLORS.TEXT_PRIMARY,

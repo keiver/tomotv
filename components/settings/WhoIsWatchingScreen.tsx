@@ -90,25 +90,27 @@ export function WhoIsWatchingScreen({ title, onConnected }: WhoIsWatchingScreenP
       <View style={[styles.body, sideInsets(insets, pick(0, 24, 16)), !IS_TV && { paddingTop: insets.top + TAB_TITLE_TOP }]}>
         {showTitle && <Text style={settingsStyles.screenTitle}>{title}</Text>}
         <View style={styles.center}>
-          <Text style={styles.heading}>{t("connect.whoIsWatching")}</Text>
-          <View style={styles.row}>
-            {(people ?? []).map(({ server, account }) => (
-              <AccountAvatar
-                key={`${server.id}:${account.userId}`}
-                size={FACE_SIZE}
-                label={account.userName}
-                sublabel={isAddressTitle(server.name) ? serverHost(server.name) : server.name}
-                loading={activatingServerId === server.id && activatingUserId === account.userId}
-                disabled={connectingDemo}
-                onPress={() => continueAs(server, account)}
-                onLongPress={() => accountOptions(server, account, reload)}
-              />
-            ))}
-            {people !== null && people.length === 0 ? (
-              <AccountAvatar size={FACE_SIZE} label={t("connect.demoPerson")} sublabel="Tomo TV" loading={connectingDemo} onPress={() => void connectDemo()} />
-            ) : null}
-            <AccountAvatar size={FACE_SIZE} icon="add" label={t("connect.addAccount")} disabled={connectingDemo} onPress={() => router.push("/connect/servers")} />
-          </View>
+          {people !== null ? (
+            <>
+              <Text style={styles.heading}>{t("connect.whoIsWatching")}</Text>
+              <View style={styles.row}>
+                {people.map(({ server, account }) => (
+                  <AccountAvatar
+                    key={`${server.id}:${account.userId}`}
+                    size={FACE_SIZE}
+                    label={account.userName}
+                    sublabel={isAddressTitle(server.name) ? serverHost(server.name) : server.name}
+                    loading={activatingServerId === server.id && activatingUserId === account.userId}
+                    disabled={connectingDemo}
+                    onPress={() => continueAs(server, account)}
+                    onLongPress={() => accountOptions(server, account, reload)}
+                  />
+                ))}
+                {people.length === 0 ? <AccountAvatar size={FACE_SIZE} label={t("connect.demoPerson")} sublabel="Tomo TV" loading={connectingDemo} onPress={() => void connectDemo()} /> : null}
+                <AccountAvatar size={FACE_SIZE} icon="add" label={t("connect.add")} sublabel={t("connect.account")} disabled={connectingDemo} onPress={() => router.push("/connect/servers")} />
+              </View>
+            </>
+          ) : null}
         </View>
       </View>
     </View>
