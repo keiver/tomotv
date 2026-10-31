@@ -56,6 +56,37 @@ export function subtitleQuery(item: QueryItem): SubtitleQuery {
   return { kind: "video", keywords, year: item.ProductionYear ?? yearFromFileName(stem), fileName: stem, ...ids };
 }
 
+/** The words a search field shows: the title, then "S04E06" for an episode. */
+export function queryText(query: SubtitleQuery): string {
+  if (query.kind === "episode" && query.season !== undefined && query.episode !== undefined) {
+    return `${query.keywords} S${String(query.season).padStart(2, "0")}E${String(query.episode).padStart(2, "0")}`;
+  }
+  return query.keywords;
+}
+
+/** The query a typed text means: an "S04E06" in it sets the episode, the rest is the title; without one the base episode stays. */
+export function queryFromText(text: string, base: SubtitleQuery): SubtitleQuery {
+  const match = text.match(EPISODE_IN_NAME);
+  const keywords = text
+    .replace(EPISODE_IN_NAME, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  if (match) return { ...base, kind: "episode", keywords, season: Number(match[1]), episode: Number(match[2]) };
+  return { ...base, keywords };
+}
+
+/** A second query asking by the file name itself, or null when the file name says nothing more than the title does. */
+export function fileNameQuery(query: SubtitleQuery): SubtitleQuery | null {
+  const words = query.fileName
+    .replace(/[._]+/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  if (!words || words.toLowerCase() === query.keywords.toLowerCase()) return null;
+  const match = words.match(EPISODE_IN_NAME);
+  if (match) return { ...query, kind: "episode", keywords: words, season: Number(match[1]), episode: Number(match[2]) };
+  return { ...query, keywords: words };
+}
+
 /** The job label a list shows first: "S01 E03" for an episode, the year for a film, nothing otherwise. */
 export function queryLabel(query: SubtitleQuery): string {
   if (query.kind === "episode" && query.season !== undefined && query.episode !== undefined) {

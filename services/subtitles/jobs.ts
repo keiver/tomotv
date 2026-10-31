@@ -58,8 +58,9 @@ export function jobApplied(jobs: SubtitleJob[], index: number, applied: NonNulla
   return jobs.map((job, at) => (at === index ? { ...job, status: "applied", applied } : job));
 }
 
+/** Back to the results with the error; the pick stays so the error line can name it. */
 export function jobApplyFailed(jobs: SubtitleJob[], index: number, error: string): SubtitleJob[] {
-  return jobs.map((job, at) => (at === index ? { ...job, status: "found", picked: null, error } : job));
+  return jobs.map((job, at) => (at === index ? { ...job, status: "found", error } : job));
 }
 
 /** Jobs whose results hold a pick safe to take without asking, with that pick. */

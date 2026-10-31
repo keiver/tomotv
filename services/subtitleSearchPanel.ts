@@ -25,6 +25,8 @@ export interface PanelState {
   title: string;
   query: string;
   queryPlaceholder: string;
+  searchLabel: string;
+  /** Every language, the likely ones first; the panel shows the selected one on its pill and the rest in a grid. */
   languages: PanelLanguage[];
   selectedLanguage: string;
   stateLine: string;

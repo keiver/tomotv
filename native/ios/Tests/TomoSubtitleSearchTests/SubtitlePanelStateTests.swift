@@ -12,6 +12,7 @@ final class SubtitlePanelStateTests: XCTestCase {
             "title": "Subtitles",
             "query": "Some Film",
             "queryPlaceholder": "Title",
+            "searchLabel": "Search",
             "languages": [["code": "en", "name": "English"], ["code": "es", "name": "Español"]],
             "selectedLanguage": selected,
             "stateLine": "2 results",

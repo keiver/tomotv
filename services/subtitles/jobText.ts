@@ -2,6 +2,8 @@
  * The words a job and a hit are shown with, shared by the iOS screen and the tvOS panel.
  */
 import { t } from "@/services/i18n";
+import { languageFor } from "./languages";
+import { queryText } from "./query";
 import type { SubtitleHit, SubtitleJob, SubtitleSourceId } from "./types";
 
 /** One letter standing for the source, drawn in a row's monogram. */
@@ -11,22 +13,30 @@ export function sourceName(source: SubtitleSourceId): string {
   return t(`subtitles.source.${source}`);
 }
 
-/** What the state column says for a job. */
+/** The sources the results came from, named, in the order they appear. */
+function resultSources(job: SubtitleJob): string {
+  return [...new Set(job.results.map((hit) => hit.source))].map(sourceName).join(", ");
+}
+
+/** What the state column says for a job: what is searched and in which language, where the results came from, which pick went where. */
 export function jobStateLine(job: SubtitleJob): string {
+  const query = queryText(job.query);
+  const language = languageFor(job.language)?.native ?? job.language;
+  const picked = job.picked?.name ?? "";
   switch (job.status) {
     case "idle":
     case "searching":
-      return t("subtitles.searching");
+      return t("subtitles.searching").replace("{query}", query).replace("{language}", language);
     case "found":
-      return job.results.length === 1 ? t("subtitles.oneResult") : t("subtitles.results").replace("{count}", String(job.results.length));
+      return (job.results.length === 1 ? t("subtitles.oneResult") : t("subtitles.results").replace("{count}", String(job.results.length))).replace("{source}", resultSources(job));
     case "none":
-      return t("subtitles.none");
+      return t("subtitles.none").replace("{query}", query).replace("{language}", language);
     case "failed":
       return t("subtitles.failed");
     case "applying":
-      return t("subtitles.applying");
+      return t("subtitles.applying").replace("{name}", picked);
     case "applied":
-      return job.applied?.where === "server" ? t("subtitles.savedServer") : t("subtitles.savedDevice");
+      return (job.applied?.where === "server" ? t("subtitles.savedServer") : t("subtitles.savedDevice")).replace("{name}", picked);
   }
 }
 
@@ -38,11 +48,11 @@ export function jobNoteLine(job: SubtitleJob): string | null {
   return t("subtitles.sourceDown").replace("{source}", sources.map(sourceName).join(", "));
 }
 
-/** The error line after a failed save, or null. */
+/** The error line after a failed save, naming the pick, or null. */
 export function jobErrorLine(job: SubtitleJob): string | null {
   if (!job.error || job.status === "applied") return null;
   if (job.status === "failed") return null;
-  return job.error === "unreadable" ? t("subtitles.unreadable") : t("subtitles.applyFailed");
+  return (job.error === "unreadable" ? t("subtitles.unreadable") : t("subtitles.applyFailed")).replace("{name}", job.picked?.name ?? "");
 }
 
 export function hitBadges(hit: SubtitleHit): string[] {

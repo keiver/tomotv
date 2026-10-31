@@ -93,7 +93,7 @@ export default function SubtitleSearchScreen() {
                     job={job}
                     alone={search.jobs.length === 1}
                     onPick={(hit) => void search.pick(index, hit)}
-                    onKeywords={(keywords) => search.setKeywords(index, keywords)}
+                    onQueryText={(text) => search.setQueryText(index, text)}
                   />
                 ))}
               </View>

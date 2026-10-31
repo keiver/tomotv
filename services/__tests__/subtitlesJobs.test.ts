@@ -66,11 +66,11 @@ describe("job transitions", () => {
     expect(changed[0]).toBe(jobs[0]);
   });
 
-  it("an apply that fails returns the job to its results with the error", () => {
+  it("an apply that fails returns the job to its results with the error and keeps the pick for the error line", () => {
     const applying = jobApplying(jobs, 0, hit("a"));
     expect(applying[0].status).toBe("applying");
     const failed = jobApplyFailed(applying, 0, "refused");
-    expect(failed[0]).toMatchObject({ status: "found", picked: null, error: "refused" });
+    expect(failed[0]).toMatchObject({ status: "found", picked: hit("a"), error: "refused" });
   });
 });
 

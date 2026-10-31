@@ -1,13 +1,18 @@
 /**
  * Subtitles found for a video and kept on this device, for an account the server lets save nothing.
- * One folder per server and item under Documents, so iOS never clears it: a WebVTT per find and an
- * index naming each.
+ * One folder per server and item: under Documents on iOS, under Caches on tvOS, which has no
+ * writable Documents. A WebVTT per find and an index naming each.
  */
 import { Directory, File, Paths } from "expo-file-system";
+import { Platform } from "react-native";
 import { logger } from "@/utils/logger";
 import type { SubtitleSourceId } from "./types";
 
 const DIRECTORY = "subtitles";
+
+function root(): Directory {
+  return Platform.isTV ? Paths.cache : Paths.document;
+}
 const INDEX = "index.json";
 const VERSION = 1;
 
@@ -41,7 +46,7 @@ function folderName(server: string, itemId: string): string {
 }
 
 function itemDirectory(server: string, itemId: string): Directory {
-  return new Directory(Paths.document, DIRECTORY, folderName(server, itemId));
+  return new Directory(root(), DIRECTORY, folderName(server, itemId));
 }
 
 function vttFile(directory: Directory, ordinal: number): File {

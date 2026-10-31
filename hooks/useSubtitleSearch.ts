@@ -8,7 +8,8 @@ import { getTrackSettingsSync, recordSubtitlePick } from "@/services/jellyfin/tr
 import { jobApplied, jobApplying, jobApplyFailed, jobSearched, jobSearching, makeJobs, refusalSources, runJobs, takeMatches, withQuery } from "@/services/subtitles/jobs";
 import { languageChoices, type SubtitleLanguage } from "@/services/subtitles/languages";
 import { applyPick, searchContext, searchSubtitles, type ApplyResult } from "@/services/subtitles/pipeline";
-import type { SearchContext, SubtitleHit, SubtitleJob, SubtitleQuery } from "@/services/subtitles/types";
+import { queryFromText } from "@/services/subtitles/query";
+import type { SearchContext, SubtitleHit, SubtitleJob } from "@/services/subtitles/types";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -24,7 +25,8 @@ export interface SubtitleSearchState {
 
 export interface SubtitleSearchActions {
   setLanguage: (code: string) => void;
-  setKeywords: (index: number, keywords: string) => void;
+  /** The typed search text: an "S04E06" in it sets the episode, the rest is the title. */
+  setQueryText: (index: number, text: string) => void;
   pick: (index: number, hit: SubtitleHit) => Promise<ApplyResult | null>;
   takeAll: () => Promise<void>;
 }
@@ -114,14 +116,13 @@ export function useSubtitleSearch(items: JellyfinVideoItem[] | null, skipSubtitl
     [skipSubtitled],
   );
 
-  const setKeywords = useCallback(
-    (index: number, keywords: string) => {
+  const setQueryText = useCallback(
+    (index: number, text: string) => {
       generation.current += 1;
       setJobs((current) => {
         const job = current[index];
         if (!job) return current;
-        const query: SubtitleQuery = { ...job.query, keywords: keywords.trim() };
-        return withQuery(current, index, query);
+        return withQuery(current, index, queryFromText(text, job.query));
       });
     },
     [setJobs],
@@ -160,5 +161,5 @@ export function useSubtitleSearch(items: JellyfinVideoItem[] | null, skipSubtitl
 
   const running = board.jobs.some((job) => job.status === "searching" || job.status === "idle");
 
-  return { jobs: board.jobs, language: board.language, choices: board.choices, running, skipped: board.skipped, matches, setLanguage, setKeywords, pick, takeAll };
+  return { jobs: board.jobs, language: board.language, choices: board.choices, running, skipped: board.skipped, matches, setLanguage, setQueryText, pick, takeAll };
 }

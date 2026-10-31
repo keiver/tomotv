@@ -6,19 +6,23 @@ import { useSubtitleSearch } from "@/hooks/useSubtitleSearch";
 import { t } from "@/services/i18n";
 import { fetchVideoDetails } from "@/services/jellyfinApi";
 import { hitBadges, hitMeta, jobErrorLine, jobNoteLine, jobStateLine, SOURCE_MONOGRAM } from "@/services/subtitles/jobText";
+import { ALL_LANGUAGES } from "@/services/subtitles/languages";
+import { queryText } from "@/services/subtitles/query";
 import type { SubtitleJob } from "@/services/subtitles/types";
 import { dismissSubtitlePanel, listenToSubtitlePanel, presentSubtitlePanel, subtitlePanelAvailable, updateSubtitlePanel, type PanelState } from "@/services/subtitleSearchPanel";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-/** The panel's state for one job, every string in the viewer's language. */
+/** The panel's state for one job, every string in the viewer's language; the likely languages lead the whole table. */
 export function panelStateFor(job: SubtitleJob | undefined, language: string, choices: { code: string; native: string }[], busy: boolean): PanelState {
+  const rest = ALL_LANGUAGES.filter((row) => !choices.some((choice) => choice.code === row.code));
   return {
     title: t("subtitles.title"),
-    query: job?.query.keywords ?? "",
+    query: job ? queryText(job.query) : "",
     queryPlaceholder: t("subtitles.searchPlaceholder"),
-    languages: choices.map((row) => ({ code: row.code, name: row.native })),
+    searchLabel: t("subtitles.search"),
+    languages: [...choices, ...rest].map((row) => ({ code: row.code, name: row.native })),
     selectedLanguage: language,
     stateLine: job ? jobStateLine(job) : t("subtitles.searching"),
     note: job ? (jobErrorLine(job) ?? jobNoteLine(job) ?? "") : "",
@@ -80,7 +84,7 @@ export function useTvSubtitlePanel(videoId: string): { available: boolean; open:
   useEffect(() => {
     if (!shown) return;
     return listenToSubtitlePanel({
-      onQueryChanged: (query) => searchRef.current.setKeywords(0, query),
+      onQueryChanged: (query) => searchRef.current.setQueryText(0, query),
       onLanguageChanged: (code) => searchRef.current.setLanguage(code),
       onPick: (id) => {
         const job = searchRef.current.jobs[0];

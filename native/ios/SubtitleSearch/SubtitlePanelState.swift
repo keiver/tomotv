@@ -45,6 +45,8 @@ public struct SubtitlePanelState: Codable, Equatable {
     public let title: String
     public let query: String
     public let queryPlaceholder: String
+    /// The search button's word.
+    public let searchLabel: String
     public let languages: [SubtitlePanelLanguage]
     public let selectedLanguage: String
     /// Searching, N results, nothing found, saved: the line under the field.
@@ -54,10 +56,11 @@ public struct SubtitlePanelState: Codable, Equatable {
     public let busy: Bool
     public let results: [SubtitlePanelResult]
 
-    public init(title: String, query: String, queryPlaceholder: String, languages: [SubtitlePanelLanguage], selectedLanguage: String, stateLine: String, note: String, busy: Bool, results: [SubtitlePanelResult]) {
+    public init(title: String, query: String, queryPlaceholder: String, searchLabel: String, languages: [SubtitlePanelLanguage], selectedLanguage: String, stateLine: String, note: String, busy: Bool, results: [SubtitlePanelResult]) {
         self.title = title
         self.query = query
         self.queryPlaceholder = queryPlaceholder
+        self.searchLabel = searchLabel
         self.languages = languages
         self.selectedLanguage = selectedLanguage
         self.stateLine = stateLine

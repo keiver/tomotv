@@ -159,6 +159,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     hasStream,
     sessionVideoId,
     hostMode,
+    textTrackCount,
   } = usePlayerSession();
 
   const isQueueMode = params.queueMode === "true";
@@ -596,11 +597,12 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     if (favorite !== null) {
       buttons.push({ id: "favorite", title: t(favorite ? "info.removeFavorite" : "info.addFavorite"), sfSymbol: favorite ? "heart.fill" : "heart" });
     }
-    if (!isLiveChannel && subtitlePanel.available) {
+    // AVKit draws its own subtitle button once the stream lists a legible track; ours shows only when it has none.
+    if (!isLiveChannel && subtitlePanel.available && !textTrackCount) {
       buttons.push({ id: "subtitles", title: t("player.findSubtitles"), sfSymbol: "captions.bubble" });
     }
     return buttons.length > 0 ? buttons : undefined;
-  }, [isLiveChannel, playingChannel, liveFavorite, vodFavorite, canRecord, recordKey, recordTimer, subtitlePanel.available]);
+  }, [isLiveChannel, playingChannel, liveFavorite, vodFavorite, canRecord, recordKey, recordTimer, subtitlePanel.available, textTrackCount]);
   const handleTransportBarButtonSelected = useCallback(
     (event: { id: string }) => {
       if (event.id === "subtitles") {

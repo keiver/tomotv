@@ -4,6 +4,7 @@ import { COLORS } from "@/constants/colors";
 import { DESIGN } from "@/constants/app";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { jobErrorLine, jobNoteLine, jobStateLine } from "@/services/subtitles/jobText";
+import { queryText } from "@/services/subtitles/query";
 import type { SubtitleHit, SubtitleJob } from "@/services/subtitles/types";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useState } from "react";
@@ -16,11 +17,11 @@ interface SubtitleJobCardProps {
   /** The card opens by itself when it is the only one. */
   alone: boolean;
   onPick: (hit: SubtitleHit) => void;
-  onKeywords: (keywords: string) => void;
+  onQueryText: (text: string) => void;
 }
 
 /** One file: its label and title on the left, its state on the right, its results and query inside. */
-export function SubtitleJobCard({ job, alone, onPick, onKeywords }: SubtitleJobCardProps) {
+export function SubtitleJobCard({ job, alone, onPick, onQueryText }: SubtitleJobCardProps) {
   const palette = useCardPalette();
   const [open, setOpen] = useState(alone);
   const expanded = alone || open;
@@ -60,7 +61,7 @@ export function SubtitleJobCard({ job, alone, onPick, onKeywords }: SubtitleJobC
           ) : null}
           {note ? <Text style={styles.note}>{note}</Text> : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
-          <SubtitleSearchField value={job.query.keywords} onSubmit={onKeywords} />
+          <SubtitleSearchField value={queryText(job.query)} onSubmit={onQueryText} />
           <View style={styles.results}>
             {job.results.map((hit) => (
               <SubtitleResultRow

@@ -11,6 +11,7 @@ import { markSourceDown, runChain, sourceFor, type ChainAnswer } from "./chain";
 import { hasCues, toWebVtt } from "./convert";
 import { readOwnKeys } from "./keys";
 import { languageFor } from "./languages";
+import { fileNameQuery } from "./query";
 import { rankHits } from "./rank";
 import { saveDeviceSubtitle, type DeviceSubtitle } from "./store";
 import { SourceRefusal, type SearchContext, type SubtitleFile, type SubtitleHit, type SubtitleQuery } from "./types";
@@ -21,11 +22,23 @@ export async function searchContext(itemId: string): Promise<SearchContext> {
   return { itemId, serverAllowed, findSubtitles: getUiPreferences().findSubtitles, keys };
 }
 
-/** The chain's answer for one file and language, ranked for the list. */
+/** The chain's answers for one file and language, asked by title and by file name, merged and ranked for the list. */
 export async function searchSubtitles(itemId: string, query: SubtitleQuery, language: string, context?: SearchContext): Promise<ChainAnswer> {
   const resolved = context ?? (await searchContext(itemId));
-  const answer = await runChain(query, language, resolved);
-  return { ...answer, hits: rankHits(answer.hits, query) };
+  const byFileName = fileNameQuery(query);
+  const answers = await Promise.all([runChain(query, language, resolved), ...(byFileName ? [runChain(byFileName, language, resolved)] : [])]);
+  const seen = new Set<string>();
+  const hits = answers
+    .flatMap((answer) => answer.hits)
+    .filter((hit) => {
+      const key = `${hit.source}:${hit.id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  const refusedSources = new Set<string>();
+  const refused = answers.flatMap((answer) => answer.refused).filter((refusal) => (refusedSources.has(refusal.source) ? false : refusedSources.add(refusal.source)));
+  return { hits: rankHits(hits, query), answeredBy: answers.find((answer) => answer.answeredBy)?.answeredBy ?? null, refused };
 }
 
 export type ApplyResult =

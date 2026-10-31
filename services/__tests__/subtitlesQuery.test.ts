@@ -1,4 +1,4 @@
-import { fileStem, queryLabel, subtitleQuery, titleFromFileName } from "@/services/subtitles/query";
+import { fileNameQuery, fileStem, queryFromText, queryLabel, queryText, subtitleQuery, titleFromFileName } from "@/services/subtitles/query";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 
 const base = { Id: "i", MediaStreams: [] } as unknown as JellyfinVideoItem;
@@ -37,6 +37,28 @@ describe("subtitleQuery", () => {
   it("takes an episode item missing its numbers as a plain video", () => {
     const query = subtitleQuery({ ...base, Name: "Special", Type: "Episode", Path: "/tv/Show/Special.mkv", SeriesName: "Show" });
     expect(query.kind).toBe("video");
+  });
+});
+
+describe("query text", () => {
+  const episode = subtitleQuery({ ...base, Name: "Pilot", Type: "Episode", Path: "/tv/Some.Show.S04E06.720p.HDTV.x264-GRP.mkv", SeriesName: "Some Show", ParentIndexNumber: 4, IndexNumber: 6 });
+
+  it("shows the title with the episode tag and reads both back from a typed text", () => {
+    expect(queryText(episode)).toBe("Some Show S04E06");
+    expect(queryFromText("Some Show S04E07", episode)).toMatchObject({ kind: "episode", keywords: "Some Show", season: 4, episode: 7 });
+    expect(queryFromText("Some Show", episode)).toMatchObject({ keywords: "Some Show", season: 4, episode: 6 });
+    expect(queryFromText("s02e01 Other Show", episode)).toMatchObject({ keywords: "Other Show", season: 2, episode: 1 });
+  });
+
+  it("asks a second time by the file name, with the episode the file name carries", () => {
+    expect(fileNameQuery(episode)).toMatchObject({ kind: "episode", keywords: "Some Show S04E06 720p HDTV x264-GRP", season: 4, episode: 6, fileName: episode.fileName });
+    const film = subtitleQuery({ ...base, Name: "A Film", Type: "Movie", Path: "/movies/A.Film.2019.1080p.mkv", ProductionYear: 2019 });
+    expect(fileNameQuery(film)).toMatchObject({ kind: "movie", keywords: "A Film 2019 1080p", year: 2019 });
+  });
+
+  it("asks only once when the file name is the title", () => {
+    expect(fileNameQuery(subtitleQuery({ ...base, Name: "Holiday clip", Type: "Video", Path: "/videos/Holiday clip.mov" }))).toBeNull();
+    expect(fileNameQuery(subtitleQuery({ ...base, Name: "Clip", Type: "Video" }))).toBeNull();
   });
 });
 

@@ -83,6 +83,8 @@ export interface PlayerSessionSnapshot {
   showLoadingOverlay: boolean;
   /** True once a stream URL exists, i.e. AVKit has chrome of its own on screen. */
   hasStream: boolean;
+  /** Legible tracks the player lists for the stream: above zero, AVKit shows its own subtitle menu. */
+  textTrackCount: number;
 }
 
 /** The imperative surface PlayerHost registers on mount. */
@@ -118,6 +120,7 @@ const IDLE_SNAPSHOT: PlayerSessionSnapshot = {
   playbackState: { type: "IDLE" },
   showLoadingOverlay: false,
   hasStream: false,
+  textTrackCount: 0,
 };
 
 const PlayerSessionContext = createContext<PlayerSessionContextValue | undefined>(undefined);

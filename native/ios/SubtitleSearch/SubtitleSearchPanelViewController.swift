@@ -2,15 +2,16 @@
 //  SubtitleSearchPanelViewController.swift
 //  TomoTV
 //
-//  The tvOS subtitle panel: a rounded blurred card over the playing video with the language
-//  chips, the search field, a state line and the results. Every string arrives from JS.
+//  The tvOS subtitle panel: a glass card over the playing video with one row of controls
+//  (language, search text, search), a state line and the results as glass buttons. Every string
+//  arrives from JS. Below tvOS 26 the same layout draws on dark blur with filled buttons.
 //
 
 #if os(tvOS)
 
     import UIKit
 
-    final class SubtitleSearchPanelViewController: UIViewController, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate {
+    final class SubtitleSearchPanelViewController: UIViewController, UITextFieldDelegate {
         var onQueryChanged: ((String) -> Void)?
         var onLanguageChanged: ((String) -> Void)?
         var onPick: ((String) -> Void)?
@@ -19,18 +20,23 @@
         private var state: SubtitlePanelState
         private var quiet = false
 
-        private let card = UIVisualEffectView(effect: UIBlurEffect(style: .dark))
+        private let card = SubtitleSearchPanelViewController.surface(cornerRadius: 44)
         private let titleLabel = UILabel()
-        private let chipsStack = UIStackView()
-        private var chipButtons: [UIButton] = []
+        private let languageButton = UIButton(configuration: SubtitleSearchPanelViewController.pill())
+        private let fieldWell = SubtitleSearchPanelViewController.surface(cornerRadius: 36)
         private let field = UITextField()
+        private let searchButton = UIButton(configuration: SubtitleSearchPanelViewController.pill(prominent: true))
         private let stateLabel = UILabel()
         private let noteLabel = UILabel()
         private let spinner = UIActivityIndicatorView(style: .large)
-        private let table = UITableView(frame: .zero, style: .plain)
+        private let resultsScroll = UIScrollView()
+        private let resultsStack = UIStackView()
+        private var rows: [UIButton] = []
 
-        private static let cardSize = CGSize(width: 1180, height: 760)
         private static let accent = UIColor(red: 1.0, green: 0.764, blue: 0.07, alpha: 1.0)
+        private static let dim = UIColor(white: 0.62, alpha: 1)
+        private static let cardSize = CGSize(width: 1180, height: 760)
+        private static let controlHeight: CGFloat = 72
 
         init(state: SubtitlePanelState) {
             self.state = state
@@ -50,17 +56,76 @@
         }
 
         override var preferredFocusEnvironments: [UIFocusEnvironment] {
-            if let first = chipButtons.first(where: { $0.isSelected }) { return [first] }
-            return chipButtons.isEmpty ? [field] : [chipButtons[0]]
+            if let first = rows.first { return [first] }
+            return [field]
+        }
+
+        // MARK: - Materials
+
+        /// Glass on tvOS 26, dark blur before it, with the same rounded shape.
+        private static func surface(cornerRadius: CGFloat) -> UIVisualEffectView {
+            if #available(tvOS 26.0, *) {
+                let view = UIVisualEffectView(effect: UIGlassEffect(style: .regular))
+                view.cornerConfiguration = .corners(radius: .fixed(cornerRadius))
+                return view
+            }
+            let view = UIVisualEffectView(effect: UIBlurEffect(style: .dark))
+            view.layer.cornerRadius = cornerRadius
+            view.layer.cornerCurve = .continuous
+            view.clipsToBounds = true
+            return view
+        }
+
+        private static func pill(prominent: Bool = false) -> UIButton.Configuration {
+            var configuration: UIButton.Configuration
+            if #available(tvOS 26.0, *) {
+                configuration = prominent ? .prominentGlass() : .glass()
+            } else {
+                configuration = prominent ? .filled() : .gray()
+            }
+            configuration.cornerStyle = .capsule
+            configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 28, bottom: 0, trailing: 28)
+            configuration.imagePadding = 12
+            configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 20, weight: .bold)
+            configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+                var updated = attributes
+                updated.font = UIFont.systemFont(ofSize: 26, weight: .semibold)
+                return updated
+            }
+            return configuration
+        }
+
+        private static func row() -> UIButton.Configuration {
+            var configuration: UIButton.Configuration
+            if #available(tvOS 26.0, *) {
+                configuration = .glass()
+            } else {
+                configuration = .gray()
+            }
+            configuration.cornerStyle = .large
+            configuration.titleAlignment = .leading
+            configuration.imagePadding = 22
+            configuration.titlePadding = 4
+            configuration.contentInsets = NSDirectionalEdgeInsets(top: 18, leading: 24, bottom: 18, trailing: 24)
+            configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 44, weight: .medium)
+            configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+                var updated = attributes
+                updated.font = UIFont.systemFont(ofSize: 27, weight: .medium)
+                return updated
+            }
+            configuration.subtitleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+                var updated = attributes
+                updated.font = UIFont.systemFont(ofSize: 20, weight: .regular)
+                updated.foregroundColor = dim
+                return updated
+            }
+            return configuration
         }
 
         // MARK: - Layout
 
         private func buildCard() {
             card.translatesAutoresizingMaskIntoConstraints = false
-            card.layer.cornerRadius = 44
-            card.layer.cornerCurve = .continuous
-            card.clipsToBounds = true
             view.addSubview(card)
             NSLayoutConstraint.activate([
                 card.centerXAnchor.constraint(equalTo: view.centerXAnchor),
@@ -68,54 +133,79 @@
                 card.widthAnchor.constraint(equalToConstant: Self.cardSize.width),
                 card.heightAnchor.constraint(equalToConstant: Self.cardSize.height),
             ])
-
             let content = card.contentView
 
             titleLabel.font = UIFont.systemFont(ofSize: 40, weight: .bold)
             titleLabel.textColor = .white
 
-            chipsStack.axis = .horizontal
-            chipsStack.spacing = 14
-            chipsStack.alignment = .center
+            languageButton.configuration?.image = UIImage(systemName: "chevron.down")
+            languageButton.configuration?.imagePlacement = .trailing
+            languageButton.setContentHuggingPriority(.required, for: .horizontal)
+            languageButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+            if #available(tvOS 17.0, *) {
+                languageButton.showsMenuAsPrimaryAction = true
+            } else {
+                languageButton.addTarget(self, action: #selector(nextLanguage), for: .primaryActionTriggered)
+            }
 
             field.borderStyle = .none
-            field.font = UIFont.systemFont(ofSize: 30, weight: .medium)
+            field.font = UIFont.systemFont(ofSize: 28, weight: .medium)
             field.textColor = .white
-            field.backgroundColor = UIColor.white.withAlphaComponent(0.08)
-            field.layer.cornerRadius = 18
-            field.layer.cornerCurve = .continuous
             field.returnKeyType = .search
             field.autocorrectionType = .no
             field.autocapitalizationType = .none
             field.delegate = self
-            field.heightAnchor.constraint(equalToConstant: 72).isActive = true
-            field.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 24, height: 1))
-            field.leftViewMode = .always
+            field.translatesAutoresizingMaskIntoConstraints = false
+            fieldWell.contentView.addSubview(field)
+            NSLayoutConstraint.activate([
+                field.leadingAnchor.constraint(equalTo: fieldWell.contentView.leadingAnchor, constant: 28),
+                field.trailingAnchor.constraint(equalTo: fieldWell.contentView.trailingAnchor, constant: -28),
+                field.topAnchor.constraint(equalTo: fieldWell.contentView.topAnchor),
+                field.bottomAnchor.constraint(equalTo: fieldWell.contentView.bottomAnchor),
+            ])
+            fieldWell.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+            searchButton.configuration?.image = UIImage(systemName: "magnifyingglass")
+            searchButton.configuration?.imagePlacement = .leading
+            searchButton.setContentHuggingPriority(.required, for: .horizontal)
+            searchButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+            searchButton.addTarget(self, action: #selector(searchPressed), for: .primaryActionTriggered)
+
+            let controls = UIStackView(arrangedSubviews: [languageButton, fieldWell, searchButton])
+            controls.axis = .horizontal
+            controls.spacing = 16
+            controls.alignment = .fill
+            controls.heightAnchor.constraint(equalToConstant: Self.controlHeight).isActive = true
 
             stateLabel.font = UIFont.systemFont(ofSize: 24, weight: .semibold)
-            stateLabel.textColor = UIColor(white: 0.62, alpha: 1)
+            stateLabel.textColor = Self.dim
             noteLabel.font = UIFont.systemFont(ofSize: 22, weight: .regular)
-            noteLabel.textColor = UIColor(white: 0.62, alpha: 1)
+            noteLabel.textColor = Self.dim
             noteLabel.numberOfLines = 2
             spinner.color = Self.accent
             spinner.hidesWhenStopped = true
-
             let stateRow = UIStackView(arrangedSubviews: [spinner, stateLabel])
             stateRow.axis = .horizontal
             stateRow.spacing = 14
             stateRow.alignment = .center
 
-            table.backgroundColor = .clear
-            table.separatorStyle = .none
-            table.dataSource = self
-            table.delegate = self
-            table.remembersLastFocusedIndexPath = true
-            table.register(SubtitleResultCell.self, forCellReuseIdentifier: SubtitleResultCell.reuseIdentifier)
-            table.rowHeight = 112
+            resultsStack.axis = .vertical
+            resultsStack.spacing = 10
+            resultsStack.translatesAutoresizingMaskIntoConstraints = false
+            resultsScroll.addSubview(resultsStack)
+            NSLayoutConstraint.activate([
+                resultsStack.topAnchor.constraint(equalTo: resultsScroll.contentLayoutGuide.topAnchor),
+                resultsStack.bottomAnchor.constraint(equalTo: resultsScroll.contentLayoutGuide.bottomAnchor),
+                resultsStack.leadingAnchor.constraint(equalTo: resultsScroll.contentLayoutGuide.leadingAnchor),
+                resultsStack.trailingAnchor.constraint(equalTo: resultsScroll.contentLayoutGuide.trailingAnchor),
+                resultsStack.widthAnchor.constraint(equalTo: resultsScroll.frameLayoutGuide.widthAnchor),
+            ])
 
-            let stack = UIStackView(arrangedSubviews: [titleLabel, chipsStack, field, stateRow, noteLabel, table])
+            let stack = UIStackView(arrangedSubviews: [titleLabel, controls, stateRow, noteLabel, resultsScroll])
             stack.axis = .vertical
             stack.spacing = 22
+            stack.setCustomSpacing(28, after: titleLabel)
+            stack.setCustomSpacing(12, after: stateRow)
             stack.translatesAutoresizingMaskIntoConstraints = false
             content.addSubview(stack)
             NSLayoutConstraint.activate([
@@ -126,32 +216,32 @@
             ])
         }
 
-        private func chip(title: String, tag: Int) -> UIButton {
-            var configuration = UIButton.Configuration.filled()
-            configuration.title = title
-            configuration.baseBackgroundColor = UIColor.white.withAlphaComponent(0.1)
-            configuration.baseForegroundColor = .white
-            configuration.cornerStyle = .capsule
-            configuration.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 26, bottom: 12, trailing: 26)
-            let button = UIButton(configuration: configuration)
-            button.tag = tag
-            button.addTarget(self, action: #selector(chipPressed(_:)), for: .primaryActionTriggered)
-            button.configurationUpdateHandler = { button in
-                var updated = button.configuration
-                let selected = button.isSelected
-                let focused = button.isFocused
-                updated?.baseBackgroundColor = selected ? Self.accent : UIColor.white.withAlphaComponent(focused ? 0.28 : 0.1)
-                updated?.baseForegroundColor = selected ? .black : .white
-                button.configuration = updated
-            }
-            return button
+        // MARK: - Actions
+
+        @objc private func searchPressed() {
+            field.resignFirstResponder()
+            let query = (field.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !query.isEmpty else { return }
+            onQueryChanged?(query)
         }
 
-        @objc private func chipPressed(_ sender: UIButton) {
-            guard sender.tag < state.languages.count else { return }
-            let code = state.languages[sender.tag].code
-            guard code != state.selectedLanguage else { return }
-            onLanguageChanged?(code)
+        /// Before tvOS 17 a button has no menu: a press moves to the next language in the list.
+        @objc private func nextLanguage() {
+            guard !state.languages.isEmpty else { return }
+            let next = state.languages[(state.selectedLanguageIndex + 1) % state.languages.count]
+            onLanguageChanged?(next.code)
+        }
+
+        private func languageMenu() -> UIMenu {
+            UIMenu(
+                options: [.singleSelection],
+                children: state.languages.map { language in
+                    UIAction(title: language.name, state: language.code == state.selectedLanguage ? .on : .off) { [weak self] _ in
+                        guard let self, language.code != self.state.selectedLanguage else { return }
+                        self.onLanguageChanged?(language.code)
+                    }
+                }
+            )
         }
 
         // MARK: - State
@@ -165,15 +255,11 @@
             state = next
             guard isViewLoaded else { return }
             titleLabel.text = next.title
-            if force || previous.languages != next.languages {
-                chipButtons.forEach { $0.removeFromSuperview() }
-                chipButtons = next.languages.enumerated().map { chip(title: $0.element.name, tag: $0.offset) }
-                chipButtons.forEach(chipsStack.addArrangedSubview)
+            languageButton.configuration?.title = next.languages.indices.contains(next.selectedLanguageIndex) ? next.languages[next.selectedLanguageIndex].name : next.selectedLanguage
+            if #available(tvOS 17.0, *) {
+                languageButton.menu = languageMenu()
             }
-            for (position, button) in chipButtons.enumerated() {
-                button.isSelected = position == next.selectedLanguageIndex
-                button.setNeedsUpdateConfiguration()
-            }
+            searchButton.configuration?.title = next.searchLabel
             if !field.isEditing, field.text != next.query { field.text = next.query }
             field.attributedPlaceholder = NSAttributedString(string: next.queryPlaceholder, attributes: [.foregroundColor: UIColor(white: 0.5, alpha: 1)])
             stateLabel.text = next.stateLine
@@ -181,10 +267,44 @@
             noteLabel.isHidden = next.note.isEmpty
             if next.busy { spinner.startAnimating() } else { spinner.stopAnimating() }
             if force || previous.results.count != next.results.count {
-                table.reloadData()
-            } else if let rows = next.changedResultRows(from: previous), !rows.isEmpty {
-                table.reloadRows(at: rows.map { IndexPath(row: $0, section: 0) }, with: .none)
+                rebuildRows()
+            } else if let changed = next.changedResultRows(from: previous) {
+                for index in changed where index < rows.count { configure(rows[index], with: next.results[index]) }
             }
+        }
+
+        private func rebuildRows() {
+            rows.forEach { $0.removeFromSuperview() }
+            rows = state.results.enumerated().map { position, result in
+                let button = UIButton(configuration: Self.row())
+                button.contentHorizontalAlignment = .leading
+                configure(button, with: result)
+                button.addAction(
+                    UIAction { [weak self] _ in
+                        guard let self, position < self.state.results.count else { return }
+                        let current = self.state.results[position]
+                        guard !current.applying, !current.applied else { return }
+                        self.onPick?(current.id)
+                    }, for: .primaryActionTriggered
+                )
+                return button
+            }
+            rows.forEach(resultsStack.addArrangedSubview)
+            setNeedsFocusUpdate()
+        }
+
+        /// The source letter as its SF Symbol square; a saved row shows the tick instead.
+        private func configure(_ button: UIButton, with result: SubtitlePanelResult) {
+            var configuration = button.configuration ?? Self.row()
+            let letter = result.monogram.lowercased()
+            configuration.image = result.applied ? UIImage(systemName: "checkmark.circle.fill") : UIImage(systemName: "\(letter).square.fill") ?? UIImage(systemName: "captions.bubble.fill")
+            configuration.imageColorTransformer = result.hashMatch || result.applied ? UIConfigurationColorTransformer { _ in Self.accent } : nil
+            configuration.showsActivityIndicator = result.applying
+            configuration.title = result.name
+            let badges = result.badges.joined(separator: "  ")
+            configuration.subtitle = badges.isEmpty ? result.meta : "\(badges)  ·  \(result.meta)"
+            button.configuration = configuration
+            button.alpha = result.applied ? 0.7 : 1
         }
 
         // MARK: - Dismissal
@@ -221,129 +341,6 @@
         func textFieldShouldReturn(_ textField: UITextField) -> Bool {
             textField.resignFirstResponder()
             return true
-        }
-
-        // MARK: - UITableViewDataSource
-
-        func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-            state.results.count
-        }
-
-        func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-            let cell = tableView.dequeueReusableCell(withIdentifier: SubtitleResultCell.reuseIdentifier, for: indexPath)
-            if let resultCell = cell as? SubtitleResultCell, indexPath.row < state.results.count {
-                resultCell.configure(state.results[indexPath.row], accent: Self.accent)
-            }
-            return cell
-        }
-
-        // MARK: - UITableViewDelegate
-
-        func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-            guard indexPath.row < state.results.count else { return }
-            let result = state.results[indexPath.row]
-            guard !result.applying, !result.applied else { return }
-            onPick?(result.id)
-        }
-    }
-
-    /// One result: a source monogram, the release name, its badges and meta, a mark on the right.
-    final class SubtitleResultCell: UITableViewCell {
-        static let reuseIdentifier = "SubtitleResultCell"
-
-        private let monogram = UILabel()
-        private let name = UILabel()
-        private let meta = UILabel()
-        private let mark = UIImageView()
-        private let spinner = UIActivityIndicatorView(style: .medium)
-        private let frameView = UIView()
-
-        override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-            super.init(style: style, reuseIdentifier: reuseIdentifier)
-            backgroundColor = .clear
-            selectionStyle = .none
-            focusStyle = .custom
-
-            frameView.translatesAutoresizingMaskIntoConstraints = false
-            frameView.layer.cornerRadius = 20
-            frameView.layer.cornerCurve = .continuous
-            frameView.layer.borderWidth = 3
-            frameView.layer.borderColor = UIColor.clear.cgColor
-            contentView.addSubview(frameView)
-
-            monogram.font = UIFont.systemFont(ofSize: 28, weight: .bold)
-            monogram.textColor = .white
-            monogram.textAlignment = .center
-            monogram.backgroundColor = UIColor.white.withAlphaComponent(0.14)
-            monogram.layer.cornerRadius = 14
-            monogram.layer.cornerCurve = .continuous
-            monogram.clipsToBounds = true
-            monogram.translatesAutoresizingMaskIntoConstraints = false
-
-            name.font = UIFont.systemFont(ofSize: 27, weight: .medium)
-            name.textColor = .white
-            meta.font = UIFont.systemFont(ofSize: 20, weight: .regular)
-            meta.textColor = UIColor(white: 0.62, alpha: 1)
-            let text = UIStackView(arrangedSubviews: [name, meta])
-            text.axis = .vertical
-            text.spacing = 4
-            text.translatesAutoresizingMaskIntoConstraints = false
-
-            mark.contentMode = .scaleAspectFit
-            mark.translatesAutoresizingMaskIntoConstraints = false
-            spinner.hidesWhenStopped = true
-            spinner.translatesAutoresizingMaskIntoConstraints = false
-
-            frameView.addSubview(monogram)
-            frameView.addSubview(text)
-            frameView.addSubview(mark)
-            frameView.addSubview(spinner)
-            NSLayoutConstraint.activate([
-                frameView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
-                frameView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
-                frameView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-                frameView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-                monogram.leadingAnchor.constraint(equalTo: frameView.leadingAnchor, constant: 20),
-                monogram.centerYAnchor.constraint(equalTo: frameView.centerYAnchor),
-                monogram.widthAnchor.constraint(equalToConstant: 60),
-                monogram.heightAnchor.constraint(equalToConstant: 60),
-                text.leadingAnchor.constraint(equalTo: monogram.trailingAnchor, constant: 22),
-                text.centerYAnchor.constraint(equalTo: frameView.centerYAnchor),
-                text.trailingAnchor.constraint(lessThanOrEqualTo: mark.leadingAnchor, constant: -20),
-                mark.trailingAnchor.constraint(equalTo: frameView.trailingAnchor, constant: -24),
-                mark.centerYAnchor.constraint(equalTo: frameView.centerYAnchor),
-                mark.widthAnchor.constraint(equalToConstant: 36),
-                mark.heightAnchor.constraint(equalToConstant: 36),
-                spinner.centerXAnchor.constraint(equalTo: mark.centerXAnchor),
-                spinner.centerYAnchor.constraint(equalTo: mark.centerYAnchor),
-            ])
-        }
-
-        @available(*, unavailable)
-        required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-        func configure(_ result: SubtitlePanelResult, accent: UIColor) {
-            monogram.text = result.monogram
-            monogram.backgroundColor = result.hashMatch ? accent : UIColor.white.withAlphaComponent(0.14)
-            monogram.textColor = result.hashMatch ? .black : .white
-            name.text = result.name
-            let badges = result.badges.joined(separator: "  ")
-            meta.text = badges.isEmpty ? result.meta : "\(badges)  ·  \(result.meta)"
-            mark.tintColor = result.applied ? accent : UIColor(white: 0.62, alpha: 1)
-            mark.image = UIImage(systemName: result.applied ? "checkmark.circle.fill" : "arrow.down.circle")
-            mark.isHidden = result.applying
-            if result.applying { spinner.startAnimating() } else { spinner.stopAnimating() }
-            contentView.alpha = result.applied ? 0.7 : 1
-            frameView.layer.borderColor = isFocused ? accent.cgColor : UIColor.clear.cgColor
-        }
-
-        override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
-            super.didUpdateFocus(in: context, with: coordinator)
-            let focused = isFocused
-            coordinator.addCoordinatedAnimations({ [weak self] in
-                self?.frameView.backgroundColor = focused ? UIColor.white.withAlphaComponent(0.12) : .clear
-                self?.frameView.layer.borderColor = focused ? UIColor(red: 1.0, green: 0.764, blue: 0.07, alpha: 1.0).cgColor : UIColor.clear.cgColor
-            }, completion: nil)
         }
     }
 

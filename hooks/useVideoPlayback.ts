@@ -267,6 +267,8 @@ export interface VideoPlaybackResult {
   selectedTextTrack: SelectedTrack;
   /** RNV selectedAudioTrack: set only to re-apply a track the viewer chose. */
   selectedAudioTrack: SelectedTrack | undefined;
+  /** Legible tracks the player lists for the current stream: above zero, AVKit has a subtitle menu of its own. */
+  textTrackCount: number;
 
   // Paused state for Video component
   paused: boolean;
@@ -894,6 +896,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   useEffect(() => {
     streamUrlRef.current = streamUrl;
   }, [streamUrl]);
+  // The player's last legible track report, kept with the stream it described so a new stream starts from none.
+  const [textTrackReport, setTextTrackReport] = useState<{ url: string | null; count: number }>({ url: null, count: 0 });
   // Slipstream gateway sessions: RNV maxBitRate (→ preferredPeakBitRate, live)
   // caps which loopback variant AVPlayer may pick. A pinned quality preset
   // becomes this cap, seamless, no session rebuild; Auto and every
@@ -2663,6 +2667,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       if (currentModeRef.current === "direct" && !itemHasSubtitleStreamsRef.current && data.textTracks.length > 0) {
         return;
       }
+      setTextTrackReport({ url: streamUrlRef.current, count: data.textTracks.length });
 
       // An image rendition carries no cues, so the viewer's pick is the only signal for which
       // bitmaps to draw. Resolved on the engine's lane alone: the server's legible group is
@@ -3438,5 +3443,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     currentTimeRef,
     selectedTextTrack,
     selectedAudioTrack,
+    /** Legible tracks the player lists for the current stream, so the route knows whether AVKit has a subtitle menu. */
+    textTrackCount: textTrackReport.url === streamUrl ? textTrackReport.count : 0,
   };
 }

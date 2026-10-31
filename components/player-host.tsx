@@ -254,6 +254,7 @@ export function PlayerHost() {
     selectedTextTrack,
     selectedAudioTrack,
     chapterFrameBaseUrl,
+    textTrackCount,
   } = useVideoPlayback({
     videoId: session?.videoId ?? "",
     skip: session === null || liveSettling,
@@ -512,8 +513,9 @@ export function PlayerHost() {
       playbackState: state,
       showLoadingOverlay,
       hasStream: shownUri !== null,
+      textTrackCount,
     });
-  }, [publish, hostMode, session, state, showLoadingOverlay, shownUri]);
+  }, [publish, hostMode, session, state, showLoadingOverlay, shownUri, textTrackCount]);
 
   // Playback owns the link and the JS thread while a session lives, so competing
   // background work stands down. Held through a detached PiP window too.

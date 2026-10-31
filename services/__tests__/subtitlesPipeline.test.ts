@@ -16,15 +16,17 @@ jest.mock("@/services/jellyfinApi", () => ({
   fetchRemoteSubtitleFile: jest.fn(),
 }));
 const mockFetchFile = jest.fn();
+const mockRunChain = jest.fn();
 jest.mock("@/services/subtitles/chain", () => {
   const actual = jest.requireActual("@/services/subtitles/chain");
-  return { ...actual, sourceFor: () => ({ fetch: (...args: unknown[]) => mockFetchFile(...args) }) };
+  return { ...actual, sourceFor: () => ({ fetch: (...args: unknown[]) => mockFetchFile(...args) }), runChain: (...args: unknown[]) => mockRunChain(...args) };
 });
 
 import { fakeFs } from "./fakeFileSystem";
 import * as jellyfinApi from "@/services/jellyfinApi";
 import { resetSourceChain, sourceDown } from "@/services/subtitles/chain";
-import { applyPick } from "@/services/subtitles/pipeline";
+import { applyPick, searchSubtitles } from "@/services/subtitles/pipeline";
+import { subtitleQuery } from "@/services/subtitles/query";
 import { deviceSubtitles } from "@/services/subtitles/store";
 import type { SubtitleHit } from "@/services/subtitles/types";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
@@ -62,6 +64,40 @@ beforeEach(() => {
   api.waitForSubtitleStream.mockResolvedValue({ Type: "Subtitle", Codec: "subrip", Index: 7 });
   mockFetchFile.mockReset();
   mockFetchFile.mockResolvedValue({ text: SRT, format: "srt" });
+});
+
+describe("searchSubtitles", () => {
+  const episode = {
+    Id: "e1",
+    Name: "Pilot",
+    Type: "Episode",
+    Path: "/tv/Some.Show.S04E06.720p.HDTV.mkv",
+    SeriesName: "Some Show",
+    ParentIndexNumber: 4,
+    IndexNumber: 6,
+    MediaStreams: [],
+  } as unknown as JellyfinVideoItem;
+
+  it("asks by title and by file name, merges the hits once each and keeps every refusal", async () => {
+    mockRunChain.mockReset();
+    mockRunChain.mockImplementation(async (query: { keywords: string }) =>
+      query.keywords === "Some Show"
+        ? { hits: [hit({ id: "a", source: "gestdown" }), hit({ id: "b", source: "gestdown" })], answeredBy: "gestdown", refused: [{ source: "server", status: 500 }] }
+        : { hits: [hit({ id: "b", source: "gestdown" }), hit({ id: "c", source: "opensubtitles", hashMatch: true })], answeredBy: "gestdown", refused: [{ source: "server", status: 500 }] },
+    );
+    const answer = await searchSubtitles(episode.Id, subtitleQuery(episode), "en");
+    expect(mockRunChain.mock.calls.map((call) => (call[0] as { keywords: string }).keywords)).toEqual(["Some Show", "Some Show S04E06 720p HDTV"]);
+    expect(answer.hits.map((entry) => entry.id)).toEqual(["c", "a", "b"]);
+    expect(answer.refused).toEqual([{ source: "server", status: 500 }]);
+    expect(answer.answeredBy).toBe("gestdown");
+  });
+
+  it("asks once when the file name says nothing more than the title", async () => {
+    mockRunChain.mockReset();
+    mockRunChain.mockResolvedValue({ hits: [], answeredBy: null, refused: [] });
+    await searchSubtitles("v1", subtitleQuery({ Id: "v1", Name: "Clip", Type: "Video", Path: "/v/Clip.mov" } as unknown as JellyfinVideoItem), "en");
+    expect(mockRunChain).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("applyPick", () => {
