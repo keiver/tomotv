@@ -29,6 +29,7 @@ All notable changes to Tomo TV are documented here.
 - On resume with the server quality ladder offered, the player opened on the server rung the measured link picked; when that rung's segments did not exist (a static file host answers 404) the item failed instead of falling to the on-device copy, while the engine read the source from its first byte (issue 109). The playlist now leads with the copy when the rung's opening segment is answered a 4xx (other than 408 or 429), and the tier is reported declined; a rung still transcoding, or one that answered a passing server error, leads as before (`@keiver/tomo-engine@1.4.2`)
 - On a provider that allows one stream, the hold a recording put on the provider could outlast the recording: the app counted a clear as done whether or not the engine applied it, so every channel on that provider kept showing the recording screen until a relaunch. The hold now follows the engine's own held state, and a hold or clear the engine did not take is sent again on the next sync
 - A recording that started between a channel's hold check and its open showed the generic error; it shows the Limited Connections screen with Watch Recording
+- A live channel or recording whose audio is HE-AAC, common on terrestrial and low-bitrate feeds, played with no sound while AAC-LC channels were fine (issue 110). The on-device engine described the audio as plain AAC-LC; it now takes the setup from Apple's own ADTS parser, and AVPlayer reads such a channel as HE-AAC at 48 kHz (`@keiver/tomo-engine@1.4.2`)
 
 ### Changed
 

@@ -13,18 +13,21 @@ import Libavutil
 enum SilenceEncoder {
     /// Encodes silence from `from` to `to` (output seconds) for a track copied with these parameters,
     /// handing over each packet with its time base (1/sample rate). AAC only: an AAC-LC frame at the
-    /// track's rate and layout decodes under the sample entry the muxer wrote from the source. The
-    /// other copied codecs (AC-3, E-AC-3, ALAC, FLAC) get none: this build carries no AC-3 encoder,
-    /// and ALAC and FLAC frames have to match their source's configuration.
-    static func encode(like par: UnsafeMutablePointer<AVCodecParameters>, from: Double, to: Double,
-                       emit: (UnsafeMutablePointer<AVPacket>, AVRational) -> Void) {
+    /// track's rate and layout, or at the LC `core` an HE-AAC sample entry signals SBR over, decodes
+    /// under the sample entry the muxer wrote from the source. The other copied codecs (AC-3, E-AC-3,
+    /// ALAC, FLAC) get none: this build carries no AC-3 encoder, and ALAC and FLAC frames have to
+    /// match their source's configuration.
+    static func encode(like par: UnsafeMutablePointer<AVCodecParameters>, core: (sampleRate: Int32, channels: Int32)? = nil,
+                       from: Double, to: Double, emit: (UnsafeMutablePointer<AVPacket>, AVRational) -> Void) {
         guard par.pointee.codec_id == AV_CODEC_ID_AAC, par.pointee.sample_rate > 0, to > from,
               let codec = avcodec_find_encoder(AV_CODEC_ID_AAC), let ctx = avcodec_alloc_context3(codec) else { return }
         var context: UnsafeMutablePointer<AVCodecContext>? = ctx
         defer { avcodec_free_context(&context) }
 
-        let rate = par.pointee.sample_rate
-        if par.pointee.ch_layout.nb_channels > 0 {
+        let rate = core?.sampleRate ?? par.pointee.sample_rate
+        if let core {
+            av_channel_layout_default(&ctx.pointee.ch_layout, core.channels)
+        } else if par.pointee.ch_layout.nb_channels > 0 {
             av_channel_layout_copy(&ctx.pointee.ch_layout, &par.pointee.ch_layout)
         } else {
             av_channel_layout_default(&ctx.pointee.ch_layout, 2)
