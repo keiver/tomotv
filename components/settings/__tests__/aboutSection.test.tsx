@@ -2,7 +2,6 @@ import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { AboutSection } from "@/components/settings/AboutSection";
 import { ListRow } from "@/components/settings/ListRow";
-import { ABOUT_LABEL } from "@/constants/app";
 import { t } from "@/services/i18n";
 
 const mockPush = jest.fn();
@@ -26,22 +25,22 @@ function rows(showDiagnostics: boolean) {
 describe("AboutSection", () => {
   beforeEach(() => mockPush.mockClear());
 
-  it("lists Media Licenses under About on any server, after Open Source and last when nothing played", () => {
+  it("lists Demo Media Credits under About on any server, after Open Source and last when nothing played", () => {
     const { summary, unmount } = rows(true);
     expect(summary).toEqual([
-      { title: ABOUT_LABEL, isFirst: true, isLast: false },
+      { title: t("common.openSource"), isFirst: true, isLast: false },
       { title: t("settings.mediaLicenses"), isFirst: false, isLast: true },
     ]);
     unmount();
   });
 
-  it("keeps the Media Licenses row when diagnostics are hidden", () => {
+  it("keeps the Demo Media Credits row when diagnostics are hidden", () => {
     const { summary, unmount } = rows(false);
-    expect(summary.map((row) => row.title)).toEqual([ABOUT_LABEL, t("settings.mediaLicenses")]);
+    expect(summary.map((row) => row.title)).toEqual([t("common.openSource"), t("settings.mediaLicenses")]);
     unmount();
   });
 
-  it("opens the demo credits screen from the Media Licenses row", () => {
+  it("opens the demo credits screen from the Demo Media Credits row", () => {
     const { found, unmount } = rows(true);
     act(() => found[1].props.onPress());
     expect(mockPush).toHaveBeenCalledWith("/demo-credits");

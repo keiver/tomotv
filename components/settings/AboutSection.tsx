@@ -1,7 +1,6 @@
 import { ListRow } from "@/components/settings/ListRow";
 import { SwipeToRemove } from "@/components/settings/SwipeToRemove";
 import { settingsStyles } from "@/components/settings/styles";
-import { ABOUT_LABEL } from "@/constants/app";
 import { useLastSession } from "@/hooks/useLastSession";
 import { useSentSessions } from "@/hooks/useSentSessions";
 import { removeSend } from "@/services/diagnosticsInbox";
@@ -23,11 +22,11 @@ import { t } from "@/services/i18n";
  *
  * `app/licenses.tsx` carries the license texts and the LGPL source offer for FFmpeg and
  * GNU FriBidi (constants/licenses.ts); this row is its only entry point. `app/demo-credits.tsx`
- * (Media Licenses) carries the licence and source of every item on the demo server, on every
+ * (Demo Media Credits) carries the licence and source of every item on the demo server, on every
  * server, so the credits stay reachable after the viewer leaves the demo. `app/diagnostics.tsx`
  * carries the version and the last playback's engine log, which a bug report needs.
  *
- * Labelled "Open Source" rather than "Acknowledgements" so it matches the title the
+ * Labelled "Open Source Licenses" rather than "Acknowledgements" so it matches the title the
  * destination already renders, and because that is the phrase this audience recognises.
  * Not "Disclaimers": the page disclaims nothing, it credits authors and carries the LGPL
  * written offer of source, and naming an obligation after its opposite is the kind of
@@ -139,7 +138,15 @@ export function AboutSection({ showDiagnostics }: AboutSectionProps) {
         {/* The swipe on a diagnostics row needs a gesture root, and the Settings tab has none. Styled,
             because the root's default is flex: 1 and this sits in a content-sized card. */}
         <GestureHandlerRootView style={styles.gestureRoot}>
-          <ListRow icon="document-text" title={ABOUT_LABEL} subtitle={t("settings.licenses")} trailingIcon="chevron-forward" onPress={openLicenses} isFirst accessibilityLabel={ABOUT_LABEL} />
+          <ListRow
+            icon="document-text"
+            title={t("common.openSource")}
+            subtitle={t("settings.licenses")}
+            trailingIcon="chevron-forward"
+            onPress={openLicenses}
+            isFirst
+            accessibilityLabel={t("common.openSource")}
+          />
           <ListRow
             icon="film-outline"
             title={t("settings.mediaLicenses")}

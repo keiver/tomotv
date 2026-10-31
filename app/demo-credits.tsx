@@ -43,7 +43,7 @@ const itemKey = (item: DemoCredit) => `${item.library}/${item.title}`;
 
 /**
  * Every item on the demo server with its maker, licence, source and picture, pushed from the
- * Media Licenses row under About: one card per library, one row per item. On phone and Mac a
+ * Demo Media Credits row under About: one card per library, one row per item. On phone and Mac a
  * row opens its source page and its trailing button the licence page. On TV nothing opens: the
  * licence name sits at the row's edge as plain text, the focused row shows its source address,
  * and a last card lists each licence with its page. Opens

@@ -44,7 +44,7 @@ function render() {
   return tree;
 }
 
-describe("the Media Licenses screen", () => {
+describe("the Demo Media Credits screen", () => {
   const openURL = jest.spyOn(Linking, "openURL").mockResolvedValue(true);
   beforeEach(() => openURL.mockClear());
 
@@ -77,7 +77,7 @@ describe("the Media Licenses screen", () => {
     const rows = tree.root.findAllByType(ListRow);
     act(() => rows[1].props.onPress());
     expect(openURL).toHaveBeenLastCalledWith("https://example.org/Carina");
-    expect(rows[1].props.trailingAction.label).toBe("Licence: CC BY 4.0");
+    expect(rows[1].props.trailingAction.label).toBe("License: CC BY 4.0");
     act(() => rows[1].props.trailingAction.onPress());
     expect(openURL).toHaveBeenLastCalledWith("https://creativecommons.org/licenses/by/4.0/");
     act(() => tree.unmount());

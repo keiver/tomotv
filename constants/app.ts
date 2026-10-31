@@ -38,9 +38,6 @@ export const APP_ABOUT_LINE = `${BRAND_NAME}, a Jellyfin Client`;
  */
 export const LIBRARY_ROOT_TITLE = "Home";
 
-/** The Open Source row's label (components/settings/AboutSection.tsx). */
-export const ABOUT_LABEL = "Open Source";
-
 // Cache settings
 export const CACHE = {
   /** Default TTL for cached data (5 minutes) */
