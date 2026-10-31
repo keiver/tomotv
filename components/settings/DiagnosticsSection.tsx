@@ -4,7 +4,7 @@ import { settingsStyles } from "@/components/settings/styles";
 import { useLastSession } from "@/hooks/useLastSession";
 import { useSentSessions } from "@/hooks/useSentSessions";
 import { removeSend } from "@/services/diagnosticsInbox";
-import { itemName, logText, savedAt } from "@/services/diagnosticsLog";
+import { logText, savedAt } from "@/services/diagnosticsLog";
 import type { SentSession } from "@/services/diagnosticsOutbox";
 import { mailLog } from "@/services/diagnosticsShare";
 import { clearLastSession, type PlaybackSession } from "@/services/playbackProbe";
@@ -23,18 +23,12 @@ import { t } from "@/services/i18n";
  * there is no playback to read, and with no session the whole section stays off the screen.
  */
 const stamp = (t: number) => new Date(t).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
-const PLATFORM_ICON: Record<DeviceName, "phone-portrait-outline" | "tablet-portrait-outline" | "laptop-outline" | "tv-outline"> = {
-  iPhone: "phone-portrait-outline",
-  iPad: "tablet-portrait-outline",
-  Mac: "laptop-outline",
-  "Apple TV": "tv-outline",
-};
 /** A session this young wears the green dot: it is the one the viewer just made or was just sent. */
 const FRESH_MS = 5 * 60 * 1000;
 const fresh = (at: number, now: number) => now - at < FRESH_MS;
-/** This device is named as such; two Apple TVs read alike, so a sender is its glyph and the head of its id. */
-const ownPill = () => ({ icon: PLATFORM_ICON[THIS_DEVICE], label: t("settings.thisDevice").replace("{device}", THIS_DEVICE) });
-const senderPill = (device: DeviceName, deviceId: string) => ({ icon: PLATFORM_ICON[device], label: deviceId.split("-")[0].toUpperCase() });
+/** This device is named as such; two Apple TVs read alike, so a sender is its family and the head of its id. */
+const ownTitle = () => t("settings.thisDevice").replace("{device}", THIS_DEVICE);
+const senderTitle = (device: DeviceName, deviceId: string) => `${device} ${deviceId.split("-")[0].toUpperCase()}`;
 const rowActions = () =>
   [
     { name: "email", label: t("common.email") },
@@ -95,8 +89,7 @@ export function DiagnosticsSection() {
             <SwipeToRemove label={t("settings.thisDeviceDiag").replace("{device}", THIS_DEVICE)} onRemove={confirmRemoveOwn} onEmail={() => emailOwn(own)}>
               <ListRow
                 icon="pulse"
-                title={itemName(own)}
-                titlePill={ownPill()}
+                title={ownTitle()}
                 subtitleDot={fresh(savedAt(own), now)}
                 subtitle={t("settings.savedStamp").replace("{when}", stamp(savedAt(own)))}
                 trailingIcon="chevron-forward"
@@ -120,8 +113,7 @@ export function DiagnosticsSection() {
             <SwipeToRemove key={sent.sender} label={t("settings.diagFamily").replace("{family}", sent.session.device.family)} onRemove={() => confirmRemove(sent)} onEmail={() => emailSent(sent)}>
               <ListRow
                 icon="pulse"
-                title={itemName(sent.session)}
-                titlePill={senderPill(sent.session.device.family, sent.sender)}
+                title={senderTitle(sent.session.device.family, sent.sender)}
                 subtitleDot={fresh(sent.sentAt, now)}
                 subtitle={t("settings.diagReceived").replace("{when}", stamp(sent.sentAt))}
                 trailingIcon="chevron-forward"

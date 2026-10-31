@@ -1,5 +1,5 @@
 import type { Playback, PlaybackSession, SessionEvent } from "../diagnosticsSchema";
-import { displayed, documentLines, documentText, itemName, logText, savedAt, started, summarize, verdict } from "../diagnosticsLog";
+import { displayed, documentLines, documentText, logText, savedAt, started, summarize, verdict } from "../diagnosticsLog";
 
 const HEAD = {
   schemaVersion: 2 as const,
@@ -102,12 +102,5 @@ describe("savedAt", () => {
     expect(savedAt(session([at("mode", {}, 1_700_000_005_000)], { progress: [{ t: 1_700_000_009_000, position: 1 }] }))).toBe(1_700_000_009_000);
     expect(savedAt(session([at("mode", {}, 1_700_000_005_000)], { progress: [] }))).toBe(1_700_000_005_000);
     expect(savedAt(session([], { progress: [] }))).toBe(1_700_000_000_000);
-  });
-});
-
-describe("itemName", () => {
-  it("names the played item from its source event, or by id without one", () => {
-    expect(itemName(session([at("source", { name: "Tears of Steel" })]))).toBe("Tears of Steel");
-    expect(itemName(session([]))).toBe("item-1");
   });
 });

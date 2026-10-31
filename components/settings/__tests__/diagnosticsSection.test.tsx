@@ -13,7 +13,8 @@ jest.mock("@/components/settings/SwipeToRemove", () => ({ SwipeToRemove: ({ chil
 jest.mock("react-native-gesture-handler", () => ({ GestureHandlerRootView: ({ children }: { children: React.ReactNode }) => children }));
 jest.mock("@/hooks/useLastSession", () => ({ useLastSession: () => mockOwn }));
 jest.mock("@/hooks/useSentSessions", () => ({ useSentSessions: () => mockSends }));
-jest.mock("@/services/diagnosticsLog", () => ({ logText: () => "", savedAt: () => 1700000000000, itemName: () => "Tears of Steel" }));
+jest.mock("@/services/diagnosticsLog", () => ({ logText: () => "", savedAt: () => 1700000000000 }));
+jest.mock("@/utils/hostEnvironment", () => ({ THIS_DEVICE: "iPad" }));
 jest.mock("@/services/playbackStory", () => ({ describePlayback: () => "" }));
 
 const session = { device: { family: "Apple TV" } };
@@ -42,17 +43,17 @@ describe("DiagnosticsSection", () => {
     unmount();
   });
 
-  it("names this device's session row after the played video, first and last under its own header", () => {
+  it("names this device's session row after this device, first and last under its own header", () => {
     mockOwn = session;
     const { found, unmount } = render();
-    expect(found.map((row) => ({ title: row.props.title, isFirst: !!row.props.isFirst, isLast: !!row.props.isLast }))).toEqual([{ title: "Tears of Steel", isFirst: true, isLast: true }]);
+    expect(found.map((row) => ({ title: row.props.title, isFirst: !!row.props.isFirst, isLast: !!row.props.isLast }))).toEqual([{ title: "This iPad", isFirst: true, isLast: true }]);
     unmount();
   });
 
-  it("marks a received session first when this device saved none", () => {
+  it("names a received session row by sender family and id head, first when this device saved none", () => {
     mockSends = [sent];
     const { found, unmount } = render();
-    expect(found.map((row) => ({ isFirst: !!row.props.isFirst, isLast: !!row.props.isLast }))).toEqual([{ isFirst: true, isLast: true }]);
+    expect(found.map((row) => ({ title: row.props.title, isFirst: !!row.props.isFirst, isLast: !!row.props.isLast }))).toEqual([{ title: "Apple TV ABC", isFirst: true, isLast: true }]);
     act(() => found[0].props.onPress());
     expect(mockPush).toHaveBeenCalledWith({ pathname: "/diagnostics", params: { sender: "abc-123" } });
     unmount();
