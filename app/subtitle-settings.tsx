@@ -123,10 +123,9 @@ export default function SubtitleSettingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.BACKGROUND,
   },
   page: {
-    flexGrow: 1,
+    alignItems: "center",
   },
   keys: {
     padding: IS_TV ? 28 : 16,

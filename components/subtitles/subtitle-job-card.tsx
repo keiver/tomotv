@@ -1,7 +1,7 @@
+import { settingsStyles } from "@/components/settings/styles";
 import { SubtitleResultRow } from "@/components/subtitles/subtitle-result-row";
 import { SubtitleSearchField } from "@/components/subtitles/subtitle-search-field";
 import { COLORS } from "@/constants/colors";
-import { DESIGN } from "@/constants/app";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { jobErrorLine, jobNoteLine, jobStateLine } from "@/services/subtitles/jobText";
 import { queryText } from "@/services/subtitles/query";
@@ -29,7 +29,7 @@ export function SubtitleJobCard({ job, alone, onPick, onQueryText }: SubtitleJob
   const note = jobNoteLine(job);
   const error = jobErrorLine(job);
   return (
-    <View style={styles.card}>
+    <View style={settingsStyles.section}>
       {alone ? null : (
         <Pressable
           onPress={() => setOpen((value) => !value)}
@@ -80,17 +80,12 @@ export function SubtitleJobCard({ job, alone, onPick, onQueryText }: SubtitleJob
 }
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: COLORS.SURFACE,
-    borderRadius: DESIGN.BORDER_RADIUS_CARD,
-    overflow: "hidden",
-  },
   header: {
     borderWidth: IS_TV ? 3 : 2,
     borderColor: "transparent",
-    borderRadius: DESIGN.BORDER_RADIUS_CARD,
+    borderRadius: 32,
     paddingVertical: IS_TV ? 22 : 14,
-    paddingHorizontal: IS_TV ? 28 : 16,
+    paddingHorizontal: IS_TV ? 28 : 20,
   },
   headerContent: {
     flexDirection: "row",
@@ -124,8 +119,8 @@ const styles = StyleSheet.create({
     fontSize: IS_TV ? 22 : 14,
   },
   body: {
-    paddingHorizontal: IS_TV ? 28 : 16,
-    paddingBottom: IS_TV ? 24 : 14,
+    paddingHorizontal: IS_TV ? 28 : 20,
+    paddingBottom: IS_TV ? 24 : 16,
     paddingTop: IS_TV ? 8 : 4,
     gap: IS_TV ? 12 : 8,
   },

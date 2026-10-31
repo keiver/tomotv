@@ -67,36 +67,31 @@ export default function SubtitleSearchScreen() {
               <Text style={settingsStyles.sectionHeaderText}>{t("subtitles.title")}</Text>
             </View>
           ) : null}
-          {name ? (
-            <Text style={styles.itemName} numberOfLines={2}>
-              {name}
-            </Text>
-          ) : null}
 
           {items === null && !failed ? <LoadingRow label={t("info.loadingDetails").replace("{title}", name || t("common.thisItem"))} /> : null}
           {failed ? <Text style={styles.empty}>{t("info.couldNotReachServer")}</Text> : null}
 
           {items !== null ? (
             <>
-              <Text style={styles.sectionLabel}>{t("subtitles.language")}</Text>
-              <LanguageChips choices={search.choices} selected={search.language} onSelect={search.setLanguage} />
-
-              {search.skipped > 0 ? <Text style={styles.skipped}>{t("subtitles.filesSkipped").replace("{count}", String(search.skipped)).replace("{language}", languageName)}</Text> : null}
-
-              <View style={styles.jobs}>
-                <TakeMatchesBar count={search.matches.length} busy={busy} onPress={() => void search.takeAll()} />
-                {search.jobs.length === 0 && items.length > 0 ? <Text style={styles.empty}>{t("subtitles.allSubtitled").replace("{language}", languageName)}</Text> : null}
-                {items.length === 0 ? <Text style={styles.empty}>{t("subtitles.noVideos")}</Text> : null}
-                {search.jobs.map((job, index) => (
-                  <SubtitleJobCard
-                    key={job.item.Id}
-                    job={job}
-                    alone={search.jobs.length === 1}
-                    onPick={(hit) => void search.pick(index, hit)}
-                    onQueryText={(text) => search.setQueryText(index, text)}
-                  />
-                ))}
+              <View style={settingsStyles.sectionHeader}>
+                <Text style={settingsStyles.sectionHeaderText}>{t("subtitles.language")}</Text>
               </View>
+              <View style={[settingsStyles.section, styles.chips]}>
+                <LanguageChips choices={search.choices} selected={search.language} onSelect={search.setLanguage} />
+                {search.skipped > 0 ? <Text style={styles.skipped}>{t("subtitles.filesSkipped").replace("{count}", String(search.skipped)).replace("{language}", languageName)}</Text> : null}
+              </View>
+
+              <View style={settingsStyles.sectionHeader}>
+                <Text style={settingsStyles.sectionHeaderText} numberOfLines={1}>
+                  {name || t("subtitles.title")}
+                </Text>
+              </View>
+              <TakeMatchesBar count={search.matches.length} busy={busy} onPress={() => void search.takeAll()} />
+              {search.jobs.length === 0 && items.length > 0 ? <Text style={styles.empty}>{t("subtitles.allSubtitled").replace("{language}", languageName)}</Text> : null}
+              {items.length === 0 ? <Text style={styles.empty}>{t("subtitles.noVideos")}</Text> : null}
+              {search.jobs.map((job, index) => (
+                <SubtitleJobCard key={job.item.Id} job={job} alone={search.jobs.length === 1} onPick={(hit) => void search.pick(index, hit)} onQueryText={(text) => search.setQueryText(index, text)} />
+              ))}
             </>
           ) : null}
         </View>
@@ -108,33 +103,18 @@ export default function SubtitleSearchScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.BACKGROUND,
   },
   page: {
-    flexGrow: 1,
+    alignItems: "center",
   },
-  itemName: {
-    color: COLORS.TEXT_PRIMARY,
-    fontSize: IS_TV ? 34 : 22,
-    fontWeight: "700",
-    marginBottom: IS_TV ? 24 : 14,
-  },
-  sectionLabel: {
-    color: COLORS.TEXT_SECONDARY,
-    fontSize: IS_TV ? 20 : 13,
-    fontWeight: "600",
-    letterSpacing: 1,
-    textTransform: "uppercase",
-    marginBottom: IS_TV ? 14 : 8,
+  chips: {
+    paddingHorizontal: IS_TV ? 32 : 20,
+    paddingVertical: IS_TV ? 28 : 16,
+    gap: IS_TV ? 16 : 10,
   },
   skipped: {
     color: COLORS.TEXT_SECONDARY,
     fontSize: IS_TV ? 20 : 13,
-    marginTop: IS_TV ? 16 : 10,
-  },
-  jobs: {
-    marginTop: IS_TV ? 28 : 16,
-    gap: IS_TV ? 18 : 10,
   },
   empty: {
     color: COLORS.TEXT_SECONDARY,
