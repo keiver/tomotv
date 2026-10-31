@@ -171,6 +171,7 @@ Every feature needs a Jellyfin server. The Notes column says when a feature also
 | Comics: CBZ, CBR, CBT, CB7                | Yes      | Yes          | Yes |                                            |
 | Zoom a page                               | Yes      | Yes          | Yes | On Apple TV, PDFs and comics only          |
 | Change text size in text books            | Yes      | Yes          | Yes |                                            |
+| Tap a page's edge to turn it              | No       | Yes          | Yes | Books                                      |
 
 ## SyncPlay
 
@@ -193,7 +194,7 @@ Every feature needs a Jellyfin server. The Notes column says when a feature also
 | HTTP and HTTPS servers                      | Yes      | Yes          | Yes | HTTP sends your sign-in unencrypted: use HTTPS beyond your LAN                                     |
 | Who's watching when nothing is signed in    | Yes      | Yes          | Yes | Saved accounts as faces, Add Account beside them                                                   |
 | Demo server                                 | Yes      | Yes          | Yes | Tomo TV's own demo library: the Demo face while no account is saved, or the empty Add Server field |
-| Media Licenses                              | Yes      | Yes          | Yes | Settings, About Tomo TV, on any server: the demo items by maker and licence, each with its picture |
+| Demo credits                                | Yes      | Yes          | Yes | Settings, About Tomo TV, on any server: the demo items by maker and license, each with its picture |
 | A moved server is found again               | Yes      | Yes          | Yes | On the local network, by server identity                                                           |
 
 ## Appearance and language
