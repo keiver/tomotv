@@ -45,7 +45,8 @@ Two npm workspaces (`packages/*` in the root `package.json`, symlinked into node
 - Auth: `contexts/AuthContext.tsx` `AuthProvider`, `useAuth`; `services/jellyfin/auth.ts`, `services/jellyfin/accounts.ts`.
 - Downloads: `services/downloads/manager.ts` `downloadManager`, `removeAll`.
 - UI strings: `services/i18n/index.ts` `t`, catalogues in `services/i18n/locales/`.
-- Tomo-only native modules: `native/ios/AudioQueuePlayer`, `native/ios/BookRenderer`, `native/ios/LyricsListener`, `native/ios/MultiAudioResourceLoader`, `native/ios/TopShelf`, `native/ios/TopShelfReload`, `native/ios/TunerGroups`. Each is copied in by its `plugins/with*.js` (Top Shelf: `plugins/withTopShelfExtension.js`); Swift tests in `native/ios/Tests/`, SwiftPM `native/ios/Package.swift`.
+- Subtitle search: `services/subtitles/pipeline.ts` `searchSubtitles`, `applyPick`; the sources in order, `services/subtitles/chain.ts` `runChain`; the job list `services/subtitles/jobs.ts` `runJobs`; device copies `services/subtitles/store.ts` `deviceSubtitles`; the server calls `services/jellyfin/subtitleSearch.ts`. Screen `app/subtitle-search.tsx` (from the info panel), settings `app/subtitle-settings.tsx`, the tvOS in-player panel `hooks/useTvSubtitlePanel.ts` over `native/ios/SubtitleSearch`.
+- Tomo-only native modules: `native/ios/AudioQueuePlayer`, `native/ios/BookRenderer`, `native/ios/LyricsListener`, `native/ios/MultiAudioResourceLoader`, `native/ios/SubtitleSearch`, `native/ios/TopShelf`, `native/ios/TopShelfReload`, `native/ios/TunerGroups`. Each is copied in by its `plugins/with*.js` (Top Shelf: `plugins/withTopShelfExtension.js`); Swift tests in `native/ios/Tests/`, SwiftPM `native/ios/Package.swift`.
 - Edit native sources in `packages/*/ios/` and `native/`, and project configuration in `plugins/` and `scripts/`, never the generated `ios/`, `macos/`, `tvos/` or `android/`.
 
 ## Before you touch X, read Y

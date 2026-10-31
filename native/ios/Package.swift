@@ -57,6 +57,20 @@ let package = Package(
             path: "Tests/TomoLyricsTests",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        // The tvOS subtitle panel's state (plugins/withSubtitleSearch.js copies the same files into
+        // the app). Only its Foundation file builds here; the panel around it needs UIKit.
+        .target(
+            name: "TomoSubtitleSearch",
+            path: "SubtitleSearch",
+            sources: ["SubtitlePanelState.swift"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "TomoSubtitleSearchTests",
+            dependencies: ["TomoSubtitleSearch"],
+            path: "Tests/TomoSubtitleSearchTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         // The book reader's page renderer (plugins/withBookRenderer.js copies the same
         // files into the app). No UIKit outside the native module, so it tests on the host.
         .target(

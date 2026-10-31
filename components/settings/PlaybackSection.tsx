@@ -10,6 +10,7 @@ export function PlaybackSection() {
   const router = useRouter();
   const openSkip = useCallback(() => router.push("/skip-settings"), [router]);
   const openLyrics = useCallback(() => router.push("/lyrics-settings"), [router]);
+  const openSubtitles = useCallback(() => router.push("/subtitle-settings"), [router]);
 
   return (
     <>
@@ -18,7 +19,8 @@ export function PlaybackSection() {
       </View>
       <View style={settingsStyles.section}>
         <ListRow icon="play-skip-forward-outline" title={t("settings.skipAutomatically")} trailingIcon="chevron-forward" onPress={openSkip} isFirst />
-        <ListRow icon="musical-notes-outline" title={t("detail.lyrics")} trailingIcon="chevron-forward" onPress={openLyrics} isLast />
+        <ListRow icon="musical-notes-outline" title={t("detail.lyrics")} trailingIcon="chevron-forward" onPress={openLyrics} />
+        <ListRow icon="text-outline" title={t("subtitles.settingsTitle")} trailingIcon="chevron-forward" onPress={openSubtitles} isLast />
       </View>
     </>
   );

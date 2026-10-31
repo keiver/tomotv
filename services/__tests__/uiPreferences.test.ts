@@ -16,6 +16,8 @@ describe("uiPreferences", () => {
       findLyrics: true,
       listenForLyrics: true,
       saveLyrics: true,
+      findSubtitles: true,
+      saveSubtitles: true,
       autoSkip: { intro: false, recap: false, preview: false, commercial: true },
       cardSize: 1,
     });

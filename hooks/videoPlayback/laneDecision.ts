@@ -27,6 +27,8 @@ export interface LaneGatesInput {
   hasTriedTranscoding: boolean;
   /** The engine lane is spent for this held item, so subtitles stop being a reason to reach it. */
   heldEngineSpent: boolean;
+  /** Text subtitles this app found and keeps on the device for the item. */
+  deviceTextSubtitles?: number;
 }
 
 export interface LaneGates {
@@ -72,7 +74,8 @@ export function planLaneGates(input: LaneGatesInput): LaneGates {
   // Text subtitles (sidecars AND embedded). AVPlayer needs them as HLS renditions, which
   // only the remux and transcode paths build.
   const textSubtitles = getTextSubtitleStreams(details);
-  const hasTextSubs = textSubtitles.length > 0;
+  const deviceTextSubtitles = audioOnly ? 0 : (input.deviceTextSubtitles ?? 0);
+  const hasTextSubs = textSubtitles.length > 0 || deviceTextSubtitles > 0;
   // Image tracks (PGS, DVD/VobSub, DVB, XSUB): the engine decodes them to the bitmaps the app
   // draws, so they are a reason to REACH the engine rather than to avoid it.
   const hasImageSubs = audioOnly ? false : (details.MediaStreams ?? []).some((stream) => stream.Type === "Subtitle" && stream.Index !== undefined && isImageBasedSubtitleCodec(stream.Codec));
@@ -95,7 +98,7 @@ export function planLaneGates(input: LaneGatesInput): LaneGates {
   // which AVPlayer draws itself, so only a sidecar needs the engine to attach it.
   // A server conversion carries no subtitle track at all, so every text track is a sidecar.
   const heldConverted = heldOnDisk && input.heldConverted === true;
-  const heldNeedsEngineForSubs = hasImageSubs || (heldConverted ? hasTextSubs : textSubtitles.some((stream) => stream.IsExternal === true));
+  const heldNeedsEngineForSubs = hasImageSubs || deviceTextSubtitles > 0 || (heldConverted ? hasTextSubs : textSubtitles.some((stream) => stream.IsExternal === true));
   const subtitlesWantEngine = (!heldAsMp4 || heldConverted) && !input.heldEngineSpent && (heldOnDisk ? heldNeedsEngineForSubs : hasImageSubs || hasTextSubs);
 
   const leavesDirectPlay = networkVideo || live || cannotDirectPlay || subtitlesWantEngine;

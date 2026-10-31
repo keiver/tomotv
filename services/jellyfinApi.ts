@@ -99,6 +99,17 @@ export { fetchMediaSegments } from "./jellyfin/mediaSegments";
 export type { ItemMediaSegments, MediaSegmentWindow } from "./jellyfin/mediaSegments";
 export { fetchLyrics, parseLyrics } from "./jellyfin/lyrics";
 export type { ItemLyrics, LyricCue, LyricLine } from "./jellyfin/lyrics";
+export {
+  canManageSubtitles,
+  downloadRemoteSubtitle,
+  externalTextStreams,
+  fetchRemoteSubtitleFile,
+  resetSubtitlePermission,
+  searchRemoteSubtitles,
+  uploadSubtitle,
+  waitForSubtitleStream,
+} from "./jellyfin/subtitleSearch";
+export type { RemoteSubtitleInfo, SubtitleUpload } from "./jellyfin/subtitleSearch";
 export { fetchNextEpisodeAutoPlay } from "./jellyfin/nextEpisodeAutoPlay";
 export {
   createSyncPlayGroup,

@@ -483,6 +483,11 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
     void showInFolder(details, { dismissFirst: true });
   }, [details, showInFolder]);
 
+  const handleFindSubtitles = useCallback(() => {
+    if (!details) return;
+    router.push({ pathname: "/subtitle-search", params: { itemId: details.Id, name: cleanLabel(details.Name) } });
+  }, [details, router]);
+
   // Arm or disarm the removal. Which write it will be is decided here, while details are in
   // hand: a started item clears its server resume point, a next-up card has nothing started
   // server-side and its removal is the session-local container dismissal.
@@ -521,6 +526,8 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   const liveSlot = timedProgram && liveTimes ? formatClockRange(liveTimes.startMs, liveTimes.endMs) : null;
   const liveChannel = !!details && isLiveChannel(details);
   const live = !!liveProgram || liveChannel;
+  // A video, or a container holding some: never a channel, a programme, a song, a photo or a book.
+  const canFindSubtitles = !!details && !live && !audio && !photo && !book && (isContainer ? !!mediaKinds?.video : true);
   const liveChannelId = (liveProgram ? details?.ChannelId : liveChannel ? details?.Id : undefined) ?? "";
   const liveChannelName = cleanLabel(liveProgram ? details?.ChannelName : liveChannel ? details?.Name : undefined);
   const canManage = useLiveTvManagement(live);
@@ -786,6 +793,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
     ...(showFolderCta && !folderInRow ? [{ key: "folder", icon: "folder-outline" as const, label: t("info.showInFolder"), word: t("info.word.folder"), onPress: handleShowInFolder }] : []),
     ...(shareable && folderInRow ? [{ key: "share", icon: "share-outline" as const, label: t("common.share"), word: t("info.word.share"), onPress: () => void handleShare() }] : []),
     ...(canDownloadFolder ? [{ key: "downloadAll", icon: "arrow-down" as const, label: t("info.downloadAll"), word: t("info.word.download"), onPress: handleDownloadFolder }] : []),
+    ...(canFindSubtitles ? [{ key: "subtitles", icon: "text-outline" as const, label: t("info.findSubtitles"), word: t("info.word.subtitles"), onPress: handleFindSubtitles }] : []),
     ...(liveChannel
       ? [
           { key: "rename", icon: "pencil-outline" as const, label: t("liveTv.renameChannel"), word: t("info.word.rename"), onPress: handleRenameChannel },

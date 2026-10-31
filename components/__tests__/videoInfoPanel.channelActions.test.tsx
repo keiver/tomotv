@@ -88,9 +88,9 @@ type Button = { text: string; onPress?: (text?: string) => void };
 describe("Video info panel: hide and rename a channel", () => {
   beforeEach(() => jest.clearAllMocks());
 
-  it("offers Rename and Hide on a channel and neither on a film", async () => {
+  it("offers Rename and Hide on a channel and neither on a film, which gets Find Subtitles instead", async () => {
     expect((await extrasFor(channel)).map((action) => action.key)).toEqual(["rename", "hide"]);
-    expect((await extrasFor(film)).map((action) => action.key)).toEqual([]);
+    expect((await extrasFor(film)).map((action) => action.key)).toEqual(["subtitles"]);
   });
 
   it("saves the typed name and drops the cached lists", async () => {

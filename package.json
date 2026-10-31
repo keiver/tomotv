@@ -109,6 +109,7 @@
     "expo-secure-store": "~57.0.4",
     "expo-splash-screen": "~57.0.10",
     "expo-tvos-search": "^2.4.0",
+    "fflate": "^0.8.2",
     "qrcode-generator": "^2.0.4",
     "react": "19.2.3",
     "react-native": "npm:react-native-tvos@0.86.3-0",

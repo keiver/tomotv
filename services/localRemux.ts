@@ -54,6 +54,7 @@ import { deviceDecodes, isLiveSource, sourceVideoRange } from "@/services/jellyf
 import { linkRungsAllowed, serverTranscodeAllowed } from "@/services/transcodePolicy";
 import { rememberedVerdict } from "@/services/engineVerdicts";
 import { localMediaUri, localSubtitleUri, playsFromDisk } from "@/services/downloads/localSource";
+import { deviceSubtitleIndex, deviceSubtitles } from "@/services/subtitles/store";
 import { getAudioRenditionUrl, getRemoteVideoStreamUrl, getTierPlaylistUrl, getVideoStreamUrl } from "@/services/jellyfin/streamUrls";
 import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
@@ -649,7 +650,7 @@ function buildSubtitleRenditions(videoItem: JellyfinVideoItem, imageOnly: boolea
   // because the invariant belongs to the playlist, not to this caller.
   const firstDefault = shipped.findIndex((entry) => entry.stream.IsDefault === true);
 
-  return shipped.map((entry, position) => ({
+  const renditions: SubtitleRendition[] = shipped.map((entry, position) => ({
     index: entry.index,
     name: labels[position],
     language: entry.stream.Language || "und",
@@ -667,6 +668,26 @@ function buildSubtitleRenditions(videoItem: JellyfinVideoItem, imageOnly: boolea
     isEngineText: entry.isEngineText,
     ...(entry.isImage && entry.stream.IsExternal === true ? { serverSupUrl: entry.serverSupUrl } : {}),
     ...(entry.source ? { source: entry.source } : {}),
+  }));
+  return imageOnly ? renditions : [...renditions, ...deviceSubtitleRenditions(videoItem, renditions.length)];
+}
+
+/** Subtitles found by this app and kept on the device, published after the file's own; the engine serves each file. */
+export function deviceSubtitleRenditions(videoItem: Pick<JellyfinVideoItem, "Id">, position: number): SubtitleRendition[] {
+  const kept = deviceSubtitles(getCachedConfig().server, videoItem.Id);
+  const names = publishedRenditionNames(kept.map((entry) => ({ name: manifestName(entry.name) || `Track ${position + entry.ordinal + 1}`, index: deviceSubtitleIndex(entry.ordinal) })));
+  return kept.map((entry, at) => ({
+    index: deviceSubtitleIndex(entry.ordinal),
+    name: names[at],
+    language: entry.language || "und",
+    vttUrl: "",
+    localVtt: entry.uri,
+    isDefault: false,
+    isForced: entry.forced,
+    isHearingImpaired: entry.hearingImpaired,
+    isImage: false,
+    isExternal: true,
+    isEngineText: false,
   }));
 }
 

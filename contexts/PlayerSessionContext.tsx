@@ -98,6 +98,8 @@ export interface PlayerHostBridge {
   setTvConfig: (config: PlayerTvConfig) => void;
   pause: () => void;
   retry: () => void;
+  /** Rebuilds the running session at the playhead, so a subtitle just saved or kept is listed. */
+  reloadSubtitles: () => void;
   /** Relative seek, for the hardware keyboard. The AVKit chrome owns every other scrub. */
   seekBy: (offsetSeconds: number) => void;
   /** Play or pause, for the hardware keyboard. */
@@ -220,6 +222,7 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
   const switchLiveChannel = useCallback((target: { videoId: string; videoName?: string; picked?: boolean }) => withHost("switchLiveChannel", (bridge) => bridge.switchLiveChannel(target)), [withHost]);
   const pause = useCallback(() => withHost("pause", (bridge) => bridge.pause()), [withHost]);
   const retry = useCallback(() => withHost("retry", (bridge) => bridge.retry()), [withHost]);
+  const reloadSubtitles = useCallback(() => withHost("reloadSubtitles", (bridge) => bridge.reloadSubtitles()), [withHost]);
   const seekBy = useCallback((offsetSeconds: number) => withHost("seekBy", (bridge) => bridge.seekBy(offsetSeconds)), [withHost]);
   const togglePlay = useCallback(() => withHost("togglePlay", (bridge) => bridge.togglePlay()), [withHost]);
   const toggleVideoFill = useCallback(() => withHost("toggleVideoFill", (bridge) => bridge.toggleVideoFill()), [withHost]);
@@ -235,12 +238,13 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
       setTvConfig,
       pause,
       retry,
+      reloadSubtitles,
       seekBy,
       togglePlay,
       toggleVideoFill,
       setHandlers,
     }),
-    [snapshot, requestSession, switchLiveChannel, releaseRoute, stopSession, signalRoutePresented, setTvConfig, pause, retry, seekBy, togglePlay, toggleVideoFill, setHandlers],
+    [snapshot, requestSession, switchLiveChannel, releaseRoute, stopSession, signalRoutePresented, setTvConfig, pause, retry, reloadSubtitles, seekBy, togglePlay, toggleVideoFill, setHandlers],
   );
 
   const hostValue = useMemo(() => ({ registerHost, publish: setSnapshot, handlersRef }), [registerHost]);

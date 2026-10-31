@@ -1,0 +1,61 @@
+/**
+ * The words a job and a hit are shown with, shared by the iOS screen and the tvOS panel.
+ */
+import { t } from "@/services/i18n";
+import type { SubtitleHit, SubtitleJob, SubtitleSourceId } from "./types";
+
+/** One letter standing for the source, drawn in a row's monogram. */
+export const SOURCE_MONOGRAM: Record<SubtitleSourceId, string> = { server: "J", opensubtitles: "O", subdl: "D", subsource: "S", podnapisi: "P", gestdown: "A" };
+
+export function sourceName(source: SubtitleSourceId): string {
+  return t(`subtitles.source.${source}`);
+}
+
+/** What the state column says for a job. */
+export function jobStateLine(job: SubtitleJob): string {
+  switch (job.status) {
+    case "idle":
+    case "searching":
+      return t("subtitles.searching");
+    case "found":
+      return job.results.length === 1 ? t("subtitles.oneResult") : t("subtitles.results").replace("{count}", String(job.results.length));
+    case "none":
+      return t("subtitles.none");
+    case "failed":
+      return t("subtitles.failed");
+    case "applying":
+      return t("subtitles.applying");
+    case "applied":
+      return job.applied?.where === "server" ? t("subtitles.savedServer") : t("subtitles.savedDevice");
+  }
+}
+
+/** The note under the state when a source refused this session, or null. */
+export function jobNoteLine(job: SubtitleJob): string | null {
+  if (!job.note) return null;
+  const sources = job.note.split(",").filter(Boolean) as SubtitleSourceId[];
+  if (sources.length === 0) return null;
+  return t("subtitles.sourceDown").replace("{source}", sources.map(sourceName).join(", "));
+}
+
+/** The error line after a failed save, or null. */
+export function jobErrorLine(job: SubtitleJob): string | null {
+  if (!job.error || job.status === "applied") return null;
+  if (job.status === "failed") return null;
+  return job.error === "unreadable" ? t("subtitles.unreadable") : t("subtitles.applyFailed");
+}
+
+export function hitBadges(hit: SubtitleHit): string[] {
+  return [
+    hit.hashMatch ? t("subtitles.hashMatch") : "",
+    hit.hearingImpaired ? t("subtitles.sdh") : "",
+    hit.forced ? t("subtitles.forced") : "",
+    hit.machineTranslated ? t("subtitles.machine") : "",
+  ].filter(Boolean);
+}
+
+export function hitMeta(hit: SubtitleHit): string {
+  return [sourceName(hit.source), hit.downloads !== null ? t("subtitles.downloads").replace("{count}", String(hit.downloads)) : "", hit.rating !== null ? hit.rating.toFixed(1) : "", hit.author]
+    .filter(Boolean)
+    .join(" · ");
+}

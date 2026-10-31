@@ -6,6 +6,7 @@ import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayerSession } from "@/contexts/PlayerSessionContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
+import { useTvSubtitlePanel } from "@/hooks/useTvSubtitlePanel";
 import { useUiPreferences } from "@/hooks/useUiPreferences";
 import { posterUri, wantsPosterFrame } from "@/services/itemArtwork";
 import {
@@ -576,6 +577,8 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     });
   }, [canRecord, recordKey, currentProgramId, videoId]);
 
+  const subtitlePanel = useTvSubtitlePanel(videoId);
+
   const transportBarButtons = useMemo(() => {
     if (!Platform.isTV) return undefined;
     const buttons: { id: string; title: string; sfSymbol: string; tintColor?: string }[] = [];
@@ -592,10 +595,17 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     if (favorite !== null) {
       buttons.push({ id: "favorite", title: t(favorite ? "info.removeFavorite" : "info.addFavorite"), sfSymbol: favorite ? "heart.fill" : "heart" });
     }
+    if (!isLiveChannel && subtitlePanel.available) {
+      buttons.push({ id: "subtitles", title: t("player.findSubtitles"), sfSymbol: "captions.bubble" });
+    }
     return buttons.length > 0 ? buttons : undefined;
-  }, [isLiveChannel, playingChannel, liveFavorite, vodFavorite, canRecord, recordKey, recordTimer]);
+  }, [isLiveChannel, playingChannel, liveFavorite, vodFavorite, canRecord, recordKey, recordTimer, subtitlePanel.available]);
   const handleTransportBarButtonSelected = useCallback(
     (event: { id: string }) => {
+      if (event.id === "subtitles") {
+        subtitlePanel.open();
+        return;
+      }
       if (event.id === "record") {
         if (!recordKey || !liveChannel || recordTimer === undefined || recordBusyRef.current) return;
         recordBusyRef.current = true;
@@ -683,7 +693,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
         setVodFavoriteResult({ itemId: videoId, favorite: !next });
       });
     },
-    [isLiveChannel, playingChannel, videoId, vodFavorite, recordKey, liveChannel, currentProgramId, recordTimer, reloadTimer],
+    [isLiveChannel, playingChannel, videoId, vodFavorite, recordKey, liveChannel, currentProgramId, recordTimer, reloadTimer, subtitlePanel],
   );
 
   // The AVKit surfaces are computed here, from the queue and this item's

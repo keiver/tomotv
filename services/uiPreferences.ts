@@ -31,6 +31,10 @@ export interface UiPreferences {
   listenForLyrics: boolean;
   /** Lyrics found for a song are saved to the Jellyfin server, where the account may. */
   saveLyrics: boolean;
+  /** A video with no subtitle in the wanted language is looked up outside the server too. */
+  findSubtitles: boolean;
+  /** Subtitles found for a video are saved to the Jellyfin server, where the account may. */
+  saveSubtitles: boolean;
   /** Which of the server's Media Segments playback seeks past on its own. */
   autoSkip: AutoSkip;
   /** Every card's size as a share of its own, written by the Appearance stepper, a pinch or the Mac keys. */
@@ -54,6 +58,8 @@ export const DEFAULT_UI_PREFERENCES: UiPreferences = {
   findLyrics: true,
   listenForLyrics: true,
   saveLyrics: true,
+  findSubtitles: true,
+  saveSubtitles: true,
   autoSkip: { intro: false, recap: false, preview: false, commercial: true },
   cardSize: 1,
 };
@@ -107,6 +113,8 @@ export function parseUiPreferences(raw: unknown, legacySkipCommercials?: boolean
     findLyrics: typeof source.findLyrics === "boolean" ? source.findLyrics : DEFAULT_UI_PREFERENCES.findLyrics,
     listenForLyrics: typeof source.listenForLyrics === "boolean" ? source.listenForLyrics : DEFAULT_UI_PREFERENCES.listenForLyrics,
     saveLyrics: typeof source.saveLyrics === "boolean" ? source.saveLyrics : DEFAULT_UI_PREFERENCES.saveLyrics,
+    findSubtitles: typeof source.findSubtitles === "boolean" ? source.findSubtitles : DEFAULT_UI_PREFERENCES.findSubtitles,
+    saveSubtitles: typeof source.saveSubtitles === "boolean" ? source.saveSubtitles : DEFAULT_UI_PREFERENCES.saveSubtitles,
     autoSkip: parseAutoSkip(source.autoSkip, legacySkipCommercials),
     cardSize:
       typeof source.cardSize === "number" && Number.isFinite(source.cardSize) && source.cardSize >= GRID.CARD_ZOOM_MIN && source.cardSize <= GRID.CARD_ZOOM_MAX

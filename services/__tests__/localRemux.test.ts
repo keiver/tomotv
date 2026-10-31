@@ -95,6 +95,13 @@ jest.mock("@/services/downloads/localSource", () => ({
   localSubtitleUri: jest.fn(() => null),
 }));
 
+// Nothing kept on the device unless a test says so.
+const mockDeviceSubtitles = jest.fn((): { ordinal: number; language: string; name: string; forced: boolean; hearingImpaired: boolean; uri: string }[] => []);
+jest.mock("@/services/subtitles/store", () => ({
+  deviceSubtitles: () => mockDeviceSubtitles(),
+  deviceSubtitleIndex: (ordinal: number) => 100000 + ordinal,
+}));
+
 // Measured-slow link: the tier is declared only when measured < source.
 jest.mock("@/services/jellyfin/bitrateTest", () => ({
   rememberedBitrate: async () => 3_000_000,
@@ -1490,6 +1497,30 @@ describe("subtitleRenditions", () => {
   function untaggedPgs(count: number, firstIndex = 6) {
     return REAL.t85Subtitles.slice(0, count).map((stream, n) => ({ ...stream, Index: firstIndex + n }));
   }
+
+  it("lists a subtitle kept on the device after the file's own, served from its file under its own stream index", () => {
+    mockDeviceSubtitles.mockReturnValueOnce([{ ordinal: 0, language: "es", name: "Movie.2024.1080p-GRP", forced: false, hearingImpaired: true, uri: "file:///doc/subtitles/s_i/sub.0.vtt" }]);
+    const renditions = subtitleRenditions(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0 },
+          { Type: "Subtitle", Codec: "subrip", Index: 2, Language: "eng" },
+        ],
+      }),
+    );
+    expect(renditions.map((rendition) => rendition.index)).toEqual([2, 100000]);
+    expect(renditions[1]).toMatchObject({
+      language: "es",
+      localVtt: "file:///doc/subtitles/s_i/sub.0.vtt",
+      vttUrl: "",
+      isExternal: true,
+      isEngineText: false,
+      isImage: false,
+      isHearingImpaired: true,
+      isDefault: false,
+    });
+    expect(renditions[1].name).toBe("Movie.2024.1080p-GRP");
+  });
 
   // The bug this whole path was rewritten for. The app used to key the pick on
   // the advertised label and build a Map from it; Jellyfin gives every untagged

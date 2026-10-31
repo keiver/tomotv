@@ -15,6 +15,7 @@ function makeBridge(): jest.Mocked<PlayerHostBridge> {
     setTvConfig: jest.fn(),
     pause: jest.fn(),
     retry: jest.fn(),
+    reloadSubtitles: jest.fn(),
     seekBy: jest.fn(),
     togglePlay: jest.fn(),
     toggleVideoFill: jest.fn(),

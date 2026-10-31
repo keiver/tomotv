@@ -244,6 +244,7 @@ export function PlayerHost() {
     showLoadingOverlay,
     pause,
     retry,
+    reloadAtPlayhead,
     videoDetails,
     togglePlay,
     seekBy,
@@ -944,11 +945,12 @@ export function PlayerHost() {
         pause();
       },
       retry,
+      reloadSubtitles: reloadAtPlayhead,
       seekBy,
       togglePlay,
       toggleVideoFill,
     }),
-    [answerRestore, applyPending, applySession, clearPresentationWait, endSession, leaveRoute, pause, retry, seekBy, setPip, togglePlay, toggleVideoFill],
+    [answerRestore, applyPending, applySession, clearPresentationWait, endSession, leaveRoute, pause, reloadAtPlayhead, retry, seekBy, setPip, togglePlay, toggleVideoFill],
   );
 
   useEffect(() => {

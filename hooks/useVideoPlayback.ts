@@ -96,7 +96,8 @@ import { IS_MAC } from "@/utils/hostEnvironment";
 import { gatewayMaxBitRate } from "@/services/adaptiveQuality";
 import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 import { QUALITY_PRESETS, type QualityPreset } from "@/services/jellyfin/constants";
-import { getQualitySettings } from "@/services/jellyfin/session";
+import { getCachedConfig, getQualitySettings } from "@/services/jellyfin/session";
+import { deviceSubtitles } from "@/services/subtitles/store";
 import { videoPlayerReducer, type PlaybackMode, type PlaybackTransport, type VideoPlayerState } from "./videoPlayback/machine";
 import {
   automaticRetryDelay,
@@ -308,6 +309,8 @@ export interface VideoPlaybackResult {
 
   // Actions
   retry: () => void;
+  /** Rebuilds the session at the playhead, so a subtitle saved or kept since the open is listed. */
+  reloadAtPlayhead: () => void;
 
   // Bitmap subtitles (PGS, DVD/VobSub, DVB, XSUB). AVPlayer cannot render these,
   // so the engine decodes them and the app draws them over the video; these are
@@ -694,6 +697,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         directPlayFailed: directPlayFailedRef.current,
         hasTriedTranscoding,
         heldEngineSpent: heldEngineSpentRef.current,
+        deviceTextSubtitles: live ? 0 : deviceSubtitles(getCachedConfig().server, videoId).length,
       });
       const { audioOnly, hasTextSubs, textSubtitles, burnInStream } = gates;
       if (!isMountedRef.current || requestIdRef.current !== currentRequestId) return;
@@ -3273,6 +3277,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     probeEmit("cap", { bps: videoMaxBitRate });
   }, [videoMaxBitRate]);
 
+  const reloadAtPlayhead = useCallback(() => {
+    if (!isMountedRef.current || !videoDetails) return;
+    probeEmit("engineRestart", { position: Math.round(currentTimeRef.current), reason: "subtitle list changed" });
+    restartAtPlayhead(currentTimeRef.current);
+  }, [restartAtPlayhead, videoDetails]);
+
   /**
    * Retry playback from the beginning
    */
@@ -3416,6 +3426,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     seekBy,
     seekTo,
     retry,
+    reloadAtPlayhead,
     // Bitmap subtitles: the engine's session URL to fetch cues and images from,
     // and which track the viewer selected. Both null unless local remux is the
     // active lane and an image track is on. Read off the reducer state rather

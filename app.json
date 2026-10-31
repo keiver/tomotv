@@ -63,6 +63,7 @@
       "./plugins/withLyricsListener",
       "./plugins/withBookRenderer",
       "./plugins/withTunerGroups",
+      "./plugins/withSubtitleSearch",
       "@keiver/tomo-engine",
       "./plugins/withXcodeIdentity",
       [

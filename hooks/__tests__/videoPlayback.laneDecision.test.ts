@@ -176,6 +176,12 @@ describe("lane selection", () => {
       expect(pick(withEmbedded, { heldOnDisk: true }).mode).toBe("direct");
     });
 
+    it("reaches the engine for a subtitle this app found and keeps on the device, like a sidecar", () => {
+      expect(pick(mp4Item([]), { heldOnDisk: true, deviceTextSubtitles: 1 }).mode).toBe("localRemux");
+      expect(pick(mp4Item([]), { heldOnDisk: true, heldAsMp4: true, deviceTextSubtitles: 1 }).mode).toBe("direct");
+      expect(pick(mp4Item([]), { heldOnDisk: true, heldEngineSpent: true, deviceTextSubtitles: 1 }).mode).toBe("direct");
+    });
+
     it("drops the subtitle ask once the engine is spent: the film outranks the subtitle", () => {
       expect(pick(withSidecar, { heldOnDisk: true, heldEngineSpent: true }).mode).toBe("direct");
     });

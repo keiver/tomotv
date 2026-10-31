@@ -1,0 +1,145 @@
+import { AmbientBackground } from "@/components/ambient-background";
+import { LoadingRow } from "@/components/loading-row";
+import { IS_PAD, settingsStyles, sideInsets } from "@/components/settings/styles";
+import { LanguageChips } from "@/components/subtitles/language-chips";
+import { SubtitleJobCard } from "@/components/subtitles/subtitle-job-card";
+import { TakeMatchesBar } from "@/components/subtitles/take-matches-bar";
+import { COLORS } from "@/constants/colors";
+import { useSubtitleSearch } from "@/hooks/useSubtitleSearch";
+import { t } from "@/services/i18n";
+import { fetchItemDetails, fetchRecursiveDownloadables, isAudioItem, isBook, isFolder, isPhoto } from "@/services/jellyfinApi";
+import { languageFor } from "@/services/subtitles/languages";
+import type { JellyfinVideoItem } from "@/types/jellyfin";
+import { logger } from "@/utils/logger";
+import { useLocalSearchParams } from "expo-router";
+import { useHeaderHeight } from "expo-router/react-navigation";
+import React, { useEffect, useState } from "react";
+import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+const IS_TV = Platform.isTV;
+
+/** The videos a search covers: the item itself, or every video under a folder, series or season. */
+export async function loadSearchItems(itemId: string): Promise<JellyfinVideoItem[]> {
+  const details = await fetchItemDetails(itemId);
+  if (!details) return [];
+  if (!isFolder(details)) return [details];
+  const leaves = await fetchRecursiveDownloadables(itemId);
+  return leaves.filter((item) => !isAudioItem(item) && !isPhoto(item) && !isBook(item));
+}
+
+/** A root route: one language at a time, one job per video, each pick saved where the account allows. */
+export default function SubtitleSearchScreen() {
+  const { itemId, name } = useLocalSearchParams<{ itemId: string; name?: string }>();
+  const insets = useSafeAreaInsets();
+  const headerHeight = useHeaderHeight();
+  const [items, setItems] = useState<JellyfinVideoItem[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  const search = useSubtitleSearch(items);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadSearchItems(itemId)
+      .then((loaded) => {
+        if (!cancelled) setItems(loaded);
+      })
+      .catch((error) => {
+        logger.warn("Subtitle search could not read the item", error, { service: "Subtitles", itemId });
+        if (!cancelled) setFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [itemId]);
+
+  const languageName = languageFor(search.language)?.native ?? search.language;
+  const busy = search.jobs.some((job) => job.status === "applying");
+
+  return (
+    <View style={styles.container}>
+      <AmbientBackground />
+      <ScrollView
+        contentContainerStyle={[styles.page, { paddingTop: IS_TV ? 40 + insets.top : headerHeight + (IS_PAD ? 24 : 12), paddingBottom: (IS_TV ? 60 : 24) + insets.bottom }, sideInsets(insets)]}
+        showsVerticalScrollIndicator={false}>
+        <View style={settingsStyles.contentContainer}>
+          {IS_TV ? (
+            <View style={settingsStyles.sectionHeader}>
+              <Text style={settingsStyles.sectionHeaderText}>{t("subtitles.title")}</Text>
+            </View>
+          ) : null}
+          {name ? (
+            <Text style={styles.itemName} numberOfLines={2}>
+              {name}
+            </Text>
+          ) : null}
+
+          {items === null && !failed ? <LoadingRow label={t("info.loadingDetails").replace("{title}", name || t("common.thisItem"))} /> : null}
+          {failed ? <Text style={styles.empty}>{t("info.couldNotReachServer")}</Text> : null}
+
+          {items !== null ? (
+            <>
+              <Text style={styles.sectionLabel}>{t("subtitles.language")}</Text>
+              <LanguageChips choices={search.choices} selected={search.language} onSelect={search.setLanguage} />
+
+              {search.skipped > 0 ? <Text style={styles.skipped}>{t("subtitles.filesSkipped").replace("{count}", String(search.skipped)).replace("{language}", languageName)}</Text> : null}
+
+              <View style={styles.jobs}>
+                <TakeMatchesBar count={search.matches.length} busy={busy} onPress={() => void search.takeAll()} />
+                {search.jobs.length === 0 && items.length > 0 ? <Text style={styles.empty}>{t("subtitles.allSubtitled").replace("{language}", languageName)}</Text> : null}
+                {items.length === 0 ? <Text style={styles.empty}>{t("subtitles.noVideos")}</Text> : null}
+                {search.jobs.map((job, index) => (
+                  <SubtitleJobCard
+                    key={job.item.Id}
+                    job={job}
+                    alone={search.jobs.length === 1}
+                    onPick={(hit) => void search.pick(index, hit)}
+                    onKeywords={(keywords) => search.setKeywords(index, keywords)}
+                  />
+                ))}
+              </View>
+            </>
+          ) : null}
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.BACKGROUND,
+  },
+  page: {
+    flexGrow: 1,
+  },
+  itemName: {
+    color: COLORS.TEXT_PRIMARY,
+    fontSize: IS_TV ? 34 : 22,
+    fontWeight: "700",
+    marginBottom: IS_TV ? 24 : 14,
+  },
+  sectionLabel: {
+    color: COLORS.TEXT_SECONDARY,
+    fontSize: IS_TV ? 20 : 13,
+    fontWeight: "600",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    marginBottom: IS_TV ? 14 : 8,
+  },
+  skipped: {
+    color: COLORS.TEXT_SECONDARY,
+    fontSize: IS_TV ? 20 : 13,
+    marginTop: IS_TV ? 16 : 10,
+  },
+  jobs: {
+    marginTop: IS_TV ? 28 : 16,
+    gap: IS_TV ? 18 : 10,
+  },
+  empty: {
+    color: COLORS.TEXT_SECONDARY,
+    fontSize: IS_TV ? 24 : 15,
+    textAlign: "center",
+    paddingVertical: IS_TV ? 40 : 24,
+  },
+});
