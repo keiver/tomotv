@@ -22,7 +22,7 @@ import {
 } from "@/services/jellyfinApi";
 import { attemptConnectionRecovery } from "@/services/connectionRecovery";
 import { isPlaybackHeld, onPlaybackHoldReleased } from "@/services/playbackHold";
-import { countActiveFilters, JellyfinItem, LibraryFilters } from "@/types/jellyfin";
+import { countActiveFilters, hasContentFilters, JellyfinItem, LibraryFilters } from "@/types/jellyfin";
 import { getLoadErrorMessage, isConnectivityError } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
 import { orderSortNameTies } from "@/utils/seasonEpisode";
@@ -103,12 +103,16 @@ function annotateWithPlayed(list: JellyfinItem[]): JellyfinItem[] {
  * of truth for navigation.
  */
 export function useFolderContents(folderId: string | null, type?: "folder" | "playlist" | "livetv", filters?: LibraryFilters, focusId?: string, readPastWatched = false): FolderContentsState {
-  const cacheKey = folderId ?? "root";
-
   // Serialize the selection so callers don't have to memoize the filters object; a changed
   // selection produces a new key, which rebuilds fetchPage and retriggers the first-page effect.
   const filterKey = filters && countActiveFilters(filters) > 0 ? JSON.stringify(filters) : "";
   const activeFilters = useMemo(() => (filterKey ? (JSON.parse(filterKey) as LibraryFilters) : undefined), [filterKey]);
+  // A selection that narrows or shuffles is a filtered view: never cached, hearts from the server.
+  // A changed sort alone is still the plain browse, cached under its own order.
+  const narrowed = !!activeFilters && (hasContentFilters(activeFilters) || activeFilters.shuffle);
+  const cacheKey = (folderId ?? "root") + (activeFilters && !narrowed ? `:${activeFilters.sortBy}:${activeFilters.sortOrder}` : "");
+  // The server's order stands when it is not by name: the name-tie pass would reorder it.
+  const keepServerOrder = !!activeFilters && (activeFilters.shuffle || activeFilters.sortBy !== "SortName");
 
   // Seed synchronously from the folder cache ONCE, at mount, so a fresh revisit paints its content on
   // the first frame with no spinner; the first-page effect below then reads the server behind it.
@@ -118,7 +122,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   // A seed that lacks `focusId`, or ends on a watched episode under `readPastWatched`, with pages left is
   // refused: the grid would paint and focus its top first.
   const [seed] = useState<FolderCacheEntry | null>(() => {
-    const cached = activeFilters ? undefined : getFolderCache(cacheKey);
+    const cached = narrowed ? undefined : getFolderCache(cacheKey);
     if (!cached || Date.now() - cached.timestamp >= CACHE.DEFAULT_TTL_MS) return null;
     const short = focusId ? !cached.items.some((item) => item.Id === focusId) : readPastWatched && lastEpisodeWatched(cached.items);
     return short && hasMorePages(cached.items.length, cached.items.length, cached.total) ? null : cached;
@@ -128,7 +132,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
     if (!seed) return [];
     if (!folderId) return seed.items;
     const annotated = annotateWithFavorites(annotateWithPlayed(seed.items));
-    return type === "playlist" || type === "livetv" ? annotated : orderSortNameTies(annotated);
+    return type === "playlist" || type === "livetv" || keepServerOrder ? annotated : orderSortNameTies(annotated);
   });
   const [isLoading, setIsLoading] = useState(!seed);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -163,10 +167,10 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   // skip both; everything else defers to annotateWithFavorites.
   const annotateFavorites = useCallback(
     (list: JellyfinItem[]): JellyfinItem[] => {
-      if (!folderId || activeFilters) return list;
+      if (!folderId || narrowed) return list;
       return annotateWithFavorites(list);
     },
-    [folderId, activeFilters],
+    [folderId, narrowed],
   );
 
   const fetchPage = useCallback(
@@ -226,8 +230,8 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   // order. Runs span pages, so the whole loaded list is re-ordered on every append. Playlists keep
   // their own order and shuffle is meant to be random.
   const orderTies = useCallback(
-    (list: JellyfinItem[]): JellyfinItem[] => (!folderId || type === "playlist" || type === "livetv" || activeFilters?.shuffle ? list : orderSortNameTies(list)),
-    [folderId, type, activeFilters],
+    (list: JellyfinItem[]): JellyfinItem[] => (!folderId || type === "playlist" || type === "livetv" || keepServerOrder ? list : orderSortNameTies(list)),
+    [folderId, type, keepServerOrder],
   );
 
   const applyFirstPage = useCallback(
@@ -290,7 +294,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
             if (deletesInFlightRef.current === 0) setFirstPageRetry((n) => n + 1);
             return;
           }
-          if (!activeFilters) {
+          if (!narrowed) {
             setFolderCache(cacheKey, { items: result.items, total: result.total, timestamp: Date.now() });
           }
           // Nothing changed on the server: a swap would only cost a render, often mid push-transition.
@@ -309,7 +313,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
       // Seed the authoritative favorites set once (ALL favorites, from the reliable Filters=IsFavorite),
       // in parallel with the page load, then re-annotate. Hearts stay hidden until this resolves, so
       // the browse's stale per-item UserData never paints a removed favorite.
-      if (folderId && !activeFilters && !isFavoritesLoaded()) {
+      if (folderId && !narrowed && !isFavoritesLoaded()) {
         fetchFavoriteIds()
           .then(() => {
             if (requestId === requestIdRef.current) setItems((prev) => annotateFavorites(annotateWithPlayed(prev)));
@@ -317,7 +321,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
           .catch((err) => logger.warn("Favorite ids load failed", err, { service: "useFolderContents", cacheKey }));
       }
     },
-    [cacheKey, folderId, loadFirstPage, applyFirstPage, onLoadError, activeFilters, annotateFavorites],
+    [cacheKey, folderId, loadFirstPage, applyFirstPage, onLoadError, narrowed, annotateFavorites],
   );
 
   // The mount's read sits behind the seed, every page it holds; a changed selection reads page one.

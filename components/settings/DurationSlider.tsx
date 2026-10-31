@@ -17,13 +17,15 @@ interface DurationSliderProps<V extends number> {
   options: readonly { value: V; label: string }[];
   selected: V;
   onSelect: (value: V) => void;
+  /** What the slider sets, for VoiceOver; the chosen label is then read as its value. Without it the label alone is read. */
+  accessibilityLabel?: string;
 }
 
 /**
  * A stepped slider over a sunken track, one detent per duration, labels under the detents.
  * Phone and iPad only: the TV surface keeps focusable pills (DurationChips).
  */
-export function DurationSlider<V extends number>({ options, selected, onSelect }: DurationSliderProps<V>) {
+export function DurationSlider<V extends number>({ options, selected, onSelect, accessibilityLabel }: DurationSliderProps<V>) {
   const count = options.length;
   const last = count - 1;
   const selectedIndex = Math.max(
@@ -113,7 +115,8 @@ export function DurationSlider<V extends number>({ options, selected, onSelect }
       style={styles.band}
       accessible
       accessibilityRole="adjustable"
-      accessibilityLabel={options[selectedIndex].label}
+      accessibilityLabel={accessibilityLabel ?? options[selectedIndex].label}
+      accessibilityValue={accessibilityLabel ? { text: options[selectedIndex].label } : undefined}
       accessibilityActions={[{ name: "increment" }, { name: "decrement" }]}
       onAccessibilityAction={(event) => step(event.nativeEvent.actionName === "increment" ? 1 : -1)}>
       <GestureDetector gesture={gesture}>

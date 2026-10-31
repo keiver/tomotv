@@ -27,7 +27,7 @@ jest.mock("@/services/liveFrames", () => ({
 jest.mock("@/services/jellyfinApi", () => ({ isAudioItem: () => false, isBook: () => false }));
 
 import { CardBadge } from "@/components/card-badge";
-import { CardCornerTab } from "@/components/card-corner-tab";
+import { CardCornerNotch } from "@/components/card-corner-notch";
 import { standRedOpacity } from "@/components/card-stand";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { DESIGN } from "@/constants/app";
@@ -83,7 +83,7 @@ describe("guide channel card without a title bar", () => {
     act(() => {
       tree = TestRenderer.create(<VideoGridItem video={airing} onPress={jest.fn()} index={0} slotOrientation="landscape" />);
     });
-    expect(tree.root.findByType(CardCornerTab).props).toMatchObject({ segments: [{ label: "NOW" }], tone: "live" });
+    expect(tree.root.findByType(CardCornerNotch).props).toMatchObject({ segments: [{ label: "NOW" }], tone: "live" });
     expect(tree.root.findAllByType(CardBadge)).toHaveLength(0);
     act(() => tree.unmount());
   });
@@ -132,7 +132,7 @@ describe("channel wall stand", () => {
       return StyleSheet.flatten(name?.props.style).color;
     };
     const resting = style();
-    expect(resting.backgroundColor).toBe(COLORS.SURFACE_SUNKEN);
+    expect(resting.backgroundColor).toBe(COLORS.SURFACE);
     expect(nameColor()).toBe(COLORS.ACCENT);
     act(() => tree.update(<VideoGridItem video={channel} onPress={jest.fn()} index={0} liveCard liveFrame={frame} titleIcon="heart" hideAiring stand highlighted />));
     expect(style().backgroundColor).toBe(COLORS.ACCENT);
@@ -190,7 +190,7 @@ describe("channel wall stand", () => {
     const tree = mountCard({ stand: true, offline: true, liveFrame: undefined });
     const glyph = tree.root.findAll((n) => n.props.testID === "card-stand-offline" && n.props.name === "cloud-offline");
     expect(glyph.length).toBeGreaterThan(0);
-    expect(StyleSheet.flatten(standOf(tree).props.style).backgroundColor).toBe(COLORS.SURFACE_SUNKEN);
+    expect(StyleSheet.flatten(standOf(tree).props.style).backgroundColor).toBe(COLORS.SURFACE);
     act(() => tree.unmount());
     const online = mountCard({ stand: true });
     expect(online.root.findAll((n) => n.props.testID === "card-stand-offline")).toHaveLength(0);
@@ -217,8 +217,7 @@ describe("guide channel card picture", () => {
       tree = TestRenderer.create(<VideoGridItem video={{ ...channel, Id: id }} onPress={jest.fn()} index={0} slotOrientation="landscape" liveCard liveFrame={frame} />);
     });
     const images = () => tree.root.findAllByType(Image);
-    const load = (width: number, height: number) => act(() => images().at(-1)?.props.onLoad({ source: { width, height } }));
-    return { tree, images, load };
+    return { tree, images };
   };
 
   it("sits in a rounded 16:9 slot on the wall and a square one in the guide", () => {
@@ -236,23 +235,14 @@ describe("guide channel card picture", () => {
     expect(slotStyle(true)).toMatchObject({ aspectRatio: 16 / 9, borderRadius: 0 });
   });
 
-  it("fills the card with a 16:9 picture", () => {
-    const { tree, images, load } = mount("p2");
-    load(1280, 720);
+  it("fills the card with the live picture cropped to it: one image, no blurred copy, no load handler", () => {
+    const { tree, images } = mount("p2");
     expect(images()).toHaveLength(1);
-    expect(StyleSheet.flatten(images()[0].props.style)).toMatchObject({ width: "100%", height: "100%" });
+    const [picture] = images();
+    expect(StyleSheet.flatten(picture.props.style)).toMatchObject({ width: "100%", height: "100%" });
+    expect(picture.props.contentFit).toBe("cover");
+    expect(picture.props.blurRadius).toBeUndefined();
+    expect(picture.props.onLoad).toBeUndefined();
     act(() => tree.unmount());
-  });
-
-  it("shows a 4:3 picture whole over a blurred copy of itself, and a remount starts that way", () => {
-    const { tree, images, load } = mount("p3");
-    load(640, 480);
-    const [backdrop, picture] = images();
-    expect(backdrop.props.blurRadius).toBeGreaterThan(0);
-    expect(StyleSheet.flatten(picture.props.style)).toMatchObject({ position: "absolute", left: "12.5%", width: "75%", height: "100%" });
-    act(() => tree.unmount());
-    const again = mount("p3");
-    expect(again.images()).toHaveLength(2);
-    act(() => again.tree.unmount());
   });
 });

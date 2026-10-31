@@ -382,6 +382,8 @@ final class RemuxSession {
     var primaryInitWritten = false
     /// Copied video whose opening packets carry CEA-608/708 in their SEI; the master declares them.
     var embeddedCaptions = false
+    /// ADTS AAC inputs' setup from Apple's parser, by input stream index; pipeline thread only.
+    var adtsConfigs: [Int32: AdtsConfig] = [:]
     /// Live: the read head on the output timeline, for image cue manifests and their window.
     var demuxedUpToOutput: Double = 0
 

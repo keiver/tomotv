@@ -4,7 +4,7 @@ import { GuideCornerActions, HUD_ACTION_ICON, HudAction, scheduleSymbol } from "
 import { GuideHud } from "@/components/live-tv/guide-hud";
 import { SfSymbolIcon } from "@/components/sf-symbol-icon";
 import { gridEdgePadding, LIBRARY_ROOT_TITLE } from "@/constants/app";
-import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
+import { WhoIsWatchingScreen } from "@/components/settings/WhoIsWatchingScreen";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLoadingActions } from "@/contexts/LoadingContext";
@@ -53,7 +53,7 @@ export default function LiveTvRoute() {
     showToast({ id: "guide-refresh", title: t("liveTv.guideDownloading"), progress: true });
   }, []);
   if (!isReady) return null;
-  if (!isConnected) return <ServerConnectScreen title={t("liveTv.title")} />;
+  if (!isConnected) return <WhoIsWatchingScreen title={t("liveTv.title")} />;
   return <LiveTvScreen key={refreshes} refreshed={refreshes > 0} onRefresh={refreshGuide} />;
 }
 

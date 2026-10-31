@@ -1,14 +1,15 @@
 import { type BadgeSegment, CARD_BADGE_INSET, CardBadge, showsFavoriteHeart } from "@/components/card-badge";
-import { CardCornerTab } from "@/components/card-corner-tab";
+import { CardCornerNotch } from "@/components/card-corner-notch";
 import { CardNavProgress } from "@/components/card-nav-progress";
-import { CardStand } from "@/components/card-stand";
+import { CardStand, STAND_NAME_TEXT } from "@/components/card-stand";
 import { LevelBars } from "@/components/level-bars";
 import { LiveClip } from "@/components/live-tv/live-clip";
 import { LiveFreshnessBadge } from "@/components/live-tv/live-freshness-badge";
-import { CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, GRID, RAISED_EDGE, slotColumns, STAND_HEIGHT, STAND_ROW_ROOM, type SlotOrientation } from "@/constants/app";
+import { CARD_CHROME, CARD_DEPTH, CARD_FOCUS, cardPosterHeight, cardSlotRatio, DESIGN, GRID, RAISED_EDGE, slotColumns, STAND_HEIGHT, STAND_ROW_ROOM, type SlotOrientation } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { useCardPalette } from "@/hooks/useCardPalette";
+import { useCardZoom } from "@/hooks/useCardZoom";
 import { useItemPoster } from "@/hooks/useItemPoster";
 import { useMinuteClock } from "@/hooks/useMinuteClock";
 import { useIsNowPlaying, useNowPlayingVideo, useOpenNowPlaying } from "@/hooks/useNowPlaying";
@@ -20,18 +21,15 @@ import { LIVE_FRAME_TRANSITION_MS, type LiveFrame } from "@/services/liveFrames"
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
 import { formatClock, formatDayLabel } from "@/utils/guide";
-import { liveFrameBox, livePictureAspect, rememberLivePictureAspect } from "@/utils/liveFrameFit";
 import { formatIndexBadge } from "@/utils/seasonEpisode";
 import { Ionicons } from "@expo/vector-icons";
-import { Image, type ImageLoadEventData } from "expo-image";
+import { Image } from "expo-image";
 import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
+import { PixelRatio, Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // Cache platform values at module level for better performance
 const IS_TV = Platform.isTV;
 const CARD_PADDING = IS_TV ? 16 : 8;
-const POSTER_SIZE = IS_TV ? 300 : 200; // Optimized for memory
-const BACKDROP_BLUR = IS_TV ? 24 : 16;
 
 /** Badge pill contents: "S01E05" alone, or the disc (when past the first) beside the track. */
 export function indexBadgeSegments(video: JellyfinVideoItem, nowMs: number = Date.now(), recording = false): BadgeSegment[] | null {
@@ -216,8 +214,9 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
     [],
   );
 
+  const zoom = useCardZoom();
   // The server poster, or the keyframe the engine makes for a card the server left blank.
-  const posterSource = useItemPoster(video, POSTER_SIZE, { deferWhileVideo: true });
+  const posterSource = useItemPoster(video, cardPosterHeight(cardHeight, IS_TV, PixelRatio.get(), zoom), { deferWhileVideo: true });
 
   // Keyed on the parse inputs, not the item object: annotation passes rebuild
   // item objects without touching these fields, and must not re-parse every card.
@@ -237,23 +236,12 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   const cardTitle = cleanLabel(airingName) || (video.Type === "Program" ? programCardTitle(video) || t("common.unknown") : videoName || t("common.unknown"));
 
   // The card's slot ratio, shared with the row packer so rendered and allocated widths agree. The art
-  // cover-fills the slot, except a live picture liveFrameBox keeps whole.
+  // cover-fills the slot.
   const cardRatio = liveCard
     ? GRID.LIVE_RATIO
     : cardWidth != null && cardHeight != null
       ? (cardWidth - 2 * CARD_PADDING) / (cardHeight - 2 * CARD_PADDING)
       : cardSlotRatio(fitArtwork, video.PrimaryImageAspectRatio, slotOrientation);
-  // The live picture's own shape, remembered per channel so a remounted card starts in place.
-  const [pictureAspect, setPictureAspect] = useState(() => (liveCard ? livePictureAspect(video.Id) : undefined));
-  const handleLiveFrameLoad = useCallback(
-    ({ source }: ImageLoadEventData) => {
-      if (source.width <= 0 || source.height <= 0) return;
-      rememberLivePictureAspect(video.Id, source.width / source.height);
-      setPictureAspect(source.width / source.height);
-    },
-    [video.Id],
-  );
-  const liveBox = liveCard && liveFrame ? liveFrameBox(pictureAspect, cardRatio) : null;
   const standed = liveCard && stand;
   const offlinePill = offline && !standed;
 
@@ -299,16 +287,15 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
   // One mark before the name: the playing bars, else a passed icon, else the favorite heart (a channel's is passed in).
   const nameIcon = leadingMark ?? (isChannel ? titleIcon : showsFavoriteHeart(video) ? "heart" : undefined);
   const metaMark = nowPlaying
-    ? (color: string) => <LevelBars size={IS_TV ? 16 : 10} playing={nowPlayingProgress.playing} color={color} />
+    ? (color: string) => <LevelBars size={(STAND_NAME_TEXT.fontSize + 1) * zoom} playing={nowPlayingProgress.playing} color={color} />
     : nameIcon
-      ? (color: string) => <Ionicons name={nameIcon} size={IS_TV ? 15 : 9} color={color} />
+      ? (color: string) => <Ionicons name={nameIcon} size={STAND_NAME_TEXT.fontSize * zoom} color={color} />
       : undefined;
   const depth = [styles.depth, flat && styles.cardFlat, focused && [styles.cardFocused, { shadowColor: palette.accent }]];
   const posterImage = (
     <Image
       source={liveFrame ?? poster ?? posterSource}
-      style={[styles.poster, liveBox, logoPoster && styles.posterLogo, offline && styles.posterOffline]}
-      onLoad={liveCard && liveFrame ? handleLiveFrameLoad : undefined}
+      style={[styles.poster, logoPoster && styles.posterLogo, offline && styles.posterOffline]}
       contentFit={logoPoster ? "contain" : "cover"}
       // A newer grab's frame fades in; at rest the card holds still.
       transition={liveFrame ? LIVE_FRAME_TRANSITION_MS : 0}
@@ -359,30 +346,13 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
         inset && { paddingVertical: inset.vertical, paddingHorizontal: inset.horizontal },
       ]}>
       <View style={[styles.card, IS_TV ? null : depth, square && styles.square, !liveCard && styles.cardOverhang]}>
-        {/* TV: a solid layer behind the picture carries the depth, so the card stays clear for its base. */}
-        {IS_TV ? <View style={[styles.depthLayer, depth, square && styles.square, !liveCard && !focused && styles.depthLayerArt]} pointerEvents="none" /> : null}
-        {/* A wall card's stand says offline with its glyph, so it skips the tab. */}
-        {artBadge && !offlinePill ? <CardCornerTab segments={artBadge} tone={video.Type === "Program" || channelNow ? "live" : "plain"} focused={focused} /> : null}
+        {/* TV: a solid layer behind the card carries the depth, so the card itself needs no fill. */}
+        {IS_TV ? <View style={[styles.depthLayer, depth, square && styles.square]} pointerEvents="none" /> : null}
         <View style={[styles.imageContainer, { aspectRatio: cardRatio }, square && styles.square, (standed || !liveCard) && styles.squareBottom]}>
           {liveFrame || poster || posterSource ? (
             <>
-              {liveBox ? (
-                <>
-                  <Image
-                    source={liveFrame}
-                    style={StyleSheet.absoluteFill}
-                    contentFit="cover"
-                    blurRadius={BACKDROP_BLUR}
-                    transition={LIVE_FRAME_TRANSITION_MS}
-                    cachePolicy="none"
-                    recyclingKey={`${video.Id}-backdrop`}
-                    accessible={false}
-                  />
-                  <View style={styles.backdropDim} pointerEvents="none" />
-                </>
-              ) : null}
               {posterImage}
-              {(focused || clipActive) && liveFrame && liveClip ? <LiveClip clip={liveClip} style={liveBox ?? undefined} /> : null}
+              {(focused || clipActive) && liveFrame && liveClip ? <LiveClip clip={liveClip} /> : null}
             </>
           ) : (
             // No artwork: a glyph for the item's kind on the dark card fill. The title
@@ -417,6 +387,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
               ) : null}
             </View>
           ) : null}
+          {artBadge && !offlinePill ? <CardCornerNotch segments={artBadge} tone={video.Type === "Program" || channelNow ? "live" : "plain"} focused={focused} /> : null}
           {/* The lit edge, on top so the art sits under it */}
           <View style={[styles.borderOverlay, focused && styles.borderOverlayFocused, square && styles.square, (standed || !liveCard) && styles.squareBottom]} pointerEvents="none" />
         </View>
@@ -424,14 +395,14 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
         {standed ? (
           <View>
             <CardStand name={cardTitle} icon={titleIcon} focused={focused} offline={offline} liveChannelId={liveFrame && liveMark ? video.Id : undefined} />
-            {navBarVisible ? <CardNavProgress active={navigating} title={cardTitle} stand baseColor={COLORS.SURFACE_SUNKEN} /> : null}
+            {navBarVisible ? <CardNavProgress active={navigating} title={cardTitle} stand baseColor={CARD_CHROME} /> : null}
           </View>
         ) : null}
         {/* Rendered regardless of poster: a posterless placeholder card still owes the user its progress. */}
         {liveCard ? null : (
           <View>
             <CardStand name={cardTitle} focused={focused} mark={metaMark} progress={standProgress} scrolls />
-            {navBarVisible ? <CardNavProgress active={navigating} title={cardTitle} startFraction={hasProgress ? watchedPercent / 100 : undefined} stand baseColor={COLORS.SURFACE_SUNKEN} /> : null}
+            {navBarVisible ? <CardNavProgress active={navigating} title={cardTitle} startFraction={hasProgress ? watchedPercent / 100 : undefined} stand baseColor={CARD_CHROME} /> : null}
           </View>
         )}
         {focused ? <View style={[styles.focusRing, { borderColor: palette.accent }, square && styles.square]} pointerEvents="none" /> : null}
@@ -524,16 +495,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0,
     elevation: 0,
   },
+  // One point inside the art: a second rounded edge on the art's own curve darkens its corner pixels.
   depthLayer: {
     position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  // At rest the layer stops at the art, leaving the base over the canvas.
-  depthLayerArt: {
-    bottom: STAND_HEIGHT,
+    top: 1,
+    left: 1,
+    right: 1,
+    bottom: 1,
   },
   // Overrides every resting shadow prop: a leftover depth offset would smear the glow downward.
   // The glow's colour is the theme's, set inline.
@@ -613,15 +581,6 @@ const styles = StyleSheet.create({
   // Where rows keep no room for it (TV), the base hangs into the card's own bottom padding and the row's.
   cardOverhang: {
     marginBottom: STAND_ROW_ROOM - STAND_HEIGHT,
-  },
-  // Holds the blurred fill behind a whole picture under the sharp one.
-  backdropDim: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(0, 0, 0, 0.35)",
   },
   placeholderPoster: {
     width: "100%",

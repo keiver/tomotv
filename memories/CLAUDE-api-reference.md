@@ -78,7 +78,7 @@ This document provides a reference for the `services/jellyfinApi.ts` public surf
 
 | Function                            | Purpose                          | Returns         |
 | ----------------------------------- | -------------------------------- | --------------- |
-| `connectToDemoServer(clearCaches?)` | Connect to Jellyfin demo server  | `Promise<void>` |
+| `connectToDemoServer(clearCaches?)` | Connect to the Tomo TV demo      | `Promise<void>` |
 | `disconnectFromDemo()`              | Disconnect and clear credentials | `Promise<void>` |
 | `isDemoMode()`                      | Check if using demo server       | `boolean`       |
 | `syncDevCredentials()`              | Sync .env.local to SecureStore   | `Promise<void>` |

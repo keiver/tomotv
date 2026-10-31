@@ -178,6 +178,31 @@ extension RemuxSession {
         return chosen
     }
 
+    /// Whether the opening rung cannot serve: retired, or its opening segment answered a 4xx other
+    /// than 408 or 429 (a host with no transcode endpoint). Waits within the master's budget for the
+    /// fetch started by `chooseOpeningRung` to deliver or fail. A fetch still running, a 5xx, a
+    /// transport error or an unreadable body is not a failure here: the rung leads and its retry runs
+    /// under AVPlayer's wait.
+    func openingRungFailed(_ rung: Int) -> Bool {
+        let target = segmentIndex(atSeconds: config.startOffsetSeconds)
+        _ = waitUntil(deadline: masterBudgetLeft()) { [weak self] in
+            guard let self else { return true }
+            self.stateLock.lock()
+            defer { self.stateLock.unlock() }
+            return self.failed || self.cancelled || self.rungsUnavailable.contains(rung)
+                || self.tierMaterialized[rung]?.contains(target) == true
+                || (self.supplierRecovery[.rung(rung)]?.failures ?? 0) > 0
+        }
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        if rungsUnavailable.contains(rung) { return true }
+        switch supplierRecovery[.rung(rung)]?.failure {
+        case .unsupported?: return true
+        case .http(let status)?: return (400..<500).contains(status) && status != 408 && status != 429
+        default: return false
+        }
+    }
+
     func masterPlaylist() -> String {
         awaitGrid()
         // Live and self-described: the tracks and the captions come off the open input, not from a probe.
@@ -479,7 +504,11 @@ extension RemuxSession {
         let linkBps = testLinkBps ?? wireLinkBps ?? playlistLinkBps ?? 0
         let rungs = (0..<config.tiers.count).filter { !rungsUnavailable.contains($0) }
         stateLock.unlock()
-        let startRung = chooseOpeningRung(linkBps: linkBps)
+        let chosenRung = chooseOpeningRung(linkBps: linkBps)
+        // A rung whose opening fetch failed never leads: AVPlayer opened on it fails the item on its
+        // 404s instead of falling to the copy. A rung still fetching leads as before, and AVPlayer
+        // waits on its segment.
+        let startRung = (copyFirst && chosenRung != nil && openingRungFailed(chosenRung!)) ? nil : chosenRung
         let listed = rungs
 
         func rungLine(_ index: Int) -> String {
@@ -539,12 +568,12 @@ extension RemuxSession {
         // The frames come off the source, so a ladder that lost it lists none.
         if copyFirst { out += iframeStreamInf(copyPeak: peaks.original) }
         stateLock.lock()
-        copyOnlyMaster = false
+        copyOnlyMaster = startRung == nil
         ladderListed = startRung != nil
         stateLock.unlock()
         NSLog("[LocalRemuxer] Slipstream: master starts on %@%@ (link %.1f Mb/s, %d rungs)",
               startRung == nil ? "the copy" : "rung \(startRung ?? 0)", copyFirst && startRung != nil ? " with the copy listed" : "", linkBps / 1_000_000, listed.count)
-        reportTier(listed: !rungs.isEmpty)
+        reportTier(listed: startRung != nil)
         return out
     }
 

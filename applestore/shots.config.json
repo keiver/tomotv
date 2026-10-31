@@ -1,7 +1,7 @@
 {
   "$schema": "./shots.schema.json",
   "output": "applestore/generated",
-  "background": "acid",
+  "background": "rust",
   "locales": {
     "en": {},
     "de": {},

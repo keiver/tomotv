@@ -4,13 +4,15 @@ import { localeScreen } from "@/components/locale-boundary";
 import { LoadingRow } from "@/components/loading-row";
 import { AboutSection } from "@/components/settings/AboutSection";
 import { ConnectedSection } from "@/components/settings/ConnectedSection";
+import { DiagnosticsSection } from "@/components/settings/DiagnosticsSection";
 import { LinkSpeedHeading, linkRateOutcome, type LinkRateOutcome } from "@/components/settings/LinkSpeedHeading";
 import { ListRow } from "@/components/settings/ListRow";
-import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
 import { SERVER_GLYPH } from "@/components/settings/ServerRow";
 import { settingsStyles as styles, sideInsets } from "@/components/settings/styles";
 import { transcodingRowSubtitle } from "@/components/settings/transcodingCopy";
+import { PlaybackSection } from "@/components/settings/PlaybackSection";
 import { UiSection } from "@/components/settings/UiSection";
+import { WhoIsWatchingScreen } from "@/components/settings/WhoIsWatchingScreen";
 import { useTranscodePermissions } from "@/hooks/useTranscodePermissions";
 import { useUiPreferences } from "@/hooks/useUiPreferences";
 import { downloadManager } from "@/services/downloads/manager";
@@ -20,6 +22,7 @@ import { refreshTranscodePermissions } from "@/services/jellyfin/transcodePermis
 import { DEMO_USERNAME, getStoredUserName, getUserImageUrl, isAuthenticated, isDemoMode, subscribeAuthChange } from "@/services/jellyfinApi";
 import { refreshAccess, subscribe as subscribeSyncPlay, SyncPlaySnapshot } from "@/services/syncPlayManager";
 import { logger } from "@/utils/logger";
+import { unwindToLibrary } from "@/utils/rootRoutes";
 import { connectedLine } from "@/utils/syncPlayCopy";
 import { pokeInbox } from "@/services/diagnosticsInbox";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -166,11 +169,10 @@ function SettingsScreen() {
   // After a login from this screen, flip to the connected card, then drop the user on the root
   // view of the Library tab. The flow has already refreshed the library and cleared the folder
   // cache; awaiting the reload first lets the auth-change remounts settle before the pop runs,
-  // otherwise it races the remount and the user is left on Settings. dismissTo rather than
-  // navigate, for the reason in hooks/useFinishLogin.ts.
+  // otherwise it races the remount and the user is left on Settings.
   const handleConnected = async () => {
     await loadCurrentState();
-    router.dismissTo("/");
+    unwindToLibrary(router);
   };
 
   // Switching (and signing out) happens on the pushed server list, a real route so
@@ -179,7 +181,7 @@ function SettingsScreen() {
     router.push("/connect/servers");
   };
 
-  if (screenState === "NOT_CONNECTED") return <ServerConnectScreen title={t("tab.settings")} onConnected={handleConnected} />;
+  if (screenState === "NOT_CONNECTED") return <WhoIsWatchingScreen title={t("tab.settings")} onConnected={handleConnected} />;
 
   if (screenState === "LOADING") {
     return (
@@ -265,8 +267,10 @@ function SettingsScreen() {
           </View>
 
           <UiSection signedIn />
-          {/* No version line under this: the Open Source page carries it. */}
-          <AboutSection showDiagnostics />
+          <PlaybackSection />
+          {/* No version line under this: the Licenses page carries it. */}
+          <AboutSection />
+          <DiagnosticsSection />
         </View>
       </ScrollView>
     </View>

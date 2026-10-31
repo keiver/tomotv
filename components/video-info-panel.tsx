@@ -46,6 +46,8 @@ import { LiveClip } from "@/components/live-tv/live-clip";
 import { useLiveClip, useLiveFrame, useLiveFrameSeenAt } from "@/hooks/useLiveFrame";
 import { useChannelHealth } from "@/hooks/useChannelHealth";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
+import { invalidateChannelListReads, withChannelEdits } from "@/services/jellyfin/channelEdits";
+import { hideChannel, renameChannel } from "@/services/liveTvPreferences";
 import { usePlaybackHeld } from "@/hooks/usePlaybackHeld";
 import { LIVE_FRAME_TRANSITION_MS } from "@/services/liveFrames";
 import { folderPosterSource, heroArtBoxed, heroArtFrame, heroBoxFrame } from "@/services/itemArtwork";
@@ -209,7 +211,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
         if (root) fetched = { ...fetched, ChildCount: undefined, RecursiveItemCount: rootCount };
         setFolderLeafId(path.length ? path[path.length - 1].id : null);
         setMediaKinds(kinds);
-        setDetails(fetched);
+        setDetails(isLiveChannel(fetched) ? withChannelEdits(fetched) : fetched);
         setDetailsAtMs(Date.now());
         setIsFavorite(!!fetched.UserData?.IsFavorite);
         setIsPlayed(!!fetched.UserData?.Played);
@@ -419,6 +421,44 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
       },
     ]);
   }, [deleting, details]);
+
+  // The channel's name on every screen; the panel shows the saved name at once.
+  const handleRenameChannel = useCallback(() => {
+    if (!details) return;
+    Alert.prompt(
+      t("liveTv.renameChannel"),
+      t("liveTv.renameChannelBody"),
+      [
+        { text: t("common.cancel"), style: "cancel" },
+        {
+          text: t("common.save"),
+          onPress: (text?: string) => {
+            renameChannel(details, text ?? "");
+            invalidateChannelListReads();
+            setDetails((current) => (current ? withChannelEdits(current) : current));
+          },
+        },
+      ],
+      "plain-text",
+      cleanLabel(details.Name),
+    );
+  }, [details]);
+
+  // A hidden channel leaves every list, so the panel that showed it closes with it.
+  const handleHideChannel = useCallback(() => {
+    if (!details) return;
+    Alert.alert(cleanLabel(details.Name), t("liveTv.hideChannelBody"), [
+      { text: t("common.cancel"), style: "cancel" },
+      {
+        text: t("liveTv.hideChannel"),
+        onPress: () => {
+          hideChannel(details);
+          invalidateChannelListReads();
+          router.back();
+        },
+      },
+    ]);
+  }, [details, router]);
 
   // Stop an in-progress recording: deleting its timer is the stop, the file stays. The flip
   // is local (`stopped`) because the item's own Status lags the timer delete server-side.
@@ -677,8 +717,8 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   const footScrim = {
     experimental_backgroundImage: `linear-gradient(to bottom, ${HERO_FADE_RGB}0) ${footPct * 0.2}%, ${HERO_FADE_RGB}0.45) ${footPct * 0.55}%, ${HERO_FADE_RGB}0.85) ${footPct * 0.8}%, ${HERO_FADE_RGB}1) ${footPct}%)`,
   };
-  // Touch: the card's width less the wrap's 20pt gutters; the card already clears the safe area.
-  const logoWidth = Math.max(0, heroWidth - (IS_TV ? 0 : 40));
+  // The card's width less the wrap's gutters (48pt on TV, 20pt on touch); the card already clears the safe area.
+  const logoWidth = Math.max(0, heroWidth - (IS_TV ? 96 : 40));
   const heroCropStyle = heroArt
     ? {
         position: "absolute" as const,
@@ -728,7 +768,8 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   };
 
   // The CTA row holds two buttons, three on live items; every further action is a circle in the row below.
-  const showFolderCta = !live && !!folderLeafId && folderLeafId !== params.inFolderId;
+  const inShownFolder = !!params.inFolderId && (params.inFolderId === folderLeafId || params.inFolderId === details?.ParentId);
+  const showFolderCta = !live && !!folderLeafId && !inShownFolder;
   const shareable = photo && !IS_TV;
   const folderInRow = showFolderCta && (!isContainer || folderCtas.length < 2);
   const seriesSet = !!recording.seriesTimerId;
@@ -745,6 +786,12 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
     ...(showFolderCta && !folderInRow ? [{ key: "folder", icon: "folder-outline" as const, label: t("info.showInFolder"), word: t("info.word.folder"), onPress: handleShowInFolder }] : []),
     ...(shareable && folderInRow ? [{ key: "share", icon: "share-outline" as const, label: t("common.share"), word: t("info.word.share"), onPress: () => void handleShare() }] : []),
     ...(canDownloadFolder ? [{ key: "downloadAll", icon: "arrow-down" as const, label: t("info.downloadAll"), word: t("info.word.download"), onPress: handleDownloadFolder }] : []),
+    ...(liveChannel
+      ? [
+          { key: "rename", icon: "pencil-outline" as const, label: t("liveTv.renameChannel"), word: t("info.word.rename"), onPress: handleRenameChannel },
+          { key: "hide", icon: "eye-off-outline" as const, label: t("liveTv.hideChannel"), word: t("info.word.hide"), onPress: handleHideChannel },
+        ]
+      : []),
     ...(canDelete ? [{ key: "delete", icon: "trash-outline" as const, label: t("common.delete"), word: t("info.word.delete"), destructive: true, onPress: handleDelete }] : []),
   ];
 
@@ -1275,11 +1322,8 @@ const styles = StyleSheet.create({
   // left padding, off the card's axis. Height is what actually binds a wide logo's size.
   // Width comes measured, not as a percentage: contain then binds on width for a wide mark,
   // and the default centre position needs no string that could parse to an edge.
-  // Bleeds past the wrap's padding so the mark can use the card's full width; the context
-  // line beside it keeps its own inset.
   heroLogo: {
     height: IS_TV ? 190 : 84,
-    marginHorizontal: IS_TV ? -48 : 0,
   },
   // Interior padding for everything below the hero, on TV and inside the touch card.
   tvPad: {

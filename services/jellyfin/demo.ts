@@ -1,23 +1,19 @@
 /**
- * Jellyfin's public demo server: fetch its rotating credentials, sign in, and sign out.
+ * Tomo TV's demo server: sign its shared account in, and sign out.
  *
- * The demo server resets hourly, so credentials are never persisted long-term and are
- * re-fetched on every connect. Credential writes are validated and rolled back on failure
- * so a half-written login can never masquerade as a real one.
+ * The token is fetched on every connect and never saved as an account. Credential writes are
+ * validated and rolled back on failure so a half-written login can never masquerade as a real one.
  */
 import { logger } from "@/utils/logger";
 import { retryWithBackoff } from "@/utils/retry";
 import * as SecureStore from "expo-secure-store";
 import { warmBitrateMemory } from "./bitrateTest";
-import { API_TIMEOUTS, DEMO_ADDRESS, DEMO_PASSWORD, DEMO_SERVER_NAME, DEMO_SERVER_STABLE, DEMO_USERNAME, STORAGE_KEYS } from "./constants";
+import { API_TIMEOUTS, DEMO_ADDRESS, DEMO_PASSWORD, DEMO_SERVER_NAME, DEMO_SERVER_URL, DEMO_USERNAME, STORAGE_KEYS } from "./constants";
 import { notifyAuthChange } from "./events";
 import { fetchWithTimeout } from "./http";
 import { clearContentCaches, getAuthHeader, getOrCreateDeviceId, refreshConfig, setSavedConnectionStatus } from "./session";
-/**
- * Fetch demo credentials from Jellyfin API
- * Demo server resets hourly, so credentials must be fetched fresh each time
- * @param demoServerUrl - The demo server URL to use (stable or unstable)
- */
+
+/** Sign the demo account in and return its token and user id. */
 async function fetchDemoCredentials(demoServerUrl: string, deviceId: string): Promise<{ apiKey: string; userId: string }> {
   const url = `${demoServerUrl}/Users/AuthenticateByName`;
 
@@ -46,7 +42,7 @@ async function fetchDemoCredentials(demoServerUrl: string, deviceId: string): Pr
       } else if (response.status >= 500) {
         throw new Error("Demo server is experiencing technical difficulties. Please try again later.");
       } else if (response.status === 401 || response.status === 403) {
-        throw new Error("Demo credentials are invalid. The demo server may have been reset.");
+        throw new Error("Demo credentials are invalid.");
       } else {
         throw new Error(`Unable to connect to demo server (error ${response.status}). Please try again.`);
       }
@@ -115,27 +111,26 @@ export async function connectToDemoServer(clearCaches: boolean = true): Promise<
   try {
     logger.info("Attempting to connect to demo server", {
       service: "JellyfinAPI",
-      serverUrl: DEMO_SERVER_STABLE,
+      serverUrl: DEMO_SERVER_URL,
     });
 
-    // Fetch fresh credentials from demo server with retry logic
-    const credentials = await retryWithBackoff(() => fetchDemoCredentials(DEMO_SERVER_STABLE, deviceId), {
-      maxAttempts: 2, // Lighter retry (2 attempts vs 3 for library)
-      initialDelayMs: 1000, // 1s between retries
+    const credentials = await retryWithBackoff(() => fetchDemoCredentials(DEMO_SERVER_URL, deviceId), {
+      maxAttempts: 2,
+      initialDelayMs: 1000,
     });
 
-    demoServerUrl = DEMO_SERVER_STABLE;
+    demoServerUrl = DEMO_SERVER_URL;
     apiKey = credentials.apiKey;
     userId = credentials.userId;
 
     logger.info("Successfully fetched credentials from demo server", {
       service: "JellyfinAPI",
-      serverUrl: DEMO_SERVER_STABLE,
+      serverUrl: DEMO_SERVER_URL,
     });
   } catch (error) {
     logger.error("Failed to connect to demo server", {
       service: "JellyfinAPI",
-      serverUrl: DEMO_SERVER_STABLE,
+      serverUrl: DEMO_SERVER_URL,
       error: error instanceof Error ? error.message : "unknown",
     });
 
@@ -171,7 +166,7 @@ export async function connectToDemoServer(clearCaches: boolean = true): Promise<
         SecureStore.deleteItemAsync(STORAGE_KEYS.API_KEY).catch(() => {}),
         SecureStore.deleteItemAsync(STORAGE_KEYS.USER_ID).catch(() => {}),
       ]);
-      // CRITICAL: Refresh config cache after rollback — getConfig serves the cache,
+      // CRITICAL: Refresh config cache after rollback: getConfig serves the cache,
       // so without this it would keep the pre-connect credentials the store no longer has
       await refreshConfig();
       throw new Error("Failed to save demo credentials. Please try again.");
@@ -221,7 +216,6 @@ export async function connectToDemoServer(clearCaches: boolean = true): Promise<
     // Only mark demo mode active AFTER validation succeeds
     await SecureStore.setItemAsync(STORAGE_KEYS.IS_DEMO_MODE, "true");
 
-    // Fixed display name instead of the server's self-reported "Stable Demo"
     await SecureStore.setItemAsync(STORAGE_KEYS.SERVER_NAME, DEMO_SERVER_NAME);
 
     // Clear manager caches to prevent stale data (defensive - don't fail on cache clear errors)
@@ -243,9 +237,7 @@ export async function connectToDemoServer(clearCaches: boolean = true): Promise<
 
     notifyAuthChange();
 
-    // A fresh connect meters the link to the demo server. Never on the
-    // mid-playback credential refresh (clearCaches false): a probe sharing the
-    // link with the player's segments reads leftover bandwidth, poison as memory.
+    // A fresh connect only: the mid-playback credential refresh passes clearCaches false.
     if (clearCaches) warmBitrateMemory();
   } catch (error) {
     logger.error("Failed to connect to demo server", error, {

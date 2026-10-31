@@ -38,9 +38,6 @@ export const APP_ABOUT_LINE = `${BRAND_NAME}, a Jellyfin Client`;
  */
 export const LIBRARY_ROOT_TITLE = "Home";
 
-/** The Open Source row's label (components/settings/AboutSection.tsx). */
-export const ABOUT_LABEL = "Open Source";
-
 // Cache settings
 export const CACHE = {
   /** Default TTL for cached data (5 minutes) */
@@ -99,6 +96,8 @@ export const GRID = {
   /** Ceiling on that growth: the widest card a row can hold stays under this share of the
    * usable width, so filling a tall screen never brings back the landscape billboard. */
   MAX_CARD_WIDTH_SHARE: 0.5,
+  /** The share a pinch may take a wide card to on a phone, where the card at its own size is already past the half. */
+  MAX_CARD_WIDTH_SHARE_PHONE: 0.8,
   /** Bump to every mixed-row card height, per device class (tablet from the short side).
    * Posters grow with it; landscape cards grow taller but stay width-capped by LANDSCAPE_RATIO
    * and crop the sides. The tablet bump fills its taller screen; the phone holds its size. */
@@ -108,10 +107,20 @@ export const GRID = {
   CARD_ROW_SCALE_TV: 1.12,
   /** tvOS grid cards per row by shape: a grid justifies each row to the width, so its card size is this count. */
   TV_GRID_PER_ROW: { portrait: 7, square: 5, landscape: 4 },
+  /** Smallest card a pinch reaches, as a share of the density model's size. */
+  CARD_ZOOM_MIN: 0.75,
+  /** Largest zoom a stored card size is trusted with; the window's ceiling binds below it. */
+  CARD_ZOOM_MAX: 4,
   /** Minimum horizontal screen padding around library grids (TV / phone). See
    * gridEdgePadding — this is a floor, not an addition to the safe-area inset. */
   SIDE_PADDING: { tv: 80, phone: 20 },
 } as const;
+
+/** The card sizes the Apple TV pills offer, as a share of the cards' own size. */
+export const CARD_SIZES = [0.75, 1, 1.25, 1.5] as const;
+export type CardSize = (typeof CARD_SIZES)[number];
+/** The card sizes the Appearance picker draws on iPhone, iPad and Mac; the window's ceiling trims the top. */
+export const CARD_SIZE_PICKS = [0.75, 0.85, 1, 1.15, 1.3, 1.5] as const;
 
 /**
  * Horizontal edge padding for a library grid: the larger of the platform minimum and the
@@ -137,7 +146,7 @@ export const SHELF_SPACING = {
   // it sits at the bottom. iPadOS puts the bar at the TOP, so a tablet clears far less.
   phone: { headingSize: 13, headingLine: 16, headingGap: 7, rowGap: 10, chrome: 180 },
   tablet: { headingSize: 16, headingLine: 20, headingGap: 14, rowGap: 22, chrome: 147 },
-  tv: { headingSize: 26, headingLine: 30, headingGap: 8, rowGap: 36, chrome: 250 },
+  tv: { headingSize: 26, headingLine: 30, headingGap: 0, rowGap: 44, chrome: 250 },
 } as const;
 
 export type ShelfSpacing = (typeof SHELF_SPACING)[keyof typeof SHELF_SPACING];
@@ -148,6 +157,9 @@ export function shelfSpacing(isTV: boolean, windowWidth: number, windowHeight: n
   const shortSide = Number.isFinite(windowHeight) && windowHeight > 0 ? Math.min(windowWidth, windowHeight) : windowWidth;
   return shortSide >= GRID.PHONE_WIDE_MIN_WIDTH ? SHELF_SPACING.tablet : SHELF_SPACING.phone;
 }
+
+/** The resting fill of a card's base, corner notch and pills: the card surface, so it stands off the canvas. */
+export const CARD_CHROME = COLORS.SURFACE;
 
 /** The base under a card's art that names it. */
 export const STAND_HEIGHT = Platform.isTV ? 34 : 24;
@@ -250,7 +262,8 @@ export function liveRowHeight(landscapeHeight: number, padding: number): number 
   return ((landscapeHeight - 2 * padding) * GRID.LANDSCAPE_RATIO) / GRID.LIVE_RATIO + 2 * padding;
 }
 
-export function slotRowHeights(windowWidth: number, windowHeight: number, insetLeft: number, insetRight: number, isTV: boolean, surface: "shelf" | "grid" = "shelf"): SlotRowHeights {
+/** `zoom` is the card zoom: the saved size, and off TV the pinch's choice clamped to the window (see cardZoomCeiling). */
+export function slotRowHeights(windowWidth: number, windowHeight: number, insetLeft: number, insetRight: number, isTV: boolean, surface: "shelf" | "grid" = "shelf", zoom = 1): SlotRowHeights {
   const usable = windowWidth - gridEdgePadding(insetLeft, isTV) - gridEdgePadding(insetRight, isTV);
   const padding = slotCardPadding(isTV);
   if (isTV) {
@@ -259,13 +272,13 @@ export function slotRowHeights(windowWidth: number, windowHeight: number, insetL
     if (surface === "grid") {
       const per = GRID.TV_GRID_PER_ROW;
       return {
-        portrait: Math.round(filling(per.portrait, GRID.PORTRAIT_RATIO)),
-        square: Math.round(filling(per.square, 1)),
-        landscape: Math.round(filling(per.landscape, GRID.LANDSCAPE_RATIO)),
+        portrait: Math.round(filling(per.portrait, GRID.PORTRAIT_RATIO) * zoom),
+        square: Math.round(filling(per.square, 1) * zoom),
+        landscape: Math.round(filling(per.landscape, GRID.LANDSCAPE_RATIO) * zoom),
       };
     }
     const landscapeAnchor = filling(4, GRID.LANDSCAPE_RATIO);
-    const height = Math.round(landscapeAnchor * GRID.CARD_ROW_SCALE_TV);
+    const height = Math.round(landscapeAnchor * GRID.CARD_ROW_SCALE_TV * zoom);
     return { portrait: height, square: height, landscape: height };
   }
   // Width buys density, never size: the device factor is sub-linear, the rotation factor
@@ -295,8 +308,43 @@ export function slotRowHeights(windowWidth: number, windowHeight: number, insetL
     square: shapeHeight(per.square, 1),
     landscape: shapeHeight(surface === "grid" ? per.landscapeGrid : per.landscapeShelf, GRID.LANDSCAPE_RATIO),
   };
-  const scale = surface === "grid" ? 1 : shelfFillScale(rows, usable, padding, windowWidth, windowHeight);
+  const scale = (surface === "grid" ? 1 : shelfFillScale(rows, usable, padding, windowWidth, windowHeight)) * zoom;
   return { portrait: Math.round(rows.portrait * scale), square: Math.round(rows.square * scale), landscape: Math.round(rows.landscape * scale) };
+}
+
+/**
+ * The largest card zoom a window takes: where the tallest default shelf row puts a wide card at
+ * MAX_CARD_WIDTH_SHARE of the usable width (MAX_CARD_WIDTH_SHARE_PHONE on a phone), and never below 1, so no
+ * screen is shrunk to fit it.
+ */
+export function cardZoomCeiling(windowWidth: number, windowHeight: number, insetLeft: number, insetRight: number): number {
+  const rows = slotRowHeights(windowWidth, windowHeight, insetLeft, insetRight, false);
+  const tallest = Math.max(rows.portrait, rows.square, rows.landscape);
+  if (tallest <= 0) return 1;
+  const usable = windowWidth - gridEdgePadding(insetLeft, false) - gridEdgePadding(insetRight, false);
+  const padding = slotCardPadding(false);
+  const share = Math.min(windowWidth, windowHeight) >= GRID.PHONE_WIDE_MIN_WIDTH ? GRID.MAX_CARD_WIDTH_SHARE : GRID.MAX_CARD_WIDTH_SHARE_PHONE;
+  const ceiling = (share * usable - 2 * padding) / GRID.LANDSCAPE_RATIO + 2 * padding;
+  return Math.max(1, ceiling / tallest);
+}
+
+/** Columns of a TV folder grid that mixes posters with wide cards: fewer as the cards grow. */
+export function tvGridColumns(zoom: number): number {
+  return Math.max(2, Math.round(GRID.TV_GRID_PER_ROW.portrait / zoom));
+}
+
+/** Server poster heights a card asks for, in pixels; few sizes, so a zoom reuses cached art. */
+const POSTER_HEIGHTS = [200, 400, 600, 900, 1200];
+
+/**
+ * The poster height a card requests: the smallest size covering its drawn height in pixels. TV keeps 300 at the
+ * cards' own size and grows it with the zoom; a card with no known height (a column grid) keeps 200.
+ */
+export function cardPosterHeight(cardHeight: number | undefined, isTV: boolean, pixelRatio: number, zoom = 1): number {
+  if (isTV) return Math.round(300 * zoom);
+  if (cardHeight == null || !(cardHeight > 0)) return POSTER_HEIGHTS[0];
+  const pixels = cardHeight * pixelRatio;
+  return POSTER_HEIGHTS.find((height) => height >= pixels) ?? POSTER_HEIGHTS[POSTER_HEIGHTS.length - 1];
 }
 
 /**
@@ -343,7 +391,7 @@ export function slotColumns(orientation: SlotOrientation, isTV: boolean, windowW
 // Design system values
 export const DESIGN = {
   /** Standard border radius for cards and grid items */
-  BORDER_RADIUS_CARD: Platform.isTV ? 20 : 12,
+  BORDER_RADIUS_CARD: Platform.isTV ? 23 : 14,
   /** Border radius for medium elements (settings rows, etc) */
   BORDER_RADIUS_MEDIUM: 12,
   /** Standard border radius for buttons */

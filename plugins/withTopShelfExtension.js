@@ -22,7 +22,7 @@ const path = require("path");
 
 const TARGET_NAME = "TopShelf";
 const BUNDLE_ID = "dev.keiver.tomotv.TopShelf";
-const EXTENSION_FILES = ["ContentProvider.swift", "TopShelf-Info.plist", "TopShelf.entitlements", "TopShelfPlaceholder.png"];
+const EXTENSION_FILES = ["ContentProvider.swift", "ShelfChannelEdits.swift", "TopShelf-Info.plist", "TopShelf.entitlements", "TopShelfPlaceholder.png"];
 const APP_GROUP = "group.dev.keiver.tomotv";
 // The app-side module that tells tvOS the shelf changed (services/topShelfFrames.ts).
 const RELOAD_DIR = "TopShelfReload";
@@ -125,7 +125,7 @@ function withTopShelfExtension(config) {
     const target = xcodeProject.addTarget(TARGET_NAME, "app_extension", TARGET_NAME, BUNDLE_ID);
     console.log("[TopShelf] ✓ Target created");
 
-    xcodeProject.addBuildPhase([`${TARGET_NAME}/ContentProvider.swift`], "PBXSourcesBuildPhase", "Sources", target.uuid);
+    xcodeProject.addBuildPhase([`${TARGET_NAME}/ContentProvider.swift`, `${TARGET_NAME}/ShelfChannelEdits.swift`], "PBXSourcesBuildPhase", "Sources", target.uuid);
     console.log("[TopShelf] ✓ Sources build phase added");
 
     // Placeholder art for items with no Primary image (the app icon) rides in the

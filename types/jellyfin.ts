@@ -158,6 +158,8 @@ export interface JellyfinVideoItem {
   // yet, so server-side writes (favorite, record) and the server lane are unavailable.
   playlistPending?: boolean;
   ChannelNumber?: string;
+  // A channel the viewer renamed: Name is what shows, SourceName the server's own name, which lists and guides match by.
+  SourceName?: string;
   CurrentProgram?: JellyfinProgram | null;
   // A Live TV programme found by search (Type "Program"): its airing and its channel.
   StartDate?: string;
@@ -267,8 +269,27 @@ export interface JellyfinNamedItem {
   Name: string;
 }
 
-// Active filter selection for a library view. Any non-default value flattens
-// the view to a recursive query (Jellyfin web behavior).
+/** The server's ItemSortBy values the app offers. */
+export type LibrarySortBy =
+  | "SortName"
+  | "DateCreated"
+  | "DateLastContentAdded"
+  | "PremiereDate"
+  | "ProductionYear"
+  | "CommunityRating"
+  | "CriticRating"
+  | "OfficialRating"
+  | "Runtime"
+  | "DatePlayed"
+  | "SeriesDatePlayed"
+  | "PlayCount"
+  | "Album"
+  | "AlbumArtist"
+  | "Artist";
+export type LibrarySortOrder = "Ascending" | "Descending";
+
+// Active sort and filter selection for a library view. Any non-default filter flattens
+// the view to a recursive query (Jellyfin web behavior); the sort never does.
 export interface LibraryFilters {
   favorite: boolean;
   played: boolean;
@@ -277,6 +298,8 @@ export interface LibraryFilters {
   artistIds: string[];
   years: number[];
   shuffle: boolean;
+  sortBy: LibrarySortBy;
+  sortOrder: LibrarySortOrder;
 }
 
 export const EMPTY_FILTERS: LibraryFilters = {
@@ -287,11 +310,23 @@ export const EMPTY_FILTERS: LibraryFilters = {
   artistIds: [],
   years: [],
   shuffle: false,
+  sortBy: "SortName",
+  sortOrder: "Ascending",
 };
 
-/** Number of active selections (shuffle counts as one). Drives the badge on the Filters button. */
+/** True when the selection asks for the server's own order: by name, ascending, not shuffled. */
+export function isDefaultSort(filters: LibraryFilters): boolean {
+  return !filters.shuffle && filters.sortBy === EMPTY_FILTERS.sortBy && filters.sortOrder === EMPTY_FILTERS.sortOrder;
+}
+
+/** True when a selection narrows the listing (not the sort). */
+export function hasContentFilters(filters: LibraryFilters): boolean {
+  return filters.favorite || filters.played || filters.unplayed || filters.genres.length > 0 || filters.artistIds.length > 0 || filters.years.length > 0;
+}
+
+/** Number of active selections (a changed sort or shuffle counts as one). Drives the badge on the Sort & Filter button. */
 export function countActiveFilters(filters: LibraryFilters): number {
-  return Number(filters.favorite) + Number(filters.played) + Number(filters.unplayed) + filters.genres.length + filters.artistIds.length + filters.years.length + Number(filters.shuffle);
+  return Number(filters.favorite) + Number(filters.played) + Number(filters.unplayed) + filters.genres.length + filters.artistIds.length + filters.years.length + Number(!isDefaultSort(filters));
 }
 
 // Navigation stack entry for breadcrumb

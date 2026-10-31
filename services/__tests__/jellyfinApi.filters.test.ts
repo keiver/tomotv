@@ -147,6 +147,29 @@ describe("library filters (issue #54)", () => {
       expect(lastRequestUrl().searchParams.get("SortBy")).toBe("Random");
     });
 
+    it("sends the chosen sort and order, on the plain browse too, without flattening it", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => emptyItemsResponse });
+
+      await fetchFolderContents("folder-1", { filters: { ...EMPTY_FILTERS, sortBy: "DateCreated", sortOrder: "Descending" } });
+
+      const url = lastRequestUrl();
+      expect(url.searchParams.get("SortBy")).toBe("DateCreated");
+      expect(url.searchParams.get("SortOrder")).toBe("Descending");
+      expect(url.searchParams.get("Recursive")).toBe("false");
+    });
+
+    it("sends the chosen sort with a filter, and Random over it when shuffled", async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => emptyItemsResponse });
+      await fetchFolderContents("folder-1", { filters: { ...EMPTY_FILTERS, genres: ["Rock"], sortBy: "Runtime" } });
+      expect(lastRequestUrl().searchParams.get("SortBy")).toBe("Runtime");
+      expect(lastRequestUrl().searchParams.get("Recursive")).toBe("true");
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => emptyItemsResponse });
+      await fetchFolderContents("folder-1", { filters: { ...EMPTY_FILTERS, sortBy: "Runtime", sortOrder: "Descending", shuffle: true } });
+      expect(lastRequestUrl().searchParams.get("SortBy")).toBe("Random");
+      expect(lastRequestUrl().searchParams.get("SortOrder")).toBe("Ascending");
+    });
+
     it("requests UserData so favorite state reaches the UI", async () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => emptyItemsResponse });
 
@@ -157,7 +180,7 @@ describe("library filters (issue #54)", () => {
   });
 
   describe("fetchFilteredVideos (full-set queue source)", () => {
-    it("uses the same flatten filter shape as the grid, with a stable SortName order", async () => {
+    it("uses the same flatten filter shape as the grid, in the selection's own stable order", async () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [{ Id: "a" }], TotalRecordCount: 1 }) });
 
       await fetchFilteredVideos("lib-1", { ...EMPTY_FILTERS, genres: ["Rock", "Jazz"], shuffle: true });
@@ -169,6 +192,12 @@ describe("library filters (issue #54)", () => {
       // Fetched stably even when shuffle is on — shuffle happens client-side, not via SortBy=Random,
       // so pagination can't duplicate/miss items.
       expect(url.searchParams.get("SortBy")).toBe("SortName");
+      expect(url.searchParams.get("SortOrder")).toBe("Ascending");
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [{ Id: "b" }], TotalRecordCount: 1 }) });
+      await fetchFilteredVideos("lib-1", { ...EMPTY_FILTERS, genres: ["Rock"], sortBy: "PremiereDate", sortOrder: "Descending" });
+      expect(lastRequestUrl().searchParams.get("SortBy")).toBe("PremiereDate");
+      expect(lastRequestUrl().searchParams.get("SortOrder")).toBe("Descending");
     });
 
     it("switches to IncludeItemTypes for artist filters, comma-delimited ids", async () => {

@@ -1,4 +1,4 @@
-import { GRID, gridEdgePadding, itemSlotRatio, shelfHeadingBlock, shelfSpacing, slotCardPadding, slotRowHeights } from "../app";
+import { cardPosterHeight, cardZoomCeiling, GRID, gridEdgePadding, itemSlotRatio, shelfHeadingBlock, shelfSpacing, slotCardPadding, slotRowHeights, tvGridColumns } from "../app";
 
 const PAD = slotCardPadding(false);
 /** The width a card renders at for a given row height (video-grid-item / folder-grid-item). */
@@ -148,5 +148,67 @@ describe("slotRowHeights density", () => {
     const { heights } = metrics(DEVICES[1], "landscape");
     expect(cardWidth(heights.portrait, itemSlotRatio(2 / 3))).toBeCloseTo(cardWidth(heights.portrait, GRID.PORTRAIT_RATIO), 5);
     expect(cardWidth(heights.landscape, itemSlotRatio(16 / 9))).toBeCloseTo(cardWidth(heights.landscape, GRID.LANDSCAPE_RATIO), 5);
+  });
+});
+
+describe("card zoom", () => {
+  it("multiplies every shelf and grid height by the zoom", () => {
+    for (const surface of ["shelf", "grid"] as const) {
+      const base = slotRowHeights(1194, 834, 0, 0, false, surface);
+      const zoomed = slotRowHeights(1194, 834, 0, 0, false, surface, 1.5);
+      for (const { key } of SHAPES) expect(Math.abs(zoomed[key] - base[key] * 1.5)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("multiplies TV shelf and grid heights by the zoom too", () => {
+    for (const surface of ["shelf", "grid"] as const) {
+      for (const zoom of [0.75, 1.5]) {
+        const base = slotRowHeights(1920, 1080, 80, 80, true, surface);
+        const zoomed = slotRowHeights(1920, 1080, 80, 80, true, surface, zoom);
+        for (const { key } of SHAPES) expect(Math.abs(zoomed[key] - base[key] * zoom)).toBeLessThanOrEqual(1.25);
+      }
+    }
+  });
+
+  it("gives a TV column grid fewer columns as the cards grow: 9, 7, 6 and 5", () => {
+    expect([0.75, 1, 1.25, 1.5].map(tvGridColumns)).toEqual([9, 7, 6, 5]);
+  });
+
+  it("lets an iPhone in portrait grow until its tallest shelf card puts a wide card at the phone share of the usable width", () => {
+    const ceiling = cardZoomCeiling(393, 852, 0, 0);
+    expect(ceiling).toBeGreaterThan(1.1);
+    const heights = slotRowHeights(393, 852, 0, 0, false, "shelf", ceiling);
+    const tallest = Math.max(heights.portrait, heights.square, heights.landscape);
+    const usable = 393 - 2 * gridEdgePadding(0, false);
+    expect(Math.abs(cardWidth(tallest, GRID.LANDSCAPE_RATIO) / usable - GRID.MAX_CARD_WIDTH_SHARE_PHONE)).toBeLessThan(0.01);
+  });
+
+  it("lets a tablet or desktop window grow until its tallest shelf card puts a wide card at half the usable width", () => {
+    for (const [w, h] of [
+      [1194, 834],
+      [1400, 900],
+    ]) {
+      const ceiling = cardZoomCeiling(w, h, 0, 0);
+      expect(ceiling).toBeGreaterThan(1);
+      const heights = slotRowHeights(w, h, 0, 0, false, "shelf", ceiling);
+      const tallest = Math.max(heights.portrait, heights.square, heights.landscape);
+      const usable = w - 2 * gridEdgePadding(0, false);
+      expect(Math.abs(cardWidth(tallest, GRID.LANDSCAPE_RATIO) / usable - GRID.MAX_CARD_WIDTH_SHARE)).toBeLessThan(0.005);
+    }
+  });
+});
+
+describe("cardPosterHeight", () => {
+  it("asks for the smallest poster that covers the card's drawn height in pixels", () => {
+    expect(cardPosterHeight(143, false, 3)).toBe(600);
+    expect(cardPosterHeight(520, false, 2)).toBe(1200);
+    expect(cardPosterHeight(90, false, 2)).toBe(200);
+  });
+
+  it("stops at 1200, keeps 300 on TV at the cards' own size and 450 at 1.5, and 200 for a card with no known height", () => {
+    expect(cardPosterHeight(900, false, 2)).toBe(1200);
+    expect(cardPosterHeight(400, true, 1)).toBe(300);
+    expect(cardPosterHeight(600, true, 1, 1.5)).toBe(450);
+    expect(cardPosterHeight(undefined, false, 2)).toBe(200);
   });
 });

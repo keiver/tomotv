@@ -11,6 +11,7 @@
 
 import Foundation
 import Network
+import React
 
 /// One TCP connect probe target.
 private struct PortTarget {
@@ -128,9 +129,10 @@ private final class PortScanner {
     }
 }
 
-/// React Native module exposing the active interface's IPv4 configuration.
+/// React Native module exposing the active interface's IPv4 configuration, and
+/// `onNetworkPath` events while JS listens.
 @objc(NetworkInfo)
-class NetworkInfo: NSObject {
+class NetworkInfo: RCTEventEmitter {
 
     private static let probeQueue = DispatchQueue(label: "tv.tomo.httpsprobe", qos: .utility)
 
@@ -257,6 +259,41 @@ class NetworkInfo: NSObject {
     ) {
         DispatchQueue.global().async {
             resolve(NetworkInfo.activeIPv4Interface())
+        }
+    }
+
+    private static let pathQueue = DispatchQueue(label: "tv.tomo.networkpath", qos: .utility)
+
+    /// Touched only on `pathQueue`.
+    private var pathMonitor: NWPathMonitor?
+    private var lastAvailable: Bool?
+
+    // RCTEventEmitter.h carries no nullability audit, so the imported Swift
+    // signature is the implicitly-unwrapped [String]!.
+    override func supportedEvents() -> [String]! { ["onNetworkPath"] }
+
+    /// `{ available }` for NWPathMonitor's first path, then on every change of `.satisfied`.
+    override func startObserving() {
+        Self.pathQueue.async { [self] in
+            guard pathMonitor == nil else { return }
+            let monitor = NWPathMonitor()
+            monitor.pathUpdateHandler = { [weak self] path in
+                guard let self else { return }
+                let available = path.status == .satisfied
+                guard available != self.lastAvailable else { return }
+                self.lastAvailable = available
+                self.sendEvent(withName: "onNetworkPath", body: ["available": available])
+            }
+            pathMonitor = monitor
+            monitor.start(queue: Self.pathQueue)
+        }
+    }
+
+    override func stopObserving() {
+        Self.pathQueue.async {
+            self.pathMonitor?.cancel()
+            self.pathMonitor = nil
+            self.lastAvailable = nil
         }
     }
 

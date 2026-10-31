@@ -7,7 +7,7 @@ const mockParams: { opened?: string } = {};
 const mockGuide = { rows: [], isLoading: false, isUpdating: false, error: null, nowMs: 0 };
 jest.mock("@/contexts/AuthContext", () => ({ useAuth: () => ({ isConnected: true, isReady: true }) }));
 jest.mock("@/contexts/LoadingContext", () => ({ useLoadingActions: () => ({ showGlobalLoader: jest.fn() }) }));
-jest.mock("@/components/settings/ServerConnectScreen", () => ({ ServerConnectScreen: () => null }));
+jest.mock("@/components/settings/WhoIsWatchingScreen", () => ({ WhoIsWatchingScreen: () => null }));
 jest.mock("@/hooks/useGuide", () => ({ useGuide: () => mockGuide, invalidateGuideReads: jest.fn() }));
 jest.mock("@/hooks/useAuthSession", () => ({ useAuthSession: () => "session" }));
 jest.mock("@/hooks/useChannelFavoritesSync", () => ({ useChannelFavoritesSync: jest.fn() }));

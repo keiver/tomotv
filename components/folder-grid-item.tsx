@@ -1,12 +1,26 @@
 import { CARD_BADGE_INSET, CardBadge, showsFavoriteHeart } from "@/components/card-badge";
-import { CardCornerTab } from "@/components/card-corner-tab";
+import { CardCornerNotch } from "@/components/card-corner-notch";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardStand } from "@/components/card-stand";
 import { PosterCollage } from "@/components/poster-collage";
-import { artworkSlotShape, CARD_DEPTH, CARD_FOCUS, cardSlotRatio, DESIGN, RAISED_EDGE, slotColumns, STAND_HEIGHT, STAND_ROW_ROOM, type SlotOrientation } from "@/constants/app";
+import {
+  artworkSlotShape,
+  CARD_CHROME,
+  CARD_DEPTH,
+  CARD_FOCUS,
+  cardPosterHeight,
+  cardSlotRatio,
+  DESIGN,
+  RAISED_EDGE,
+  slotColumns,
+  STAND_HEIGHT,
+  STAND_ROW_ROOM,
+  type SlotOrientation,
+} from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardNavProgress } from "@/hooks/useCardNavProgress";
 import { useCardPalette } from "@/hooks/useCardPalette";
+import { useCardZoom } from "@/hooks/useCardZoom";
 import { useFolderPreview } from "@/hooks/useFolderPreview";
 import { useViewItemCount } from "@/hooks/useViewItemCount";
 import { folderPosterSource } from "@/services/itemArtwork";
@@ -17,11 +31,10 @@ import { JellyfinItem } from "@/types/jellyfin";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
+import { PixelRatio, Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 
 const IS_TV = Platform.isTV;
 const CARD_PADDING = IS_TV ? 16 : 8;
-const POSTER_SIZE = IS_TV ? 300 : 200;
 
 interface FolderGridItemProps {
   folder: JellyfinItem;
@@ -105,8 +118,10 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
     [],
   );
 
+  const zoom = useCardZoom();
   // What the server gives the folder. With nothing, the card shows a collage of its first videos.
-  const thumbnailSource = useMemo(() => folderPosterSource(folder, POSTER_SIZE), [folder]);
+  const posterHeight = cardPosterHeight(cardHeight, IS_TV, PixelRatio.get(), zoom);
+  const thumbnailSource = useMemo(() => folderPosterSource(folder, posterHeight), [folder, posterHeight]);
   const preview = useFolderPreview(folder, !thumbnailSource);
 
   // The card's slot ratio (see cardSlotRatio, shared with the row packer so rendered and
@@ -181,19 +196,20 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
           : t("a11y.folderNav").replace("{name}", folderName)
       }>
       <View style={[styles.card, IS_TV ? null : depth, styles.cardOverhang]}>
-        {/* TV: a solid layer behind the picture carries the depth, so the card stays clear for its base. */}
-        {IS_TV ? <View style={[styles.depthLayer, depth, !focused && styles.depthLayerArt]} pointerEvents="none" /> : null}
-        {itemCount != null ? <CardCornerTab segments={[{ label: itemCount.toLocaleString(locale()) }]} focused={focused} /> : null}
+        {/* TV: a solid layer behind the card carries the depth, so the card itself needs no fill. */}
+        {IS_TV ? <View style={[styles.depthLayer, depth]} pointerEvents="none" /> : null}
         <View style={[styles.imageContainer, { aspectRatio: cardRatio }, styles.squareBottom]}>
           {thumbnailSource ? (
             <Image source={thumbnailSource} style={styles.poster} contentFit="cover" transition={0} priority={index < 10 ? "high" : "normal"} cachePolicy="memory-disk" recyclingKey={folder.Id} />
           ) : preview.length > 0 ? (
-            <PosterCollage items={preview} height={POSTER_SIZE} deferWhileVideo shape={artworkSlotShape(cardRatio)} />
+            <PosterCollage items={preview} height={posterHeight} deferWhileVideo shape={artworkSlotShape(cardRatio)} />
           ) : (
             <View style={styles.placeholderPoster}>
               <Ionicons name={isLiveTv ? "tv-outline" : "folder-outline"} size={IS_TV ? 90 : 56} color="rgba(255, 255, 255, 0.45)" />
             </View>
           )}
+
+          {itemCount != null ? <CardCornerNotch segments={[{ label: itemCount.toLocaleString(locale()) }]} focused={focused} /> : null}
 
           {recording ? (
             <View style={styles.recBadge} pointerEvents="none">
@@ -205,7 +221,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
         </View>
         <View>
           <CardStand name={folderName || t("a11y.folder")} icon={showsFavoriteHeart(folder) ? "heart" : undefined} focused={focused} progress={folderWatchedProgress(folder)} scrolls />
-          {navBarVisible ? <CardNavProgress active={navigating} title={folderName || t("a11y.folder")} stand baseColor={COLORS.SURFACE_SUNKEN} /> : null}
+          {navBarVisible ? <CardNavProgress active={navigating} title={folderName || t("a11y.folder")} stand baseColor={CARD_CHROME} /> : null}
         </View>
         {focused ? <View style={[styles.focusRing, { borderColor: palette.accent }]} pointerEvents="none" /> : null}
       </View>
@@ -268,16 +284,13 @@ const styles = StyleSheet.create({
     shadowRadius: IS_TV ? CARD_DEPTH.SHADOW_RADIUS.tv : CARD_DEPTH.SHADOW_RADIUS.phone,
     elevation: CARD_DEPTH.ELEVATION,
   },
+  // One point inside the art: a second rounded edge on the art's own curve darkens its corner pixels.
   depthLayer: {
     position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  // At rest the layer stops at the art, leaving the base over the canvas.
-  depthLayerArt: {
-    bottom: STAND_HEIGHT,
+    top: 1,
+    left: 1,
+    right: 1,
+    bottom: 1,
   },
   // Overrides every resting shadow prop: a leftover depth offset would smear the glow downward.
   // The glow's colour is the theme's, set inline.

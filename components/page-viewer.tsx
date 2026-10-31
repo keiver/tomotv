@@ -42,6 +42,14 @@ function clampTranslate(value: number, scale: number, extent: number) {
   return Math.min(Math.max(value, -limit), limit);
 }
 
+/** Which way a tap at `x` steps: back inside the left band, forward inside the right one, else none. */
+export function edgeTapStep(x: number, width: number, edgeFraction: number): 1 | -1 | 0 {
+  if (edgeFraction <= 0 || width <= 0) return 0;
+  if (x < width * edgeFraction) return -1;
+  if (x > width * (1 - edgeFraction)) return 1;
+  return 0;
+}
+
 /**
  * Style for one page buffer. A slide brings the front buffer in on an opaque canvas over an
  * untouched back buffer: fading the back one turned a white book page grey under the finger.
@@ -105,6 +113,8 @@ export interface PageViewerProps {
   onZoomSettled?: (level: number) => void;
   /** Keep the chrome up, and its auto-hide off, while the owner is busy (a text relayout). */
   holdChrome?: boolean;
+  /** A tap inside this fraction of the width at either edge steps the page; absent, a tap only wakes the chrome. */
+  edgeTapFraction?: number;
   /** Focus holder and step zones for VoiceOver. */
   accessibilityLabel: string;
   accessibilityHint?: string;
@@ -116,7 +126,7 @@ export interface PageViewerProps {
 
 /**
  * Full-screen page stepper shared by the photo viewer and the book reader. Left/right (remote,
- * keyboard, drag) step pages with a slide; a pinch or double tap zooms on touch, play/pause and
+ * keyboard, drag, a tap at an edge) step pages with a slide; a pinch or double tap zooms on touch, play/pause and
  * ⌘+/⌘- zoom on TV and Mac, and a zoomed page pans by drag or by remote presses. Menu pops the
  * screen natively (no handler): this screen must stay a regular push, or TV remote events never
  * reach it.
@@ -144,6 +154,7 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
     zoomMode,
     onZoomSettled,
     holdChrome = false,
+    edgeTapFraction = 0,
     accessibilityLabel,
     accessibilityHint,
     previousLabel,
@@ -432,19 +443,28 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
     [zoomMode, zoomScale, zoomTx, zoomTy, resetZoom, revealChrome, settleZoom, viewportW, viewportH],
   );
 
-  // A tap only wakes the chrome. Stepping by tap is gone from touch: it read the SIDE the
-  // finger was on rather than the way it travelled, and it ran simultaneously with the pan,
-  // so a short drag in the left third went backwards however it was dragged. Dragging is the
-  // gesture here; the remote keeps its own left and right on tvOS, which renders no gestures.
+  // A tap wakes the chrome, and at rest a tap inside an edge band steps the page; a zoomed page
+  // pans on the arrows instead, so its edges do not step either. maxDistance keeps a short drag
+  // out of it: the pan activates past 12pt and a tap fails past 10, so one movement is never both.
+  const handleTap = useCallback(
+    (x: number) => {
+      revealChrome();
+      if (zoomLevelRef.current > 1) return;
+      const step = edgeTapStep(x, viewportWidth, edgeTapFraction);
+      if (step !== 0) goStep(step);
+    },
+    [revealChrome, goStep, viewportWidth, edgeTapFraction],
+  );
   const wakeTapGesture = React.useMemo(
     () =>
       Gesture.Tap()
         .numberOfTaps(1)
-        .onEnd(() => {
+        .maxDistance(10)
+        .onEnd((e) => {
           "worklet";
-          runOnJS(revealChrome)();
+          runOnJS(handleTap)(e.x);
         }),
-    [revealChrome],
+    [handleTap],
   );
 
   // ── Drag-to-navigate (phone) ──────────────────────────────────────────────────────────────

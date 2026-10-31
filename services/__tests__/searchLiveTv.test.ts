@@ -13,7 +13,10 @@ jest.mock("../jellyfin/tunerGroups", () => ({ fetchTunerData: jest.fn(), guideCh
 jest.mock("../jellyfin/liveTv", () => ({ ...jest.requireActual("../jellyfin/liveTv"), fetchChannelOrder: jest.fn(async () => []) }));
 const { fetchChannelOrder } = jest.requireMock("../jellyfin/liveTv") as { fetchChannelOrder: jest.Mock };
 jest.mock("@/services/externalGuide", () => ({ activeGuideUrls: jest.requireActual("@/services/externalGuide").activeGuideUrls, searchExternalPrograms: jest.fn() }));
-jest.mock("@/services/liveTvPreferences", () => ({ getLiveTvPreferences: jest.fn(() => ({ guideUrls: [], guideSourcesOff: [] })) }));
+jest.mock("@/services/liveTvPreferences", () => ({
+  ...jest.requireActual("@/services/liveTvPreferences"),
+  getLiveTvPreferences: jest.fn(() => ({ guideUrls: [], guideSourcesOff: [], hidden: [], renames: [] })),
+}));
 jest.mock("../jellyfin/liveTvSearchIndex", () => ({ ...jest.requireActual("../jellyfin/liveTvSearchIndex"), liveTvSearchIndex: jest.fn(() => null), liveTvSearchIndexVersion: jest.fn(() => 0) }));
 const { liveTvSearchIndex, liveTvSearchIndexVersion } = jest.requireMock("../jellyfin/liveTvSearchIndex") as { liveTvSearchIndex: jest.Mock; liveTvSearchIndexVersion: jest.Mock };
 
@@ -110,6 +113,19 @@ describe("searchLiveTv", () => {
     searchExternalPrograms.mockResolvedValue([]);
     liveTvSearchIndex.mockReturnValue(null);
     liveTvSearchIndexVersion.mockReturnValue(0);
+  });
+
+  it("leaves out a hidden channel and its programmes, and shows a renamed channel under its name", async () => {
+    getLiveTvPreferences.mockReturnValue({ guideUrls: [], guideSourcesOff: [], hidden: [{ name: "c1" }], renames: [{ name: "c2", displayName: "Second" }] });
+    fetchChannelOrder.mockResolvedValue([channel("c1"), channel("c2")]);
+    serve(ok([channel("c1"), channel("c2")]), ok([airing("on-c1", "c1", "the yankees play"), airing("on-c2", "c2", "the yankees play")]));
+    const results = await searchLiveTv("yankees");
+    expect(results.map((item) => [item.Id, item.Name])).toEqual([
+      ["c2", "Second"],
+      ["on-c2", "MLB Baseball"],
+    ]);
+    // The lineup is read first, so a programme's channel id can be told hidden.
+    expect(fetchChannelOrder).toHaveBeenCalled();
   });
 
   describe("the server's programme index", () => {
@@ -266,7 +282,7 @@ describe("searchLiveTv", () => {
   });
 
   describe("guide sources", () => {
-    const GUIDE = "http://host:8000/pluto-guide.xml.gz";
+    const GUIDE = "http://host:8000/harbor-guide.xml.gz";
     const listing = (channelId: string, startOffsetMin: number, overview: string) => ({
       Id: `epg:${channelId}:${startOffsetMin}`,
       Name: "MLB Baseball",
@@ -300,23 +316,23 @@ describe("searchLiveTv", () => {
     });
 
     it("asks the viewer's own guides too, less those switched off, and never for a two-letter term", async () => {
-      getLiveTvPreferences.mockReturnValue({ guideUrls: ["http://mine/epg.xml"], guideSourcesOff: [GUIDE] });
+      getLiveTvPreferences.mockReturnValue({ guideUrls: ["http://mine/epg.xml"], guideSourcesOff: [GUIDE], hidden: [], renames: [] });
       serve(ok([]), ok([]));
       await searchLiveTv("ya");
       expect(searchExternalPrograms).not.toHaveBeenCalled();
       await searchLiveTv("yankees");
       expect(searchExternalPrograms.mock.calls[0][0]).toEqual(["http://mine/epg.xml"]);
-      getLiveTvPreferences.mockReturnValue({ guideUrls: [], guideSourcesOff: [] });
+      getLiveTvPreferences.mockReturnValue({ guideUrls: [], guideSourcesOff: [], hidden: [], renames: [] });
     });
 
     it("asks the viewer's guides for Jellyfin's channels by name when no tuner playlist names them", async () => {
       fetchTunerData.mockResolvedValue(NO_TUNER);
-      getLiveTvPreferences.mockReturnValue({ guideUrls: ["http://mine/epg.xml"], guideSourcesOff: [] });
+      getLiveTvPreferences.mockReturnValue({ guideUrls: ["http://mine/epg.xml"], guideSourcesOff: [], hidden: [], renames: [] });
       fetchChannelOrder.mockResolvedValueOnce([{ Id: "c9", Name: "Sports One", Type: "TvChannel", Path: "" }]);
       serve(ok([]), ok([]));
       searchExternalPrograms.mockResolvedValue([listing("c9", 30, "Yankees at Rays.")]);
       const result = await searchLiveTv("yankees");
-      getLiveTvPreferences.mockReturnValue({ guideUrls: [], guideSourcesOff: [] });
+      getLiveTvPreferences.mockReturnValue({ guideUrls: [], guideSourcesOff: [], hidden: [], renames: [] });
       expect(searchExternalPrograms.mock.calls[0][1]).toEqual([{ channelId: "c9", tvgId: undefined, tvgName: undefined, name: "Sports One" }]);
       expect(result[0]).toMatchObject({ ChannelId: "c9", ChannelName: "Sports One" });
     });
@@ -332,12 +348,12 @@ describe("searchLiveTv", () => {
 
     it("still asks the viewer's own guides by Jellyfin name when the tuner read is refused", async () => {
       fetchTunerData.mockRejectedValueOnce(new Error("403"));
-      getLiveTvPreferences.mockReturnValue({ guideUrls: ["http://mine/epg.xml"], guideSourcesOff: [] });
+      getLiveTvPreferences.mockReturnValue({ guideUrls: ["http://mine/epg.xml"], guideSourcesOff: [], hidden: [], renames: [] });
       fetchChannelOrder.mockResolvedValueOnce([{ Id: "c9", Name: "Sports One", Type: "TvChannel", Path: "" }]);
       serve(ok([]), ok([]));
       searchExternalPrograms.mockResolvedValue([listing("c9", 30, "Yankees at Rays.")]);
       const result = await searchLiveTv("yankees");
-      getLiveTvPreferences.mockReturnValue({ guideUrls: [], guideSourcesOff: [] });
+      getLiveTvPreferences.mockReturnValue({ guideUrls: [], guideSourcesOff: [], hidden: [], renames: [] });
       expect(searchExternalPrograms.mock.calls[0][0]).toEqual(["http://mine/epg.xml"]);
       expect(result[0]).toMatchObject({ ChannelId: "c9", ChannelName: "Sports One" });
     });
@@ -377,15 +393,15 @@ describe("searchLiveTv", () => {
 
     it("asks the server for each term and joins the names, each once", async () => {
       serveNames({
-        pluto: [named("c1", "Pluto TV Animation"), named("c2", "Pluto TV News")],
-        animation: [named("c3", "Comedy Central Animation"), named("c1", "Pluto TV Animation")],
+        harbor: [named("c1", "Harbor TV Animation"), named("c2", "Harbor TV News")],
+        animation: [named("c3", "Comedy Central Animation"), named("c1", "Harbor TV Animation")],
       });
-      const result = await searchLiveTv("pluto + animation");
+      const result = await searchLiveTv("harbor + animation");
       expect(result.map((item) => item.Id)).toEqual(["c1", "c3", "c2"]);
       const asked = urls()
         .filter((url) => url.includes("/Items?"))
         .map((url) => new URL(url).searchParams.get("searchTerm"));
-      expect(asked.sort()).toEqual(["animation", "pluto"]);
+      expect(asked.sort()).toEqual(["animation", "harbor"]);
     });
 
     it("keeps a term's channel when the other term names nothing", async () => {
@@ -394,8 +410,8 @@ describe("searchLiveTv", () => {
     });
 
     it("gives every term a place under the cap when one term fills it alone", async () => {
-      serveNames({ pluto: Array.from({ length: 40 }, (_, i) => named(`p${i}`, `Pluto ${i}`)), veguitas: [named("v1", "Veguitas TV")] });
-      const result = (await searchLiveTv("pluto + veguitas")).map((item) => item.Id);
+      serveNames({ harbor: Array.from({ length: 40 }, (_, i) => named(`p${i}`, `Harbor ${i}`)), veguitas: [named("v1", "Veguitas TV")] });
+      const result = (await searchLiveTv("harbor + veguitas")).map((item) => item.Id);
       expect(result).toHaveLength(30);
       expect(result.slice(0, 2)).toEqual(["p0", "v1"]);
     });
@@ -424,9 +440,9 @@ describe("searchLiveTv", () => {
     });
 
     it("reports a partial only once every term has answered, holding each term's cards", async () => {
-      serveNames({ pluto: [named("c1", "Pluto TV")], veguitas: [named("c2", "Veguitas TV")] });
+      serveNames({ harbor: [named("c1", "Harbor TV")], veguitas: [named("c2", "Veguitas TV")] });
       const updates: string[][] = [];
-      const result = await searchLiveTv("pluto + veguitas", (items) => updates.push(items.map(({ Id }) => Id)));
+      const result = await searchLiveTv("harbor + veguitas", (items) => updates.push(items.map(({ Id }) => Id)));
       expect(updates.length).toBeGreaterThan(0);
       for (const update of updates) expect(update).toEqual(["c1", "c2"]);
       expect(result.map((item) => item.Id)).toEqual(["c1", "c2"]);
@@ -444,11 +460,11 @@ describe("searchLiveTv", () => {
   });
 
   it("warms the airing set and opens no guide source", async () => {
-    getLiveTvPreferences.mockReturnValue({ guideUrls: ["http://mine/epg.xml"], guideSourcesOff: [] });
+    getLiveTvPreferences.mockReturnValue({ guideUrls: ["http://mine/epg.xml"], guideSourcesOff: [], hidden: [], renames: [] });
     serve(ok([]), ok([]));
     await warmLiveTvSearch();
     expect(urls().some((url) => url.includes("/LiveTv/Programs"))).toBe(true);
     expect(searchExternalPrograms).not.toHaveBeenCalled();
-    getLiveTvPreferences.mockReturnValue({ guideUrls: [], guideSourcesOff: [] });
+    getLiveTvPreferences.mockReturnValue({ guideUrls: [], guideSourcesOff: [], hidden: [], renames: [] });
   });
 });

@@ -42,6 +42,7 @@ final class MacKeyCommandsViewController: UIViewController {
         (",", .command, "settings", "Settings"),
         ("=", .command, "zoomIn", "Zoom In"),
         ("-", .command, "zoomOut", "Zoom Out"),
+        ("0", .command, "zoomReset", "Actual Size"),
     ]
 
     /// Keys offered only while a screen has claimed them. Registered unconditionally the bare
@@ -95,7 +96,18 @@ final class MacKeyCommandsViewController: UIViewController {
                     discoverabilityTitle: entry.title
                 )
             }
-            commands += Self.contextCommands(for: MacKeyCommands.keyContext).map { entry in
+            #if DEBUG
+            // RCTKeyCommands.m skips its own ⌘R while any responder is first, and this controller always is.
+            commands.append(UIKeyCommand(
+                title: "Reload",
+                action: #selector(handleReloadKey(_:)),
+                input: "r",
+                modifierFlags: .command,
+                discoverabilityTitle: "Reload"
+            ))
+            #endif
+            let context = MacKeyCommands.keyContext
+            commands += Self.contextCommands(for: context).map { entry in
                 let command = UIKeyCommand(
                     title: entry.title,
                     action: #selector(handleKey(_:)),
@@ -104,9 +116,11 @@ final class MacKeyCommandsViewController: UIViewController {
                     propertyList: entry.key,
                     discoverabilityTitle: entry.title
                 )
-                // AVKit answers these itself from nearer the first responder when it wants
-                // them, and a presented player must keep its own transport.
-                command.wantsPriorityOverSystemBehavior = false
+                // UIKeyCommand.h: a command yields to focus and text-editing system commands
+                // unless it wants priority, and a bare arrow is a focus command. A page viewer has
+                // nothing to focus, so its arrows take priority. The seek keys stay behind AVKit,
+                // which answers them itself from nearer the first responder when it wants them.
+                command.wantsPriorityOverSystemBehavior = context == "photo"
                 return command
             }
         }
@@ -160,7 +174,7 @@ final class MacKeyCommandsViewController: UIViewController {
         NSLog("[MacKeyCommands] first responder claimed: \(claimed)")
     }
 
-    /// The first Escape leaves a text field, the second leaves the screen — the
+    /// The first Escape leaves a text field, the second leaves the screen: the
     /// macOS convention, and what keeps Escape from navigating out of Search or
     /// the login form mid-typing.
     @objc
@@ -182,6 +196,14 @@ final class MacKeyCommandsViewController: UIViewController {
         NSLog("[MacKeyCommands] \(key) pressed")
         MacKeyCommands.emit(key: key)
     }
+
+    #if DEBUG
+    @objc
+    private func handleReloadKey(_ sender: UIKeyCommand) {
+        NSLog("[MacKeyCommands] reload pressed")
+        RCTTriggerReloadCommandListeners("Command + R")
+    }
+    #endif
 
     /// The focused text input, if there is one. Walked rather than asked for:
     /// UIKit exposes no public accessor for the current first responder.

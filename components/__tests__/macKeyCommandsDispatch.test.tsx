@@ -9,17 +9,22 @@ import TestRenderer, { act } from "react-test-renderer";
 import { MacKeyCommands } from "@/components/mac-key-commands";
 import { audioPlayerManager } from "@/services/audioPlayerManager";
 import type { MacKey } from "@/services/macKeyCommands";
+import { getCardZoom, setCardZoom } from "@/services/cardZoom";
+import { getUiPreferences } from "@/services/uiPreferences";
 import { router } from "expo-router";
 
 jest.mock("@/utils/hostEnvironment", () => ({ IS_MAC: true }));
+const mockPulse = jest.fn();
+jest.mock("@/components/card-zoom-pinch", () => ({ pulseCardZoomLimit: (side: number) => mockPulse(side) }));
 
 let mockPress: ((key: MacKey) => void) | null = null;
 const mockKeyClaims: string[] = [];
 const mockEscape = { consumed: false };
 jest.mock("@/services/macKeyCommands", () => ({
-  MAC_KEYS: ["escape", "playPause", "previousTrack", "nextTrack", "search", "settings", "previousPhoto", "nextPhoto", "seekBackward", "seekForward"],
+  MAC_KEYS: ["escape", "playPause", "previousTrack", "nextTrack", "search", "settings", "previousPhoto", "nextPhoto", "seekBackward", "seekForward", "zoomIn", "zoomOut", "zoomReset"],
   MAC_SEEK_SECONDS: 15,
   consumeMacEscape: () => mockEscape.consumed,
+  macKeyContext: () => mockKeyClaims[mockKeyClaims.length - 1]?.split(":")[1] ?? "",
   claimMacContextKeys: (owner: string, context: string) => {
     mockKeyClaims.push(`${owner}:${context}`);
     return () => {
@@ -135,6 +140,35 @@ describe("Mac key dispatch", () => {
     mount();
     act(() => mockPress?.("playPause"));
     expect(audioPlayerManager.setPlaying).toHaveBeenCalledWith(false);
+  });
+
+  it("steps the card zoom while browsing, and leaves it to the photo viewer while that holds the keys", () => {
+    setCardZoom(1);
+    mount();
+    act(() => mockPress?.("zoomOut"));
+    expect(getCardZoom()).toBeCloseTo(0.85, 10);
+    mockKeyClaims.push("viewer:photo");
+    act(() => mockPress?.("zoomOut"));
+    expect(getCardZoom()).toBeCloseTo(0.85, 10);
+    setCardZoom(1);
+  });
+
+  it("pulses the cards instead of writing when a key runs into the smallest size", () => {
+    setCardZoom(0.75);
+    mount();
+    act(() => mockPress?.("zoomOut"));
+    expect(mockPulse).toHaveBeenCalledWith(-1);
+    expect(getCardZoom()).toBe(0.75);
+    setCardZoom(1);
+  });
+
+  it("puts the cards back at their own size on Command-0, and saves it", () => {
+    setCardZoom(0.85);
+    expect(getUiPreferences().cardSize).toBe(0.85);
+    mount();
+    act(() => mockPress?.("zoomReset"));
+    expect(getCardZoom()).toBe(1);
+    expect(getUiPreferences().cardSize).toBe(1);
   });
 
   it("changes track only while a queue is running", () => {

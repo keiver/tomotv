@@ -278,7 +278,7 @@ extension RemuxSession {
         while true {
             stateLock.lock()
             let dead = failed || cancelled || sourceUnusable
-            let hasAlternative = !copyOnlyMaster && !adoptedStarts.isEmpty && config.tiers.indices.contains { !rungsUnavailable.contains($0) }
+            let hasAlternative = hasLiveRungAlternativeLocked()
             let wire = testLinkBps ?? wireLinkBps ?? 0
             let affordable = !hasAlternative || sourceBandwidth <= 0 || wire >= Double(sourceBandwidth) * 1.2 || copyBufferHoldsLocked()
             let ready = !sourceReleased && affordable

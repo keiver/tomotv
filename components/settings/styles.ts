@@ -111,6 +111,12 @@ export function downloadsListHeight(fontScale: number): number {
 
 export const DOWNLOADS_LIST_HEIGHT = downloadsListHeight(1);
 
+// Demo credits rows are poster-led like downloads rows and pin the same lines, so the
+// artwork is the content height. The screen fits whole rows to the measured height; this
+// count only sizes the first frame, before the screen has measured itself.
+const VISIBLE_DEMO_CREDIT_ROWS = Platform.isTV ? 6 : 8;
+export const POSTER_ROW_HEIGHT = ROW_PADDING_V * 2 + POSTER_MARK_SIDE;
+
 // Parts of the section card's inset shadow (see `section`), split out so an
 // opaquely-filled row can re-paint exactly the parts it covers. The side
 // shading uses x-offsets with a negative spread so it stays off the row's
@@ -165,7 +171,7 @@ export const useSettingsAccentStyles = themedStyles((palette) => ({
 }));
 
 // The Add Server slot holds a real field, not a label line, so it is taller than
-// a plain row — the same way a field row is taller than a label row in a system
+// a plain row, the same way a field row is taller than a label row in a system
 // grouped list. Both the CTA and the field are laid out at this one height, which
 // is what keeps the swap between them from moving the rows underneath.
 export const ADD_ROW_PADDING_V = Platform.isTV ? 20 : 8;
@@ -176,8 +182,7 @@ export const ADD_SERVER_ROW_HEIGHT = ADD_ROW_PADDING_V * 2 + CONTROL_HEIGHT;
 export const TV_PUSHED_HEADER_TOP = 117;
 
 export const settingsStyles = StyleSheet.create({
-  // Screen layout — shared by the Settings tab and ServerConnectScreen (the full-screen
-  // connect widget the Library and Search tabs show when no server is connected).
+  // Screen layout, shared by the Settings tab and the connect screens.
   screenContainer: {
     flex: 1,
   },
@@ -226,7 +231,7 @@ export const settingsStyles = StyleSheet.create({
   // Extra air above JELLYFIN SERVER on the logged-out surfaces: the Settings tab with no
   // server, and the full-screen stand-in the Home and Search tabs render in place of their
   // content. One section gap's worth (the same 32 / 12 that separates two cards), so the
-  // first header sits as far off the top of the page as the sections sit off each other —
+  // first header sits as far off the top of the page as the sections sit off each other,
   // on TV especially, where there is no screen title between it and the tab bar.
   // Not on a step that centres its content (the pushed login steps on TV): a top margin there
   // would only shift the floating block up by half of itself.
@@ -251,7 +256,7 @@ export const settingsStyles = StyleSheet.create({
   // Section (Grouped List)
   // The sunken look lives on the section itself: an inset boxShadow paints above
   // the background but below children, and the rows are transparent (see
-  // listItem) so it shows through. No overlay view — anything rendered above a
+  // listItem) so it shows through. No overlay view: anything rendered above a
   // focusable occludes it on tvOS and the focus engine refuses to enter.
   // The tight rim keeps the edge defined instead of reading as a faded vignette.
   section: {
@@ -281,10 +286,14 @@ export const settingsStyles = StyleSheet.create({
   downloadsScrollable: {
     maxHeight: DOWNLOADS_LIST_HEIGHT,
   },
+  // The Demo credits list, capped on the same rule: see VISIBLE_DEMO_CREDIT_ROWS.
+  demoCreditsScrollable: {
+    maxHeight: Math.round(POSTER_ROW_HEIGHT * VISIBLE_DEMO_CREDIT_ROWS),
+  },
   // Overlay variant of the section's inset shadow, for cards whose content
   // paints an opaque background above the container (the sunken text input's
   // field). Phone-only surfaces ONLY: on tvOS an overlay above a focusable
-  // occludes it and kills focus — the section cards carry the shadow on the
+  // occludes it and kills focus, so the section cards carry the shadow on the
   // container itself instead (see section above).
   sectionInnerShadow: {
     position: "absolute",
@@ -299,7 +308,7 @@ export const settingsStyles = StyleSheet.create({
   // Top lip only, for phone cards whose first child paints an opaque surface over
   // the container's own inset shadow (ConnectedSection's sunken tile bleeds past
   // the card's top edge). `section` still supplies the bottom lip and rim beneath
-  // the transparent rows, so this deliberately repeats neither — stacking both
+  // the transparent rows, so this deliberately repeats neither: stacking both
   // would darken the bottom edge. Phone-only, same tvOS rule as
   // sectionInnerShadow: never render it above a focusable.
   sectionTopShadow: {
@@ -316,7 +325,7 @@ export const settingsStyles = StyleSheet.create({
   // rows, video-info's artwork header): the section's own shadow paints below
   // children, so an opaque fill hides it. Every variant carries the side rim;
   // edge rows add the lip they cover. Carried by the row itself, never an
-  // overlay — the tvOS occlusion rule above.
+  // overlay, the tvOS occlusion rule above.
   rowShadowTop: {
     boxShadow: `${LIP_TOP}, ${RIM_SIDES}`,
   },
@@ -366,7 +375,7 @@ export const settingsStyles = StyleSheet.create({
   // List Items
   // Transparent rows: the section card paints the surface, so the inset-shadow
   // overlay can render UNDER the rows and still show through. It must never sit
-  // above them — on tvOS any view covering a focusable occludes it and the
+  // above them: on tvOS any view covering a focusable occludes it and the
   // focus engine refuses to enter (react-native-tvos reports
   // isUserInteractionEnabled YES for every plain view; pointerEvents can't opt out).
   listItem: {
@@ -431,7 +440,7 @@ export const settingsStyles = StyleSheet.create({
     gap: Platform.isTV ? 12 : 8,
   },
   // Sized a step under the field's own text (28 TV / 20 phone) so it reads as a
-  // label rather than a heading. The container's gap owns the space beneath it —
+  // label rather than a heading. The container's gap owns the space beneath it,
   // a marginBottom here would stack on top of that and double the split.
   // Indented off the row's edge so it doesn't start flush against the card wall.
   inputLabel: {

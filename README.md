@@ -19,7 +19,7 @@ and Expo.
 
 <p align="center">
   <a href="https://apps.apple.com/us/app/tomo-tv/id6755077888">
-    <img src="applestore/captures/tv/01-library.png" width="100%" alt="Tomo TV Home on Apple TV: a Libraries row of Live TV, Music, Home Videos and Photos and Films, above a Continue row of episode and movie cards with yellow progress bars"/>
+    <img src="applestore/captures/tv/01-library.png" width="100%" alt="Tomo TV Home on Apple TV: a Libraries row of Live TV, Music, Home Videos and Photos and Films, above a Continue row of episode and movie cards with progress filling their names"/>
   </a>
 </p>
 
@@ -85,8 +85,9 @@ permission on the server overrides all three.
 - **Quality.** Auto plays the original alone when the connection can carry it.
   On a slower connection the playlist adds smaller server streams, if the
   account is allowed to transcode and Server transcoding is at When needed, and
-  AVPlayer switches between them and the original. The connection is timed on
-  real files: Settings reads ten seconds of one in the library.
+  AVPlayer switches between them and the original; a refused server stream
+  leaves the original alone. The connection is timed on real files: Settings
+  reads ten seconds of one in the library.
 - **Live TV** uses the same engine and never the server's transcoder. HLS and
   DASH origins are read directly, tuner streams are read from their source when
   the device can reach it, otherwise through the server untouched. A dropped
@@ -142,10 +143,11 @@ The scripts detect a missing Metal Toolchain and offer to install it after
 approval. Signing and local FFmpeg setup are covered in
 [the release guide](docs/RELEASING.md#mac-setup-and-local-validation).
 
-In the app, open **Settings → Scan Network** to find servers on your network, or
-type an address; reverse-proxy paths work. Sign in with Quick Connect or a
-password. Submitting the empty Add Server field connects to Jellyfin's public
-demo.
+When nothing is signed in, Tomo opens on Who's watching: your saved accounts as
+faces, a Demo face while none is saved, and Add Account. From Add Account (or
+**Settings → Switch Server**), scan the network or type an address;
+reverse-proxy paths work. Sign in with Quick Connect or a password. Submitting
+the empty Add account field opens Tomo TV's demo library.
 
 ## Development
 
@@ -262,7 +264,7 @@ The shipped media stack is third-party and separately licensed: FFmpeg
 (LGPL 3.0), libzvbi (LGPL 2.0 or later), Mbed TLS, dav1d, uavs3d, libass,
 FreeType, HarfBuzz, GNU FriBidi, libarchive, XZ Utils and foliate-js.
 Full texts and per-component copyright are in the app under
-**Settings → Open Source**, and the engine's in
+**Settings → Licenses**, and the engine's in
 [`packages/tomo-engine/NOTICE.md`](packages/tomo-engine/NOTICE.md).
 
 ## Acknowledgments

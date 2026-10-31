@@ -1,11 +1,11 @@
-/** Signed out, the Live TV tab shows the connect widget and never loads a guide. */
+/** Signed out, the Live TV tab shows the Who's watching screen and never loads a guide. */
 import LiveTvRoute from "@/app/live-tv";
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 
 const mockAuth = { isConnected: false, isReady: true };
 jest.mock("@/contexts/AuthContext", () => ({ useAuth: () => mockAuth }));
-jest.mock("@/components/settings/ServerConnectScreen", () => ({ ServerConnectScreen: () => null }));
+jest.mock("@/components/settings/WhoIsWatchingScreen", () => ({ WhoIsWatchingScreen: () => null }));
 jest.mock("@/hooks/useGuide", () => ({ useGuide: jest.fn(), invalidateGuideReads: jest.fn() }));
 jest.mock("@/components/live-tv/guide-canvas", () => ({ GuideCanvas: () => null }));
 jest.mock("@/components/live-tv/guide-hud", () => ({ GuideHud: () => null }));
@@ -18,16 +18,16 @@ jest.mock("@/services/toast", () => ({ showToast: jest.fn() }));
 jest.mock("expo-router", () => ({ Stack: { Screen: () => null }, useLocalSearchParams: () => ({}), useRouter: () => ({ push: jest.fn() }) }));
 jest.mock("expo-router/react-navigation", () => ({ useHeaderHeight: () => 0 }));
 
-const { ServerConnectScreen } = jest.requireMock("@/components/settings/ServerConnectScreen") as { ServerConnectScreen: React.ComponentType };
+const { WhoIsWatchingScreen } = jest.requireMock("@/components/settings/WhoIsWatchingScreen") as { WhoIsWatchingScreen: React.ComponentType };
 const { useGuide } = jest.requireMock("@/hooks/useGuide") as { useGuide: jest.Mock };
 
 describe("Live TV route", () => {
-  it("shows the connect widget signed out and never loads the guide", async () => {
+  it("shows Who's watching signed out and never loads the guide", async () => {
     let renderer!: TestRenderer.ReactTestRenderer;
     await act(async () => {
       renderer = TestRenderer.create(<LiveTvRoute />);
     });
-    expect(renderer.root.findByType(ServerConnectScreen).props).toEqual({ title: "liveTv.title" });
+    expect(renderer.root.findByType(WhoIsWatchingScreen).props).toEqual({ title: "liveTv.title" });
     expect(useGuide).not.toHaveBeenCalled();
   });
 

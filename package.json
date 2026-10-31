@@ -1,6 +1,6 @@
 {
   "name": "tomotv",
-  "version": "2.2.13",
+  "version": "2.2.14",
   "description": "Stream videos from your Jellyfin server on Apple TV with automatic transcoding",
   "main": "expo-router/entry",
   "author": "Keiver Hernandez <contact@keiver.dev>",
@@ -46,6 +46,8 @@
     "lint:fix": "eslint . --fix && prettier --write .",
     "licenses": "node scripts/generate-licenses.mjs",
     "licenses:check": "node scripts/generate-licenses.mjs --check",
+    "demo-credits": "node scripts/generate-demo-credits.mjs",
+    "demo-credits:check": "node scripts/generate-demo-credits.mjs --check",
     "test": "jest",
     "test:playback": "node scripts/playback-regression.mjs",
     "test:playback:preflight": "node scripts/playback-regression.mjs --preflight",
@@ -77,8 +79,6 @@
     "prepare": "husky",
     "probe:pixel-transfer": "node scripts/probe-pixel-transfer.mjs",
     "notes": "node scripts/translate-notes.mjs",
-    "demo:livetv": "scripts/demo-livetv/deploy.sh",
-    "demo:livetv:audit": "scripts/demo-livetv/audit.sh",
     "prebuild:all": "bash scripts/prebuild-all.sh",
     "prebuild:mac": "bash scripts/prebuild-mac.sh",
     "clearmac": "bash scripts/clear.sh --mac",
@@ -140,7 +140,7 @@
     "prettier": "^3.9.10",
     "react-test-renderer": "19.2.3",
     "ts-jest": "^29.4.14",
-    "tvos-assets": "^1.9.0",
+    "tvos-assets": "^1.11.0",
     "typescript": "~5.9.2"
   },
   "expo": {

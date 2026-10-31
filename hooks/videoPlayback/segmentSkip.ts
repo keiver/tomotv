@@ -14,3 +14,10 @@ export function segmentSkipTarget(windows: readonly MediaSegmentWindow[] | undef
   const hit = windows.find((window) => previous < window.startSeconds && current >= window.startSeconds && current < window.endSeconds - END_SLACK_SECONDS);
   return hit ? hit.endSeconds : null;
 }
+
+/** Where to seek when playback opens at `position` inside one of `windows`, else null. */
+export function openSkipTarget(windows: readonly MediaSegmentWindow[] | undefined, position: number): number | null {
+  if (!windows) return null;
+  const hit = windows.find((window) => position >= window.startSeconds && position < window.endSeconds - END_SLACK_SECONDS);
+  return hit ? hit.endSeconds : null;
+}

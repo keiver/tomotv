@@ -2,6 +2,7 @@
  * The viewer's choices for this device: one JSON document in the device's defaults, apart from any
  * server or account.
  */
+import { GRID } from "@/constants/app";
 import { type CardTheme, DEFAULT_CARD_THEME, parseCardTheme } from "@/services/cardTheme";
 import { logger } from "@/utils/logger";
 import { Settings } from "react-native";
@@ -30,10 +31,18 @@ export interface UiPreferences {
   listenForLyrics: boolean;
   /** Lyrics found for a song are saved to the Jellyfin server, where the account may. */
   saveLyrics: boolean;
+  /** Which of the server's Media Segments playback seeks past on its own. */
+  autoSkip: AutoSkip;
+  /** Every card's size as a share of its own, written by the Appearance stepper, a pinch or the Mac keys. */
+  cardSize: number;
 }
 
 export type BackgroundMode = "clear" | "accent" | "artwork";
 export const BACKGROUND_MODES: readonly BackgroundMode[] = ["artwork", "accent", "clear"];
+
+export type AutoSkipKind = "intro" | "recap" | "preview" | "commercial";
+export const AUTO_SKIP_KINDS: readonly AutoSkipKind[] = ["intro", "recap", "preview", "commercial"];
+export type AutoSkip = Record<AutoSkipKind, boolean>;
 
 export const DEFAULT_UI_PREFERENCES: UiPreferences = {
   version: 1,
@@ -45,13 +54,34 @@ export const DEFAULT_UI_PREFERENCES: UiPreferences = {
   findLyrics: true,
   listenForLyrics: true,
   saveLyrics: true,
+  autoSkip: { intro: false, recap: false, preview: false, commercial: true },
+  cardSize: 1,
 };
+
+/** Before this document carried autoSkip, the commercial switch lived in the live TV preferences. */
+const LIVE_TV_PREFERENCES_KEY = "app_live_tv_preferences";
 
 let current: UiPreferences | null = null;
 const listeners = new Set<() => void>();
 
-/** Every field falls back to its default on its own, so a document from another build still reads. */
-export function parseUiPreferences(raw: unknown): UiPreferences {
+function parseAutoSkip(raw: unknown, legacyCommercial: boolean | undefined): AutoSkip {
+  const source = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
+  const parsed = { ...DEFAULT_UI_PREFERENCES.autoSkip };
+  if (!source) {
+    if (typeof legacyCommercial === "boolean") parsed.commercial = legacyCommercial;
+    return parsed;
+  }
+  for (const kind of AUTO_SKIP_KINDS) {
+    if (typeof source[kind] === "boolean") parsed[kind] = source[kind] as boolean;
+  }
+  return parsed;
+}
+
+/**
+ * Every field falls back to its default on its own, so a document from another build still reads.
+ * `legacySkipCommercials` is the live TV document's switch, read only when this document has no autoSkip.
+ */
+export function parseUiPreferences(raw: unknown, legacySkipCommercials?: boolean): UiPreferences {
   let doc = raw;
   if (typeof raw === "string") {
     try {
@@ -77,21 +107,45 @@ export function parseUiPreferences(raw: unknown): UiPreferences {
     findLyrics: typeof source.findLyrics === "boolean" ? source.findLyrics : DEFAULT_UI_PREFERENCES.findLyrics,
     listenForLyrics: typeof source.listenForLyrics === "boolean" ? source.listenForLyrics : DEFAULT_UI_PREFERENCES.listenForLyrics,
     saveLyrics: typeof source.saveLyrics === "boolean" ? source.saveLyrics : DEFAULT_UI_PREFERENCES.saveLyrics,
+    autoSkip: parseAutoSkip(source.autoSkip, legacySkipCommercials),
+    cardSize:
+      typeof source.cardSize === "number" && Number.isFinite(source.cardSize) && source.cardSize >= GRID.CARD_ZOOM_MIN && source.cardSize <= GRID.CARD_ZOOM_MAX
+        ? source.cardSize
+        : DEFAULT_UI_PREFERENCES.cardSize,
   };
 }
 
+function legacySkipCommercials(): boolean | undefined {
+  try {
+    const raw = Settings.get(LIVE_TV_PREFERENCES_KEY);
+    const doc = typeof raw === "string" ? JSON.parse(raw) : raw;
+    const value = doc && typeof doc === "object" ? (doc as Record<string, unknown>).skipCommercials : undefined;
+    return typeof value === "boolean" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function persist(preferences: UiPreferences): void {
+  try {
+    Settings.set({ [UI_PREFERENCES_KEY]: JSON.stringify(preferences) });
+  } catch (error) {
+    logger.warn("UI preferences write failed", error, { service: "UiPreferences" });
+  }
+}
+
 export function getUiPreferences(): UiPreferences {
-  if (!current) current = parseUiPreferences(Settings.get(UI_PREFERENCES_KEY));
+  if (!current) {
+    const legacy = legacySkipCommercials();
+    current = parseUiPreferences(Settings.get(UI_PREFERENCES_KEY), legacy);
+    if (legacy === false) persist(current);
+  }
   return current;
 }
 
 export function updateUiPreferences(patch: Partial<Omit<UiPreferences, "version">>): void {
   current = { ...getUiPreferences(), ...patch };
-  try {
-    Settings.set({ [UI_PREFERENCES_KEY]: JSON.stringify(current) });
-  } catch (error) {
-    logger.warn("UI preferences write failed", error, { service: "UiPreferences" });
-  }
+  persist(current);
   for (const listener of listeners) listener();
 }
 

@@ -29,6 +29,20 @@ let package = Package(
             path: "Tests/TomoTunerGroupsTests",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        // The Top Shelf's channel edits file (plugins/withTopShelfExtension.js copies the same file
+        // into the extension). Its one Foundation-only file; the provider around it needs TVServices.
+        .target(
+            name: "TomoTopShelfEdits",
+            path: "TopShelf",
+            sources: ["ShelfChannelEdits.swift"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "TomoTopShelfEditsTests",
+            dependencies: ["TomoTopShelfEdits"],
+            path: "Tests/TomoTopShelfEditsTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         // The audio player's lyric timeline: which line and how much of it is sung at a time.
         // Its one Foundation-only file; the views around it need UIKit.
         .target(

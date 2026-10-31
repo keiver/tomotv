@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="4000" height="4000" viewBox="0 0 4000 4000">
+  <defs>
+    <radialGradient id="key" gradientUnits="userSpaceOnUse" cx="1300" cy="900" r="3400">
+      <stop offset="0" stop-color="#4A463E"/>
+      <stop offset="0.3" stop-color="#2E2C28"/>
+      <stop offset="0.65" stop-color="#1A1918"/>
+      <stop offset="1" stop-color="#0D0D0F"/>
+    </radialGradient>
+    <radialGradient id="veil" gradientUnits="userSpaceOnUse" cx="1500" cy="-300" r="2200">
+      <stop offset="0" stop-color="#FFE9B8" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#FFE9B8" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="4000" height="4000" fill="url(#key)"/>
+  <rect width="4000" height="4000" fill="url(#veil)"/>
+</svg>

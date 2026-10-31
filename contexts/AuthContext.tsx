@@ -1,5 +1,6 @@
 import { isAuthenticated, subscribeAuthChange, waitForConfig } from "@/services/jellyfinApi";
 import { getLiveTvPreferences } from "@/services/liveTvPreferences";
+import { unwindToLibrary } from "@/utils/rootRoutes";
 import { router } from "expo-router";
 import React, { createContext, ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
 
@@ -38,18 +39,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // Route to the Library tab on a runtime login, regardless of which screen the login happened
-  // on (Settings form, Quick Connect, or the Search tab's demo button). Guarded so the initial
-  // launch resolution (false→true alongside isReady) doesn't hijack a deep link.
-  //
-  // dismissTo, for the reason spelled out in hooks/useFinishLogin.ts: navigate would push a second
-  // (tabs) route over the login step instead of unwinding to the one already on the stack, leaving
-  // the connect screens reachable by pressing Menu from the Library. This effect and useFinishLogin
-  // both fire on a Quick Connect login; two pops to the same route are idempotent, two pushes were
-  // not.
+  // Route to the Library tab on a runtime login, whichever screen performed it. Guarded so the
+  // launch resolution (false to true alongside isReady) doesn't hijack a deep link. This effect and
+  // useFinishLogin both fire on a login; the unwind is idempotent.
   useEffect(() => {
     if (wasReadyRef.current && isReady && isConnected && !prevConnectedRef.current) {
-      router.dismissTo("/");
+      unwindToLibrary(router);
     }
     prevConnectedRef.current = isConnected;
     wasReadyRef.current = isReady;

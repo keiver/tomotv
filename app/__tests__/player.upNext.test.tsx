@@ -68,8 +68,8 @@ const mockSession = {
 };
 jest.mock("@/contexts/PlayerSessionContext", () => ({ usePlayerSession: () => mockSession }));
 
-const markers = (startSeconds: number): ItemMediaSegments => ({ intro: null, outro: { startSeconds, endSeconds: 60 }, commercials: [] });
-const noMarkers: ItemMediaSegments = { intro: null, outro: null, commercials: [] };
+const markers = (startSeconds: number): ItemMediaSegments => ({ intro: null, outro: { startSeconds, endSeconds: 60 }, recaps: [], previews: [], commercials: [] });
+const noMarkers: ItemMediaSegments = { intro: null, outro: null, recaps: [], previews: [], commercials: [] };
 const lastConfig = (): PlayerTvConfig => mockSession.setTvConfig.mock.calls.at(-1)![0];
 
 describe("tvOS Up Next timing", () => {

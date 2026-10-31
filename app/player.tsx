@@ -6,7 +6,7 @@ import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayerSession } from "@/contexts/PlayerSessionContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
-import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
+import { useUiPreferences } from "@/hooks/useUiPreferences";
 import { posterUri, wantsPosterFrame } from "@/services/itemArtwork";
 import {
   cancelTimer,
@@ -21,9 +21,10 @@ import {
   fetchVideoDetails,
   setVideoFavorite,
   type ItemMediaSegments,
+  type MediaSegmentWindow,
 } from "@/services/jellyfinApi";
 import { toggleFavoriteChannel } from "@/services/channelFavorites";
-import { getLiveTvPreferences, isFavoriteChannel, subscribeLiveTvPreferences } from "@/services/liveTvPreferences";
+import { channelDisplayName, getLiveTvPreferences, isFavoriteChannel, subscribeLiveTvPreferences } from "@/services/liveTvPreferences";
 import { recenterLiveRing, releaseLiveRing } from "@/services/liveRing";
 import { probeEmit } from "@/services/playbackProbe";
 import { showToast } from "@/services/toast";
@@ -446,9 +447,8 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
   }, [queue, currentIndex, isQueueMode, upcomingFrames, isLiveChannel, channelRing, windowChannels, videoId]);
   const infoPanelTitle = Platform.isTV && isLiveChannel ? t("liveTv.channels") : undefined;
 
-  // tvOS timed pills (AVKit-rendered, patched contextualActions prop): Skip
-  // Intro over the intro, Skip Credits over the outro, Skip Commercial over each
-  // break. Not gated on queue mode:
+  // tvOS timed pills (AVKit-rendered, patched contextualActions prop) over each
+  // segment playback does not skip on its own. Not gated on queue mode:
   // with no next item no proposal presents, and that case had no way past the
   // credits at all.
   //
@@ -456,24 +456,29 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
   // or anything opened outside queue mode. Where a card does present it lands on
   // the credits and covers the transport bar, so a pill under it would be a
   // second button for the job "Play Now" already does, out of reach.
+  const autoSkip = useUiPreferences().autoSkip;
   const contextualActions = useMemo(() => {
     if (!Platform.isTV || !segments) return undefined;
+    const pill = (title: string, window: MediaSegmentWindow) => ({ title, startSeconds: window.startSeconds, endSeconds: window.endSeconds - 1, seekToSeconds: window.endSeconds });
     const actions = [];
-    if (segments.intro) {
-      actions.push({ title: t("player.skipIntro"), startSeconds: segments.intro.startSeconds, endSeconds: segments.intro.endSeconds - 1, seekToSeconds: segments.intro.endSeconds });
-    }
-    if (segments.outro && !cardWillPresent) {
-      actions.push({ title: t("player.skipCredits"), startSeconds: segments.outro.startSeconds, endSeconds: segments.outro.endSeconds - 1, seekToSeconds: segments.outro.endSeconds });
-    }
-    for (const commercial of segments.commercials) {
-      actions.push({ title: t("player.skipCommercial"), startSeconds: commercial.startSeconds, endSeconds: commercial.endSeconds - 1, seekToSeconds: commercial.endSeconds });
-    }
+    if (segments.intro && !autoSkip.intro) actions.push(pill(t("player.skipIntro"), segments.intro));
+    if (!autoSkip.recap) for (const recap of segments.recaps) actions.push(pill(t("player.skipRecap"), recap));
+    if (!autoSkip.preview) for (const preview of segments.previews) actions.push(pill(t("player.skipPreview"), preview));
+    if (segments.outro && !cardWillPresent) actions.push(pill(t("player.skipCredits"), segments.outro));
+    if (!autoSkip.commercial) for (const commercial of segments.commercials) actions.push(pill(t("player.skipCommercial"), commercial));
     return actions.length > 0 ? actions : undefined;
-  }, [segments, cardWillPresent]);
+  }, [segments, cardWillPresent, autoSkip]);
 
-  // The phone has no pill: with the Channel Settings toggle on, playback seeks past each break itself.
-  const skipCommercials = useLiveTvPreferences().skipCommercials;
-  const skipWindows = useMemo(() => (!Platform.isTV && skipCommercials && segments && segments.commercials.length > 0 ? segments.commercials : undefined), [skipCommercials, segments]);
+  // Playback seeks past the chosen kinds itself; an empty list says the item's markers are known.
+  const skipWindows = useMemo(() => {
+    if (!segments) return undefined;
+    const windows: MediaSegmentWindow[] = [];
+    if (autoSkip.intro && segments.intro) windows.push(segments.intro);
+    if (autoSkip.recap) windows.push(...segments.recaps);
+    if (autoSkip.preview) windows.push(...segments.previews);
+    if (autoSkip.commercial) windows.push(...segments.commercials);
+    return windows.sort((a, b) => a.startSeconds - b.startSeconds);
+  }, [autoSkip, segments]);
 
   // tvOS transport bar heart (patched transportBarButtons prop): the playing
   // item's favorite state, server-backed for media, device-local for a live
@@ -1001,7 +1006,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     if (recordingHold) {
       const holdText = holdingTimer
         ? t("player.error.recordingHold")
-            .replace("{channel}", cleanLabel(holdingTimer.ChannelName ?? holdingTimer.Name))
+            .replace("{channel}", cleanLabel(channelDisplayName(getLiveTvPreferences(), { Id: holdingTimer.ChannelId, Name: holdingTimer.ChannelName ?? holdingTimer.Name })))
             .replace("{time}", formatClock(recordingWindow(holdingTimer).endMs))
         : playbackState.error;
       return (

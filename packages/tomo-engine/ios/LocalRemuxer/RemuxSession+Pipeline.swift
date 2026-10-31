@@ -21,6 +21,7 @@ private let SWIFT_AV_NOPTS_VALUE = Int64(bitPattern: 0x8000_0000_0000_0000)
 private let SWIFT_AV_TIME_BASE: Int32 = 1_000_000
 private let SWIFT_AVSEEK_FLAG_BACKWARD: Int32 = 1
 private let SWIFT_AVSEEK_FLAG_BYTE: Int32 = 2
+private let SWIFT_AVSEEK_FLAG_ANY: Int32 = 4
 private let SWIFT_AVSEEK_SIZE: Int32 = 0x10000
 private let SWIFT_AVFMT_FLAG_CUSTOM_IO: Int32 = 0x0080
 private let SWIFT_AVERROR_EIO: Int32 = -5
@@ -321,6 +322,10 @@ extension RemuxSession {
     /// A landing further than this before the target seeks again rather than reading forward to it.
     static let byteSeekSlack = 18.0
     static let byteSeekTries = 3
+    /// A seek that landed short reads from this far before its target for the last keyframe at or
+    /// before it, then this far past it for the first one after, before the session fails.
+    static let keyframeScanBackSeconds = 15.0
+    static let keyframeScanSeconds = 30.0
 
     static func restartSeekSegment(for segment: Int, partialOpens: Int, prerolls: Bool = false) -> Int {
         max(0, segment - min(partialOpens + (prerolls ? 1 : 0), partialOpenLookback))
@@ -543,18 +548,6 @@ extension RemuxSession {
         }
     }
 
-    /// AudioSpecificConfig for an ADTS AAC stream the demuxer gave no extradata for (a TS source;
-    /// this build has no aac_adtstoasc bsf). ADTS carries Main/LC/SSR/LTP, profile = object type - 1.
-    static func aacAudioSpecificConfig(_ par: UnsafeMutablePointer<AVCodecParameters>) -> Data? {
-        let rates = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350]
-        guard let rateIndex = rates.firstIndex(of: Int(par.pointee.sample_rate)) else { return nil }
-        let channels = Int(par.pointee.ch_layout.nb_channels)
-        guard (1...7).contains(channels) else { return nil }
-        let objectType = (0...3).contains(par.pointee.profile) ? Int(par.pointee.profile) + 1 : 2
-        let bits = (objectType << 11) | (rateIndex << 7) | (channels << 3)
-        return Data([UInt8(bits >> 8), UInt8(bits & 0xFF)])
-    }
-
     /// Build (or rebuild) the muxer for one rendition and write its init
     /// segment. Returns false on a fatal error.
     func buildMuxer(for rendition: Rendition, input: UnsafeMutablePointer<AVFormatContext>) -> Bool {
@@ -636,11 +629,13 @@ extension RemuxSession {
                 // raw frames in the samples (its ADTS check returns -1 on the first packet).
                 if outStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_AAC,
                    outStream.pointee.codecpar.pointee.extradata_size == 0,
-                   let config = Self.aacAudioSpecificConfig(outStream.pointee.codecpar),
-                   let buf = av_mallocz(config.count + SWIFT_AV_INPUT_BUFFER_PADDING_SIZE) {
-                    config.withUnsafeBytes { raw in buf.copyMemory(from: raw.baseAddress!, byteCount: config.count) }
+                   let adts = adtsConfigs[inIndex],
+                   let buf = av_mallocz(adts.audioSpecificConfig.count + SWIFT_AV_INPUT_BUFFER_PADDING_SIZE) {
+                    adts.audioSpecificConfig.withUnsafeBytes { raw in buf.copyMemory(from: raw.baseAddress!, byteCount: adts.audioSpecificConfig.count) }
                     outStream.pointee.codecpar.pointee.extradata = buf.assumingMemoryBound(to: UInt8.self)
-                    outStream.pointee.codecpar.pointee.extradata_size = Int32(config.count)
+                    outStream.pointee.codecpar.pointee.extradata_size = Int32(adts.audioSpecificConfig.count)
+                    // The sample entry carries the core rate, as Apple's encoder writes it; SBR's output rate is in the config.
+                    outStream.pointee.codecpar.pointee.sample_rate = adts.coreSampleRate
                     rendition.adtsStreams.insert(Int32(output.pointee.nb_streams - 1))
                 }
             }
@@ -663,7 +658,7 @@ extension RemuxSession {
                 let codec: String?
                 switch parameters.codec_id {
                 case AV_CODEC_ID_AAC:
-                    codec = parameters.profile >= 0 ? "mp4a.40.\(parameters.profile + 1)" : nil
+                    codec = adtsConfigs[inIndex]?.codecs ?? (parameters.profile >= 0 ? "mp4a.40.\(parameters.profile + 1)" : nil)
                 case AV_CODEC_ID_FLAC: codec = "fLaC"
                 case AV_CODEC_ID_ALAC: codec = "alac"
                 case AV_CODEC_ID_AC3: codec = "ac-3"
@@ -1857,24 +1852,96 @@ extension RemuxSession {
         // track from the encoder.
         func makeTranscoder(for streamIndex: Int32) -> AudioTranscoder?? {
             guard let audioStream = input.pointee.streams[Int(streamIndex)] else { return .some(nil) }
-            guard AudioTranscoder.needsTranscode(stream: audioStream) else { return .some(nil) }
+            // ADTS AAC the parser gave no setup for cannot be copied: movenc refuses its first frame.
+            let bareAdts = audioStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_AAC
+                && audioStream.pointee.codecpar.pointee.extradata_size == 0 && adtsConfigs[streamIndex] == nil
+            guard bareAdts || AudioTranscoder.needsTranscode(stream: audioStream) else { return .some(nil) }
             guard let transcoder = AudioTranscoder(inputStream: audioStream) else {
                 return nil // unrecoverable
             }
             return .some(transcoder)
         }
 
-        /// Reads to the first keyframe carrying parameter sets, lifts them (and
-        /// missing dimensions) onto the stream, and returns that keyframe for the
-        /// read loop to replay. Skipped packets are scanned for embedded captions.
-        func readToOpeningParameterSets(videoStream: UnsafeMutablePointer<AVStream>) -> UnsafeMutablePointer<AVPacket>? {
-            var packet = av_packet_alloc()
-            defer { av_packet_free(&packet) }
-            guard let pkt = packet else { return nil }
+        // Packets read before the loop, which replays them in order: the ADTS setup read keeps every
+        // packet it scanned, the parameter-set read adds the opening keyframe, and a seek drops them.
+        var queuedPackets: [UnsafeMutablePointer<AVPacket>] = []
+        func dropQueuedPackets() {
+            for packet in queuedPackets {
+                var freeing: UnsafeMutablePointer<AVPacket>? = packet
+                av_packet_free(&freeing)
+            }
+            queuedPackets = []
+        }
+        defer { dropQueuedPackets() }
+
+        /// The ADTS AAC inputs the demuxer gave no setup for.
+        func bareAdtsStreams() -> [Int32] {
+            audioIndices.filter { index in
+                guard let par = input.pointee.streams[Int(index)]?.pointee.codecpar else { return false }
+                return par.pointee.codec_id == AV_CODEC_ID_AAC && par.pointee.extradata_size == 0
+            }
+        }
+
+        /// Feeds each stream's opening ADTS frames to Apple's parser until it has the setup, queueing every
+        /// packet. A stream still without one after 8 frames, or 256 packets in all, is left to the transcoder.
+        func readAdtsConfigs(_ streams: [Int32]) {
+            var readers: [Int32: AdtsConfigReader] = [:]
+            for index in streams {
+                if let reader = AdtsConfigReader() { readers[index] = reader }
+            }
+            var scanned = 0
+            while !readers.isEmpty, scanned < 256 {
+                let pkt: UnsafeMutablePointer<AVPacket>
+                if scanned < queuedPackets.count {
+                    pkt = queuedPackets[scanned]
+                } else {
+                    guard let fresh = av_packet_alloc() else { break }
+                    guard av_read_frame(input, fresh) >= 0 else {
+                        var freeing: UnsafeMutablePointer<AVPacket>? = fresh
+                        av_packet_free(&freeing)
+                        break
+                    }
+                    queuedPackets.append(fresh)
+                    pkt = fresh
+                }
+                scanned += 1
+                let index = pkt.pointee.stream_index
+                guard let reader = readers[index], let data = pkt.pointee.data else { continue }
+                if let config = reader.feed(data, count: Int(pkt.pointee.size)) {
+                    adtsConfigs[index] = config
+                    NSLog("[LocalRemuxer] ADTS stream %d: %@ setup read from %d frame(s), core %d Hz %d ch",
+                          index, config.codecs, reader.framesFed, config.coreSampleRate, config.coreChannels)
+                    readers[index] = nil
+                } else if reader.framesFed >= 8 {
+                    NSLog("[LocalRemuxer] ADTS stream %d: no setup after %d frames", index, reader.framesFed)
+                    readers[index] = nil
+                }
+            }
+            if !readers.isEmpty { NSLog("[LocalRemuxer] ADTS setup read ended after %d packets with %d stream(s) unread", scanned, readers.count) }
+        }
+
+        /// Reads to the first keyframe carrying parameter sets, lifts them (and missing dimensions) onto
+        /// the stream, and queues that keyframe for the read loop. Queued packets are scanned first; the
+        /// packets read past them are dropped, scanned for embedded captions.
+        func readToOpeningParameterSets(videoStream: UnsafeMutablePointer<AVStream>) {
             let hevc = videoStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_HEVC
             var bareKeyframes = 0
-            var queued: UnsafeMutablePointer<AVPacket>? = nil
-            while av_read_frame(input, pkt) >= 0 {
+            var scanned = 0
+            while true {
+                let pkt: UnsafeMutablePointer<AVPacket>
+                let fromQueue = scanned < queuedPackets.count
+                if fromQueue {
+                    pkt = queuedPackets[scanned]
+                } else {
+                    guard let fresh = av_packet_alloc() else { break }
+                    guard av_read_frame(input, fresh) >= 0 else {
+                        var freeing: UnsafeMutablePointer<AVPacket>? = fresh
+                        av_packet_free(&freeing)
+                        break
+                    }
+                    pkt = fresh
+                }
+                scanned += 1
                 let isKeyframe = pkt.pointee.stream_index == videoIn && pkt.pointee.flags & SWIFT_AV_PKT_FLAG_KEY != 0
                 // An open-GOP recovery point is flagged a keyframe yet carries no parameter sets
                 // (only IDRs do), so the session opens on the first keyframe that has them.
@@ -1921,27 +1988,28 @@ extension RemuxSession {
                     NSLog("[LocalRemuxer] Dimensions read from the lifted SPS: %dx%d", dims.width, dims.height)
                 }
                 if opensOnKeyframe {
-                    queued = av_packet_clone(pkt)
-                    av_packet_unref(pkt)
+                    if !fromQueue { queuedPackets.append(pkt) }
                     break
                 }
-                av_packet_unref(pkt)
+                if !fromQueue {
+                    var freeing: UnsafeMutablePointer<AVPacket>? = pkt
+                    av_packet_free(&freeing)
+                }
             }
             mark("parameter_sets")
-            return queued
         }
+
+        adtsConfigs = [:]
+        readAdtsConfigs(bareAdtsStreams())
 
         // A live TS answers neither field_order nor extradata at the probe, so an
         // interlaced H.264 copy would reach AVPlayer woven. Read to the opening
         // keyframe first: its SPS picks the lane, and the keyframe replays below.
-        // The defer frees the clone on every exit that never replayed it.
-        var queuedPacket: UnsafeMutablePointer<AVPacket>? = nil
-        defer { if queuedPacket != nil { av_packet_free(&queuedPacket) } }
         if config.isLive, hasVideo, let videoStream = input.pointee.streams[Int(videoIn)],
            videoStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_H264,
            videoStream.pointee.codecpar.pointee.extradata_size == 0,
            videoStream.pointee.codecpar.pointee.field_order == AV_FIELD_UNKNOWN {
-            queuedPacket = readToOpeningParameterSets(videoStream: videoStream)
+            readToOpeningParameterSets(videoStream: videoStream)
         }
 
         // Video AVPlayer cannot decode is re-encoded to H.264 through
@@ -2077,11 +2145,11 @@ extension RemuxSession {
         // extract_extradata bsf), and movenc reads codecpar once, when the muxer is built.
         // The parameter sets ride a keyframe: read up to the first that carries them, lift them
         // onto the input stream, and replay that keyframe as the loop's first packet.
-        if hasVideo, queuedPacket == nil, let videoStream = input.pointee.streams[Int(videoIn)],
+        if hasVideo, let videoStream = input.pointee.streams[Int(videoIn)],
            videoStream.pointee.codecpar.pointee.extradata_size == 0,
            videoStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_H264 || videoStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_HEVC,
            builtRenditions.contains(where: { $0.videoTranscoder == nil && $0.inputStreams.contains(videoIn) }) {
-            queuedPacket = readToOpeningParameterSets(videoStream: videoStream)
+            readToOpeningParameterSets(videoStream: videoStream)
             // The early scan can end on a read error before any SPS arrived, leaving the lane
             // decided blind. A copy the late lift now proves interlaced must not ship woven:
             // fail the session, and the recovery reopen decides again with the SPS in hand.
@@ -2141,6 +2209,13 @@ extension RemuxSession {
         var timelineAnchorUs: Int64 = 0
         /// A restart that seeked an MPEG-TS input by byte estimate: its target (source seconds) and tries.
         var byteSeek: (target: Double, tries: Int)?
+        /// The last restart's index seek target in source time, nil after a byte seek.
+        var indexSeekTargetUs: Int64?
+        /// An index seek that landed short reads for a keyframe the index did not list: the target, the source
+        /// time the read gives up at, the last keyframe seen at or before the target, and whether the next one opens.
+        var keyframeScan: (targetUs: Int64, untilUs: Int64, lastUs: Int64?, opensNext: Bool)?
+        /// The generation opened on a keyframe that read found.
+        var scanOpened = false
 
         // Segment this generation was restarted for. The generation opens on
         // the keyframe at or before it, which can belong to an earlier segment.
@@ -2408,7 +2483,8 @@ extension RemuxSession {
                 if let transcoder = rendition.transcoder {
                     transcoder.padSilence(from: from, to: seconds) { write($0, transcoder.encoderTimeBase) }
                 } else {
-                    SilenceEncoder.encode(like: par, from: from, to: seconds, emit: write)
+                    SilenceEncoder.encode(like: par, core: adtsConfigs[audioIn].map { ($0.coreSampleRate, $0.coreChannels) },
+                                          from: from, to: seconds, emit: write)
                 }
                 if wrote, !rendition.silenced {
                     rendition.silenced = true
@@ -2603,12 +2679,14 @@ extension RemuxSession {
                 input = reopened
                 inputOpen = true
                 if let held = leased { LiveConnectionBroker.shared.noteOpened(held) }
-                // A TS copy's parameter sets ride the keyframes, not the probe: lifted again for the new init.
+                // A TS copy's ADTS setup and parameter sets ride the packets, not the probe: read again for the new init.
+                // Only streams copied at open: a stream the transcoder took keeps that lane across the reopen.
+                dropQueuedPackets()
+                readAdtsConfigs(bareAdtsStreams().filter { adtsConfigs[$0] != nil })
                 if hasVideo, let videoStream = input.pointee.streams[Int(videoIn)],
                    videoStream.pointee.codecpar.pointee.extradata_size == 0,
                    videoStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_H264 || videoStream.pointee.codecpar.pointee.codec_id == AV_CODEC_ID_HEVC {
-                    if queuedPacket != nil { av_packet_free(&queuedPacket) }
-                    queuedPacket = readToOpeningParameterSets(videoStream: videoStream)
+                    readToOpeningParameterSets(videoStream: videoStream)
                 }
                 guard rollGeneration() else { return false }
                 liveCarriedThroughUs = carriedThroughUs
@@ -2635,12 +2713,16 @@ extension RemuxSession {
             stateLock.lock()
             let map = byteMap
             stateLock.unlock()
+            keyframeScan = nil
+            scanOpened = false
             if let pos = map?.position(forSeconds: targetSeconds - Self.byteSeekLead) {
                 seekRet = avformat_seek_file(input, -1, Int64.min, pos, pos, SWIFT_AVSEEK_FLAG_BYTE)
                 byteSeek = (targetSeconds, 1)
+                indexSeekTargetUs = nil
             } else {
                 seekRet = seekBackward(input, stream: -1, to: targetUs)
                 byteSeek = nil
+                indexSeekTargetUs = targetUs
             }
             if seekRet < 0 {
                 if !failOnSeekError {
@@ -2656,6 +2738,8 @@ extension RemuxSession {
                 fail("input seek to segment \(segment) failed: \(averr(seekRet))")
                 return false
             }
+            // Packets read ahead before the seek are from the old position.
+            dropQueuedPackets()
             guard rebuildRenditions() else { return false }
             // The seek opened a new connection: a sample begun on the old one would span both.
             restartLinkSample()
@@ -2819,11 +2903,11 @@ extension RemuxSession {
 
             let readStarted = Date()
             var fromQueue = false
-            if let queued = queuedPacket {
+            if !queuedPackets.isEmpty {
+                let queued = queuedPackets.removeFirst()
                 av_packet_move_ref(pkt, queued)
                 var freeing: UnsafeMutablePointer<AVPacket>? = queued
                 av_packet_free(&freeing)
-                queuedPacket = nil
                 fromQueue = true
                 ret = 0
             } else {
@@ -2854,6 +2938,10 @@ extension RemuxSession {
                 break
             }
             if ret == SWIFT_AVERROR_EOF {
+                if keyframeScan != nil {
+                    fail("seek for segment \(generationRequestSegment) landed short and the file ended before a keyframe")
+                    break
+                }
                 // Audio that stopped short of the last frame runs on in silence to it. Before the
                 // flush: a transcoder queues the silence behind its own samples, then flushes both.
                 if hasVideo { padSilence(upTo: pictureReadEnd, atEnd: true) }
@@ -3043,7 +3131,7 @@ extension RemuxSession {
             // An inactive track's packets are demuxed with the rest and go no further: no decode,
             // no encode, no mux, until a pick or the ramp brings the track up.
             if !isVideo, !rendition.active { continue }
-            let isKey = pkt.pointee.flags & SWIFT_AV_PKT_FLAG_KEY != 0
+            var isKey = pkt.pointee.flags & SWIFT_AV_PKT_FLAG_KEY != 0
             if isVideo, isKey, !awaitingKeyframe, let map = byteMap, pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE {
                 map.record(pos: pkt.pointee.pos, seconds: Double(pkt.pointee.pts) * av_q2d(inStream.pointee.time_base))
             }
@@ -3105,6 +3193,42 @@ extension RemuxSession {
             }
 
             if awaitingKeyframe {
+                // A sync table that missed its keyframes leaves them unflagged: the read finds them in
+                // the NAL units, the last one at or before the target first, else the first one after.
+                if var scan = keyframeScan, isVideo, pkt.pointee.pts != SWIFT_AV_NOPTS_VALUE, let par = inStream.pointee.codecpar {
+                    let ptsUs = av_rescale_q(pkt.pointee.pts, inStream.pointee.time_base, microTb)
+                    let opens = isKey || RandomAccessPacket.opens(pkt, hevc: par.pointee.codec_id == AV_CODEC_ID_HEVC,
+                                                                 lengthSize: RandomAccessPacket.lengthSize(par))
+                    if !scan.opensNext, ptsUs <= scan.targetUs {
+                        if opens { scan.lastUs = ptsUs }
+                        keyframeScan = scan
+                        continue
+                    }
+                    if !scan.opensNext {
+                        scan.opensNext = true
+                        keyframeScan = scan
+                        if let last = scan.lastUs {
+                            let back = last - Int64(SWIFT_AV_TIME_BASE)
+                            guard avformat_seek_file(input, -1, Int64.min, back, back, SWIFT_AVSEEK_FLAG_BACKWARD | SWIFT_AVSEEK_FLAG_ANY) >= 0 else {
+                                fail("seek for segment \(generationRequestSegment) landed short and the seek back to its keyframe failed")
+                                break
+                            }
+                            restartLinkSample()
+                            continue
+                        }
+                    }
+                    if opens {
+                        pkt.pointee.flags |= SWIFT_AV_PKT_FLAG_KEY
+                        isKey = true
+                        keyframeScan = nil
+                        scanOpened = true
+                        NSLog("[LocalRemuxer] keyframe read at %.2fs for segment %d, unlisted by the index",
+                              Double(ptsUs) / Double(SWIFT_AV_TIME_BASE), generationRequestSegment)
+                    } else if ptsUs > scan.untilUs {
+                        fail("seek for segment \(generationRequestSegment) landed short and no keyframe follows within \(Int(Self.keyframeScanSeconds))s of it")
+                        break
+                    }
+                }
                 // Every audio frame is independently decodable, so any packet of
                 // the timing stream opens an audio-only generation.
                 if !(isTimingStream && (isKey || !hasVideo)) { continue }
@@ -3149,6 +3273,24 @@ extension RemuxSession {
                 // before it and that segment still ends up fully covered.
                 let openSeconds = Double(keyframeUs - anchor) / Double(SWIFT_AV_TIME_BASE)
                 let openSegment = segmentIndex(atSeconds: openSeconds)
+                // An index seek that landed further before its segment than the slack has no nearer
+                // keyframe in the demuxer's table: the read seeks to any sample before the target and
+                // opens on a keyframe its NAL units name, instead of reading forward to the segment from here.
+                if let targetUs = indexSeekTargetUs, byteSeek == nil, keyframeScan == nil,
+                   Double(targetUs - keyframeUs) / Double(SWIFT_AV_TIME_BASE) > Self.byteSeekSlack {
+                    let short = Double(targetUs - keyframeUs) / Double(SWIFT_AV_TIME_BASE)
+                    let containerStartUs = input.pointee.start_time == SWIFT_AV_NOPTS_VALUE ? 0 : input.pointee.start_time
+                    let from = max(containerStartUs, targetUs - Int64(Self.keyframeScanBackSeconds * Double(SWIFT_AV_TIME_BASE)))
+                    guard avformat_seek_file(input, -1, Int64.min, from, from, SWIFT_AVSEEK_FLAG_BACKWARD | SWIFT_AVSEEK_FLAG_ANY) >= 0 else {
+                        fail("seek for segment \(generationRequestSegment) landed \(Int(short))s before it and a seek to any sample near it failed")
+                        break
+                    }
+                    restartLinkSample()
+                    keyframeScan = (targetUs, targetUs + Int64(Self.keyframeScanSeconds * Double(SWIFT_AV_TIME_BASE)), nil, false)
+                    NSLog("[LocalRemuxer] Seek for segment %d landed %.1fs before it: reading from %.0fs before the target for a keyframe",
+                          generationRequestSegment, short, Double(targetUs - from) / Double(SWIFT_AV_TIME_BASE))
+                    continue
+                }
                 // A byte-estimated seek that landed past its segment, or far before it, seeks again on a
                 // map the landing just sharpened; after three tries FFmpeg's own search finds it.
                 if let landing = byteSeek {
@@ -3180,6 +3322,15 @@ extension RemuxSession {
                     byteSeek = nil
                 }
                 if openSegment > generationRequestSegment {
+                    // A keyframe read past the requested segment: the next restart seeks earlier, as
+                    // one that opened past its start does, until the lookback is spent.
+                    if scanOpened, Self.withholdsPartialOpen(partialOpens: (partialOpens[generationRequestSegment] ?? 0) + 1) {
+                        partialOpens[generationRequestSegment, default: 0] += 1
+                        lateOpenRestart = generationRequestSegment
+                        scanOpened = false
+                        NSLog("[LocalRemuxer] keyframe for segment %d read in segment %d: seeking earlier", generationRequestSegment, openSegment)
+                        continue
+                    }
                     // Only reachable through a defective index that seeks past
                     // the target. Producing from here would stamp the wrong
                     // content with the requested segment's timestamps, so die
@@ -3200,6 +3351,7 @@ extension RemuxSession {
                 // Now, not at the waiter's re-assert 2s later (measured 2.0s vs 0.8s between restarts).
                 if partialOpenSegment == generationRequestSegment, openSegment > 0 { lateOpenRestart = openSegment }
                 awaitingKeyframe = false
+                scanOpened = false
                 }
             }
 

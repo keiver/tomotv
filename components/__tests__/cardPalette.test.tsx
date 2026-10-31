@@ -26,13 +26,12 @@ jest.mock("@/contexts/PlayerSessionContext", () => ({ usePlayerSession: () => ({
 jest.mock("@/services/audioPlayerManager", () => ({ audioPlayerManager: { getUIState: () => ({ playing: true, position: 0 }), subscribe: () => () => {} } }));
 
 import { CardBadge } from "@/components/card-badge";
-import { CardCornerTab } from "@/components/card-corner-tab";
+import { CardCornerNotch } from "@/components/card-corner-notch";
 import { CardNavProgress } from "@/components/card-nav-progress";
 import { CardStand } from "@/components/card-stand";
 import { FolderGridItem } from "@/components/folder-grid-item";
 import { FolderLoadingBar } from "@/components/folder-loading-bar";
 import { VideoGridItem } from "@/components/video-grid-item";
-import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { CardPaletteOverride } from "@/hooks/useCardPalette";
 import { cardPalette, isLowContrast } from "@/services/cardTheme";
@@ -93,7 +92,7 @@ describe("card palette", () => {
     act(() => tree.unmount());
   });
 
-  it("a folder wears its count on a tab above the card's top edge, drawn under the art, cut from the card's own colour, and its heart before the name", () => {
+  it("a folder wears its count in a notch flush with the picture's top-left corner, cut from the card's own colour, and its heart before the name", () => {
     let tree!: TestRenderer.ReactTestRenderer;
     act(() => {
       tree = TestRenderer.create(
@@ -103,15 +102,12 @@ describe("card palette", () => {
       );
     });
     expect(tree.root.findAllByType(CardBadge)).toHaveLength(0);
-    expect(tree.root.findByType(CardCornerTab).props.segments).toEqual([{ label: "3" }]);
-    const tab = tree.root.findAll((n) => n.props.testID === "card-corner-tab" && typeof n.type === "string")[0];
-    const tabStyle = StyleSheet.flatten(tab.props.style);
-    expect(tabStyle).toMatchObject({ backgroundColor: COLORS.SURFACE_SUNKEN, position: "absolute", right: DESIGN.BORDER_RADIUS_CARD });
-    expect(tabStyle.top).toBeLessThan(0);
-    const tabInstance = tree.root.findByType(CardCornerTab);
-    expect(tabInstance.parent!.children[0]).toBe(tabInstance);
+    const notch = tree.root.findByType(CardCornerNotch);
+    expect(notch.props.segments).toEqual([{ label: "3" }]);
+    expect(StyleSheet.flatten(notch.findByProps({ testID: "card-corner-notch" }).props.style)).toMatchObject({ position: "absolute", top: 0, left: 0 });
+    expect(StyleSheet.flatten(notch.findByProps({ testID: "card-corner-notch-body" }).props.style).backgroundColor).toBe(COLORS.SURFACE);
     // The theme's accent is too dark to read on the card, so the count is white, like the name.
-    expect(tab.findAll((n) => typeof n.type === "string" && n.props.children === "3").map((n) => StyleSheet.flatten(n.props.style).color)).toEqual([COLORS.TEXT_PRIMARY]);
+    expect(notch.findAll((n) => typeof n.type === "string" && n.props.children === "3").map((n) => StyleSheet.flatten(n.props.style).color)).toEqual([COLORS.TEXT_PRIMARY]);
     expect(tree.root.findByType(CardStand).props).toMatchObject({ name: "Shows", icon: "heart" });
     act(() => tree.unmount());
   });
@@ -125,7 +121,7 @@ describe("card palette", () => {
     act(() => {
       tree = TestRenderer.create(<FolderGridItem folder={{ ...folder, RecursiveItemCount: 11365 } as JellyfinItem} onPress={jest.fn()} index={0} />);
     });
-    expect(tree.root.findByType(CardCornerTab).props.segments).toEqual([{ label }]);
+    expect(tree.root.findByType(CardCornerNotch).props.segments).toEqual([{ label }]);
     act(() => tree.unmount());
     __setLocaleForTests("en");
   });
@@ -157,14 +153,14 @@ describe("card palette", () => {
     };
     const bright = "#4F99FF";
     expect(isLowContrast(bright)).toBe(false);
-    expect(standColours(bright, false)).toEqual({ text: bright, base: COLORS.SURFACE_SUNKEN });
+    expect(standColours(bright, false)).toEqual({ text: bright, base: COLORS.SURFACE });
     expect(standColours(bright, true)).toEqual({ text: cardPalette(bright).ink, base: bright });
     expect(isLowContrast(ACCENT)).toBe(true);
     expect(standColours(ACCENT, false).text).toBe(COLORS.TEXT_PRIMARY);
   });
 
   it("a badge is the card's solid colour at rest and the accent with the ink on focus; live is solid red", () => {
-    expect(colours(<CardBadge segments={[{ label: 3 }]} />)).toEqual([COLORS.SURFACE_SUNKEN, COLORS.TEXT_PRIMARY]);
+    expect(colours(<CardBadge segments={[{ label: 3 }]} />)).toEqual([COLORS.SURFACE, COLORS.TEXT_PRIMARY]);
     expect(colours(<CardBadge segments={[{ label: 3 }]} focused />)).toEqual([ACCENT, palette.ink]);
     expect(colours(<CardBadge segments={[{ label: "LIVE" }]} tone="live" />)).toEqual(expect.arrayContaining([COLORS.DESTRUCTIVE_DEEP, COLORS.TEXT_PRIMARY]));
     expect(colours(<CardBadge segments={[{ label: "LIVE" }]} tone="live" focused />)).toContain(COLORS.DESTRUCTIVE_DEEP);
@@ -228,31 +224,40 @@ describe("card palette", () => {
     act(() => tree.unmount());
   });
 
-  it("a corner tab is cut from the card's colour and lettered in a readable accent", () => {
+  it("a corner notch is cut from the card's colour and lettered in a readable accent", () => {
     const bright = "#4F99FF";
     let tree!: TestRenderer.ReactTestRenderer;
     act(() => {
       tree = TestRenderer.create(
         <CardPaletteOverride.Provider value={cardPalette(bright)}>
-          <CardCornerTab segments={[{ label: "S01E05" }]} />
+          <CardCornerNotch segments={[{ label: "S01E05" }]} />
         </CardPaletteOverride.Provider>,
       );
     });
-    const tab = tree.root.findAll((n) => n.props.testID === "card-corner-tab" && typeof n.type === "string")[0];
-    expect(StyleSheet.flatten(tab.props.style).backgroundColor).toBe(COLORS.SURFACE_SUNKEN);
-    expect(StyleSheet.flatten(tab.findAll((n) => typeof n.type === "string" && n.props.children === "S01E05")[0].props.style).color).toBe(bright);
+    const body = tree.root.findByProps({ testID: "card-corner-notch-body" });
+    expect(StyleSheet.flatten(body.props.style).backgroundColor).toBe(COLORS.SURFACE);
+    expect(StyleSheet.flatten(body.findAll((n) => typeof n.type === "string" && n.props.children === "S01E05")[0].props.style).color).toBe(bright);
     act(() => tree.unmount());
   });
 
-  it("a focused card's tab fills with the accent and letters in the ink; a programme's stays red", () => {
-    expect(colours(<CardCornerTab segments={[{ label: "S01E05" }]} focused />)).toEqual(expect.arrayContaining([ACCENT, palette.ink]));
-    expect(colours(<CardCornerTab segments={[{ label: "NOW" }]} tone="live" focused />)).not.toContain(ACCENT);
-  });
-
-  it("a programme's corner tab is the live red with white lettering", () => {
-    const drawn = colours(<CardCornerTab segments={[{ label: "NOW" }]} tone="live" />);
-    expect(drawn).toEqual(expect.arrayContaining([COLORS.DESTRUCTIVE_DEEP, COLORS.TEXT_PRIMARY]));
-    expect(drawn).not.toContain(ACCENT);
+  it("the notch's curves into the art are drawn in the notch's own fill", () => {
+    const drawn = (focused: boolean, tone: "plain" | "live") => {
+      let tree!: TestRenderer.ReactTestRenderer;
+      act(() => {
+        tree = TestRenderer.create(
+          <CardPaletteOverride.Provider value={palette}>
+            <CardCornerNotch segments={[{ label: "S01E05" }]} focused={focused} tone={tone} />
+          </CardPaletteOverride.Provider>,
+        );
+      });
+      const fill = StyleSheet.flatten(tree.root.findByProps({ testID: "card-corner-notch-body" }).props.style).backgroundColor;
+      const rings = tree.root.findAll((n) => typeof n.type === "string" && StyleSheet.flatten(n.props.style)?.borderColor !== undefined).map((n) => StyleSheet.flatten(n.props.style).borderColor);
+      act(() => tree.unmount());
+      return { fill, rings };
+    };
+    expect(drawn(false, "plain")).toEqual({ fill: COLORS.SURFACE, rings: [COLORS.SURFACE, COLORS.SURFACE] });
+    expect(drawn(true, "plain")).toEqual({ fill: ACCENT, rings: [ACCENT, ACCENT] });
+    expect(drawn(true, "live")).toEqual({ fill: COLORS.DESTRUCTIVE_DEEP, rings: [COLORS.DESTRUCTIVE_DEEP, COLORS.DESTRUCTIVE_DEEP] });
   });
 
   it("the base's progress fill and the folder loading bar fill in the theme", () => {

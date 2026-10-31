@@ -31,11 +31,12 @@ export default function ChannelSettingsScreen() {
   const recordingOptions = RECORDING_MINUTES_OPTIONS.map((minutes) => ({ value: minutes, label: durationLabel(minutes * 60_000) }));
   const toggleAutoUpdate = useCallback(() => updateLiveTvPreferences({ autoUpdate: !preferences.autoUpdate }), [preferences.autoUpdate]);
   const toggleHideOffline = useCallback(() => updateLiveTvPreferences({ hideOffline: !preferences.hideOffline }), [preferences.hideOffline]);
-  const toggleSkipCommercials = useCallback(() => updateLiveTvPreferences({ skipCommercials: !preferences.skipCommercials }), [preferences.skipCommercials]);
   const pickSort = useCallback((sort: ChannelSort) => updateLiveTvPreferences({ sort }), []);
   const pickRecordingMinutes = useCallback((recordingMinutes: RecordingMinutes) => updateLiveTvPreferences({ recordingMinutes }), []);
   const newGroup = useCallback(() => promptChannelGroup(), []);
   const openGuideSources = useCallback(() => router.push("/guide-sources"), [router]);
+  const openSkip = useCallback(() => router.push("/skip-settings"), [router]);
+  const openHidden = useCallback(() => router.push("/hidden-channels"), [router]);
   const openConnectionLimits = useCallback(() => router.push("/connection-limits"), [router]);
   const activeGuides = activeGuideUrls(preferences, lastKnownTunerData()?.tvgUrls ?? []).length;
   const manageGroup = useCallback(
@@ -69,8 +70,13 @@ export default function ChannelSettingsScreen() {
               isFirst
             />
             <ListRow icon="eye-off-outline" title={t("liveTv.hideOffline")} trailingIcon={preferences.hideOffline ? tick : undefined} onPress={toggleHideOffline} />
-            {/* Apple TV skips through the player's own pill; the phone's player takes no custom buttons. */}
-            {!IS_TV && <ListRow icon="play-skip-forward-outline" title={t("liveTv.skipCommercials")} trailingIcon={preferences.skipCommercials ? tick : undefined} onPress={toggleSkipCommercials} />}
+            <ListRow
+              icon="eye-outline"
+              title={preferences.hidden.length > 0 ? t("liveTv.hiddenChannelsCount").replace("{count}", String(preferences.hidden.length)) : t("liveTv.hiddenChannels")}
+              trailingIcon="chevron-forward"
+              onPress={openHidden}
+            />
+            <ListRow icon="play-skip-forward-outline" title={t("settings.skipAutomatically")} trailingIcon="chevron-forward" onPress={openSkip} />
             <ListRow
               icon="calendar-outline"
               title={t("liveTv.guideSources")}

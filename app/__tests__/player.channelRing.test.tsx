@@ -34,7 +34,7 @@ jest.mock("@/services/liveTvPreferences", () => ({
   getLiveTvPreferences: () => mockPreferences,
 }));
 jest.mock("@/services/jellyfinApi", () => ({
-  fetchMediaSegments: jest.fn(async () => ({ intro: null, outro: null, commercials: [] })),
+  fetchMediaSegments: jest.fn(async () => ({ intro: null, outro: null, recaps: [], previews: [], commercials: [] })),
   fetchNextEpisodeAutoPlay: jest.fn(async () => true),
   fetchChannelRing: jest.fn(async () => []),
   fetchChannelWindow: jest.fn(async () => []),

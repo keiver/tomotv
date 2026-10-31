@@ -18,7 +18,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, type NativeStackNavigationOptions } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View, type LayoutChangeEvent } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { t } from "@/services/i18n";
 
@@ -31,6 +31,12 @@ const DEVICE = THIS_DEVICE;
 const CHAR_WIDTH = (IS_TV ? 18 : 12) * 0.6;
 const LINE_INSET = IS_TV ? 20 : 14;
 const indentOf = (line: string) => LINE_INSET + (line.length - line.trimStart().length) * CHAR_WIDTH;
+
+const LINE_HEIGHT = IS_TV ? 26 : 18;
+const LINE_PAD_V = IS_TV ? 3 : 1;
+/** One row's full height in the scroll: the text line plus the row's own padding. */
+const LINE_SLOT = LINE_HEIGHT + LINE_PAD_V * 2;
+const CONTENT_PAD = IS_TV ? 21 : 15;
 
 type SendState = "idle" | "sending" | "sent" | "failed";
 
@@ -59,6 +65,14 @@ export default function DiagnosticsScreen() {
   const [sendState, setSendState] = useState<SendState>("idle");
   const [userName, setUserName] = useState<string | null>(null);
   const connected = isAuthenticated();
+  // TV hides the scroll indicator, so a line sliced at the card's bottom edge reads as a defect,
+  // not as "more below": the viewport is trimmed to whole lines and the trim goes unused.
+  const [scrollHeight, setScrollHeight] = useState<number | null>(null);
+  const quantizeScroll = useCallback((event: LayoutChangeEvent) => {
+    const height = event.nativeEvent.layout.height;
+    if (height <= LINE_SLOT + CONTENT_PAD) return;
+    setScrollHeight(Math.floor((height - CONTENT_PAD) / LINE_SLOT) * LINE_SLOT + CONTENT_PAD);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -189,7 +203,12 @@ export default function DiagnosticsScreen() {
           )}
           {session && (
             <View style={[settingsStyles.section, styles.log]}>
-              <ScrollView style={styles.logScroll} contentContainerStyle={styles.logContent} showsVerticalScrollIndicator={!IS_TV} nestedScrollEnabled>
+              <ScrollView
+                style={[styles.logScroll, IS_TV && scrollHeight !== null && { flex: 0, height: scrollHeight }]}
+                onLayout={IS_TV && scrollHeight === null ? quantizeScroll : undefined}
+                contentContainerStyle={styles.logContent}
+                showsVerticalScrollIndicator={!IS_TV}
+                nestedScrollEnabled>
                 {/* The document, one line per row. No horizontal scroll: a long value wraps and
                     hangs under its property, so a row can never grow wider than the card. */}
                 {lines.map((line, index) =>
@@ -239,10 +258,10 @@ const styles = StyleSheet.create({
   // flex: 1 is the whole point: the card eats the height the heading did not.
   log: { flex: 1 },
   logScroll: { flex: 1 },
-  logContent: { paddingVertical: IS_TV ? 21 : 15 },
-  lineRow: { paddingRight: IS_TV ? 20 : 14, paddingVertical: IS_TV ? 3 : 1 },
+  logContent: { paddingVertical: CONTENT_PAD },
+  lineRow: { paddingRight: IS_TV ? 20 : 14, paddingVertical: LINE_PAD_V },
   lineRowFocused: { backgroundColor: COLORS.SURFACE_RAISED },
-  line: { fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }), fontSize: IS_TV ? 18 : 12, lineHeight: IS_TV ? 26 : 18, color: IS_TV ? COLORS.TERMINAL_INK_DIM : COLORS.TERMINAL_INK },
+  line: { fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }), fontSize: IS_TV ? 18 : 12, lineHeight: LINE_HEIGHT, color: IS_TV ? COLORS.TERMINAL_INK_DIM : COLORS.TERMINAL_INK },
   lineFocused: { color: COLORS.TERMINAL_INK },
   empty: { flex: 1, alignItems: "center", justifyContent: "center", gap: 10, paddingHorizontal: 24 },
   emptyFocused: { backgroundColor: COLORS.SURFACE_RAISED },

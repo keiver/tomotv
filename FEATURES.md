@@ -33,8 +33,9 @@ Every feature needs a Jellyfin server. The Notes column says when a feature also
 | Up Next between episodes                                | Yes      | Yes          | Yes | A system card on Apple TV, a screen between episodes elsewhere                             |
 | Follows Jellyfin's "Play next episode automatically"    | Yes      | Yes          | Yes |                                                                                            |
 | Upcoming queue in the player panel                      | Yes      | No           | No  |                                                                                            |
-| Skip Intro and Skip Credits                             | Yes      | No           | No  | Needs the server's Media Segments                                                          |
-| Skip commercials                                        | Yes      | Yes          | Yes | A button on Apple TV; automatic elsewhere, a Channel Settings switch that is on by default |
+| Skip intros, recaps, previews and commercials for you   | Yes      | Yes          | Yes | A Skip Automatically setting per kind, commercials on by default; needs the Media Segments |
+| Skip Intro, Skip Recap, Skip Preview, Skip Commercial   | Yes      | No           | No  | A button on Apple TV for each kind not skipped automatically                               |
+| Skip Credits                                            | Yes      | No           | No  | A button on Apple TV when no Up Next card is coming                                        |
 | Chapters in the player panel, with pictures             | Yes      | No           | No  |                                                                                            |
 | Favorite from the player controls                       | Yes      | No           | No  |                                                                                            |
 | Scrubbing shows frames                                  | Yes      | Yes          | Yes | Dolby Vision frames are converted to SDR at up to 1080p. None on live channels             |
@@ -49,17 +50,17 @@ Every feature needs a Jellyfin server. The Notes column says when a feature also
 | AAC, ALAC, AC-3, E-AC-3 and well-formed FLAC copied untouched | Yes      | Yes          | Yes | Dolby Atmos in E-AC-3 is preserved                                                    |
 | TrueHD, DTS and other codecs decoded on the device            | Yes      | Yes          | Yes | To lossless FLAC, or AAC where FLAC cannot be used; not passed through as a bitstream |
 | Switch audio tracks during playback                           | Yes      | Yes          | Yes |                                                                                       |
-| Audio language remembered                                     | Yes      | Yes          | Yes | Saved to the Jellyfin account                                                         |
+| Audio language remembered                                     | Yes      | Yes          | Yes | Saved to the Jellyfin account; offline or signed out, kept on the device              |
 
 ## Subtitles
 
-| Feature                                             | Apple TV | iPhone, iPad | Mac | Notes                                     |
-| --------------------------------------------------- | -------- | ------------ | --- | ----------------------------------------- |
-| Text subtitles selectable in the player             | Yes      | Yes          | Yes |                                           |
-| Embedded text subtitles converted on the device     | Yes      | Yes          | Yes | SubRip, mov_text, ASS, SSA                |
-| Picture subtitles: PGS, VobSub, DVB, XSUB, teletext | Yes      | Yes          | Yes | Decoded and drawn on the device           |
-| Forced subtitles are selectable tracks              | Yes      | Yes          | Yes | Burned in only when the server transcodes |
-| Subtitle language remembered                        | Yes      | Yes          | Yes | Saved to the Jellyfin account             |
+| Feature                                             | Apple TV | iPhone, iPad | Mac | Notes                                                                    |
+| --------------------------------------------------- | -------- | ------------ | --- | ------------------------------------------------------------------------ |
+| Text subtitles selectable in the player             | Yes      | Yes          | Yes |                                                                          |
+| Embedded text subtitles converted on the device     | Yes      | Yes          | Yes | SubRip, mov_text, ASS, SSA                                               |
+| Picture subtitles: PGS, VobSub, DVB, XSUB, teletext | Yes      | Yes          | Yes | Decoded and drawn on the device                                          |
+| Forced subtitles are selectable tracks              | Yes      | Yes          | Yes | Burned in only when the server transcodes                                |
+| Subtitle language remembered                        | Yes      | Yes          | Yes | Saved to the Jellyfin account; offline or signed out, kept on the device |
 
 ## Quality and server transcoding
 
@@ -80,6 +81,7 @@ Every feature needs a Jellyfin server. The Notes column says when a feature also
 | Movies, shows, music videos, trailers and home videos                   | Yes      | Yes          | Yes |                                                           |
 | Collections and playlists                                               | Yes      | Yes          | Yes |                                                           |
 | Cards show progress, watched, favorite and episode numbers              | Yes      | Yes          | Yes |                                                           |
+| Pinch to make cards bigger or smaller                                   | No       | Yes          | Yes | Home, folders and search; Command-plus and minus on Mac   |
 | A folder with no picture shows a collage of what it holds               | Yes      | Yes          | Yes |                                                           |
 | Info panel: cast, ratings, plot, technical details                      | Yes      | Yes          | Yes | Hold a card to open it                                    |
 | Info panel shows how the file will play                                 | Yes      | Yes          | Yes | On the device, re-encoded on the device, or by the server |
@@ -88,7 +90,8 @@ Every feature needs a Jellyfin server. The Notes column says when a feature also
 | Favorite, mark watched, clear progress                                  | Yes      | Yes          | Yes |                                                           |
 | Delete an item from the server                                          | Yes      | Yes          | Yes | Admin accounts, where the server allows it                |
 | Swipe an info panel to the next item                                    | No       | Yes          | Yes |                                                           |
-| Filters: favorite, played, unplayed, genre, artist, year                | Yes      | Yes          | Yes |                                                           |
+| Sort by name, date added, release date, year, rating or runtime         | Yes      | Yes          | Yes | Per library, saved on the account; shows and music differ |
+| Filters: favorite, played, unplayed, genre, artist, year                | Yes      | Yes          | Yes | Per library, saved on the account                         |
 | Shuffle                                                                 | Yes      | Yes          | Yes |                                                           |
 | Posters generated on the device when the server has none                | Yes      | Yes          | Yes | A setting, on by default                                  |
 
@@ -114,6 +117,8 @@ Every feature needs a Jellyfin server. The Notes column says when a feature also
 | Categories: News, Sports, Kids, Movies, Series                  | Yes      | Yes          | Yes |                                                |
 | Add a channel to groups from its info panel                     | Yes      | Yes          | Yes |                                                |
 | Offline channels are marked, and can be hidden                  | Yes      | Yes          | Yes |                                                |
+| Hide a channel from every list                                  | Yes      | Yes          | Yes | From its info panel; Channel Settings restores |
+| Rename a channel                                                | Yes      | Yes          | Yes | From its info panel                            |
 | Resize the guide's channel column                               | No       | Yes          | Yes |                                                |
 | Recordings and the schedule                                     | Yes      | Yes          | Yes |                                                |
 | Record a program or a series                                    | Yes      | Yes          | Yes | Accounts allowed to manage recordings          |
@@ -143,6 +148,7 @@ Every feature needs a Jellyfin server. The Notes column says when a feature also
 | Pause and resume a download                                             | No       | Yes          | Yes | Originals only                                      |
 | Download speed and storage used                                         | No       | Yes          | Yes |                                                     |
 | Offline playback                                                        | No       | Yes          | Yes | Progress syncs when the app next reaches the server |
+| Losing the connection says so and opens Downloads                       | No       | Yes          | Yes | Downloads opens when a finished download can play   |
 | Shuffle a downloaded folder                                             | No       | Yes          | Yes |                                                     |
 | Remove one, a folder, or everything                                     | No       | Yes          | Yes | Hold the storage gauge to remove everything         |
 
@@ -165,6 +171,7 @@ Every feature needs a Jellyfin server. The Notes column says when a feature also
 | Comics: CBZ, CBR, CBT, CB7                | Yes      | Yes          | Yes |                                            |
 | Zoom a page                               | Yes      | Yes          | Yes | On Apple TV, PDFs and comics only          |
 | Change text size in text books            | Yes      | Yes          | Yes |                                            |
+| Tap a page's edge to turn it              | No       | Yes          | Yes | Books                                      |
 
 ## SyncPlay
 
@@ -176,17 +183,19 @@ Every feature needs a Jellyfin server. The Notes column says when a feature also
 
 ## Servers, accounts and setup
 
-| Feature                                     | Apple TV | iPhone, iPad | Mac | Notes                                                          |
-| ------------------------------------------- | -------- | ------------ | --- | -------------------------------------------------------------- |
-| Several servers, several users on each      | Yes      | Yes          | Yes | Switching needs no password                                    |
-| Rename or remove a server, forget a sign-in | Yes      | Yes          | Yes |                                                                |
-| Scan Network                                | Yes      | Yes          | Yes | Sweeps the local network                                       |
-| Quick Connect                               | Yes      | Yes          | Yes |                                                                |
-| Username and password                       | Yes      | Yes          | Yes |                                                                |
-| A bare IP finds the protocol and port       | Yes      | Yes          | Yes |                                                                |
-| HTTP and HTTPS servers                      | Yes      | Yes          | Yes | HTTP sends your sign-in unencrypted: use HTTPS beyond your LAN |
-| Demo server                                 | Yes      | Yes          | Yes | The Jellyfin project's public demo                             |
-| A moved server is found again               | Yes      | Yes          | Yes | On the local network, by server identity                       |
+| Feature                                     | Apple TV | iPhone, iPad | Mac | Notes                                                                                               |
+| ------------------------------------------- | -------- | ------------ | --- | --------------------------------------------------------------------------------------------------- |
+| Several servers, several users on each      | Yes      | Yes          | Yes | Switching needs no password                                                                         |
+| Rename or remove a server, forget a sign-in | Yes      | Yes          | Yes |                                                                                                     |
+| Scan network                                | Yes      | Yes          | Yes | Sweeps the local network                                                                            |
+| Quick Connect                               | Yes      | Yes          | Yes |                                                                                                     |
+| Username and password                       | Yes      | Yes          | Yes |                                                                                                     |
+| A bare IP finds the protocol and port       | Yes      | Yes          | Yes |                                                                                                     |
+| HTTP and HTTPS servers                      | Yes      | Yes          | Yes | HTTP sends your sign-in unencrypted: use HTTPS beyond your LAN                                      |
+| Who's watching when nothing is signed in    | Yes      | Yes          | Yes | Saved accounts as faces, Add Account beside them                                                    |
+| Demo server                                 | Yes      | Yes          | Yes | Tomo TV's own demo library: the Demo face while no account is saved, or the empty Add account field |
+| Demo credits                                | Yes      | Yes          | Yes | Settings, About Tomo TV, on any server: the demo items by maker and license, each with its picture  |
+| A moved server is found again               | Yes      | Yes          | Yes | On the local network, by server identity                                                            |
 
 ## Appearance and language
 
@@ -195,6 +204,7 @@ Every feature needs a Jellyfin server. The Notes column says when a feature also
 | Themes: Tomo, Green, Blue, Purple, or your own          | Yes      | Yes          | Yes | Saved themes follow the Jellyfin account |
 | Theme editor: hue, saturation, brightness or a hex code | Yes      | Yes          | Yes |                                          |
 | Background: Folder artwork, Theme color, Clear          | Yes      | Yes          | Yes |                                          |
+| Card size, saved on the device                          | Yes      | Yes          | Yes | Appearance; a pinch sets it off Apple TV |
 | English, German, French, Spanish                        | Yes      | Yes          | Yes | Follows the device or picked in Settings |
 | Reduce Motion is honored                                | Yes      | Yes          | Yes |                                          |
 

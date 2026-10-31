@@ -2,7 +2,7 @@ import { AddServerRow } from "@/components/settings/AddServerRow";
 import { AccountStrip, AccountStripHandle, StripPerson } from "@/components/settings/AccountStrip";
 import { ServerRow } from "@/components/settings/ServerRow";
 import { settingsStyles as styles } from "./styles";
-import { getUserImageUrl, isAddressTitle } from "@/services/jellyfinApi";
+import { DEMO_USERNAME, getUserImageUrl, isAddressTitle } from "@/services/jellyfinApi";
 import { describeSubnet } from "@/services/networkDiscovery";
 import { t } from "@/services/i18n";
 import type { UseNetworkScanReturn } from "@/hooks/useNetworkScan";
@@ -47,6 +47,10 @@ interface NotConnectedSectionProps {
   onAccountOptions?: (server: SavedServer, account: SavedAccount) => void;
   /** Open the edit/remove menu for a saved server (long-press). */
   onServerOptions: (server: SavedServer) => void;
+  /** Sign in to the demo server: the Demo face in the strip. */
+  onConnectDemo?: () => void;
+  /** Phone: the band the card ends in, under the people. */
+  footer?: React.ReactNode;
   /** Local-subnet scan state and controls. */
   scan: UseNetworkScanReturn;
   /** Run the login flow for a server found by the scan. */
@@ -63,7 +67,7 @@ interface NotConnectedSectionProps {
  * `alreadySavedCount` is how many of the scan's finds are also in the saved
  * list. Those render as saved rows, not as new discoveries, so without this the
  * row would finish a successful scan by reverting to its idle label with
- * nothing else on screen changing — as if the scan had found nothing.
+ * nothing else on screen changing, as if the scan had found nothing.
  */
 export function scanRowLabels(scan: UseNetworkScanReturn, alreadySavedCount = 0): { name: string; subtitle?: string } {
   if (scan.status === "UNSUPPORTED") {
@@ -114,7 +118,7 @@ export function scanRowLabels(scan: UseNetworkScanReturn, alreadySavedCount = 0)
 /**
  * Whether a row is the live session. Both sides with an Id compare by Id, so a moved address
  * still matches and a reused one does not; the url decides only when either side has no Id.
- * The demo session matches no server row, only the demo row.
+ * The demo session matches no server row; it is the Demo face in the strip.
  */
 export function isConnectedDestination(connected: ConnectedDestination | null, serverId: string | undefined, url: string): boolean {
   if (connected === null || connected.demo) return false;
@@ -133,6 +137,25 @@ export function serverHost(address: string): string {
     .trim()
     .replace(/^[a-z][a-z0-9+.-]*:\/\//i, "")
     .replace(/[:/?#].*$/, "");
+}
+
+/** A press on the person already signed in does nothing, so it never signs in again. */
+export function ignorePressOnSignedIn(person: StripPerson): StripPerson {
+  return person.connected ? { ...person, onPress: () => undefined } : person;
+}
+
+/** The Demo face: first and ringed while the demo session is live, last otherwise. */
+export function demoStripPerson(demoActive: boolean, loading: boolean, onPress: () => void): StripPerson {
+  return {
+    key: "demo",
+    serverKey: "demo",
+    label: DEMO_USERNAME,
+    sublabel: "Tomo TV",
+    connected: demoActive,
+    loading,
+    lastUsedAt: demoActive ? Number.MAX_SAFE_INTEGER : 0,
+    onPress,
+  };
 }
 
 /** One destination row in the capped list: a discovered server or a saved one. */
@@ -166,6 +189,8 @@ export function NotConnectedSection({
   onContinueAs,
   onAccountOptions,
   onServerOptions,
+  onConnectDemo,
+  footer,
   scan,
   onSelectDiscovered,
 }: NotConnectedSectionProps) {
@@ -198,8 +223,7 @@ export function NotConnectedSection({
     }
     return callback;
   };
-  // Fires on the null-to-found transition only, so a section mounted after the scan
-  // (this widget also stands in for the Library and Search tabs) never yanks focus.
+  // Fires on the null-to-found transition only, so a section mounted after the scan never yanks focus.
   const previousFirstFoundKey = useRef(firstFoundKey);
   useEffect(() => {
     const previous = previousFirstFoundKey.current;
@@ -254,7 +278,7 @@ export function NotConnectedSection({
 
   // Everyone who can continue without a login, across servers, most recent first.
   const people: StripPerson[] = savedServers
-    .flatMap((server) =>
+    .flatMap<StripPerson>((server) =>
       (savedServerAccounts?.[server.id] ?? []).map((account) => ({
         key: `${server.id}:${account.userId}`,
         serverKey: server.id,
@@ -270,13 +294,15 @@ export function NotConnectedSection({
         onLongPress: onAccountOptions && releasing(() => onAccountOptions(server, account)),
       })),
     )
+    .concat(onConnectDemo ? [demoStripPerson(!!connected?.demo, isConnectingDemo, releasing(onConnectDemo))] : [])
+    .map(ignorePressOnSignedIn)
     .sort((a, b) => b.lastUsedAt - a.lastUsedAt);
 
   // tvOS can only move focus out of a ScrollView while its offset is at the matching end:
   // RCTScrollViewComponentView's shouldUpdateFocusInContext rejects an upward focus update
   // that leaves a scrolled view, and the same for downward. Landing on the first/last row is
   // the only moment focus can leave, so pin the offset there. Same fix, same reason, as the
-  // Video Quality list in app/(tabs)/settings.tsx — where the rows above this scroll (Scan,
+  // Video Quality list in app/(tabs)/settings.tsx, where the rows above this scroll (Scan,
   // Add Server) are what Up has to reach.
   const listRef = useRef<ScrollView>(null);
   const pinToTop = useCallback(() => listRef.current?.scrollTo({ y: 0, animated: false }), []);
@@ -324,9 +350,8 @@ export function NotConnectedSection({
       <View style={sidePanel ? styles.sectionMain : undefined}>
         {/* Not disabled while UNSUPPORTED: pressing it re-reads the device address,
           which is the way back for a TV that booted before its network did.
-          Claims no preferred focus: this section also stands in for the Library
-          and Search tabs while no server is configured, and taking focus on mount
-          drags the user into the form every time they land on one of those tabs. */}
+          Claims no preferred focus: on the Settings tab, taking focus on mount would
+          drag the user into the form every time they land there. */}
         <ServerRow
           ref={rowRef("scan")}
           variant="scan"
@@ -416,6 +441,7 @@ export function NotConnectedSection({
           nextFocusLeft={leadRowHandle}
         />
       ) : null}
+      {footer}
     </View>
   );
 }

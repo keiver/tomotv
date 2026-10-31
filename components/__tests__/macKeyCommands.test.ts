@@ -1,5 +1,5 @@
 import { escapeAction, macKeyAction, type MacKeyState } from "@/components/mac-key-commands";
-import { claimMacEscape, consumeMacEscape, MAC_KEYS } from "@/services/macKeyCommands";
+import { claimMacContextKeys, claimMacEscape, consumeMacEscape, MAC_KEYS, macKeyContext } from "@/services/macKeyCommands";
 
 /**
  * What one Escape press means on the Mac build.
@@ -33,8 +33,8 @@ describe("escapeAction", () => {
   });
 });
 
-const BROWSING: MacKeyState = { hostMode: "idle", hasRouteHandlers: false, canGoBack: false, audioActive: false };
-const PLAYING_VIDEO: MacKeyState = { hostMode: "video", hasRouteHandlers: true, canGoBack: true, audioActive: false };
+const BROWSING: MacKeyState = { hostMode: "idle", hasRouteHandlers: false, canGoBack: false, audioActive: false, keyContext: "" };
+const PLAYING_VIDEO: MacKeyState = { hostMode: "video", hasRouteHandlers: true, canGoBack: true, audioActive: false, keyContext: "seek" };
 const PLAYING_AUDIO: MacKeyState = { ...BROWSING, audioActive: true };
 
 /**
@@ -87,10 +87,42 @@ describe("macKeyAction", () => {
     expect(macKeyAction("nextPhoto", PLAYING_AUDIO)).toBe("ignore");
   });
 
+  it("zooms the cards while browsing, with audio running too", () => {
+    expect(macKeyAction("zoomIn", BROWSING)).toBe("zoomCardsIn");
+    expect(macKeyAction("zoomOut", BROWSING)).toBe("zoomCardsOut");
+    expect(macKeyAction("zoomReset", BROWSING)).toBe("zoomCardsReset");
+    expect(macKeyAction("zoomIn", { ...PLAYING_AUDIO, keyContext: "seek" })).toBe("zoomCardsIn");
+  });
+
+  it("leaves the zoom keys to the photo or book viewer while it holds the keys", () => {
+    expect(macKeyAction("zoomIn", { ...BROWSING, keyContext: "photo" })).toBe("ignore");
+    expect(macKeyAction("zoomOut", { ...BROWSING, keyContext: "photo" })).toBe("ignore");
+    expect(macKeyAction("zoomReset", { ...BROWSING, keyContext: "photo" })).toBe("ignore");
+  });
+
+  it("never zooms the cards under a live video session", () => {
+    expect(macKeyAction("zoomIn", PLAYING_VIDEO)).toBe("ignore");
+    expect(macKeyAction("zoomOut", PLAYING_VIDEO)).toBe("ignore");
+    expect(macKeyAction("zoomReset", PLAYING_VIDEO)).toBe("ignore");
+  });
+
   it("answers every key the native side can send", () => {
     for (const key of MAC_KEYS) {
       expect(macKeyAction(key, PLAYING_AUDIO)).toBeDefined();
     }
+  });
+});
+
+describe("macKeyContext", () => {
+  it("reports the newest key claim and falls back to the one under it on release", () => {
+    expect(macKeyContext()).toBe("");
+    const releaseSeek = claimMacContextKeys("audio", "seek");
+    const releasePhoto = claimMacContextKeys("viewer", "photo");
+    expect(macKeyContext()).toBe("photo");
+    releasePhoto();
+    expect(macKeyContext()).toBe("seek");
+    releaseSeek();
+    expect(macKeyContext()).toBe("");
   });
 });
 

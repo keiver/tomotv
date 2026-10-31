@@ -2,6 +2,45 @@
 
 All notable changes to Tomo TV are documented here.
 
+## [2.2.14]
+
+### Added
+
+- With nothing signed in, the app opens on a Who's watching screen: the saved accounts as round faces, most recently used first, a Demo face while no account is saved, and Add Account, which opens the connect screen. Sign Out returns to it, and the connect screen carries the language, appearance and About rows while signed out. A phone with a finished download keeps its tabs while signed out, each showing the same screen
+- Tomo TV's own demo server, at tomotv.cubita.studio, replaces the Jellyfin project's public demo: a shared account with no password, with NASA and ESA space clips and photos, public-domain chill beats by HoliznaCC0, public-domain books and Blender open movies, reset every night. The Demo face, Go on the empty Add Server field and Try Demo Server all reach it, and Demo credits under About Tomo TV in Settings names each item's source and license on any server
+- A Skip Automatically screen, in Settings and in Channel Settings, chooses which of the server's media segments playback seeks past on its own: intros, recaps, previews and commercials, on every platform. Commercials are on by default, as the old Skip commercials switch was, and that switch's setting carries over. Apple TV shows a Skip Intro, Skip Recap, Skip Preview or Skip Commercial pill only over a kind not skipped automatically, and Skip Credits when no Up Next card is coming. An item opened or resumed inside a skipped segment plays from its end. In a SyncPlay group nothing is skipped
+- Filters is now Sort & Filter: a library sorts by any of the server's orders (name, date added, release date, year, community, critic and parental rating, runtime, date played and play count; episode added for shows; album, album artist and artist for music), ascending or descending. Each library's sort and filters are saved on the account, in its display preferences on the server, so they return on every device; the demo and an account the server refuses keep them on the device
+- A live channel's info panel gains Rename and Hide. A rename shows in every list, the guide, search, the player and the Top Shelf, and an empty name brings the server's own back. A hidden channel leaves all of them, favorites included, and channel flipping passes over it; Channel Settings > Hidden Channels lists them and a press shows one again. Both are kept per account
+- In the book reader a tap in the outer tenth of the screen turns the page, back on the left and forward on the right. A tap elsewhere wakes the controls as before, and a zoomed page keeps its pan
+- Card size, under Appearance on every platform, sets how big the cards draw on Home, in folders and in search, names and corner text with them, and is saved on the device. Apple TV picks 75, 100, 125 or 150% and scales its rows, grid columns and posters with it; iPhone, iPad and Mac pick from a row of miniature cards at the sizes the window takes, from 0.75x up to a wide card at half the screen, 0.8 of the width on iPhone. A pinch over the cards sets the same size, easing into it and pulsing at either limit; on Mac, Command-plus, Command-minus and Command-0 do too. Each card asks the server for a poster as large as it is drawn
+- On iPhone, iPad and Mac, losing the connection, at launch or while the app runs, shows You're offline and switches to the Downloads tab when a finished download can play. Nothing happens while the player or an item screen is open over the tabs
+
+### Fixed
+
+- On Mac the left and right arrow keys turn pages in the book reader and step through photos; the focus system took them before
+- Show in Folder no longer shows on an episode opened from its own season screen. Jellyfin leaves a virtual season out of an episode's ancestors, so the panel also checks the folder it was opened from against the episode's parent
+- On Apple TV the info panel's title logo sits inside the card's 48 pt padding instead of running to its edges
+- On Apple TV the shadow layer behind a card darkened the art's top corners along its rounded edge and, at rest, stopped above the name base so the shadow fell under the base; it sits one point inside the art and covers the whole card now
+- A downloaded episode's row on the Downloads screen names its season and episode, S08E05, before its size
+- The channel wall showed Loading more items after its last channel while Tomo read the tuner playlists for channels only they carry; that read shows nothing now
+- Signed out, a subtitle or audio pick was forgotten: a downloaded episode opened with subtitles off every time. It is kept on the device now, through a relaunch. Signed in, a pick made offline was already kept on the device and sent to the account once the server is reachable. An account whose server settings hold no subtitle choice, read or not, plays with the latest subtitle pick made on this device instead of Jellyfin's defaults. A downloaded file plays in the system player, which keeps its own subtitle choice across episodes; Tomo no longer overrides it with the account's setting, and a download's playback never asks the server for anything
+- A subtitle picked in the last 1.5 s before the next item opened was dropped; it is stored now
+- Resuming a 4K HDR10 MP4 whose sync table lists few of its keyframes read the file from its first sample to the resume point and the open timed out: an 8.6 GB HEVC film read 4.15 GB in 106 s (issue 109). A seek that lands more than 18 s before its target now reads around the target for the keyframe the table did not list, found in the packets' own NAL units; a replica of that file with its table cut to one entry resumed in 5.6 s (`@keiver/tomo-engine@1.4.2`)
+- On resume with the server quality ladder offered, the player opened on the server rung the measured link picked; when that rung's segments did not exist (a static file host answers 404) the item failed instead of falling to the on-device copy, while the engine read the source from its first byte (issue 109). The playlist now leads with the copy when the rung's opening segment is answered a 4xx (other than 408 or 429), and the tier is reported declined; a rung still transcoding, or one that answered a passing server error, leads as before (`@keiver/tomo-engine@1.4.2`)
+- On a provider that allows one stream, the hold a recording put on the provider could outlast the recording: the app counted a clear as done whether or not the engine applied it, so every channel on that provider kept showing the recording screen until a relaunch. The hold now follows the engine's own held state, and a hold or clear the engine did not take is sent again on the next sync
+- A recording that started between a channel's hold check and its open showed the generic error; it shows the Limited Connections screen with Watch Recording
+- A live channel or recording whose audio is HE-AAC, common on terrestrial and low-bitrate feeds, played with no sound while AAC-LC channels were fine (issue 110). The on-device engine described the audio as plain AAC-LC; it now takes the setup from Apple's own ADTS parser, with the explicit SBR and PS signaling Apple's encoder writes. Measured on a public 720p H.264 + HE-AAC 48 kHz stereo channel through a Dispatcharr TS proxy on the Apple TV: silent on build 38, sound on the fix (`@keiver/tomo-engine@1.4.2`)
+
+### Changed
+
+- A Pluto TV link in a tuner playlist plays exactly as the playlist gives it, like any other link. Tomo no longer starts its own session with Pluto TV
+- A card's episode number, item count or NOW sits in a notch cut into the picture's top-left corner, in the card's own color and casting a shadow onto the art, in place of the tab above the card. Card names and the notch text are SF Pro Rounded, 11 pt on iPhone, 13 pt on iPad and Mac and 18 pt on Apple TV; the name's base and the notch rest on the card surface color, and card corners round at 14 pt, 23 pt on Apple TV
+- App Store screenshots sit on rust, where they sat on acid green
+- In Settings, Skip Automatically and Lyrics move out of the UI section into a Playback section below it
+- In Settings, About keeps two rows, Licenses and Demo credits, and saved diagnostics move to a Diagnostics section of their own, each row named by the video it played
+- Channel cards crop a live picture wider or narrower than 16:9 to the card, where it sat whole over a blurred copy of itself. A 16:9 picture fills the card as before
+- The channel wall no longer shows the groups band above its cards. The filter button in the bar is back on every platform and opens the Groups picker; its symbol fills while a group holds the list
+
 ## [2.2.13]
 
 ### Added
@@ -72,6 +111,7 @@ All notable changes to Tomo TV are documented here.
 - On a provider that allows one stream, a recording started while Tomo was reading the provider saved the provider's refusal, a 65-byte file, instead of video
 - The player's Record button kept showing Stop after the recording was stopped elsewhere, and Stop then failed
 - A video with no server poster, a recording in progress among them, paused a few seconds in when the poster Tomo made for it arrived: the new picture reloaded the stream. The player now leaves that poster for after playback
+- On a provider that allows one stream, a recording started right after Tomo closed its stream could still open into the stream the provider was counting and save its refusal. The recording now starts once the provider's own account API counts a stream free, read with no stream opened, for up to 30 s, and a recording made again after a refusal waits the same way. Measured on Dispatcharr, the count fell to 0 between 0.3 and 10.8 s after the close and every next open was admitted (5 of 5)
 
 ## [2.2.12]
 
