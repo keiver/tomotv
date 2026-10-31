@@ -101,6 +101,17 @@ describe("tvOS Up Next timing", () => {
     expect(lastConfig().contentProposal).toEqual({ title: "Second", autoAcceptSeconds: 5 });
   });
 
+  it("passes the next item's primary image ratio so the card takes the poster's shape", async () => {
+    const nextVideo = mockQueue.nextVideo;
+    mockQueue.nextVideo = { ...nextVideo, PrimaryImageAspectRatio: 16 / 9 } as typeof nextVideo;
+    try {
+      await mount();
+      expect(lastConfig().contentProposal).toEqual({ title: "Second", imageAspectRatio: 16 / 9, autoAcceptSeconds: 5 });
+    } finally {
+      mockQueue.nextVideo = nextVideo;
+    }
+  });
+
   it.each([0, -1, NaN, Infinity])("uses playback end for an unusable Outro start (%s)", async (start) => {
     jest.mocked(fetchMediaSegments).mockResolvedValue(markers(start));
     await mount();

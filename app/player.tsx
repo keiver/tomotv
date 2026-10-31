@@ -399,6 +399,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     return {
       title: cleanLabel(nextVideo.Name),
       ...(imageUri ? { imageUri } : {}),
+      ...(nextVideo.PrimaryImageAspectRatio ? { imageAspectRatio: nextVideo.PrimaryImageAspectRatio } : {}),
       ...(proposalAt !== null ? { startTimeSeconds: proposalAt } : {}),
       ...(autoPlayNext ? { autoAcceptSeconds: 5 } : {}),
     };
