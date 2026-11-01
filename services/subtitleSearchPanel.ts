@@ -21,8 +21,19 @@ export interface PanelResult {
   applied: boolean;
 }
 
+/** The subtitle that is on: its timing controls sit above the search. */
+export interface PanelCurrent {
+  name: string;
+  meta: string;
+  offsetLabel: string;
+  earlierLabel: string;
+  laterLabel: string;
+  resetLabel: string;
+}
+
 export interface PanelState {
   title: string;
+  current: PanelCurrent | null;
   query: string;
   queryPlaceholder: string;
   searchLabel: string;
@@ -39,6 +50,8 @@ export interface PanelHandlers {
   onQueryChanged: (query: string) => void;
   onLanguageChanged: (code: string) => void;
   onPick: (id: string) => void;
+  /** A timing press: the step in milliseconds, or null for the reset. */
+  onShift: (deltaMs: number | null) => void;
   onDismissed: () => void;
 }
 
@@ -91,6 +104,7 @@ export function listenToSubtitlePanel(handlers: PanelHandlers): () => void {
     emitter.addListener("onSubtitlePanelQueryChanged", (event: { query: string }) => handlers.onQueryChanged(event.query)),
     emitter.addListener("onSubtitlePanelLanguageChanged", (event: { code: string }) => handlers.onLanguageChanged(event.code)),
     emitter.addListener("onSubtitlePanelPick", (event: { id: string }) => handlers.onPick(event.id)),
+    emitter.addListener("onSubtitlePanelShift", (event: { deltaMs: number | null }) => handlers.onShift(typeof event.deltaMs === "number" ? event.deltaMs : null)),
     emitter.addListener("onSubtitlePanelDismissed", () => handlers.onDismissed()),
   ];
   return () => subscriptions.forEach((subscription) => subscription.remove());

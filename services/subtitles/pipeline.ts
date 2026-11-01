@@ -13,7 +13,7 @@ import { readOwnKeys } from "./keys";
 import { languageFor } from "./languages";
 import { fileNameQuery } from "./query";
 import { rankHits } from "./rank";
-import { saveDeviceSubtitle, type DeviceSubtitle } from "./store";
+import { removeDeviceSubtitle, saveDeviceSubtitle, type DeviceSubtitle } from "./store";
 import { SourceRefusal, type SearchContext, type SubtitleFile, type SubtitleHit, type SubtitleQuery } from "./types";
 import { isRefusal } from "./sources/http";
 
@@ -50,10 +50,11 @@ async function readFile(hit: SubtitleHit, context: SearchContext): Promise<Subti
   return sourceFor(hit.source).fetch(hit, context);
 }
 
-async function keepOnDevice(item: JellyfinVideoItem, hit: SubtitleHit, file: SubtitleFile): Promise<ApplyResult> {
+async function keepOnDevice(item: JellyfinVideoItem, hit: SubtitleHit, file: SubtitleFile, replacing?: Replacing): Promise<ApplyResult> {
   const vtt = toWebVtt(file.text, file.format || hit.format);
   if (!vtt || !hasCues(vtt)) return { ok: false, reason: "unreadable", source: hit.source };
   const config = await getConfig();
+  if (replacing) removeDeviceSubtitle(config.server, item.Id, replacing.ordinal);
   const saved = saveDeviceSubtitle({
     server: config.server,
     itemId: item.Id,
@@ -69,12 +70,17 @@ async function keepOnDevice(item: JellyfinVideoItem, hit: SubtitleHit, file: Sub
   return { ok: true, where: "device", language: hit.language, saved };
 }
 
+/** A device copy the pick replaces, removed once the new one is kept. A server sidecar is never removed: the account may not. */
+export interface Replacing {
+  ordinal: number;
+}
+
 /**
  * Saves a pick. With the account allowed and saving on: a server hit is fetched by the server
  * itself, any other is uploaded; both end in the sidecar the server attaches. Otherwise, or when
  * the upload is refused, the file stays on this device.
  */
-export async function applyPick(item: JellyfinVideoItem, hit: SubtitleHit, context?: SearchContext): Promise<ApplyResult> {
+export async function applyPick(item: JellyfinVideoItem, hit: SubtitleHit, context?: SearchContext, replacing?: Replacing): Promise<ApplyResult> {
   const resolved = context ?? (await searchContext(item.Id));
   const saveToServer = resolved.serverAllowed && getUiPreferences().saveSubtitles;
   const known = externalTextStreams(item.MediaStreams).map((stream) => stream.Index as number);
@@ -104,7 +110,7 @@ export async function applyPick(item: JellyfinVideoItem, hit: SubtitleHit, conte
       }
       logger.warn("Subtitle upload refused, keeping it on the device", { service: "Subtitles", itemId: item.Id, status });
     }
-    return await keepOnDevice(item, hit, file);
+    return await keepOnDevice(item, hit, file, replacing);
   } catch (error) {
     if (error instanceof SourceRefusal) {
       markSourceDown(error.source, error.status);

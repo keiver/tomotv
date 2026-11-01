@@ -3,6 +3,7 @@
  * zip download holding the one subtitle file.
  */
 import { languageCode } from "../languages";
+import { releaseName } from "../query";
 import type { SubtitleFile, SubtitleHit, SubtitleQuery, SubtitleSource } from "../types";
 import { providerBytes, providerJson, unpackSubtitle } from "./http";
 
@@ -44,12 +45,12 @@ export function podnapisiParams(query: SubtitleQuery, language: string): URLSear
 export function podnapisiHit(record: PodnapisiRecord, language: string, query: SubtitleQuery): SubtitleHit | null {
   if (record.id === undefined || record.id === null) return null;
   if (query.kind === "episode" && record.movie?.type === "movie") return null;
-  const releases = [...(record.releases ?? []), ...(record.custom_releases ?? [])].filter(Boolean);
+  const releases = [...(record.releases ?? []), ...(record.custom_releases ?? [])];
   const flags = record.flags ?? [];
   return {
     id: String(record.id),
     source: "podnapisi",
-    name: releases[0] || [record.movie?.title, record.movie?.year].filter(Boolean).join(" ") || String(record.id),
+    name: releaseName(releases, query) || [record.movie?.title, record.movie?.year].filter(Boolean).join(" ") || String(record.id),
     language: languageCode(record.language) ?? language,
     format: "",
     hashMatch: false,

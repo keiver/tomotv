@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ReactVideoProps } from "react-native-video";
 
-import type { VideoPlayerState } from "@/hooks/useVideoPlayback";
+import type { ActiveTextSubtitle, VideoPlayerState } from "@/hooks/useVideoPlayback";
 import type { MediaSegmentWindow } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
 
@@ -83,9 +83,11 @@ export interface PlayerSessionSnapshot {
   showLoadingOverlay: boolean;
   /** True once a stream URL exists, i.e. AVKit has chrome of its own on screen. */
   hasStream: boolean;
-  /** Legible tracks the player lists for the stream: above zero, AVKit shows its own subtitle menu. */
-  textTrackCount: number;
+  /** The text rendition of ours the viewer has on, or null. */
+  activeTextSubtitle: ActiveTextSubtitle | null;
 }
+
+export type { ActiveTextSubtitle };
 
 /** The imperative surface PlayerHost registers on mount. */
 export interface PlayerHostBridge {
@@ -102,6 +104,8 @@ export interface PlayerHostBridge {
   retry: () => void;
   /** Rebuilds the running session at the playhead, so a subtitle just saved or kept is listed. */
   reloadSubtitles: () => void;
+  /** Moves a text track's cues in the running session by `offsetMs`. */
+  applySubtitleTimeOffset: (streamIndex: number, offsetMs: number) => void;
   /** Relative seek, for the hardware keyboard. The AVKit chrome owns every other scrub. */
   seekBy: (offsetSeconds: number) => void;
   /** Play or pause, for the hardware keyboard. */
@@ -120,7 +124,7 @@ const IDLE_SNAPSHOT: PlayerSessionSnapshot = {
   playbackState: { type: "IDLE" },
   showLoadingOverlay: false,
   hasStream: false,
-  textTrackCount: 0,
+  activeTextSubtitle: null,
 };
 
 const PlayerSessionContext = createContext<PlayerSessionContextValue | undefined>(undefined);
@@ -226,6 +230,10 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
   const pause = useCallback(() => withHost("pause", (bridge) => bridge.pause()), [withHost]);
   const retry = useCallback(() => withHost("retry", (bridge) => bridge.retry()), [withHost]);
   const reloadSubtitles = useCallback(() => withHost("reloadSubtitles", (bridge) => bridge.reloadSubtitles()), [withHost]);
+  const applySubtitleTimeOffset = useCallback(
+    (streamIndex: number, offsetMs: number) => withHost("applySubtitleTimeOffset", (bridge) => bridge.applySubtitleTimeOffset(streamIndex, offsetMs)),
+    [withHost],
+  );
   const seekBy = useCallback((offsetSeconds: number) => withHost("seekBy", (bridge) => bridge.seekBy(offsetSeconds)), [withHost]);
   const togglePlay = useCallback(() => withHost("togglePlay", (bridge) => bridge.togglePlay()), [withHost]);
   const toggleVideoFill = useCallback(() => withHost("toggleVideoFill", (bridge) => bridge.toggleVideoFill()), [withHost]);
@@ -242,12 +250,29 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
       pause,
       retry,
       reloadSubtitles,
+      applySubtitleTimeOffset,
       seekBy,
       togglePlay,
       toggleVideoFill,
       setHandlers,
     }),
-    [snapshot, requestSession, switchLiveChannel, releaseRoute, stopSession, signalRoutePresented, setTvConfig, pause, retry, reloadSubtitles, seekBy, togglePlay, toggleVideoFill, setHandlers],
+    [
+      snapshot,
+      requestSession,
+      switchLiveChannel,
+      releaseRoute,
+      stopSession,
+      signalRoutePresented,
+      setTvConfig,
+      pause,
+      retry,
+      reloadSubtitles,
+      applySubtitleTimeOffset,
+      seekBy,
+      togglePlay,
+      toggleVideoFill,
+      setHandlers,
+    ],
   );
 
   const hostValue = useMemo(() => ({ registerHost, publish: setSnapshot, handlersRef }), [registerHost]);

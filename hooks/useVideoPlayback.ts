@@ -19,6 +19,7 @@ import {
   isLiveSource,
   type MediaSegmentWindow,
 } from "@/services/jellyfinApi";
+import { setSubtitleTimeOffset } from "@keiver/tomo-engine";
 import { LivePlayback } from "@keiver/tomo-live";
 import { linkRungsAllowed, serverTranscodeAllowed, serverTranscodeBlock, type ServerTranscodeBlock } from "@/services/transcodePolicy";
 import { heldImageSubtitleForOrdinal, playsConverted, playsFromDisk, playsRepackaged } from "@/services/downloads/localSource";
@@ -225,6 +226,13 @@ export interface VideoPlaybackConfig {
   skipWindows?: readonly MediaSegmentWindow[];
 }
 
+/** The text rendition of ours the viewer has on. */
+export interface ActiveTextSubtitle {
+  index: number;
+  name: string;
+  language: string;
+}
+
 export interface VideoPlaybackResult {
   // Player ref for Video component
   videoRef: React.RefObject<VideoRef | null>;
@@ -267,8 +275,8 @@ export interface VideoPlaybackResult {
   selectedTextTrack: SelectedTrack;
   /** RNV selectedAudioTrack: set only to re-apply a track the viewer chose. */
   selectedAudioTrack: SelectedTrack | undefined;
-  /** Legible tracks the player lists for the current stream: above zero, AVKit has a subtitle menu of its own. */
-  textTrackCount: number;
+  /** The text rendition of ours that is on, or null. */
+  activeTextSubtitle: ActiveTextSubtitle | null;
 
   // Paused state for Video component
   paused: boolean;
@@ -313,6 +321,8 @@ export interface VideoPlaybackResult {
   retry: () => void;
   /** Rebuilds the session at the playhead, so a subtitle saved or kept since the open is listed. */
   reloadAtPlayhead: () => void;
+  /** Moves a text track's cues in the running engine session. */
+  applySubtitleTimeOffset: (streamIndex: number, offsetMs: number) => void;
 
   // Bitmap subtitles (PGS, DVD/VobSub, DVB, XSUB). AVPlayer cannot render these,
   // so the engine decodes them and the app draws them over the video; these are
@@ -897,7 +907,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     streamUrlRef.current = streamUrl;
   }, [streamUrl]);
   // The player's last legible track report, kept with the stream it described so a new stream starts from none.
-  const [textTrackReport, setTextTrackReport] = useState<{ url: string | null; count: number }>({ url: null, count: 0 });
+  const [textTrackReport, setTextTrackReport] = useState<{ url: string | null; active: ActiveTextSubtitle | null }>({ url: null, active: null });
   // Slipstream gateway sessions: RNV maxBitRate (→ preferredPeakBitRate, live)
   // caps which loopback variant AVPlayer may pick. A pinned quality preset
   // becomes this cap, seamless, no session rebuild; Auto and every
@@ -2559,6 +2569,32 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
   // When a report last said nothing is selected; a live subtitle request older than that is stale.
   const lastSubtitleDeselectAtRef = useRef(0);
+  // Until when the text track is being turned off and on for a timing change: those reports are not choices.
+  const subtitleRefreshUntilRef = useRef(0);
+  const subtitleRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /**
+   * Moves the cues of a text track in the running engine session, then turns the track off and on so
+   * the player asks for its cues again: measured on the host player, that re-ask follows the off and
+   * on and not a seek in place (SubtitleRefetchTests). Nothing restarts.
+   */
+  const applySubtitleTimeOffset = useCallback((streamIndex: number, offsetMs: number) => {
+    const token = localRemuxTokenRef.current;
+    if (!token || transportRef.current !== "gateway") return;
+    void setSubtitleTimeOffset(token, streamIndex, offsetMs).then((applied) => {
+      if (!applied || !isMountedRef.current || localRemuxTokenRef.current !== token) return;
+      const selected = reportedTextTracksRef.current.find((track) => track.selected === true);
+      if (!selected) return;
+      if (subtitleRefreshTimerRef.current) clearTimeout(subtitleRefreshTimerRef.current);
+      subtitleRefreshUntilRef.current = Date.now() + 4000;
+      setSelectedSubtitleTrack({ type: "disabled" } as SelectedTrack);
+      subtitleRefreshTimerRef.current = setTimeout(() => {
+        subtitleRefreshTimerRef.current = null;
+        if (!isMountedRef.current || localRemuxTokenRef.current !== token) return;
+        setSelectedSubtitleTrack({ type: "index", value: String(selected.index) } as SelectedTrack);
+      }, 500);
+    });
+  }, []);
   // The subtitle rendition AVPlayer last asked the engine for; breaks a tie between same-language twins.
   const lastSubtitleRequestRef = useRef<number | null>(null);
 
@@ -2667,7 +2703,6 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       if (currentModeRef.current === "direct" && !itemHasSubtitleStreamsRef.current && data.textTracks.length > 0) {
         return;
       }
-      setTextTrackReport({ url: streamUrlRef.current, count: data.textTracks.length });
 
       // An image rendition carries no cues, so the viewer's pick is the only signal for which
       // bitmaps to draw. Resolved on the engine's lane alone: the server's legible group is
@@ -2692,6 +2727,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             ordinal: heldOrdinal,
           };
       setActiveImageSubtitleStream((current) => (current === pick.imageStreamIndex ? current : pick.imageStreamIndex));
+      // The legible track on, as a rendition of ours (engine lane only), for the route's timing controls.
+      // While the track is being turned off and on for a timing change, the off report keeps the last one.
+      const active = pick.rendition && !pick.rendition.isImage ? { index: pick.rendition.index, name: pick.rendition.name, language: pick.rendition.language } : null;
+      const refreshing = Date.now() < subtitleRefreshUntilRef.current;
+      setTextTrackReport((previous) => ({ url: streamUrlRef.current, active: refreshing && !active ? previous.active : active }));
       // Deselecting does change the item's tracks (measured), so this report is the deselect.
       if (onEngineLane && !data.textTracks.some((track) => track.selected === true)) lastSubtitleDeselectAtRef.current = Date.now();
 
@@ -2742,6 +2782,8 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // (no tracks, or nothing selected because nothing matched) says nothing
       // either way. observedFromReport draws that line.
       if (pick.reason) return;
+      // The off and on of a timing change is not the viewer choosing.
+      if (refreshing) return;
 
       // Selected, but none of ours: one of AVFoundation's phantom options (see resolveSubtitlePick).
       // Storing its language turns subtitles OFF on every later item, since nothing there matches it.
@@ -3432,6 +3474,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     seekTo,
     retry,
     reloadAtPlayhead,
+    applySubtitleTimeOffset,
     // Bitmap subtitles: the engine's session URL to fetch cues and images from,
     // and which track the viewer selected. Both null unless local remux is the
     // active lane and an image track is on. Read off the reducer state rather
@@ -3443,7 +3486,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     currentTimeRef,
     selectedTextTrack,
     selectedAudioTrack,
-    /** Legible tracks the player lists for the current stream, so the route knows whether AVKit has a subtitle menu. */
-    textTrackCount: textTrackReport.url === streamUrl ? textTrackReport.count : 0,
+    /** The text rendition of ours that is on, or null: nothing selected, a direct lane, or an image track. */
+    activeTextSubtitle: textTrackReport.url === streamUrl ? textTrackReport.active : null,
   };
 }

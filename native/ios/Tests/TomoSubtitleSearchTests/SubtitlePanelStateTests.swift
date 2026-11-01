@@ -31,6 +31,16 @@ final class SubtitlePanelStateTests: XCTestCase {
         XCTAssertEqual(state.results[0].badges, ["SDH"])
     }
 
+    func testTheCurrentSubtitleIsOptionalAndDecodesWhenSent() throws {
+        let without = try XCTUnwrap(SubtitlePanelState.from(dictionary: dictionary(results: [])))
+        XCTAssertNil(without.current)
+        var with = dictionary(results: [])
+        with["current"] = ["name": "Rel a", "meta": "Podnapisi", "offsetLabel": "1.5 s late", "earlierLabel": "Earlier", "laterLabel": "Later", "resetLabel": "Reset"]
+        let state = try XCTUnwrap(SubtitlePanelState.from(dictionary: with))
+        XCTAssertEqual(state.current?.name, "Rel a")
+        XCTAssertEqual(state.current?.offsetLabel, "1.5 s late")
+    }
+
     func testAMissingFieldDecodesToNothing() {
         var broken = dictionary(results: [])
         broken.removeValue(forKey: "stateLine")

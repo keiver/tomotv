@@ -55,6 +55,13 @@ export function jobErrorLine(job: SubtitleJob): string | null {
   return (job.error === "unreadable" ? t("subtitles.unreadable") : t("subtitles.applyFailed")).replace("{name}", job.picked?.name ?? "");
 }
 
+/** "On time", "1.5 s late" or "1.5 s early": the line a timing stepper shows for an offset. */
+export function offsetLabel(offsetMs: number): string {
+  if (offsetMs === 0) return t("subtitles.onTime");
+  const seconds = (Math.abs(offsetMs) / 1000).toFixed(1).replace(/\.0$/, "");
+  return t(offsetMs > 0 ? "subtitles.late" : "subtitles.early").replace("{seconds}", seconds);
+}
+
 export function hitBadges(hit: SubtitleHit): string[] {
   return [
     hit.hashMatch ? t("subtitles.hashMatch") : "",

@@ -2,7 +2,7 @@ jest.mock("expo-file-system", () => require("./fakeFileSystem"));
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
 
 import { fakeFs } from "./fakeFileSystem";
-import { DEVICE_SUBTITLE_INDEX_BASE, deviceSubtitleIndex, deviceSubtitles, saveDeviceSubtitle } from "@/services/subtitles/store";
+import { DEVICE_SUBTITLE_INDEX_BASE, deviceSubtitleIndex, deviceSubtitles, removeDeviceSubtitle, saveDeviceSubtitle } from "@/services/subtitles/store";
 
 const save = (over: Partial<Parameters<typeof saveDeviceSubtitle>[0]> = {}) =>
   saveDeviceSubtitle(
@@ -50,6 +50,16 @@ describe("device subtitle store", () => {
       [1, "p2"],
     ]);
     expect(fakeFs.get(kept[0].uri)?.content).toBe("WEBVTT\n\nnew");
+  });
+
+  it("removes a copy but keeps its slot, so the next copy's stream index does not move", () => {
+    const first = save();
+    save({ sourceId: "p2", language: "fr" });
+    expect(removeDeviceSubtitle("http://a:8096", "item1", 0)).toBe(true);
+    expect(fakeFs.get(first?.uri as string)).toBeUndefined();
+    expect(deviceSubtitles("http://a:8096", "item1").map((entry) => [entry.ordinal, entry.sourceId])).toEqual([[1, "p2"]]);
+    expect(removeDeviceSubtitle("http://a:8096", "item1", 0)).toBe(false);
+    expect(save({ sourceId: "p3", language: "de" })?.ordinal).toBe(2);
   });
 
   it("leaves out an entry whose file is gone", () => {

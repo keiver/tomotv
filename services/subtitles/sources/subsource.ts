@@ -3,6 +3,7 @@
  * subtitles listed by the language's English name; downloads are zips.
  */
 import { languageFor } from "../languages";
+import { episodeTag, releaseName } from "../query";
 import type { SubtitleFile, SubtitleHit, SubtitleQuery, SubtitleSource } from "../types";
 import { providerBytes, providerJson, unpackSubtitle } from "./http";
 
@@ -59,20 +60,20 @@ export function pickTitle(movies: SubsourceMovie[], query: SubtitleQuery): Subso
 
 /** Only releases naming this episode when the listing is a whole season's. */
 function namesEpisode(subtitle: SubsourceSubtitle, query: SubtitleQuery): boolean {
-  if (query.kind !== "episode" || query.season === undefined || query.episode === undefined) return true;
-  const tag = new RegExp(`S0?${query.season}\\s?E0?${query.episode}(?!\\d)`, "i");
+  const tag = episodeTag(query);
+  if (!tag) return true;
   const releases = subtitle.releaseInfo ?? [];
   return releases.length === 0 || releases.some((release) => tag.test(release));
 }
 
-export function subsourceHit(subtitle: SubsourceSubtitle, language: string): SubtitleHit | null {
+export function subsourceHit(subtitle: SubsourceSubtitle, language: string, query: SubtitleQuery): SubtitleHit | null {
   if (subtitle.subtitleId === undefined || subtitle.subtitleId === null) return null;
   const rating = subtitle.rating;
   const total = rating?.total ?? 0;
   return {
     id: String(subtitle.subtitleId),
     source: "subsource",
-    name: subtitle.releaseInfo?.[0]?.trim() || String(subtitle.subtitleId),
+    name: releaseName(subtitle.releaseInfo ?? [], query) || String(subtitle.subtitleId),
     language,
     format: "",
     hashMatch: false,
@@ -101,7 +102,7 @@ export const subsourceSource: SubtitleSource = {
     const listing = await providerJson<{ data?: SubsourceSubtitle[] }>("subsource", `${SUBSOURCE_BASE}/subtitles?${params}`, { headers: keyHeaders(key) });
     return (listing?.data ?? [])
       .filter((subtitle) => namesEpisode(subtitle, query))
-      .map((subtitle) => subsourceHit(subtitle, language))
+      .map((subtitle) => subsourceHit(subtitle, language, query))
       .filter((hit): hit is SubtitleHit => hit !== null);
   },
   async fetch(hit, context): Promise<SubtitleFile> {

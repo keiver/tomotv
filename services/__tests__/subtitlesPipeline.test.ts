@@ -124,6 +124,14 @@ describe("applyPick", () => {
     expect(fakeFs.get(kept[0].uri)?.content).toBe("WEBVTT\n\n1\n00:00:01.000 --> 00:00:02.000\nHi\n");
   });
 
+  it("a replacement removes the device copy it names once the new one is kept", async () => {
+    api.canManageSubtitles.mockResolvedValue(false);
+    await applyPick(item, hit({ id: "old" }));
+    const result = await applyPick(item, hit({ id: "new" }), undefined, { ordinal: 0 });
+    expect(result).toMatchObject({ ok: true, where: "device" });
+    expect(deviceSubtitles("http://server:8096", "item1").map((entry) => [entry.ordinal, entry.sourceId])).toEqual([[1, "new"]]);
+  });
+
   it("keeps the file on the device when saving is switched off", async () => {
     mockPrefs.saveSubtitles = false;
     expect(await applyPick(item, hit())).toMatchObject({ ok: true, where: "device" });

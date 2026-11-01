@@ -18,10 +18,12 @@ interface SubtitleJobCardProps {
   alone: boolean;
   onPick: (hit: SubtitleHit) => void;
   onQueryText: (text: string) => void;
+  /** A result left out of the list: the copy that is on, when the search is for its replacement. */
+  hideHit?: (hit: SubtitleHit) => boolean;
 }
 
 /** One file: its label and title on the left, its state on the right, its results and query inside. */
-export function SubtitleJobCard({ job, alone, onPick, onQueryText }: SubtitleJobCardProps) {
+export function SubtitleJobCard({ job, alone, onPick, onQueryText, hideHit }: SubtitleJobCardProps) {
   const palette = useCardPalette();
   const [open, setOpen] = useState(alone);
   const expanded = alone || open;
@@ -63,15 +65,17 @@ export function SubtitleJobCard({ job, alone, onPick, onQueryText }: SubtitleJob
           {error ? <Text style={styles.error}>{error}</Text> : null}
           <SubtitleSearchField value={queryText(job.query)} onSubmit={onQueryText} />
           <View style={styles.results}>
-            {job.results.map((hit) => (
-              <SubtitleResultRow
-                key={`${hit.source}:${hit.id}`}
-                hit={hit}
-                applying={job.status === "applying" && job.picked?.id === hit.id}
-                applied={job.status === "applied" && job.picked?.id === hit.id}
-                onPress={() => onPick(hit)}
-              />
-            ))}
+            {job.results
+              .filter((hit) => !hideHit?.(hit))
+              .map((hit) => (
+                <SubtitleResultRow
+                  key={`${hit.source}:${hit.id}`}
+                  hit={hit}
+                  applying={job.status === "applying" && job.picked?.id === hit.id}
+                  applied={job.status === "applied" && job.picked?.id === hit.id}
+                  onPress={() => onPick(hit)}
+                />
+              ))}
           </View>
         </View>
       ) : null}

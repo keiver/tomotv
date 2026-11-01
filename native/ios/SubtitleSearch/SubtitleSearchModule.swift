@@ -15,6 +15,7 @@ class SubtitleSearchModule: RCTEventEmitter {
     private static let queryChanged = "onSubtitlePanelQueryChanged"
     private static let languageChanged = "onSubtitlePanelLanguageChanged"
     private static let picked = "onSubtitlePanelPick"
+    private static let shifted = "onSubtitlePanelShift"
     private static let dismissed = "onSubtitlePanelDismissed"
 
     #if os(tvOS)
@@ -24,7 +25,7 @@ class SubtitleSearchModule: RCTEventEmitter {
     @objc override static func requiresMainQueueSetup() -> Bool { true }
 
     override func supportedEvents() -> [String]! {
-        [Self.queryChanged, Self.languageChanged, Self.picked, Self.dismissed]
+        [Self.queryChanged, Self.languageChanged, Self.picked, Self.shifted, Self.dismissed]
     }
 
     @objc func present(_ state: NSDictionary, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
@@ -48,6 +49,7 @@ class SubtitleSearchModule: RCTEventEmitter {
                 controller.onQueryChanged = { [weak self] query in self?.sendEvent(withName: Self.queryChanged, body: ["query": query]) }
                 controller.onLanguageChanged = { [weak self] code in self?.sendEvent(withName: Self.languageChanged, body: ["code": code]) }
                 controller.onPick = { [weak self] id in self?.sendEvent(withName: Self.picked, body: ["id": id]) }
+                controller.onShift = { [weak self] deltaMs in self?.sendEvent(withName: Self.shifted, body: ["deltaMs": deltaMs.map { $0 as Any } ?? NSNull()]) }
                 controller.onDismissed = { [weak self] in
                     self?.panel = nil
                     self?.sendEvent(withName: Self.dismissed, body: [:])

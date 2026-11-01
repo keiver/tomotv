@@ -116,11 +116,18 @@ describe("podnapisi source", () => {
     expect(podnapisiParams(episode, "de").toString()).toBe("keywords=Some+Show&language=de&seasons=1&episodes=3&movie_type=tv-series&movie_type=mini-series");
   });
 
-  it("maps records, drops duplicates and films answered for an episode", async () => {
+  it("maps records, names each by the release of the episode asked, drops duplicates and films answered for an episode", async () => {
     mockFetch.mockResolvedValue(
       json({
         data: [
-          { id: 1, language: "en", flags: ["hearing_impaired"], releases: ["Some.Show.S01E03.720p"], custom_releases: [], movie: { type: "tv-series", title: "Some Show", year: 2020 } },
+          {
+            id: 1,
+            language: "en",
+            flags: ["hearing_impaired"],
+            releases: ["Some.Show.S01.Pack", "Some.Show.S01E03.720p"],
+            custom_releases: [],
+            movie: { type: "tv-series", title: "Some Show", year: 2020 },
+          },
           { id: 1, language: "en", flags: [], releases: [], movie: { type: "tv-series" } },
           { id: 2, language: "en", flags: [], releases: [], movie: { type: "movie", title: "Some Show", year: 2020 } },
         ],
@@ -153,7 +160,7 @@ describe("gestdown source", () => {
     expect(gestdownSource.accepts({ ...episode, keywords: "ab" }, context)).toBe(false);
   });
 
-  it("finds the show, then the episode's completed subtitles by the language's English name", async () => {
+  it("finds the show, then the episode's completed subtitles by the language's English name, each named show, episode and release", async () => {
     mockFetch
       .mockResolvedValueOnce(
         json({
@@ -174,7 +181,7 @@ describe("gestdown source", () => {
     const hits = await gestdownSource.search(episode, "en", context);
     expect(mockFetch.mock.calls[0][0]).toBe("https://api.gestdown.info/shows/search/Some%20Show");
     expect(mockFetch.mock.calls[1][0]).toBe("https://api.gestdown.info/subtitles/get/show-1/1/3/English");
-    expect(hits).toEqual([expect.objectContaining({ id: "s1", source: "gestdown", name: "HDTV", downloads: 5, author: "Addic7ed" })]);
+    expect(hits).toEqual([expect.objectContaining({ id: "s1", source: "gestdown", name: "Some Show S01E03 HDTV", downloads: 5, author: "Addic7ed" })]);
   });
 
   it("prefers the show whose name matches, else the first", () => {
@@ -208,7 +215,7 @@ describe("opensubtitles source", () => {
     expect(params.get("type")).toBe("episode");
   });
 
-  it("searches with the key and maps each file", async () => {
+  it("searches with the key and maps each file, named by its file name", async () => {
     mockFetch.mockResolvedValue(
       json({
         data: [
@@ -230,7 +237,7 @@ describe("opensubtitles source", () => {
     );
     const hits = await openSubtitlesSource.search(movie, "en", context);
     expect((mockFetch.mock.calls[0][1] as RequestInit).headers).toMatchObject({ "Api-Key": "key", "User-Agent": "TomoTV v1.0.0" });
-    expect(hits).toEqual([expect.objectContaining({ id: "123", source: "opensubtitles", name: "Some.Film.2020.1080p", hashMatch: true, rating: 7.5, downloads: 900, author: "up" })]);
+    expect(hits).toEqual([expect.objectContaining({ id: "123", source: "opensubtitles", name: "Some.Film.srt", hashMatch: true, rating: 7.5, downloads: 900, author: "up" })]);
   });
 
   it("logs in once, asks for a link, and reads the file from it", async () => {
@@ -303,7 +310,7 @@ describe("subsource source", () => {
     expect(subsourceSearchParams(episode).toString()).toBe("searchType=text&q=Some+Show&type=series&season=1");
   });
 
-  it("lists the title's subtitles in the language's English name and keeps the episode's releases", async () => {
+  it("lists the title's subtitles in the language's English name, keeps the episode's releases and names each by the one for the episode", async () => {
     mockFetch
       .mockResolvedValueOnce(
         json({
@@ -316,7 +323,7 @@ describe("subsource source", () => {
       .mockResolvedValueOnce(
         json({
           data: [
-            { subtitleId: 1, releaseInfo: ["Some.Show.S01E03.720p"], hearingImpaired: false, downloads: 40, rating: { good: 8, bad: 2, total: 10 } },
+            { subtitleId: 1, releaseInfo: ["Some.Show.S01.Season.Pack", "Some.Show.S01E03.720p"], hearingImpaired: false, downloads: 40, rating: { good: 8, bad: 2, total: 10 } },
             { subtitleId: 2, releaseInfo: ["Some.Show.S01E04.720p"] },
           ],
         }),
@@ -324,6 +331,6 @@ describe("subsource source", () => {
     const hits = await subsourceSource.search(episode, "en", context);
     expect(mockFetch.mock.calls[1][0]).toBe("https://api.subsource.net/api/v1/subtitles?movieId=7&language=english&limit=50");
     expect((mockFetch.mock.calls[0][1] as RequestInit).headers).toMatchObject({ "X-API-Key": "ssk" });
-    expect(hits).toEqual([expect.objectContaining({ id: "1", source: "subsource", rating: 8, downloads: 40 })]);
+    expect(hits).toEqual([expect.objectContaining({ id: "1", source: "subsource", name: "Some.Show.S01E03.720p", rating: 8, downloads: 40 })]);
   });
 });

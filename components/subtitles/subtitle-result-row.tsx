@@ -36,7 +36,7 @@ export function SubtitleResultRow({ hit, applying, applied, onPress }: SubtitleR
             <Text style={[styles.monogramText, hit.hashMatch && { color: palette.onAccent }]}>{SOURCE_MONOGRAM[hit.source]}</Text>
           </View>
           <View style={styles.text}>
-            <Text style={[styles.name, focused && styles.nameFocused]} numberOfLines={1}>
+            <Text style={[styles.name, focused && styles.nameFocused]} numberOfLines={2}>
               {hit.name}
             </Text>
             <View style={styles.metaRow}>

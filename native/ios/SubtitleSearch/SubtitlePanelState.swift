@@ -41,8 +41,29 @@ public struct SubtitlePanelResult: Codable, Equatable {
     }
 }
 
+/// The subtitle that is on, with the words its timing controls show.
+public struct SubtitlePanelCurrent: Codable, Equatable {
+    public let name: String
+    public let meta: String
+    public let offsetLabel: String
+    public let earlierLabel: String
+    public let laterLabel: String
+    public let resetLabel: String
+
+    public init(name: String, meta: String, offsetLabel: String, earlierLabel: String, laterLabel: String, resetLabel: String) {
+        self.name = name
+        self.meta = meta
+        self.offsetLabel = offsetLabel
+        self.earlierLabel = earlierLabel
+        self.laterLabel = laterLabel
+        self.resetLabel = resetLabel
+    }
+}
+
 public struct SubtitlePanelState: Codable, Equatable {
     public let title: String
+    /// Set while a subtitle is on: the panel leads with its timing controls.
+    public let current: SubtitlePanelCurrent?
     public let query: String
     public let queryPlaceholder: String
     /// The search button's word.
@@ -56,8 +77,9 @@ public struct SubtitlePanelState: Codable, Equatable {
     public let busy: Bool
     public let results: [SubtitlePanelResult]
 
-    public init(title: String, query: String, queryPlaceholder: String, searchLabel: String, languages: [SubtitlePanelLanguage], selectedLanguage: String, stateLine: String, note: String, busy: Bool, results: [SubtitlePanelResult]) {
+    public init(title: String, current: SubtitlePanelCurrent? = nil, query: String, queryPlaceholder: String, searchLabel: String, languages: [SubtitlePanelLanguage], selectedLanguage: String, stateLine: String, note: String, busy: Bool, results: [SubtitlePanelResult]) {
         self.title = title
+        self.current = current
         self.query = query
         self.queryPlaceholder = queryPlaceholder
         self.searchLabel = searchLabel

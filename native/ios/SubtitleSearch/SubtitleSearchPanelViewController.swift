@@ -15,6 +15,8 @@
         var onQueryChanged: ((String) -> Void)?
         var onLanguageChanged: ((String) -> Void)?
         var onPick: ((String) -> Void)?
+        /// A timing press: the step's sign in milliseconds, or nil for the reset.
+        var onShift: ((Int?) -> Void)?
         var onDismissed: (() -> Void)?
 
         private var state: SubtitlePanelState
@@ -22,6 +24,13 @@
 
         private let card = SubtitleSearchPanelViewController.surface(cornerRadius: 44)
         private let titleLabel = UILabel()
+        private let currentRow = UIStackView()
+        private let currentName = UILabel()
+        private let currentMeta = UILabel()
+        private let earlierButton = UIButton(configuration: SubtitleSearchPanelViewController.pill())
+        private let offsetLabel = UILabel()
+        private let laterButton = UIButton(configuration: SubtitleSearchPanelViewController.pill())
+        private let resetButton = UIButton(configuration: SubtitleSearchPanelViewController.pill())
         private let languageButton = UIButton(configuration: SubtitleSearchPanelViewController.pill())
         private let fieldWell = SubtitleSearchPanelViewController.surface(cornerRadius: 36)
         private let field = UITextField()
@@ -37,6 +46,8 @@
         private static let dim = UIColor(white: 0.62, alpha: 1)
         private static let cardSize = CGSize(width: 1180, height: 760)
         private static let controlHeight: CGFloat = 72
+        private static let margin: CGFloat = 56
+        private static let rowCornerRadius: CGFloat = 28
 
         init(state: SubtitlePanelState) {
             self.state = state
@@ -56,6 +67,7 @@
         }
 
         override var preferredFocusEnvironments: [UIFocusEnvironment] {
+            if state.current != nil { return [laterButton] }
             if let first = rows.first { return [first] }
             return [field]
         }
@@ -102,7 +114,8 @@
             } else {
                 configuration = .gray()
             }
-            configuration.cornerStyle = .large
+            configuration.cornerStyle = .fixed
+            configuration.background.cornerRadius = rowCornerRadius
             configuration.titleAlignment = .leading
             configuration.imagePadding = 22
             configuration.titlePadding = 4
@@ -137,6 +150,8 @@
 
             titleLabel.font = UIFont.systemFont(ofSize: 40, weight: .bold)
             titleLabel.textColor = .white
+
+            buildCurrentRow()
 
             languageButton.configuration?.image = UIImage(systemName: "chevron.down")
             languageButton.configuration?.imagePlacement = .trailing
@@ -192,28 +207,79 @@
             resultsStack.axis = .vertical
             resultsStack.spacing = 10
             resultsStack.translatesAutoresizingMaskIntoConstraints = false
+            resultsScroll.translatesAutoresizingMaskIntoConstraints = false
+            resultsScroll.contentInsetAdjustmentBehavior = .never
+            resultsScroll.contentInset = UIEdgeInsets(top: 24, left: 0, bottom: 48, right: 0)
             resultsScroll.addSubview(resultsStack)
             NSLayoutConstraint.activate([
                 resultsStack.topAnchor.constraint(equalTo: resultsScroll.contentLayoutGuide.topAnchor),
                 resultsStack.bottomAnchor.constraint(equalTo: resultsScroll.contentLayoutGuide.bottomAnchor),
-                resultsStack.leadingAnchor.constraint(equalTo: resultsScroll.contentLayoutGuide.leadingAnchor),
-                resultsStack.trailingAnchor.constraint(equalTo: resultsScroll.contentLayoutGuide.trailingAnchor),
-                resultsStack.widthAnchor.constraint(equalTo: resultsScroll.frameLayoutGuide.widthAnchor),
+                resultsStack.leadingAnchor.constraint(equalTo: resultsScroll.contentLayoutGuide.leadingAnchor, constant: Self.margin),
+                resultsStack.trailingAnchor.constraint(equalTo: resultsScroll.contentLayoutGuide.trailingAnchor, constant: -Self.margin),
+                resultsStack.widthAnchor.constraint(equalTo: resultsScroll.frameLayoutGuide.widthAnchor, constant: -2 * Self.margin),
             ])
 
-            let stack = UIStackView(arrangedSubviews: [titleLabel, controls, stateRow, noteLabel, resultsScroll])
+            let stack = UIStackView(arrangedSubviews: [titleLabel, currentRow, controls, stateRow, noteLabel])
             stack.axis = .vertical
             stack.spacing = 22
             stack.setCustomSpacing(28, after: titleLabel)
+            stack.setCustomSpacing(28, after: currentRow)
             stack.setCustomSpacing(12, after: stateRow)
             stack.translatesAutoresizingMaskIntoConstraints = false
             content.addSubview(stack)
+            content.addSubview(resultsScroll)
             NSLayoutConstraint.activate([
                 stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 48),
-                stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 56),
-                stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -56),
-                stack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -40),
+                stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: Self.margin),
+                stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -Self.margin),
+                resultsScroll.topAnchor.constraint(equalTo: stack.bottomAnchor),
+                resultsScroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+                resultsScroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+                resultsScroll.bottomAnchor.constraint(equalTo: content.bottomAnchor),
             ])
+        }
+
+        /// The subtitle that is on: its name and source on the left, Earlier, the offset, Later and Reset on the right.
+        private func buildCurrentRow() {
+            currentName.font = UIFont.systemFont(ofSize: 27, weight: .medium)
+            currentName.textColor = .white
+            currentMeta.font = UIFont.systemFont(ofSize: 20, weight: .regular)
+            currentMeta.textColor = Self.dim
+            let text = UIStackView(arrangedSubviews: [currentName, currentMeta])
+            text.axis = .vertical
+            text.spacing = 4
+            text.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            text.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+            earlierButton.configuration?.image = UIImage(systemName: "minus")
+            laterButton.configuration?.image = UIImage(systemName: "plus")
+            resetButton.configuration?.image = UIImage(systemName: "arrow.counterclockwise")
+            for button in [earlierButton, laterButton, resetButton] {
+                button.configuration?.imagePlacement = .leading
+                button.setContentHuggingPriority(.required, for: .horizontal)
+                button.setContentCompressionResistancePriority(.required, for: .horizontal)
+                button.heightAnchor.constraint(equalToConstant: Self.controlHeight).isActive = true
+            }
+            earlierButton.addAction(UIAction { [weak self] _ in self?.onShift?(-1) }, for: .primaryActionTriggered)
+            laterButton.addAction(UIAction { [weak self] _ in self?.onShift?(1) }, for: .primaryActionTriggered)
+            resetButton.addAction(UIAction { [weak self] _ in self?.onShift?(nil) }, for: .primaryActionTriggered)
+
+            offsetLabel.font = UIFont.systemFont(ofSize: 26, weight: .semibold)
+            offsetLabel.textColor = Self.accent
+            offsetLabel.textAlignment = .center
+            offsetLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+            let controls = UIStackView(arrangedSubviews: [earlierButton, offsetLabel, laterButton, resetButton])
+            controls.axis = .horizontal
+            controls.spacing = 16
+            controls.alignment = .center
+
+            currentRow.axis = .horizontal
+            currentRow.spacing = 24
+            currentRow.alignment = .center
+            currentRow.addArrangedSubview(text)
+            currentRow.addArrangedSubview(controls)
+            currentRow.isHidden = true
         }
 
         // MARK: - Actions
@@ -255,6 +321,15 @@
             state = next
             guard isViewLoaded else { return }
             titleLabel.text = next.title
+            currentRow.isHidden = next.current == nil
+            if let current = next.current {
+                currentName.text = current.name
+                currentMeta.text = current.meta
+                offsetLabel.text = current.offsetLabel
+                earlierButton.configuration?.title = current.earlierLabel
+                laterButton.configuration?.title = current.laterLabel
+                resetButton.configuration?.title = current.resetLabel
+            }
             languageButton.configuration?.title = next.languages.indices.contains(next.selectedLanguageIndex) ? next.languages[next.selectedLanguageIndex].name : next.selectedLanguage
             if #available(tvOS 17.0, *) {
                 languageButton.menu = languageMenu()

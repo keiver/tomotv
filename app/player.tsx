@@ -6,7 +6,7 @@ import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayerSession } from "@/contexts/PlayerSessionContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
-import { useTvSubtitlePanel } from "@/hooks/useTvSubtitlePanel";
+import { subtitleTransportButton, useTvSubtitlePanel } from "@/hooks/useTvSubtitlePanel";
 import { useUiPreferences } from "@/hooks/useUiPreferences";
 import { posterUri, wantsPosterFrame } from "@/services/itemArtwork";
 import {
@@ -159,7 +159,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     hasStream,
     sessionVideoId,
     hostMode,
-    textTrackCount,
+    activeTextSubtitle,
   } = usePlayerSession();
 
   const isQueueMode = params.queueMode === "true";
@@ -579,7 +579,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     });
   }, [canRecord, recordKey, currentProgramId, videoId]);
 
-  const subtitlePanel = useTvSubtitlePanel(videoId);
+  const subtitlePanel = useTvSubtitlePanel(videoId, activeTextSubtitle);
 
   const transportBarButtons = useMemo(() => {
     if (!Platform.isTV) return undefined;
@@ -597,12 +597,10 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     if (favorite !== null) {
       buttons.push({ id: "favorite", title: t(favorite ? "info.removeFavorite" : "info.addFavorite"), sfSymbol: favorite ? "heart.fill" : "heart" });
     }
-    // AVKit draws its own subtitle button once the stream lists a legible track; ours shows only when it has none.
-    if (!isLiveChannel && subtitlePanel.available && !textTrackCount) {
-      buttons.push({ id: "subtitles", title: t("player.findSubtitles"), sfSymbol: "captions.bubble" });
-    }
+    const subtitles = subtitleTransportButton({ isLiveChannel, available: subtitlePanel.available, active: activeTextSubtitle, offsetMs: subtitlePanel.offsetMs });
+    if (subtitles) buttons.push(subtitles);
     return buttons.length > 0 ? buttons : undefined;
-  }, [isLiveChannel, playingChannel, liveFavorite, vodFavorite, canRecord, recordKey, recordTimer, subtitlePanel.available, textTrackCount]);
+  }, [isLiveChannel, playingChannel, liveFavorite, vodFavorite, canRecord, recordKey, recordTimer, subtitlePanel.available, subtitlePanel.offsetMs, activeTextSubtitle]);
   const handleTransportBarButtonSelected = useCallback(
     (event: { id: string }) => {
       if (event.id === "subtitles") {

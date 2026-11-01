@@ -101,6 +101,9 @@ jest.mock("@/services/subtitles/store", () => ({
   deviceSubtitles: () => mockDeviceSubtitles(),
   deviceSubtitleIndex: (ordinal: number) => 100000 + ordinal,
 }));
+// No time correction unless a test stores one for a stream index.
+const mockOffsets = new Map<number, number>();
+jest.mock("@/services/subtitles/timing", () => ({ subtitleOffsetMs: (_server: string, _itemId: string, streamIndex: number) => mockOffsets.get(streamIndex) ?? 0 }));
 
 // Measured-slow link: the tier is declared only when measured < source.
 jest.mock("@/services/jellyfin/bitrateTest", () => ({
@@ -1520,6 +1523,30 @@ describe("subtitleRenditions", () => {
       isDefault: false,
     });
     expect(renditions[1].name).toBe("Movie.2024.1080p-GRP");
+  });
+
+  it("carries the viewer's time correction on a text rendition and on a device copy, and nothing on the rest", () => {
+    mockDeviceSubtitles.mockReturnValueOnce([{ ordinal: 0, language: "es", name: "Kept", forced: false, hearingImpaired: false, uri: "file:///doc/subtitles/s_i/sub.0.vtt" }]);
+    mockOffsets.set(2, 1500);
+    mockOffsets.set(100000, -500);
+    try {
+      const renditions = subtitleRenditions(
+        item({
+          streams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Subtitle", Codec: "subrip", Index: 2, Language: "eng" },
+            { Type: "Subtitle", Codec: "subrip", Index: 3, Language: "fra" },
+          ],
+        }),
+      );
+      expect(renditions.map((rendition) => [rendition.index, rendition.timeOffsetMs])).toEqual([
+        [2, 1500],
+        [3, undefined],
+        [100000, -500],
+      ]);
+    } finally {
+      mockOffsets.clear();
+    }
   });
 
   // The bug this whole path was rewritten for. The app used to key the pick on

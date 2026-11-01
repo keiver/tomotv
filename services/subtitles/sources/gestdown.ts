@@ -3,6 +3,7 @@
  * by name, then an episode's subtitles asked for by the language's English name.
  */
 import { languageFor } from "../languages";
+import { queryText } from "../query";
 import type { SubtitleFile, SubtitleHit, SubtitleQuery, SubtitleSource } from "../types";
 import { providerBytes, providerFetch, providerJson, unpackSubtitle } from "./http";
 
@@ -47,12 +48,13 @@ export function pickShow(shows: GestdownShow[], keywords: string): GestdownShow 
   return shows.find((show) => normalise(show.name) === wanted) ?? shows[0];
 }
 
-export function gestdownHit(subtitle: GestdownSubtitle, language: string): SubtitleHit | null {
+/** Gestdown names only the release ("HDTV", "720p.WEB-DL"); the show and episode go in front of it so the row reads like a file name. */
+export function gestdownHit(subtitle: GestdownSubtitle, language: string, show: GestdownShow, query: SubtitleQuery): SubtitleHit | null {
   if (!subtitle.completed || !subtitle.subtitleId) return null;
   return {
     id: subtitle.subtitleId,
     source: "gestdown",
-    name: subtitle.release?.trim() || subtitle.version?.trim() || subtitle.subtitleId,
+    name: [queryText({ ...query, keywords: show.name }), subtitle.release?.trim() || subtitle.version?.trim()].filter(Boolean).join(" "),
     language,
     format: "",
     hashMatch: false,
@@ -79,7 +81,7 @@ export const gestdownSource: SubtitleSource = {
     const response = await providerFetch("gestdown", `${GESTDOWN_BASE}/subtitles/get/${encodeURIComponent(show.id)}/${query.season}/${query.episode}/${encodeURIComponent(row.english)}`);
     if (!response.ok) return [];
     const answer = (await response.json()) as GestdownSearchAnswer;
-    return (answer.matchingSubtitles ?? []).map((subtitle) => gestdownHit(subtitle, language)).filter((hit): hit is SubtitleHit => hit !== null);
+    return (answer.matchingSubtitles ?? []).map((subtitle) => gestdownHit(subtitle, language, show, query)).filter((hit): hit is SubtitleHit => hit !== null);
   },
   async fetch(hit: SubtitleHit): Promise<SubtitleFile> {
     const bytes = await providerBytes("gestdown", `${GESTDOWN_BASE}/subtitles/download/${encodeURIComponent(hit.id)}`);

@@ -3,12 +3,17 @@ import { LoadingRow } from "@/components/loading-row";
 import { IS_PAD, settingsStyles, sideInsets } from "@/components/settings/styles";
 import { LanguageChips } from "@/components/subtitles/language-chips";
 import { SubtitleJobCard } from "@/components/subtitles/subtitle-job-card";
+import { SubtitleTimingRow } from "@/components/subtitles/subtitle-timing-row";
 import { TakeMatchesBar } from "@/components/subtitles/take-matches-bar";
 import { COLORS } from "@/constants/colors";
 import { useSubtitleSearch } from "@/hooks/useSubtitleSearch";
+import { useSubtitleTiming } from "@/hooks/useSubtitleTiming";
 import { t } from "@/services/i18n";
+import { getCachedConfig } from "@/services/jellyfin/session";
 import { fetchItemDetails, fetchRecursiveDownloadables, isAudioItem, isBook, isFolder, isPhoto } from "@/services/jellyfinApi";
-import { languageFor } from "@/services/subtitles/languages";
+import { currentTextSubtitles, isCurrentPick, replacementFor, type CurrentSubtitle } from "@/services/subtitles/current";
+import { languageCode, languageFor } from "@/services/subtitles/languages";
+import { SUBTITLE_OFFSET_STEP_MS } from "@/services/subtitles/timing";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useLocalSearchParams } from "expo-router";
@@ -35,7 +40,12 @@ export default function SubtitleSearchScreen() {
   const headerHeight = useHeaderHeight();
   const [items, setItems] = useState<JellyfinVideoItem[] | null>(null);
   const [failed, setFailed] = useState(false);
+  // The subtitle a Replace press named: its language leads the search and its own copy stays out of the results.
+  const [replacing, setReplacing] = useState<CurrentSubtitle | null>(null);
   const search = useSubtitleSearch(items);
+  const timing = useSubtitleTiming(itemId);
+  // One video's own text subtitles can be shifted or replaced here; a folder's list stays a search.
+  const current = items?.length === 1 ? currentTextSubtitles(items[0], getCachedConfig().server) : [];
 
   useEffect(() => {
     let cancelled = false;
@@ -73,6 +83,29 @@ export default function SubtitleSearchScreen() {
 
           {items !== null ? (
             <>
+              {current.length > 0 ? (
+                <>
+                  <View style={settingsStyles.sectionHeader}>
+                    <Text style={settingsStyles.sectionHeaderText}>{t("subtitles.current")}</Text>
+                  </View>
+                  <View style={settingsStyles.section}>
+                    {current.map((subtitle, at) => (
+                      <SubtitleTimingRow
+                        key={subtitle.index}
+                        subtitle={subtitle}
+                        offsetMs={timing.offsetFor(subtitle.index)}
+                        onShift={(direction) => timing.shift(subtitle.index, direction === null ? null : direction * SUBTITLE_OFFSET_STEP_MS)}
+                        onReplace={() => {
+                          setReplacing(subtitle);
+                          search.setLanguage(languageCode(subtitle.language) ?? search.language);
+                        }}
+                        isLast={at === current.length - 1}
+                      />
+                    ))}
+                  </View>
+                </>
+              ) : null}
+
               <View style={settingsStyles.sectionHeader}>
                 <Text style={settingsStyles.sectionHeaderText}>{t("subtitles.language")}</Text>
               </View>
@@ -90,7 +123,14 @@ export default function SubtitleSearchScreen() {
               {search.jobs.length === 0 && items.length > 0 ? <Text style={styles.empty}>{t("subtitles.allSubtitled").replace("{language}", languageName)}</Text> : null}
               {items.length === 0 ? <Text style={styles.empty}>{t("subtitles.noVideos")}</Text> : null}
               {search.jobs.map((job, index) => (
-                <SubtitleJobCard key={job.item.Id} job={job} alone={search.jobs.length === 1} onPick={(hit) => void search.pick(index, hit)} onQueryText={(text) => search.setQueryText(index, text)} />
+                <SubtitleJobCard
+                  key={job.item.Id}
+                  job={job}
+                  alone={search.jobs.length === 1}
+                  onPick={(hit) => void search.pick(index, hit, replacementFor(hit, replacing))}
+                  onQueryText={(text) => search.setQueryText(index, text)}
+                  hideHit={(hit) => isCurrentPick(hit, replacing)}
+                />
               ))}
             </>
           ) : null}

@@ -99,7 +99,7 @@ export function openSubtitlesHit(entry: { id?: string; attributes?: OsAttributes
   return {
     id: String(fileId),
     source: "opensubtitles",
-    name: attributes.release?.trim() || attributes.files?.[0]?.file_name?.trim() || String(fileId),
+    name: attributes.files?.[0]?.file_name?.trim() || attributes.release?.trim() || String(fileId),
     language: (attributes.language ?? language).toLowerCase(),
     format: "",
     hashMatch: attributes.moviehash_match === true,

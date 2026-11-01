@@ -7,7 +7,7 @@ import { deviceLanguage } from "@/services/i18n";
 import { getTrackSettingsSync, recordSubtitlePick } from "@/services/jellyfin/trackSettings";
 import { jobApplied, jobApplying, jobApplyFailed, jobSearched, jobSearching, makeJobs, refusalSources, runJobs, takeMatches, withQuery } from "@/services/subtitles/jobs";
 import { languageChoices, type SubtitleLanguage } from "@/services/subtitles/languages";
-import { applyPick, searchContext, searchSubtitles, type ApplyResult } from "@/services/subtitles/pipeline";
+import { applyPick, searchContext, searchSubtitles, type ApplyResult, type Replacing } from "@/services/subtitles/pipeline";
 import { queryFromText } from "@/services/subtitles/query";
 import type { SearchContext, SubtitleHit, SubtitleJob } from "@/services/subtitles/types";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
@@ -27,7 +27,8 @@ export interface SubtitleSearchActions {
   setLanguage: (code: string) => void;
   /** The typed search text: an "S04E06" in it sets the episode, the rest is the title. */
   setQueryText: (index: number, text: string) => void;
-  pick: (index: number, hit: SubtitleHit) => Promise<ApplyResult | null>;
+  /** Saves a hit; with `replacing`, the device copy named goes once the new one is kept. */
+  pick: (index: number, hit: SubtitleHit, replacing?: Replacing) => Promise<ApplyResult | null>;
   takeAll: () => Promise<void>;
 }
 
@@ -129,11 +130,11 @@ export function useSubtitleSearch(items: JellyfinVideoItem[] | null, skipSubtitl
   );
 
   const pick = useCallback(
-    async (index: number, hit: SubtitleHit): Promise<ApplyResult | null> => {
+    async (index: number, hit: SubtitleHit, replacing?: Replacing): Promise<ApplyResult | null> => {
       const job = boardRef.current.jobs[index];
       if (!job || job.status === "applying") return null;
       setJobs((current) => jobApplying(current, index, hit));
-      const result = await applyPick(job.item, hit, await context(job.item.Id));
+      const result = await applyPick(job.item, hit, await context(job.item.Id), replacing);
       if (result.ok) {
         recordSubtitlePick({ kind: "language", tag: result.language });
         setJobs((current) => jobApplied(current, index, { where: result.where, language: result.language }));

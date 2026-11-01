@@ -36,9 +36,12 @@ export interface DeviceSubtitle {
   uri: string;
 }
 
+/** A removed entry keeps its slot, so the ordinals after it keep their stream index and stored timing. */
+type IndexEntry = Omit<DeviceSubtitle, "uri" | "ordinal"> & { removed?: true };
+
 interface IndexDocument {
   version: number;
-  entries: Omit<DeviceSubtitle, "uri" | "ordinal">[];
+  entries: IndexEntry[];
 }
 
 function folderName(server: string, itemId: string): string {
@@ -72,7 +75,8 @@ export function deviceSubtitles(server: string, itemId: string): DeviceSubtitle[
     if (!directory.exists) return [];
     return readIndex(directory)
       .entries.map((entry, ordinal) => ({ ...entry, ordinal, uri: vttFile(directory, ordinal).uri }))
-      .filter((entry) => new File(entry.uri).exists);
+      .filter((entry) => !entry.removed && new File(entry.uri).exists)
+      .map(({ removed: _removed, ...entry }) => entry);
   } catch (error) {
     logger.warn("Device subtitles read failed", error, { service: "Subtitles", itemId });
     return [];
@@ -98,7 +102,7 @@ export function saveDeviceSubtitle(input: SaveDeviceSubtitleInput, now: number =
     if (!directory.exists) directory.create({ intermediates: true, idempotent: true });
     const index = readIndex(directory);
     let ordinal = index.entries.findIndex((entry) => entry.source === input.source && entry.sourceId === input.sourceId);
-    const entry = {
+    const entry: IndexEntry = {
       language: input.language,
       name: input.name,
       source: input.source,
@@ -121,6 +125,25 @@ export function saveDeviceSubtitle(input: SaveDeviceSubtitleInput, now: number =
   } catch (error) {
     logger.warn("Device subtitle save failed", error, { service: "Subtitles", itemId: input.itemId });
     return null;
+  }
+}
+
+/** Removes a kept subtitle: its file goes, its slot stays marked so no other entry takes its stream index. */
+export function removeDeviceSubtitle(server: string, itemId: string, ordinal: number): boolean {
+  try {
+    const directory = itemDirectory(server, itemId);
+    if (!directory.exists) return false;
+    const index = readIndex(directory);
+    const entry = index.entries[ordinal];
+    if (!entry || entry.removed) return false;
+    index.entries[ordinal] = { ...entry, removed: true };
+    const file = vttFile(directory, ordinal);
+    if (file.exists) file.delete();
+    new File(directory, INDEX).write(JSON.stringify(index));
+    return true;
+  } catch (error) {
+    logger.warn("Device subtitle remove failed", error, { service: "Subtitles", itemId, ordinal });
+    return false;
   }
 }
 

@@ -94,3 +94,16 @@ export function queryLabel(query: SubtitleQuery): string {
   }
   return query.year ? String(query.year) : "";
 }
+
+/** The pattern a release name carries for the queried episode ("S01E03", "s1e3", "S01 E03"), or null when the query is not an episode. */
+export function episodeTag(query: SubtitleQuery): RegExp | null {
+  if (query.kind !== "episode" || query.season === undefined || query.episode === undefined) return null;
+  return new RegExp(`S0?${query.season}\\s?E0?${query.episode}(?!\\d)`, "i");
+}
+
+/** The release that names the queried episode, else the first release, else nothing. */
+export function releaseName(releases: (string | undefined)[], query: SubtitleQuery): string {
+  const named = releases.map((release) => release?.trim() ?? "").filter(Boolean);
+  const tag = episodeTag(query);
+  return (tag && named.find((release) => tag.test(release))) || named[0] || "";
+}

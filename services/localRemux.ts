@@ -55,6 +55,7 @@ import { linkRungsAllowed, serverTranscodeAllowed } from "@/services/transcodePo
 import { rememberedVerdict } from "@/services/engineVerdicts";
 import { localMediaUri, localSubtitleUri, playsFromDisk } from "@/services/downloads/localSource";
 import { deviceSubtitleIndex, deviceSubtitles } from "@/services/subtitles/store";
+import { subtitleOffsetMs } from "@/services/subtitles/timing";
 import { getAudioRenditionUrl, getRemoteVideoStreamUrl, getTierPlaylistUrl, getVideoStreamUrl } from "@/services/jellyfin/streamUrls";
 import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
@@ -668,8 +669,15 @@ function buildSubtitleRenditions(videoItem: JellyfinVideoItem, imageOnly: boolea
     isEngineText: entry.isEngineText,
     ...(entry.isImage && entry.stream.IsExternal === true ? { serverSupUrl: entry.serverSupUrl } : {}),
     ...(entry.source ? { source: entry.source } : {}),
+    ...(entry.isImage ? {} : timeOffset(videoItem.Id, entry.index)),
   }));
   return imageOnly ? renditions : [...renditions, ...deviceSubtitleRenditions(videoItem, renditions.length)];
+}
+
+/** The viewer's stored time correction for a text track, as the one rendition field it adds, or nothing. */
+function timeOffset(itemId: string, streamIndex: number): Pick<SubtitleRendition, "timeOffsetMs"> {
+  const offset = subtitleOffsetMs(getCachedConfig().server, itemId, streamIndex);
+  return offset === 0 ? {} : { timeOffsetMs: offset };
 }
 
 /** Subtitles found by this app and kept on the device, published after the file's own; the engine serves each file. */
@@ -688,6 +696,7 @@ export function deviceSubtitleRenditions(videoItem: Pick<JellyfinVideoItem, "Id"
     isImage: false,
     isExternal: true,
     isEngineText: false,
+    ...timeOffset(videoItem.Id, deviceSubtitleIndex(entry.ordinal)),
   }));
 }
 
