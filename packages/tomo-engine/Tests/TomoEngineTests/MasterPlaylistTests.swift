@@ -250,9 +250,10 @@ final class MasterPlaylistTests: XCTestCase {
         return try XCTUnwrap(s.subtitlePlaylist(streamIndex: sub.index))
     }
 
-    /// A streamed track is fetched from Jellyfin, which keeps subtitle bytes off this server.
-    func testStreamedTextTrackPointsAtTheServer() throws {
-        XCTAssertTrue(try subtitlePlaylist(sub(3)).contains("http://x/3.vtt"))
+    func testStreamedTextTrackResolvesToTheLoopback() throws {
+        let out = try subtitlePlaylist(sub(3))
+        XCTAssertTrue(out.contains("sub3.vtt"))
+        XCTAssertFalse(out.contains("http://x/"))
     }
 
     /// A downloaded track resolves to our own loopback path instead. AVFoundation will not

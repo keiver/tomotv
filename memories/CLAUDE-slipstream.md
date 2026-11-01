@@ -172,8 +172,8 @@ triggers the same pass and is treated as in-file. `RemuxSession+ServerImageSubti
 remains for an image sidecar named through `DeliveryUrl`, which the app's GET PlaybackInfo
 never fills, so today it serves no track; it stays as the route for one.
 
-A text sidecar rides the master as a rendition pointing at Jellyfin's `Stream.vtt`, which the
-server serves as it is. On the server-video gateway (`serverVideoOnly`) the session lists
+A text sidecar rides the master as a rendition the engine serves from Jellyfin's `Stream.vtt`,
+with ASS override blocks removed (`SidecarWebVTT`). On the server-video gateway (`serverVideoOnly`) the session lists
 sidecars alone, since it never opens the file.
 
 ## Server audio on the rungs (services/localRemux.ts, RemuxSession+AudioLo.swift)

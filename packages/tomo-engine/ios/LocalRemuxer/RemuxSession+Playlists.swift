@@ -829,7 +829,7 @@ extension RemuxSession {
         out += "#EXT-X-TARGETDURATION:\(dur)\n"
         out += "#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-MEDIA-SEQUENCE:0\n"
         out += String(format: "#EXTINF:%.3f,\n", durationSeconds)
-        out += sub.isImage || !sub.localVtt.isEmpty ? "sub\(sub.index).vtt\n" : "\(sub.vttUrl)\n"
+        out += "sub\(sub.index).vtt\n"
         out += "#EXT-X-ENDLIST\n"
         return out
     }
@@ -1048,6 +1048,33 @@ extension RemuxSession {
         // JS hands over a file:// URI, which contents(atPath:) does not take.
         let path = sub.localVtt.hasPrefix("file://") ? (URL(string: sub.localVtt)?.path ?? sub.localVtt) : sub.localVtt
         return FileManager.default.contents(atPath: path)
+    }
+
+    /// A text sidecar's WebVTT from the server, or nil when the server does not answer with it.
+    func serverSubtitleBody(_ sub: RemuxSubtitle) -> Data? {
+        guard let url = URL(string: sub.vttUrl) else { return nil }
+        let semaphore = DispatchSemaphore(value: 0)
+        let resultLock = NSLock()
+        var body: Data?
+        var status = 0
+        let task = URLSession.shared.dataTask(with: URLRequest(url: url, timeoutInterval: 20)) { data, response, error in
+            resultLock.lock()
+            status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if error == nil, let data, (200..<300).contains(status) { body = data }
+            resultLock.unlock()
+            semaphore.signal()
+        }
+        transfers.begin(task)
+        task.resume()
+        let timedOut = semaphore.wait(timeout: .now() + 25) == .timedOut
+        if timedOut { task.cancel() }
+        transfers.end(task)
+        resultLock.lock()
+        let fetched = timedOut ? nil : body
+        let responseStatus = status
+        resultLock.unlock()
+        if fetched == nil { NSLog("[LocalRemuxer] sidecar subtitle %d fetch failed, status %d", sub.index, responseStatus) }
+        return fetched
     }
 
     func emptySubtitleBody() -> String {

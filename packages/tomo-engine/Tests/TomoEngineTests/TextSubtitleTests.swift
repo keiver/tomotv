@@ -229,7 +229,7 @@ final class TextSubtitleTests: XCTestCase {
         XCTAssertTrue(playlist.contains("#EXT-X-TARGETDURATION:\(session.sessionTargetDuration())"))
     }
 
-    func testSidecarTrackKeepsTheServerUrl() throws {
+    func testSidecarTrackIsOneLoopbackSegment() throws {
         let sidecar = RemuxSubtitle(
             index: 3, name: "Track 3", language: "eng", vttUrl: "http://server/3.vtt", localVtt: "",
             isDefault: false, isForced: false, isImage: false, isEngineText: false)
@@ -237,7 +237,8 @@ final class TextSubtitleTests: XCTestCase {
         defer { session.stop() }
         let playlist = try XCTUnwrap(session.subtitlePlaylist(streamIndex: 3))
 
-        XCTAssertTrue(playlist.contains("http://server/3.vtt"))
+        XCTAssertTrue(playlist.contains("sub3.vtt"))
+        XCTAssertFalse(playlist.contains("http://server/3.vtt"))
         XCTAssertFalse(playlist.contains("sub3-0.vtt"))
     }
 

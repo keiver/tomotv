@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.1
+
+- A text sidecar's one subtitle segment (`sub{N}.vtt`) is served by the engine, from the server's WebVTT or the downloaded file, with every ASS override block that opens with `{\` removed from the cue text. A line left empty is dropped, and a cue left with no text goes whole (`SidecarWebVTTTests`). Jellyfin 10.11.11's `VttWriter` writes those blocks as text: on a sidecar `.ass`, all 1,091 cues of its `Stream.vtt` started with `{\fad(120,120)}`.
+
 ## 1.4.0
 
 - `setOriginRecording(originKey, active)`: a server recording reads the provider. At a limit of 1, set or learned, every read on it ends (playback included) and none opens, failing with `live origin is held by a recording` (`isRecordingHoldFailure`, `PLAYBACK_ERROR_IDS.LIVE_RECORDING`). `originHeld`, `subscribeOriginHolds`, and `held` in `originConnections` (`LiveConnectionBrokerTests`).

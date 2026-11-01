@@ -131,9 +131,11 @@ This document provides a reference for the `services/jellyfinApi.ts` public surf
 
 ### How subtitles reach the player
 
-A text sidecar rides as an HLS rendition whose playlist points at the plain
-`/Videos/{id}/{id}/Subtitles/{i}/Stream.vtt`, no `X-TIMESTAMP-MAP`, absolute
-source times; Jellyfin serves the sidecar file as it is. A track inside the file
+A text sidecar rides as an HLS rendition whose one segment the engine serves: it
+fetches the plain `/Videos/{id}/{id}/Subtitles/{i}/Stream.vtt` (no
+`X-TIMESTAMP-MAP`, absolute source times) and removes ASS override blocks from
+the cues (`SidecarWebVTT`), which Jellyfin 10.11.11's `VttWriter` writes as
+text. Jellyfin converts a sidecar file without extracting anything. A track inside the file
 is never requested from that endpoint: Jellyfin answers by extracting every
 subtitle track from the whole file, uncancellable (its issue #17499). The engine
 decodes such tracks from the bytes it already reads (text as its own WebVTT

@@ -71,9 +71,8 @@ extension RemuxSession {
             }
             return isCancelled || hasFailed ? .notFound : .temporarilyUnavailable
         }
-        // The cue-less body an image subtitle rendition resolves to. AVKit
-        // lists and selects the track and draws none of it; the app draws
-        // the bitmaps over the video instead.
+        // A one-segment rendition. An image track's body is cue-less: AVKit lists and selects the track
+        // and draws none of it, the app draws the bitmaps. A text sidecar's comes from the download or the server.
         if name.hasPrefix("sub"), name.hasSuffix(".vtt") {
             guard let index = Int(name.dropFirst(3).dropLast(4)) else { return .notFound }
             stateLock.lock()
@@ -86,9 +85,9 @@ extension RemuxSession {
                 requestSubtitleActivation(subtitle)
                 return .data(Data(emptySubtitleBody().utf8), contentType: "text/vtt")
             }
-            guard !subtitle.localVtt.isEmpty else { return .notFound }
-            if let body = localSubtitleBody(streamIndex: index) {
-                return .data(body, contentType: "text/vtt")
+            guard !subtitle.localVtt.isEmpty || !subtitle.vttUrl.isEmpty else { return .notFound }
+            if let body = subtitle.localVtt.isEmpty ? serverSubtitleBody(subtitle) : localSubtitleBody(streamIndex: index) {
+                return .data(SidecarWebVTT.removingOverrideBlocks(body), contentType: "text/vtt")
             }
             return .temporarilyUnavailable
         }
