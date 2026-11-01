@@ -3,10 +3,14 @@ import { GlassSurface } from "@/components/glass-surface";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { withAlpha } from "@/utils/color";
 import React, { forwardRef, useState, type ComponentProps } from "react";
-import { StyleSheet, View, type NativeSyntheticEvent, type TargetedEvent, type ViewStyle } from "react-native";
+import { Platform, StyleSheet, View, type NativeSyntheticEvent, type TargetedEvent, type ViewStyle } from "react-native";
 
+const IS_TV = Platform.isTV;
 const PILL_HEIGHT = 52;
 export const CAPSULE_PADDING = 6;
+export const GLASS_CIRCLE = IS_TV ? 70 : 48;
+/** One control's column: its capsule plus breathing room, so neighbours never touch. */
+export const GLASS_SLOT = GLASS_CIRCLE + CAPSULE_PADDING * 2 + 3;
 
 // The accent at a low alpha so the glass still refracts; focus deepens it.
 export const glassTint = (accent: string, focused = false) => withAlpha(accent, focused ? 0.4 : 0.067);
@@ -17,10 +21,12 @@ export const GLASS_PILL_PARALLAX = { magnification: 1.0, pressMagnification: 1.0
 type GlassButtonProps = Omit<ComponentProps<typeof FocusableButton>, "ref" | "tvParallaxProperties"> & {
   /** A chosen toggle wears the focus tint at rest (the duration chips). */
   selected?: boolean;
+  /** Overrides the capsule's tint; the caller owns every state it covers. */
+  tint?: string;
 };
 
 /** CTA: a compact FocusableButton pill inside a glass capsule, the tab bar's shape. */
-export const GlassButton = forwardRef<View, GlassButtonProps>(function GlassButton({ variant = "link", style, textStyle, icon, onFocus, onBlur, selected = false, ...buttonProps }, ref) {
+export const GlassButton = forwardRef<View, GlassButtonProps>(function GlassButton({ variant = "link", style, textStyle, icon, onFocus, onBlur, selected = false, tint, ...buttonProps }, ref) {
   const [focused, setFocused] = useState(false);
   const { accent } = useCardPalette();
   // Focus turns the glyph white; the icon carries its own resting color prop.
@@ -37,7 +43,7 @@ export const GlassButton = forwardRef<View, GlassButtonProps>(function GlassButt
     onBlur?.(e);
   };
   return (
-    <GlassSurface style={styles.capsule} radius={pillHeight / 2 + CAPSULE_PADDING} tintColor={glassTint(accent, focused || selected)}>
+    <GlassSurface style={styles.capsule} radius={pillHeight / 2 + CAPSULE_PADDING} tintColor={tint ?? glassTint(accent, focused || selected)}>
       <FocusableButton
         ref={ref}
         variant={variant}

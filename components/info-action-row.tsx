@@ -1,7 +1,6 @@
-import { GlassButton } from "@/components/glass-button";
-import { GLASS_CIRCLE, GLASS_SLOT, GlassToggleGroup, GlassWord, type GlassToggle } from "@/components/glass-toggle-group";
+import { GLASS_CIRCLE, GLASS_SLOT, GlassButton } from "@/components/glass-button";
 import { COLORS } from "@/constants/colors";
-import { themedStyles, useCardPalette } from "@/hooks/useCardPalette";
+import { useCardPalette } from "@/hooks/useCardPalette";
 import { t } from "@/services/i18n";
 import { withAlpha } from "@/utils/color";
 import { Ionicons } from "@expo/vector-icons";
@@ -9,7 +8,9 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Platform, StyleSheet, Text, View } from "react-native";
 
 const IS_TV = Platform.isTV;
-const ICON = IS_TV ? 30 : 20;
+const ICON = IS_TV ? 28 : 18;
+const LABEL = IS_TV ? 13 : 9;
+const ICON_OFF_ALPHA = 0.5;
 /** How long an action report holds the caption before focus takes it back. */
 const MESSAGE_MS = 2200;
 
@@ -38,13 +39,25 @@ export interface InfoExtraAction {
   key: string;
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
-  /** One word under the circle. */
+  /** One word inside the circle. */
   word: string;
   destructive?: boolean;
   onPress: () => void;
 }
 
 export type DownloadCircleState = "none" | "queued" | "downloading" | "paused" | "ready" | "failed";
+
+interface ToggleCircle {
+  key: "favorite" | "watched" | "progress";
+  icon: keyof typeof Ionicons.glyphMap;
+  offIcon: keyof typeof Ionicons.glyphMap;
+  selected: boolean;
+  word: string;
+  accessibilityLabel: string;
+  /** The write the press makes; `done` is what the caption reports when it lands. */
+  run: () => boolean | Promise<boolean>;
+  done: string;
+}
 
 /**
  * Per state: the press it names and what the caption reports afterwards. An empty report is a
@@ -64,8 +77,8 @@ const downloadCopy = (): Record<DownloadCircleState, { label: string; done: stri
 });
 
 /**
- * The panel's secondary controls: the toggles in one glass capsule, then the actions as separate
- * circles, each with one word under it, and a caption under the row.
+ * The panel's secondary controls: one glass circle per control, toggles first, each holding its
+ * icon and word, and a caption under the row.
  *
  * On tvOS the caption names what the focused control's next press will do; on both platforms a
  * press replaces it with what just happened.
@@ -87,8 +100,7 @@ export function InfoActionRow({
   // Which circle holds focus, never the label itself: tvOS fires the outgoing blur AFTER the
   // incoming focus, so a shared string gets wiped by the button focus just left.
   const [focused, setFocused] = useState<ActionKey | null>(null);
-  const { accent } = useCardPalette();
-  const themed = useThemedStyles();
+  const { accent, accentFocused, onAccent } = useCardPalette();
   const [message, setMessage] = useState<{ text: string; failed: boolean } | null>(null);
   const messageTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -139,41 +151,44 @@ export function InfoActionRow({
     report(ok ? done : t("info.couldNotReachServer"), !ok);
   };
 
-  // Focus outranks rest: a custom style is flattened AFTER the focused variant style, so this
-  // layer is the one that lands.
-  const circleStyle = (key: ActionKey) => StyleSheet.flatten([styles.circle, focused === key ? themed.circleFocused : themed.circleOn]);
   const iconColor = (key: ActionKey, rest: string = accent) => (focused === key ? COLORS.TEXT_PRIMARY : rest);
+  // A chosen toggle's fill is the container itself; focus deepens it the way a primary pill's does.
+  const toggleTint = (key: ActionKey, selected: boolean) => (selected ? (focused === key ? accentFocused : accent) : undefined);
+  const labeled = (name: keyof typeof Ionicons.glyphMap, ink: string, word: string) => (
+    <View style={styles.content}>
+      <Ionicons name={name} size={ICON} color={ink} />
+      <Text style={[styles.label, { color: ink }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
+        {word}
+      </Text>
+    </View>
+  );
 
-  const toggles: GlassToggle[] = [
+  const toggles: ToggleCircle[] = [
     ...(onToggleFavorite
       ? [
           {
-            key: "favorite",
+            key: "favorite" as const,
             icon: "heart" as const,
             offIcon: "heart-outline" as const,
             selected: isFavorite,
-            focused: focused === "favorite",
             word: t("info.word.favorite"),
             accessibilityLabel: favoriteLabel,
-            onPress: () => void press(onToggleFavorite, isFavorite ? t("info.removedFavorite") : t("info.addedFavorite"))(),
-            onFocus: () => setFocused("favorite"),
-            onBlur: () => blur("favorite"),
+            run: onToggleFavorite,
+            done: isFavorite ? t("info.removedFavorite") : t("info.addedFavorite"),
           },
         ]
       : []),
     ...(onToggleWatched
       ? [
           {
-            key: "watched",
+            key: "watched" as const,
             icon: "eye" as const,
             offIcon: "eye-off" as const,
             selected: isPlayed,
-            focused: focused === "watched",
             word: t("info.word.watched"),
             accessibilityLabel: watchedLabel,
-            onPress: () => void press(onToggleWatched, isPlayed ? t("info.markedUnwatched") : t("info.markedWatched"))(),
-            onFocus: () => setFocused("watched"),
-            onBlur: () => blur("watched"),
+            run: onToggleWatched,
+            done: isPlayed ? t("info.markedUnwatched") : t("info.markedWatched"),
           },
         ]
       : []),
@@ -181,16 +196,14 @@ export function InfoActionRow({
     ...(onToggleProgress
       ? [
           {
-            key: "progress",
+            key: "progress" as const,
             icon: "bookmark" as const,
             offIcon: "bookmark-outline" as const,
             selected: !cleared,
-            focused: focused === "progress",
             word: t("info.word.progress"),
             accessibilityLabel: progressLabel,
-            onPress: () => void press(onToggleProgress, cleared ? t("info.progressRestored") : t("info.progressCleared"))(),
-            onFocus: () => setFocused("progress"),
-            onBlur: () => blur("progress"),
+            run: onToggleProgress,
+            done: cleared ? t("info.progressRestored") : t("info.progressCleared"),
           },
         ]
       : []),
@@ -199,60 +212,69 @@ export function InfoActionRow({
   return (
     <View style={styles.wrap}>
       <View style={styles.row}>
-        {(!!onToggleFavorite || !!onToggleWatched || !!onToggleProgress) && <GlassToggleGroup toggles={toggles} />}
-        <View style={styles.actions}>
-          {(!!onStopRecording || stopSpent) && (
-            // Always lit and red: one irreversible press, never a toggle. A bare glyph, since the
-            // button is the circle (see the download arrow).
-            <View style={styles.slot}>
+        {toggles.map((toggle) => (
+          <View key={toggle.key} style={styles.slot}>
+            <GlassButton
+              variant="link"
+              tint={toggleTint(toggle.key, toggle.selected)}
+              style={styles.circle}
+              icon={labeled(toggle.selected ? toggle.icon : toggle.offIcon, toggle.selected ? onAccent : iconColor(toggle.key, withAlpha(accent, ICON_OFF_ALPHA)), toggle.word)}
+              accessibilityLabel={toggle.accessibilityLabel}
+              accessibilityState={{ selected: toggle.selected }}
+              onFocus={() => setFocused(toggle.key)}
+              onBlur={() => blur(toggle.key)}
+              onPress={press(toggle.run, toggle.done)}
+            />
+          </View>
+        ))}
+        {(!!onStopRecording || stopSpent) && (
+          // Always lit and red: one irreversible press, never a toggle. A bare glyph, since the
+          // button is the circle (see the download arrow).
+          <View style={styles.slot}>
+            <GlassButton
+              variant="link"
+              style={styles.circle}
+              icon={labeled("stop", iconColor("stop", COLORS.DESTRUCTIVE), t("info.word.stop"))}
+              accessibilityLabel={t("liveTv.stopRecording")}
+              accessibilityState={{ disabled: stopSpent }}
+              onFocus={() => setFocused("stop")}
+              onBlur={() => blur("stop")}
+              onPress={onStopRecording ? press(onStopRecording, t("liveTv.recordingStopped")) : undefined}
+            />
+          </View>
+        )}
+        {!!onToggleDownload && !!downloadState && (
+          // Always lit: this is an action, not a toggle. Every state it renders in is a press
+          // worth making, "none" most of all. Failure takes the ink; the caption carries state.
+          <View style={styles.slot}>
+            <GlassButton
+              variant="link"
+              style={styles.circle}
+              icon={labeled("arrow-down", iconColor("download", downloadState === "failed" ? COLORS.DESTRUCTIVE : accent), t("info.word.download"))}
+              accessibilityLabel={download.label}
+              accessibilityState={{ selected: downloadState === "ready" }}
+              onFocus={() => setFocused("download")}
+              onBlur={() => blur("download")}
+              onPress={press(onToggleDownload, download.done)}
+            />
+          </View>
+        )}
+        {extras.map((extra) => {
+          const key = `extra:${extra.key}` as const;
+          return (
+            <View key={extra.key} style={styles.slot}>
               <GlassButton
                 variant="link"
-                style={circleStyle("stop")}
-                icon={<Ionicons name="stop" size={ICON} color={iconColor("stop", COLORS.DESTRUCTIVE)} />}
-                accessibilityLabel={t("liveTv.stopRecording")}
-                accessibilityState={{ disabled: stopSpent }}
-                onFocus={() => setFocused("stop")}
-                onBlur={() => blur("stop")}
-                onPress={onStopRecording ? press(onStopRecording, t("liveTv.recordingStopped")) : undefined}
+                style={styles.circle}
+                icon={labeled(extra.icon, iconColor(key, extra.destructive ? COLORS.DESTRUCTIVE : accent), extra.word)}
+                accessibilityLabel={extra.label}
+                onFocus={() => setFocused(key)}
+                onBlur={() => blur(key)}
+                onPress={extra.onPress}
               />
-              <GlassWord>{t("info.word.stop")}</GlassWord>
             </View>
-          )}
-          {!!onToggleDownload && !!downloadState && (
-            // Always lit: this is an action, not a toggle. Every state it renders in is a press
-            // worth making, "none" most of all. Failure takes the ink; the caption carries state.
-            <View style={styles.slot}>
-              <GlassButton
-                variant="link"
-                style={circleStyle("download")}
-                icon={<Ionicons name="arrow-down" size={ICON} color={iconColor("download", downloadState === "failed" ? COLORS.DESTRUCTIVE : accent)} />}
-                accessibilityLabel={download.label}
-                accessibilityState={{ selected: downloadState === "ready" }}
-                onFocus={() => setFocused("download")}
-                onBlur={() => blur("download")}
-                onPress={press(onToggleDownload, download.done)}
-              />
-              <GlassWord>{t("info.word.download")}</GlassWord>
-            </View>
-          )}
-          {extras.map((extra) => {
-            const key = `extra:${extra.key}` as const;
-            return (
-              <View key={extra.key} style={styles.slot}>
-                <GlassButton
-                  variant="link"
-                  style={circleStyle(key)}
-                  icon={<Ionicons name={extra.icon} size={ICON} color={iconColor(key, extra.destructive ? COLORS.DESTRUCTIVE : accent)} />}
-                  accessibilityLabel={extra.label}
-                  onFocus={() => setFocused(key)}
-                  onBlur={() => blur(key)}
-                  onPress={extra.onPress}
-                />
-                <GlassWord>{extra.word}</GlassWord>
-              </View>
-            );
-          })}
-        </View>
+          );
+        })}
       </View>
       {/* Height is reserved, so the panel never reflows as focus enters and leaves the row. */}
       <Text
@@ -274,14 +296,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     maxWidth: "100%",
   },
-  // Touch: five 60pt slots and the 12pt gap between toggles and actions make 312, inside a 375pt iPhone's 319 of card.
+  // Touch: five 63pt slots make 315, inside a 375pt iPhone's 319 of card.
   row: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "center",
-    gap: IS_TV ? 30 : 12,
-  },
-  actions: {
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "center",
@@ -290,9 +306,9 @@ const styles = StyleSheet.create({
     width: GLASS_SLOT,
     alignItems: "center",
   },
-  // Sizing only: a custom style is flattened AFTER the focused variant style, so a colour
-  // here would eat the focus ring. Square, which the base radius rounds to a circle;
-  // minHeight has to be restated or styles.button's CONTROL_HEIGHT floor wins.
+  // Flattened AFTER every variant state, so the inner button stays bare in all of them and the
+  // glass container is the one surface that colours. minHeight has to be restated or
+  // styles.button's CONTROL_HEIGHT floor wins.
   circle: {
     width: GLASS_CIRCLE,
     height: GLASS_CIRCLE,
@@ -300,6 +316,23 @@ const styles = StyleSheet.create({
     minHeight: GLASS_CIRCLE,
     paddingVertical: 0,
     paddingHorizontal: 0,
+    backgroundColor: "transparent",
+    borderColor: "transparent",
+    shadowOpacity: 0,
+    elevation: 0,
+    boxShadow: "none",
+  },
+  content: {
+    width: GLASS_CIRCLE,
+    height: GLASS_CIRCLE,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  label: {
+    fontSize: LABEL,
+    fontWeight: "600",
+    maxWidth: GLASS_CIRCLE - 6,
+    textAlign: "center",
   },
   caption: {
     height: IS_TV ? 30 : 20,
@@ -317,17 +350,3 @@ const styles = StyleSheet.create({
     color: COLORS.DESTRUCTIVE,
   },
 });
-
-const useThemedStyles = themedStyles((palette) => ({
-  // At rest: a wash well under the focus tint's 0.35, so the two never read alike.
-  circleOn: {
-    backgroundColor: withAlpha(palette.accent, 0.07),
-  },
-  // An accent wash the glass keeps refracting through, well above the on state's 0.07; the white
-  // glyph is what separates focus from on.
-  circleFocused: {
-    backgroundColor: withAlpha(palette.accent, 0.35),
-    borderColor: "transparent",
-    shadowColor: palette.accent,
-  },
-}));
