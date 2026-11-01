@@ -31,8 +31,9 @@ export interface GlassToggle {
   onBlur: () => void;
 }
 
-/** The one word under a glass control. */
+/** The one word under a glass control, touch only: on tvOS the row's caption names the focused control. */
 export function GlassWord({ children }: { children: string }) {
+  if (IS_TV) return null;
   return (
     <Text style={styles.word} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} accessibilityElementsHidden importantForAccessibility="no">
       {children}
