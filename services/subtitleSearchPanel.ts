@@ -1,8 +1,9 @@
 /**
- * The tvOS subtitle panel (native/ios/SubtitleSearch), as JS drives it: present it with a state,
- * update that state, listen for the viewer's query, language and pick, and hear when it closed.
+ * The native subtitle panel (native/ios/SubtitleSearch), as JS drives it: present it with a state,
+ * update that state, listen for the viewer's query, language, pick, timing and take-all presses,
+ * and hear when it closed.
  */
-import { NativeEventEmitter, NativeModules, Platform } from "react-native";
+import { NativeEventEmitter, NativeModules } from "react-native";
 import { logger } from "@/utils/logger";
 
 export interface PanelLanguage {
@@ -21,8 +22,10 @@ export interface PanelResult {
   applied: boolean;
 }
 
-/** The subtitle that is on: its timing controls sit above the search. */
-export interface PanelCurrent {
+/** A text subtitle the video already has: its timing controls sit above the search. */
+export interface PanelTrack {
+  /** The stream index the shift and sync events name. */
+  id: number;
   name: string;
   meta: string;
   /** The source letter for a device copy, empty for a track of the file. */
@@ -32,35 +35,64 @@ export interface PanelCurrent {
   laterLabel: string;
   resetLabel: string;
   syncLabel: string;
+  replaceLabel: string;
+  /** A match can only run while the video plays; the sync button hides without it. */
+  canSync: boolean;
+  /** The in-player panel hides Replace: picking a result is the replacement there. */
+  canReplace: boolean;
+  /** The row a Replace press armed: the next pick replaces this copy. */
+  replacing: boolean;
   /** A match against the audio is running: the sync button spins and takes no press. */
   syncing: boolean;
   /** The line under the row: how the last match went, empty when none ran. */
   note: string;
 }
 
-export interface PanelState {
-  title: string;
-  current: PanelCurrent | null;
+/** One video's search: its own query, state and results. A lone job shows no heading. */
+export interface PanelJob {
+  /** The item id the query and pick events name. */
+  id: string;
+  /** The episode mark ("S04E06"), empty for a movie or a lone video. */
+  label: string;
+  /** The video's title, empty when the job is the whole search. */
+  heading: string;
   query: string;
-  queryPlaceholder: string;
-  searchLabel: string;
-  /** Every language, the likely ones first; the panel shows the selected one on its pill and the rest in a grid. */
-  languages: PanelLanguage[];
-  selectedLanguage: string;
   stateLine: string;
   note: string;
   busy: boolean;
   results: PanelResult[];
 }
 
+export interface PanelState {
+  title: string;
+  /** The video's own text subtitles, led by their timing controls; the playing one alone in-player. */
+  tracks: PanelTrack[];
+  /** Every language, the likely ones first; the panel shows the selected one on its pill and the rest in a menu. */
+  languages: PanelLanguage[];
+  selectedLanguage: string;
+  /** Set while hash matches wait: the one button that takes them all. */
+  takeAll: { label: string; busy: boolean } | null;
+  /** "N files already have the language", or empty. */
+  skippedLine: string;
+  /** Shown when no job exists: every file subtitled, or nothing to search; empty otherwise. */
+  emptyLine: string;
+  queryPlaceholder: string;
+  searchLabel: string;
+  jobs: PanelJob[];
+}
+
 export interface PanelHandlers {
-  onQueryChanged: (query: string) => void;
+  onQueryChanged: (jobId: string, query: string) => void;
   onLanguageChanged: (code: string) => void;
-  onPick: (id: string) => void;
-  /** A timing press: the step in milliseconds, or null for the reset. */
-  onShift: (deltaMs: number | null) => void;
-  /** The sync button: match the subtitle that is on to the audio. */
-  onSync: () => void;
+  onPick: (jobId: string, id: string) => void;
+  /** A timing press: the track's stream index and the step in milliseconds, or null for the reset. */
+  onShift: (trackId: number, deltaMs: number | null) => void;
+  /** The sync button: match that track to the audio. */
+  onSync: (trackId: number) => void;
+  /** The Replace button: the next pick replaces that track's copy. */
+  onReplace: (trackId: number) => void;
+  /** The take-all button: every hash match and lone result at once. */
+  onTakeAll: () => void;
   onDismissed: () => void;
 }
 
@@ -73,7 +105,7 @@ interface NativePanel {
 const native = (NativeModules as { SubtitleSearch?: NativePanel }).SubtitleSearch;
 
 export function subtitlePanelAvailable(): boolean {
-  return Platform.isTV && !!native;
+  return !!native;
 }
 
 export async function presentSubtitlePanel(state: PanelState): Promise<boolean> {
@@ -110,11 +142,13 @@ export function listenToSubtitlePanel(handlers: PanelHandlers): () => void {
   if (!native) return () => undefined;
   const emitter = new NativeEventEmitter(native as unknown as ConstructorParameters<typeof NativeEventEmitter>[0]);
   const subscriptions = [
-    emitter.addListener("onSubtitlePanelQueryChanged", (event: { query: string }) => handlers.onQueryChanged(event.query)),
+    emitter.addListener("onSubtitlePanelQueryChanged", (event: { jobId: string; query: string }) => handlers.onQueryChanged(event.jobId, event.query)),
     emitter.addListener("onSubtitlePanelLanguageChanged", (event: { code: string }) => handlers.onLanguageChanged(event.code)),
-    emitter.addListener("onSubtitlePanelPick", (event: { id: string }) => handlers.onPick(event.id)),
-    emitter.addListener("onSubtitlePanelShift", (event: { deltaMs: number | null }) => handlers.onShift(typeof event.deltaMs === "number" ? event.deltaMs : null)),
-    emitter.addListener("onSubtitlePanelSync", () => handlers.onSync()),
+    emitter.addListener("onSubtitlePanelPick", (event: { jobId: string; id: string }) => handlers.onPick(event.jobId, event.id)),
+    emitter.addListener("onSubtitlePanelShift", (event: { trackId: number; deltaMs: number | null }) => handlers.onShift(event.trackId, typeof event.deltaMs === "number" ? event.deltaMs : null)),
+    emitter.addListener("onSubtitlePanelSync", (event: { trackId: number }) => handlers.onSync(event.trackId)),
+    emitter.addListener("onSubtitlePanelReplace", (event: { trackId: number }) => handlers.onReplace(event.trackId)),
+    emitter.addListener("onSubtitlePanelTakeAll", () => handlers.onTakeAll()),
     emitter.addListener("onSubtitlePanelDismissed", () => handlers.onDismissed()),
   ];
   return () => subscriptions.forEach((subscription) => subscription.remove());

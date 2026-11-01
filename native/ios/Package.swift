@@ -57,7 +57,7 @@ let package = Package(
             path: "Tests/TomoLyricsTests",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
-        // The tvOS subtitle panel's state (plugins/withSubtitleSearch.js copies the same files into
+        // The subtitle panel's state (plugins/withSubtitleSearch.js copies the same files into
         // the app). Only its Foundation file builds here; the panel around it needs UIKit.
         .target(
             name: "TomoSubtitleSearch",

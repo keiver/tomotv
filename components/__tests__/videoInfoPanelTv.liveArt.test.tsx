@@ -29,7 +29,7 @@ jest.mock("@/hooks/useFolderPlay", () => ({ useFolderPlay: () => jest.fn() }));
 jest.mock("@/hooks/useShowInFolder", () => ({ useShowInFolder: () => jest.fn() }));
 jest.mock("@/hooks/useOpenShelfItem", () => ({ useOpenShelfItem: () => jest.fn() }));
 jest.mock("@/hooks/useLiveTvManagement", () => ({ useLiveTvManagement: () => false }));
-jest.mock("@/hooks/useTvSubtitlePanel", () => ({ useTvSubtitlePanel: () => ({ available: false, open: jest.fn(), offsetMs: 0 }) }));
+jest.mock("@/hooks/useSubtitlePanel", () => ({ useSubtitlePanel: () => ({ available: true, open: jest.fn(), offsetMs: 0 }) }));
 jest.mock("@/hooks/useLiveFrame", () => ({
   useLiveFrame: (id: string) => (id ? mockFrame : undefined),
   useLiveClip: (id: string) => (id ? mockClip : undefined),

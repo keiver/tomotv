@@ -6,7 +6,7 @@ import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { usePlayerSession } from "@/contexts/PlayerSessionContext";
 import { usePlayQueue } from "@/contexts/PlayQueueContext";
-import { subtitleTransportButton, useTvSubtitlePanel } from "@/hooks/useTvSubtitlePanel";
+import { subtitleTransportButton, useSubtitlePanel } from "@/hooks/useSubtitlePanel";
 import { useUiPreferences } from "@/hooks/useUiPreferences";
 import { posterUri, wantsPosterFrame } from "@/services/itemArtwork";
 import {
@@ -579,7 +579,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     });
   }, [canRecord, recordKey, currentProgramId, videoId]);
 
-  const subtitlePanel = useTvSubtitlePanel(videoId, activeTextSubtitle);
+  const subtitlePanel = useSubtitlePanel(videoId, activeTextSubtitle, true);
 
   const transportBarButtons = useMemo(() => {
     if (!Platform.isTV) return undefined;

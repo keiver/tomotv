@@ -38,7 +38,7 @@ import { RECESS_EDGE } from "@/constants/app";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { containerKey, dismissNextUpContainer } from "@/services/nextUp";
 import { FolderPlayKind, useFolderPlay } from "@/hooks/useFolderPlay";
-import { useTvSubtitlePanel } from "@/hooks/useTvSubtitlePanel";
+import { useSubtitlePanel } from "@/hooks/useSubtitlePanel";
 import { getCachedConfig } from "@/services/jellyfin/session";
 import { languageFor } from "@/services/subtitles/languages";
 import { deviceSubtitles } from "@/services/subtitles/store";
@@ -497,15 +497,11 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
     void showInFolder(details, { dismissFirst: true });
   }, [details, showInFolder]);
 
-  const tvSubtitlePanel = useTvSubtitlePanel(IS_TV ? (details?.Id ?? "") : "", null);
+  const subtitlePanel = useSubtitlePanel(details?.Id ?? "", null);
   const handleFindSubtitles = useCallback(() => {
     if (!details) return;
-    if (IS_TV && tvSubtitlePanel.available) {
-      tvSubtitlePanel.open();
-      return;
-    }
-    router.push({ pathname: "/subtitle-search", params: { itemId: details.Id, name: cleanLabel(details.Name) } });
-  }, [details, router, tvSubtitlePanel]);
+    subtitlePanel.open();
+  }, [details, subtitlePanel]);
 
   // Arm or disarm the removal. Which write it will be is decided here, while details are in
   // hand: a started item clears its server resume point, a next-up card has nothing started
@@ -545,9 +541,8 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   const liveSlot = timedProgram && liveTimes ? formatClockRange(liveTimes.startMs, liveTimes.endMs) : null;
   const liveChannel = !!details && isLiveChannel(details);
   const live = !!liveProgram || liveChannel;
-  // A video, or off TV a container holding some: never a channel, a programme, a song, a photo or
-  // a book. On TV the action opens the native panel, which takes one video, so folders sit out.
-  const canFindSubtitles = !!details && !live && !audio && !photo && !book && (isContainer ? !IS_TV && !!mediaKinds?.video : true);
+  // A video, or a container holding some: never a channel, a programme, a song, a photo or a book.
+  const canFindSubtitles = !!details && !live && !audio && !photo && !book && subtitlePanel.available && (isContainer ? !!mediaKinds?.video : true);
   const liveChannelId = (liveProgram ? details?.ChannelId : liveChannel ? details?.Id : undefined) ?? "";
   const liveChannelName = cleanLabel(liveProgram ? details?.ChannelName : liveChannel ? details?.Name : undefined);
   const canManage = useLiveTvManagement(live);

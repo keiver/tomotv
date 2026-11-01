@@ -660,21 +660,6 @@ function RootLayoutInner() {
                     }
                   />
                   <Stack.Screen
-                    name="subtitle-search"
-                    options={
-                      Platform.isTV
-                        ? { headerShown: false, animation: "fade" }
-                        : {
-                            headerShown: true,
-                            headerTransparent: true,
-                            headerShadowVisible: false,
-                            headerTitle: t("subtitles.title"),
-                            headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
-                            animation: "fade",
-                          }
-                    }
-                  />
-                  <Stack.Screen
                     name="skip-settings"
                     options={
                       Platform.isTV

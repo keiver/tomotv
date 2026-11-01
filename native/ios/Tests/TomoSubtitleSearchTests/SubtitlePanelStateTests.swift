@@ -7,58 +7,60 @@ final class SubtitlePanelStateTests: XCTestCase {
         ["id": id, "name": "Rel \(id)", "meta": "Podnapisi", "badges": ["SDH"], "monogram": "P", "hashMatch": false, "applying": false, "applied": applied]
     }
 
-    private func dictionary(results: [[String: Any]], selected: String = "en") -> [String: Any] {
+    private func job(_ id: String, results: [[String: Any]], heading: String = "") -> [String: Any] {
+        ["id": id, "label": "", "heading": heading, "query": "Some Film", "stateLine": "2 results", "note": "", "busy": false, "results": results]
+    }
+
+    private func dictionary(jobs: [[String: Any]], selected: String = "en") -> [String: Any] {
         [
             "title": "Subtitles",
-            "query": "Some Film",
-            "queryPlaceholder": "Title",
-            "searchLabel": "Search",
+            "tracks": [],
             "languages": [["code": "en", "name": "English"], ["code": "es", "name": "Español"]],
             "selectedLanguage": selected,
-            "stateLine": "2 results",
-            "note": "",
-            "busy": false,
-            "results": results,
+            "skippedLine": "",
+            "emptyLine": "",
+            "queryPlaceholder": "Title",
+            "searchLabel": "Search",
+            "jobs": jobs,
         ]
     }
 
     func testDecodesTheDictionaryJavaScriptSends() throws {
-        let state = try XCTUnwrap(SubtitlePanelState.from(dictionary: dictionary(results: [result("a"), result("b")], selected: "es")))
+        let state = try XCTUnwrap(SubtitlePanelState.from(dictionary: dictionary(jobs: [job("v1", results: [result("a"), result("b")])], selected: "es")))
         XCTAssertEqual(state.title, "Subtitles")
         XCTAssertEqual(state.languages.map(\.code), ["en", "es"])
         XCTAssertEqual(state.selectedLanguageIndex, 1)
-        XCTAssertEqual(state.results.map(\.id), ["a", "b"])
-        XCTAssertEqual(state.results[0].badges, ["SDH"])
+        XCTAssertNil(state.takeAll)
+        XCTAssertEqual(state.jobs.map(\.id), ["v1"])
+        XCTAssertEqual(state.jobs[0].results.map(\.id), ["a", "b"])
+        XCTAssertEqual(state.jobs[0].results[0].badges, ["SDH"])
     }
 
-    func testTheCurrentSubtitleIsOptionalAndDecodesWhenSent() throws {
-        let without = try XCTUnwrap(SubtitlePanelState.from(dictionary: dictionary(results: [])))
-        XCTAssertNil(without.current)
-        var with = dictionary(results: [])
-        with["current"] = ["name": "Rel a", "meta": "Podnapisi", "monogram": "P", "offsetLabel": "1.5 s late", "earlierLabel": "Back 0.5 s", "laterLabel": "Forward 0.5 s", "resetLabel": "Reset", "syncLabel": "Match the audio", "syncing": false, "note": ""]
+    func testTracksAndTheTakeAllButtonDecodeWhenSent() throws {
+        var with = dictionary(jobs: [])
+        with["tracks"] = [
+            [
+                "id": 100_000, "name": "Kept", "meta": "Podnapisi · English", "monogram": "P", "offsetLabel": "1.5 s late", "earlierLabel": "Back 0.5 s",
+                "laterLabel": "Forward 0.5 s", "resetLabel": "Reset", "syncLabel": "Match the audio", "replaceLabel": "Replace", "canSync": true, "canReplace": true,
+                "replacing": true, "syncing": false, "note": "",
+            ]
+        ]
+        with["takeAll"] = ["label": "Take 3 matches", "busy": false]
         let state = try XCTUnwrap(SubtitlePanelState.from(dictionary: with))
-        XCTAssertEqual(state.current?.name, "Rel a")
-        XCTAssertEqual(state.current?.monogram, "P")
-        XCTAssertEqual(state.current?.offsetLabel, "1.5 s late")
+        XCTAssertEqual(state.tracks.map(\.id), [100_000])
+        XCTAssertEqual(state.tracks[0].offsetLabel, "1.5 s late")
+        XCTAssertTrue(state.tracks[0].replacing)
+        XCTAssertEqual(state.takeAll?.label, "Take 3 matches")
     }
 
     func testAMissingFieldDecodesToNothing() {
-        var broken = dictionary(results: [])
-        broken.removeValue(forKey: "stateLine")
+        var broken = dictionary(jobs: [])
+        broken.removeValue(forKey: "searchLabel")
         XCTAssertNil(SubtitlePanelState.from(dictionary: broken))
     }
 
     func testAnUnknownSelectedLanguageFallsToTheFirstChip() throws {
-        let state = try XCTUnwrap(SubtitlePanelState.from(dictionary: dictionary(results: [], selected: "zz")))
+        let state = try XCTUnwrap(SubtitlePanelState.from(dictionary: dictionary(jobs: [], selected: "zz")))
         XCTAssertEqual(state.selectedLanguageIndex, 0)
-    }
-
-    func testOnlyTheChangedRowsAreReported() throws {
-        let before = try XCTUnwrap(SubtitlePanelState.from(dictionary: dictionary(results: [result("a"), result("b")])))
-        let after = try XCTUnwrap(SubtitlePanelState.from(dictionary: dictionary(results: [result("a"), result("b", applied: true)])))
-        XCTAssertEqual(after.changedResultRows(from: before), [1])
-        XCTAssertEqual(before.changedResultRows(from: before), [])
-        let grown = try XCTUnwrap(SubtitlePanelState.from(dictionary: dictionary(results: [result("a")])))
-        XCTAssertNil(grown.changedResultRows(from: before))
     }
 }
