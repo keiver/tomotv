@@ -536,8 +536,8 @@ class DownloadManager {
 
   /**
    * Every text sidecar, converted to WebVTT by the server while it is still reachable. The engine
-   * hands AVPlayer a URL for these rather than serving them itself, so a held file without them
-   * plays with no subtitles. Tracks inside the file are never asked of the server (it reads the
+   * reads one it has no copy of from the server at play time, so a held file without them plays
+   * offline with no subtitles. Tracks inside the file are never asked of the server (it reads the
    * whole film to answer); an original's are decoded from the media, a conversion has none.
    */
   private async cacheSubtitles(item: JellyfinVideoItem): Promise<void> {
