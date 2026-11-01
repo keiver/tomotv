@@ -2,50 +2,8 @@ import XCTest
 
 @testable import TomoEngine
 
-final class SidecarWebVTTTests: XCTestCase {
+final class SidecarRouteTests: XCTestCase {
     private let header = "WEBVTT\n\nRegion: id:subtitle width:80% lines:3 regionanchor:50%,100% viewportanchor:50%,90%\n\n"
-
-    func testOverrideBlocksAreRemovedAndCueSettingsKept() {
-        let body = header
-            + "00:00:01.000 --> 00:00:04.000 region:subtitle line:90%\n{\\fad(120,120)}Some line\n\n"
-            + "00:00:05.000 --> 00:00:06.000 region:subtitle line:90%\n{\\pos(320,40)}Top {\\i1}line{\\i0}\n\n"
-        let want = header
-            + "00:00:01.000 --> 00:00:04.000 region:subtitle line:90%\nSome line\n\n"
-            + "00:00:05.000 --> 00:00:06.000 region:subtitle line:90%\nTop line\n\n"
-        XCTAssertEqual(SidecarWebVTT.removingOverrideBlocks(body), want)
-    }
-
-    func testBracesWithoutABackslashAndAnUnclosedBlockStay() {
-        let body = "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n{laughs} so {\\b1 it goes\n"
-        XCTAssertEqual(SidecarWebVTT.removingOverrideBlocks(body), body)
-    }
-
-    func testALineLeftEmptyIsDroppedSoTheCueKeepsItsNextLine() {
-        let body = "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n{\\an8}\nSecond line\n"
-        XCTAssertEqual(SidecarWebVTT.removingOverrideBlocks(body), "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nSecond line\n")
-    }
-
-    func testACueLeftWithNoTextIsDropped() {
-        let body = "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nA\n\n00:00:03.000 --> 00:00:04.000\n{\\p1}{\\p0}\n\n00:00:05.000 --> 00:00:06.000\nB\n"
-        let out = SidecarWebVTT.removingOverrideBlocks(body)
-        XCTAssertFalse(out.contains("00:00:03.000"))
-        XCTAssertTrue(out.contains("00:00:01.000 --> 00:00:02.000\nA\n"))
-        XCTAssertTrue(out.contains("00:00:05.000 --> 00:00:06.000\nB\n"))
-    }
-
-    func testCRLFLineEndingsAreKept() {
-        let body = "WEBVTT\r\n\r\n00:00:01.000 --> 00:00:02.000\r\n{\\fad(1,1)}Line\r\n\r\n"
-        XCTAssertEqual(SidecarWebVTT.removingOverrideBlocks(body), "WEBVTT\r\n\r\n00:00:01.000 --> 00:00:02.000\r\nLine\r\n\r\n")
-    }
-
-    func testBytesWithoutOverrideBlocksOrNotUTF8AreServedAsTheyCame() {
-        let plain = Data("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nNo tags\n".utf8)
-        XCTAssertEqual(SidecarWebVTT.removingOverrideBlocks(plain), plain)
-        let latin1 = Data([0xE9]) + Data("{\\b1}".utf8)
-        XCTAssertEqual(SidecarWebVTT.removingOverrideBlocks(latin1), latin1)
-    }
-
-    // MARK: - The sub{N}.vtt route
 
     private func sidecar(_ index: Int, vttUrl: String = "", localVtt: String = "") -> RemuxSubtitle {
         RemuxSubtitle(index: index, name: "Track \(index)", language: "eng", vttUrl: vttUrl, localVtt: localVtt,
