@@ -429,6 +429,14 @@
             } else if let changed = next.changedResultRows(from: previous) {
                 for index in changed where index < rows.count { configure(rows[index], with: next.results[index]) }
             }
+            restoreFocusIfLost()
+        }
+
+        private func restoreFocusIfLost() {
+            guard viewIfLoaded?.window != nil, !field.isEditing else { return }
+            if let focused = UIFocusSystem.focusSystem(for: self)?.focusedItem as? UIView, focused.isDescendant(of: view) { return }
+            setNeedsFocusUpdate()
+            updateFocusIfNeeded()
         }
 
         private func rebuildRows() {
