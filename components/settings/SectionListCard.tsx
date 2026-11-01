@@ -107,6 +107,8 @@ export function SectionListCard<T>({ groups, keyExtractor, renderRow, footer, st
         showsVerticalScrollIndicator={false}
         nestedScrollEnabled
         focusable={false}
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets={!IS_TV}
         scrollEventThrottle={16}
         onScroll={
           IS_TV
