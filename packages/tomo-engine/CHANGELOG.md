@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.5.1
+
+- The per-keyframe `[IFrames] kf<N>` log line is gone from Debug builds; the master and sampled mean lines stay.
+
 ## 1.5.0
 
 - A subtitle rendition takes a `timeOffsetMs`, the viewer's correction, added to every cue time when the track is served, and `setSubtitleTimeOffset(token, streamIndex, offsetMs)` changes it in the running session: an engine-decoded text track asks its decoder for the cues the shifted window maps to and writes them moved, a device copy's WebVTT is rewritten (`WebVttShift.swift`: cue settings kept, a cue ending before zero dropped, a start before zero clamped), and a server sidecar is now always fetched once by the engine and served from `sub<N>.vtt` instead of being pointed at directly, so its cues can move too. Measured: `WebVttShiftTests`, `TextSubtitleTests` (a sidecar listed as `sub3.vtt`, a device copy at -500 ms, the SSA fixture's 2.0 to 4.0 s cue written 3.5 to 5.5 s at +1500 ms, and back at 0 once the offset is set live) and `SubtitleRefetchTests` (the host AVPlayer asks for a track's cues again when the track is turned off and on, 5 requests to 10 in both runs; a seek in place asked again in one run of two, so the off and on is the trigger).
