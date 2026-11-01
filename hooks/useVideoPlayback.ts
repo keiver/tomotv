@@ -319,8 +319,8 @@ export interface VideoPlaybackResult {
 
   // Actions
   retry: () => void;
-  /** Rebuilds the session at the playhead, so a subtitle saved or kept since the open is listed. */
-  reloadAtPlayhead: () => void;
+  /** Rebuilds the session at the playhead, so a subtitle saved or kept since the open is listed; `selectSubtitleStream` turns that rendition on. */
+  reloadAtPlayhead: (selectSubtitleStream?: number) => void;
   /** Moves a text track's cues in the running engine session. */
   applySubtitleTimeOffset: (streamIndex: number, offsetMs: number) => void;
   /** Lines a text track up with the speech in the running engine session; `attempt` moves the window along the file. */
@@ -3117,7 +3117,10 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     if (pinsCaptionsOn(plan, getSubtitlePreferenceSync())) showCaptionsAlways();
     // A language with several renditions is selected by position: the lib's language match takes the first.
     // The player's own pick in that language is held, since a twin of it can be missing from AVKit's Language list.
-    const current = resolveSubtitlePick(subtitleRenditionsRef.current, reportedTextTracksRef.current, lastSubtitleRequestRef.current).rendition;
+    const current =
+      resolveSubtitlePick(subtitleRenditionsRef.current, reportedTextTracksRef.current, lastSubtitleRequestRef.current).rendition ??
+      subtitleRenditionsRef.current.find((rendition) => rendition.index === viewerSubtitleStreamRef.current) ??
+      null;
     const stream = transportRef.current !== "gateway" ? null : current && keepsCurrentPick(plan, current) ? current.index : renditionForPlan(plan, subtitleRenditionsRef.current);
     const selection = stream === null ? null : subtitleSelectionForReport(stream, subtitleRenditionsRef.current, reportedTextTracksRef.current);
     if (selection) {
@@ -3340,11 +3343,16 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     probeEmit("cap", { bps: videoMaxBitRate });
   }, [videoMaxBitRate]);
 
-  const reloadAtPlayhead = useCallback(() => {
-    if (!isMountedRef.current || !videoDetails) return;
-    probeEmit("engineRestart", { position: Math.round(currentTimeRef.current), reason: "subtitle list changed" });
-    restartAtPlayhead(currentTimeRef.current);
-  }, [restartAtPlayhead, videoDetails]);
+  const reloadAtPlayhead = useCallback(
+    (selectSubtitleStream?: number) => {
+      if (!isMountedRef.current || !videoDetails) return;
+      // A pick names the viewer's subtitle choice for the rebuilt stream.
+      if (selectSubtitleStream !== undefined) viewerSubtitleStreamRef.current = selectSubtitleStream;
+      probeEmit("engineRestart", { position: Math.round(currentTimeRef.current), reason: "subtitle list changed" });
+      restartAtPlayhead(currentTimeRef.current);
+    },
+    [restartAtPlayhead, videoDetails],
+  );
 
   /**
    * Retry playback from the beginning

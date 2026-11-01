@@ -13,7 +13,7 @@ import { readOwnKeys } from "./keys";
 import { languageFor } from "./languages";
 import { fileNameQuery } from "./query";
 import { rankHits } from "./rank";
-import { removeDeviceSubtitle, saveDeviceSubtitle, type DeviceSubtitle } from "./store";
+import { deviceSubtitleIndex, removeDeviceSubtitle, saveDeviceSubtitle, type DeviceSubtitle } from "./store";
 import { SourceRefusal, type SearchContext, type SubtitleFile, type SubtitleHit, type SubtitleQuery } from "./types";
 import { isRefusal } from "./sources/http";
 
@@ -45,6 +45,13 @@ export type ApplyResult =
   | { ok: true; where: "server"; language: string; streamIndex: number | null }
   | { ok: true; where: "device"; language: string; saved: DeviceSubtitle }
   | { ok: false; reason: "refused" | "unreadable" | "failed"; source: SubtitleHit["source"]; status?: number };
+
+/** The stream index a saved pick plays under, for the session to turn on; undefined when it is not known. */
+export function appliedStreamIndex(result: ApplyResult): number | undefined {
+  if (!result.ok) return undefined;
+  if (result.where === "device") return deviceSubtitleIndex(result.saved.ordinal);
+  return result.streamIndex ?? undefined;
+}
 
 async function readFile(hit: SubtitleHit, context: SearchContext): Promise<SubtitleFile> {
   return sourceFor(hit.source).fetch(hit, context);

@@ -7,7 +7,7 @@ import { deviceLanguage } from "@/services/i18n";
 import { getTrackSettingsSync, recordSubtitlePick } from "@/services/jellyfin/trackSettings";
 import { jobApplied, jobApplying, jobApplyFailed, jobSearched, jobSearching, makeJobs, refusalSources, runJobs, takeMatches, withQuery } from "@/services/subtitles/jobs";
 import { languageChoices, type SubtitleLanguage } from "@/services/subtitles/languages";
-import { applyPick, searchContext, searchSubtitles, type ApplyResult, type Replacing } from "@/services/subtitles/pipeline";
+import { appliedStreamIndex, applyPick, searchContext, searchSubtitles, type ApplyResult, type Replacing } from "@/services/subtitles/pipeline";
 import { queryFromText } from "@/services/subtitles/query";
 import type { SearchContext, SubtitleHit, SubtitleJob } from "@/services/subtitles/types";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
@@ -146,7 +146,7 @@ export function useSubtitleSearch(items: JellyfinVideoItem[] | null, skipSubtitl
       if (result.ok) {
         recordSubtitlePick({ kind: "language", tag: result.language });
         setJobs((current) => jobApplied(current, index, { where: result.where, language: result.language }));
-        if (sessionVideoId === job.item.Id) reloadSubtitles();
+        if (sessionVideoId === job.item.Id) reloadSubtitles(appliedStreamIndex(result));
         return result;
       }
       if (result.reason === "refused") {

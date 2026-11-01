@@ -25,7 +25,7 @@ jest.mock("@/services/subtitles/chain", () => {
 import { fakeFs } from "./fakeFileSystem";
 import * as jellyfinApi from "@/services/jellyfinApi";
 import { resetSourceChain, sourceDown } from "@/services/subtitles/chain";
-import { applyPick, searchSubtitles } from "@/services/subtitles/pipeline";
+import { appliedStreamIndex, applyPick, searchSubtitles, type ApplyResult } from "@/services/subtitles/pipeline";
 import { subtitleQuery } from "@/services/subtitles/query";
 import { deviceSubtitles } from "@/services/subtitles/store";
 import type { SubtitleHit } from "@/services/subtitles/types";
@@ -153,5 +153,23 @@ describe("applyPick", () => {
     mockFetchFile.mockResolvedValue({ text: "garbage", format: "sup" });
     expect(await applyPick(item, hit())).toEqual({ ok: false, reason: "unreadable", source: "podnapisi" });
     expect(deviceSubtitles("http://server:8096", "item1")).toEqual([]);
+  });
+});
+
+describe("appliedStreamIndex", () => {
+  it("a device copy plays under the device base plus its slot", async () => {
+    api.canManageSubtitles.mockResolvedValue(false);
+    await applyPick(item, hit({ id: "old" }));
+    const result = await applyPick(item, hit({ id: "new" }));
+    expect(appliedStreamIndex(result)).toBe(100001);
+  });
+
+  it("a server sidecar plays under the stream the server listed", () => {
+    expect(appliedStreamIndex({ ok: true, where: "server", language: "es", streamIndex: 7 })).toBe(7);
+  });
+
+  it("answers undefined for a sidecar the server never listed and for a failure", () => {
+    expect(appliedStreamIndex({ ok: true, where: "server", language: "es", streamIndex: null })).toBeUndefined();
+    expect(appliedStreamIndex({ ok: false, reason: "failed", source: "podnapisi" } as ApplyResult)).toBeUndefined();
   });
 });
