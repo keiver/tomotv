@@ -1,7 +1,7 @@
 /**
- * The tvOS in-player subtitle panel: opened from the transport bar, fed the one playing video's
- * job, closed by Menu. With a subtitle on it leads with that subtitle's timing controls and the
- * search becomes the way to replace it. The search itself is the same hook the iOS screen uses.
+ * The tvOS subtitle panel: opened from the player's transport bar or a video's info panel, fed one
+ * video's job, closed by Menu. With a subtitle on it leads with that subtitle's timing controls and
+ * the search becomes the way to replace it. The search itself is the same hook the iOS screen uses.
  */
 import type { ActiveTextSubtitle } from "@/contexts/PlayerSessionContext";
 import { useSubtitleSearch } from "@/hooks/useSubtitleSearch";
@@ -132,7 +132,7 @@ export function useTvSubtitlePanel(videoId: string, active: ActiveTextSubtitle |
   }, [videoId]);
 
   const open = useCallback(() => {
-    if (!subtitlePanelAvailable()) return;
+    if (!videoId || !subtitlePanelAvailable()) return;
     setShown(true);
     if (items) return;
     fetchVideoDetails(videoId)
