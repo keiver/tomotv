@@ -387,7 +387,7 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
             configuration.showsActivityIndicator = next.busy
             header.configuration = configuration
         }
-        stateRow.isHidden = !alone
+        stateRow.isHidden = !alone || (!Metrics.isTV && next.results.isEmpty)
         stateLabel.text = next.stateLine
         if alone && next.busy { spinner.startAnimating() } else { spinner.stopAnimating() }
         if !field.isEditing, field.text != next.query { field.text = next.query }
@@ -490,6 +490,11 @@ final class SubtitleSearchPanelViewController: UIViewController {
     private var jobSections: [JobSectionView] = []
     /// Fold state per item id, kept while the job list is rebuilt around it.
     private var expandedJobs: [String: Bool] = [:]
+    #if !os(tvOS)
+        private let centerState = UIStackView()
+        private let centerSpinner = UIActivityIndicatorView(style: .medium)
+        private let centerLabel = UILabel()
+    #endif
 
     init(state: SubtitlePanelState) {
         self.state = state
@@ -554,14 +559,18 @@ final class SubtitleSearchPanelViewController: UIViewController {
 
         scroll.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(scroll)
-        NSLayoutConstraint.activate([
-            scroll.topAnchor.constraint(equalTo: content.topAnchor),
-            scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-        ])
+        scroll.topAnchor.constraint(equalTo: content.topAnchor).isActive = true
         #if os(tvOS)
-            scroll.bottomAnchor.constraint(equalTo: content.bottomAnchor).isActive = true
+            NSLayoutConstraint.activate([
+                scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+                scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+                scroll.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            ])
         #else
+            NSLayoutConstraint.activate([
+                scroll.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
+                scroll.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
+            ])
             // The keyboard lifts the content instead of covering the field being typed in.
             scroll.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor).isActive = true
             scroll.keyboardDismissMode = .onDrag
@@ -619,6 +628,35 @@ final class SubtitleSearchPanelViewController: UIViewController {
             contentStack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor, constant: -Metrics.margin),
             contentStack.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor, constant: -2 * Metrics.margin),
         ])
+
+        #if !os(tvOS)
+            centerSpinner.color = Metrics.accent
+            centerSpinner.hidesWhenStopped = true
+            centerLabel.font = UIFont.systemFont(ofSize: Metrics.stateFont, weight: .semibold)
+            centerLabel.textColor = Metrics.dim
+            centerLabel.textAlignment = .center
+            centerLabel.numberOfLines = 0
+            centerState.addArrangedSubview(centerSpinner)
+            centerState.addArrangedSubview(centerLabel)
+            centerState.axis = .vertical
+            centerState.alignment = .center
+            centerState.spacing = 10
+            centerState.isHidden = true
+            centerState.translatesAutoresizingMaskIntoConstraints = false
+            scroll.addSubview(centerState)
+            let resultsArea = UILayoutGuide()
+            scroll.addLayoutGuide(resultsArea)
+            let centered = centerState.centerYAnchor.constraint(equalTo: resultsArea.centerYAnchor)
+            centered.priority = .defaultHigh
+            NSLayoutConstraint.activate([
+                resultsArea.topAnchor.constraint(equalTo: contentStack.bottomAnchor),
+                resultsArea.bottomAnchor.constraint(equalTo: scroll.frameLayoutGuide.bottomAnchor),
+                centered,
+                centerState.topAnchor.constraint(greaterThanOrEqualTo: contentStack.bottomAnchor, constant: Metrics.sectionSpacing),
+                centerState.centerXAnchor.constraint(equalTo: scroll.frameLayoutGuide.centerXAnchor),
+                centerState.widthAnchor.constraint(lessThanOrEqualTo: scroll.frameLayoutGuide.widthAnchor, constant: -2 * Metrics.margin),
+            ])
+        #endif
     }
 
     // MARK: - Actions
@@ -679,6 +717,12 @@ final class SubtitleSearchPanelViewController: UIViewController {
             for (index, job) in next.jobs.enumerated() where index < jobSections.count { jobSections[index].apply(job) }
         }
         for section in jobSections { section.applyShared(placeholder: next.queryPlaceholder, searchLabel: next.searchLabel) }
+        #if !os(tvOS)
+            let lone = next.jobs.count == 1 && next.jobs[0].heading.isEmpty && next.jobs[0].results.isEmpty ? next.jobs[0] : nil
+            centerState.isHidden = lone == nil
+            centerLabel.text = lone?.stateLine
+            if lone?.busy == true { centerSpinner.startAnimating() } else { centerSpinner.stopAnimating() }
+        #endif
         restoreFocusIfLost()
     }
 
