@@ -1,3 +1,4 @@
+import { settingsStyles } from "@/components/settings/styles";
 import { SunkenTextInput } from "@/components/sunken-text-input";
 import { COLORS } from "@/constants/colors";
 import { t } from "@/services/i18n";
@@ -31,6 +32,7 @@ export function SubtitleSearchField({ value, onSubmit }: SubtitleSearchFieldProp
       autoCorrect={false}
       autoCapitalize="none"
       accessibilityLabel={t("subtitles.search")}
+      style={settingsStyles.textInput}
       containerStyle={styles.field}
     />
   );

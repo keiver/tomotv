@@ -49,6 +49,7 @@ function KeyField({ name, label, secret }: { name: SubtitleKeyName; label: strin
         placeholder={t("subtitles.keyPlaceholder")}
         placeholderTextColor={COLORS.TEXT_TERTIARY}
         accessibilityLabel={t(label as Parameters<typeof t>[0])}
+        style={settingsStyles.textInput}
       />
     </View>
   );

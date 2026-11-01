@@ -108,32 +108,44 @@ export default function SubtitleSearchScreen() {
                 </>
               ) : null}
 
-              <View style={settingsStyles.sectionHeader}>
-                <Text style={settingsStyles.sectionHeaderText}>{t("subtitles.language")}</Text>
-              </View>
-              <View style={[settingsStyles.section, styles.chips]}>
-                <LanguageChips choices={search.choices} selected={search.language} onSelect={search.setLanguage} />
-                {search.skipped > 0 ? <Text style={styles.skipped}>{t("subtitles.filesSkipped").replace("{count}", String(search.skipped)).replace("{language}", languageName)}</Text> : null}
-              </View>
-
-              <View style={settingsStyles.sectionHeader}>
-                <Text style={settingsStyles.sectionHeaderText} numberOfLines={1}>
-                  {name || t("subtitles.title")}
-                </Text>
-              </View>
-              <TakeMatchesBar count={search.matches.length} busy={busy} onPress={() => void search.takeAll()} />
-              {search.jobs.length === 0 && items.length > 0 ? <Text style={styles.empty}>{t("subtitles.allSubtitled").replace("{language}", languageName)}</Text> : null}
-              {items.length === 0 ? <Text style={styles.empty}>{t("subtitles.noVideos")}</Text> : null}
-              {search.jobs.map((job, index) => (
-                <SubtitleJobCard
-                  key={job.item.Id}
-                  job={job}
-                  alone={search.jobs.length === 1}
-                  onPick={(hit) => void search.pick(index, hit, replacementFor(hit, replacing))}
-                  onQueryText={(text) => search.setQueryText(index, text)}
-                  isCurrent={(hit) => current.some((entry) => isCurrentPick(hit, entry))}
-                />
-              ))}
+              {search.jobs.length === 1 ? (
+                <>
+                  <TakeMatchesBar count={search.matches.length} busy={busy} onPress={() => void search.takeAll()} />
+                  <SubtitleJobCard
+                    job={search.jobs[0]}
+                    alone
+                    top={
+                      <View style={styles.languages}>
+                        <LanguageChips choices={search.choices} selected={search.language} onSelect={search.setLanguage} />
+                        {search.skipped > 0 ? <Text style={styles.skipped}>{t("subtitles.filesSkipped").replace("{count}", String(search.skipped)).replace("{language}", languageName)}</Text> : null}
+                      </View>
+                    }
+                    onPick={(hit) => void search.pick(0, hit, replacementFor(hit, replacing))}
+                    onQueryText={(text) => search.setQueryText(0, text)}
+                    isCurrent={(hit) => current.some((entry) => isCurrentPick(hit, entry))}
+                  />
+                </>
+              ) : (
+                <>
+                  <View style={[settingsStyles.section, styles.chips]}>
+                    <LanguageChips choices={search.choices} selected={search.language} onSelect={search.setLanguage} />
+                    {search.skipped > 0 ? <Text style={styles.skipped}>{t("subtitles.filesSkipped").replace("{count}", String(search.skipped)).replace("{language}", languageName)}</Text> : null}
+                  </View>
+                  <TakeMatchesBar count={search.matches.length} busy={busy} onPress={() => void search.takeAll()} />
+                  {search.jobs.length === 0 && items.length > 0 ? <Text style={styles.empty}>{t("subtitles.allSubtitled").replace("{language}", languageName)}</Text> : null}
+                  {items.length === 0 ? <Text style={styles.empty}>{t("subtitles.noVideos")}</Text> : null}
+                  {search.jobs.map((job, index) => (
+                    <SubtitleJobCard
+                      key={job.item.Id}
+                      job={job}
+                      alone={false}
+                      onPick={(hit) => void search.pick(index, hit, replacementFor(hit, replacing))}
+                      onQueryText={(text) => search.setQueryText(index, text)}
+                      isCurrent={(hit) => current.some((entry) => isCurrentPick(hit, entry))}
+                    />
+                  ))}
+                </>
+              )}
             </>
           ) : null}
         </View>
@@ -152,6 +164,10 @@ const styles = StyleSheet.create({
   chips: {
     paddingHorizontal: IS_TV ? 32 : 20,
     paddingVertical: IS_TV ? 28 : 16,
+    gap: IS_TV ? 16 : 10,
+  },
+  languages: {
+    paddingTop: IS_TV ? 16 : 8,
     gap: IS_TV ? 16 : 10,
   },
   skipped: {

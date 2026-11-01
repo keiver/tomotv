@@ -20,10 +20,12 @@ interface SubtitleJobCardProps {
   onQueryText: (text: string) => void;
   /** A result the video already has as a device copy: shown in place as applied. */
   isCurrent?: (hit: SubtitleHit) => boolean;
+  /** Rendered first in the body: the screen's language block when this card is the whole search. */
+  top?: React.ReactNode;
 }
 
 /** One file: its label and title on the left, its state on the right, its results and query inside. */
-export function SubtitleJobCard({ job, alone, onPick, onQueryText, isCurrent }: SubtitleJobCardProps) {
+export function SubtitleJobCard({ job, alone, onPick, onQueryText, isCurrent, top }: SubtitleJobCardProps) {
   const palette = useCardPalette();
   const [open, setOpen] = useState(alone);
   const expanded = alone || open;
@@ -55,6 +57,8 @@ export function SubtitleJobCard({ job, alone, onPick, onQueryText, isCurrent }: 
       )}
       {expanded ? (
         <View style={styles.body}>
+          {top}
+          <SubtitleSearchField value={queryText(job.query)} onSubmit={onQueryText} />
           {alone ? (
             <View style={styles.aloneState}>
               {busy ? <ActivityIndicator color={palette.accent} /> : null}
@@ -63,7 +67,6 @@ export function SubtitleJobCard({ job, alone, onPick, onQueryText, isCurrent }: 
           ) : null}
           {note ? <Text style={styles.note}>{note}</Text> : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
-          <SubtitleSearchField value={queryText(job.query)} onSubmit={onQueryText} />
           <View style={styles.results}>
             {job.results.map((hit) => (
               <SubtitleResultRow
