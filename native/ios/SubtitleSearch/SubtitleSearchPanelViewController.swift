@@ -267,6 +267,7 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
     private let fieldWell = surface(cornerRadius: Metrics.controlHeight / 2)
     private let field = UITextField()
     private let searchButton = UIButton(configuration: roundIconConfiguration(prominent: true))
+    private let controls = UIStackView()
     private let stateRow = UIStackView()
     private let spinner = UIActivityIndicatorView(style: .medium)
     private let stateLabel = UILabel()
@@ -319,8 +320,15 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
         searchButton.setContentHuggingPriority(.required, for: .horizontal)
         searchButton.setContentCompressionResistancePriority(.required, for: .horizontal)
         searchButton.addAction(UIAction { [weak self] _ in self?.searchPressed() }, for: .primaryActionTriggered)
+        searchButton.configurationUpdateHandler = { button in
+            var configuration = button.configuration
+            configuration?.baseForegroundColor = .white
+            configuration?.background.backgroundColor = button.isFocused ? .tintColor : nil
+            button.configuration = configuration
+        }
 
-        let controls = UIStackView(arrangedSubviews: [fieldWell, searchButton])
+        controls.addArrangedSubview(fieldWell)
+        controls.addArrangedSubview(searchButton)
         controls.axis = .horizontal
         controls.spacing = Metrics.controlSpacing
         controls.alignment = .fill
@@ -387,7 +395,7 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
             configuration.showsActivityIndicator = next.busy
             header.configuration = configuration
         }
-        stateRow.isHidden = !alone || (!Metrics.isTV && next.results.isEmpty)
+        stateRow.isHidden = !alone || next.results.isEmpty
         stateLabel.text = next.stateLine
         if alone && next.busy { spinner.startAnimating() } else { spinner.stopAnimating() }
         if !field.isEditing, field.text != next.query { field.text = next.query }
@@ -400,6 +408,12 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
                 configure(rows[index], with: next.results[index])
             }
         }
+    }
+
+    /// Puts a control at the front of the field's row: the language button of a lone search.
+    func lead(with view: UIView) {
+        guard view.superview !== controls else { return }
+        controls.insertArrangedSubview(view, at: 0)
     }
 
     func applyShared(placeholder: String, searchLabel: String) {
@@ -490,11 +504,10 @@ final class SubtitleSearchPanelViewController: UIViewController {
     private var jobSections: [JobSectionView] = []
     /// Fold state per item id, kept while the job list is rebuilt around it.
     private var expandedJobs: [String: Bool] = [:]
-    #if !os(tvOS)
-        private let centerState = UIStackView()
-        private let centerSpinner = UIActivityIndicatorView(style: .medium)
-        private let centerLabel = UILabel()
-    #endif
+    private let pills = UIStackView()
+    private let centerState = UIStackView()
+    private let centerSpinner = UIActivityIndicatorView(style: .medium)
+    private let centerLabel = UILabel()
 
     init(state: SubtitlePanelState) {
         self.state = state
@@ -599,7 +612,7 @@ final class SubtitleSearchPanelViewController: UIViewController {
 
         let spacer = UIView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let pills = UIStackView(arrangedSubviews: [languageButton, spacer, takeAllButton])
+        for view in [languageButton, spacer, takeAllButton] { pills.addArrangedSubview(view) }
         pills.axis = .horizontal
         pills.spacing = Metrics.controlSpacing
         pills.alignment = .center
@@ -629,34 +642,32 @@ final class SubtitleSearchPanelViewController: UIViewController {
             contentStack.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor, constant: -2 * Metrics.margin),
         ])
 
-        #if !os(tvOS)
-            centerSpinner.color = Metrics.accent
-            centerSpinner.hidesWhenStopped = true
-            centerLabel.font = UIFont.systemFont(ofSize: Metrics.stateFont, weight: .semibold)
-            centerLabel.textColor = Metrics.dim
-            centerLabel.textAlignment = .center
-            centerLabel.numberOfLines = 0
-            centerState.addArrangedSubview(centerSpinner)
-            centerState.addArrangedSubview(centerLabel)
-            centerState.axis = .vertical
-            centerState.alignment = .center
-            centerState.spacing = 10
-            centerState.isHidden = true
-            centerState.translatesAutoresizingMaskIntoConstraints = false
-            scroll.addSubview(centerState)
-            let resultsArea = UILayoutGuide()
-            scroll.addLayoutGuide(resultsArea)
-            let centered = centerState.centerYAnchor.constraint(equalTo: resultsArea.centerYAnchor)
-            centered.priority = .defaultHigh
-            NSLayoutConstraint.activate([
-                resultsArea.topAnchor.constraint(equalTo: contentStack.bottomAnchor),
-                resultsArea.bottomAnchor.constraint(equalTo: scroll.frameLayoutGuide.bottomAnchor),
-                centered,
-                centerState.topAnchor.constraint(greaterThanOrEqualTo: contentStack.bottomAnchor, constant: Metrics.sectionSpacing),
-                centerState.centerXAnchor.constraint(equalTo: scroll.frameLayoutGuide.centerXAnchor),
-                centerState.widthAnchor.constraint(lessThanOrEqualTo: scroll.frameLayoutGuide.widthAnchor, constant: -2 * Metrics.margin),
-            ])
-        #endif
+        centerSpinner.color = Metrics.accent
+        centerSpinner.hidesWhenStopped = true
+        centerLabel.font = UIFont.systemFont(ofSize: Metrics.stateFont, weight: .semibold)
+        centerLabel.textColor = Metrics.dim
+        centerLabel.textAlignment = .center
+        centerLabel.numberOfLines = 0
+        centerState.addArrangedSubview(centerSpinner)
+        centerState.addArrangedSubview(centerLabel)
+        centerState.axis = .vertical
+        centerState.alignment = .center
+        centerState.spacing = Metrics.isTV ? 16 : 10
+        centerState.isHidden = true
+        centerState.translatesAutoresizingMaskIntoConstraints = false
+        scroll.addSubview(centerState)
+        let resultsArea = UILayoutGuide()
+        scroll.addLayoutGuide(resultsArea)
+        let centered = centerState.centerYAnchor.constraint(equalTo: resultsArea.centerYAnchor)
+        centered.priority = .defaultHigh
+        NSLayoutConstraint.activate([
+            resultsArea.topAnchor.constraint(equalTo: contentStack.bottomAnchor),
+            resultsArea.bottomAnchor.constraint(equalTo: scroll.frameLayoutGuide.bottomAnchor),
+            centered,
+            centerState.topAnchor.constraint(greaterThanOrEqualTo: contentStack.bottomAnchor, constant: Metrics.sectionSpacing),
+            centerState.centerXAnchor.constraint(equalTo: scroll.frameLayoutGuide.centerXAnchor),
+            centerState.widthAnchor.constraint(lessThanOrEqualTo: scroll.frameLayoutGuide.widthAnchor, constant: -2 * Metrics.margin),
+        ])
     }
 
     // MARK: - Actions
@@ -717,12 +728,17 @@ final class SubtitleSearchPanelViewController: UIViewController {
             for (index, job) in next.jobs.enumerated() where index < jobSections.count { jobSections[index].apply(job) }
         }
         for section in jobSections { section.applyShared(placeholder: next.queryPlaceholder, searchLabel: next.searchLabel) }
-        #if !os(tvOS)
-            let lone = next.jobs.count == 1 && next.jobs[0].heading.isEmpty && next.jobs[0].results.isEmpty ? next.jobs[0] : nil
-            centerState.isHidden = lone == nil
-            centerLabel.text = lone?.stateLine
-            if lone?.busy == true { centerSpinner.startAnimating() } else { centerSpinner.stopAnimating() }
-        #endif
+        let loneSection = next.jobs.count == 1 && next.jobs[0].heading.isEmpty ? jobSections.first : nil
+        if let loneSection {
+            loneSection.lead(with: languageButton)
+        } else if languageButton.superview !== pills {
+            pills.insertArrangedSubview(languageButton, at: 0)
+        }
+        pills.isHidden = loneSection != nil && next.takeAll == nil
+        let waiting = loneSection != nil && next.jobs[0].results.isEmpty ? next.jobs[0] : nil
+        centerState.isHidden = waiting == nil
+        centerLabel.text = waiting?.stateLine
+        if waiting?.busy == true { centerSpinner.startAnimating() } else { centerSpinner.stopAnimating() }
         restoreFocusIfLost()
     }
 
