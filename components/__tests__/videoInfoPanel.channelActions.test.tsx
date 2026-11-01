@@ -51,6 +51,7 @@ jest.mock("@/services/jellyfin/channelEdits", () => ({ invalidateChannelListRead
 jest.mock("@/services/liveTvPreferences", () => ({ ...jest.requireActual("@/services/liveTvPreferences"), hideChannel: jest.fn(), renameChannel: jest.fn() }));
 jest.mock("@/services/jellyfinApi", () => ({
   subscribeAuthChange: jest.fn(() => () => {}),
+  subscribeSubtitlesChanged: jest.fn(() => () => {}),
   clearResumePosition: jest.fn(async () => {}),
   deleteItem: jest.fn(async () => {}),
   fetchIsAdministrator: jest.fn(async () => false),

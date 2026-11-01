@@ -36,8 +36,17 @@ export function jobStateLine(job: SubtitleJob): string {
       return t("subtitles.failed");
     case "applying":
       return t("subtitles.applying").replace("{name}", picked);
-    case "applied":
-      return (job.applied?.where === "server" ? t("subtitles.savedServer") : t("subtitles.savedDevice")).replace("{name}", picked);
+    case "applied": {
+      if (job.applied?.where === "server") return t("subtitles.savedServer").replace("{name}", picked);
+      const why = job.applied?.where === "device" ? job.applied.deviceReason : undefined;
+      const keys = {
+        permission: "subtitles.savedDevicePermission",
+        savingOff: "subtitles.savedDeviceSwitch",
+        uploadRefused: "subtitles.savedDeviceUpload",
+        language: "subtitles.savedDeviceLanguage",
+      } as const;
+      return t(why ? keys[why] : "subtitles.savedDevice").replace("{name}", picked);
+    }
   }
 }
 

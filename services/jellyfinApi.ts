@@ -48,6 +48,7 @@ export { DEMO_ADDRESS, DEMO_SERVER_URL, DEMO_USERNAME, JELLYFIN_TIME } from "./j
 export {
   notifyResumeChange,
   notifyServerRecovered,
+  notifySubtitlesChanged,
   subscribeAuthChange,
   subscribeFavoriteChange,
   subscribeItemRemoved,
@@ -55,6 +56,7 @@ export {
   subscribePlayedChange,
   subscribeRecordingsChange,
   subscribeResumeChange,
+  subscribeSubtitlesChanged,
 } from "./jellyfin/events";
 export { audioNeedsRewrap, isAudioItem, isAudioOnly, isCodecSupported, isLiveChannel, isLiveSource, needsTranscoding } from "./jellyfin/media";
 export {

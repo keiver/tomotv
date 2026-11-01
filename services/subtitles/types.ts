@@ -84,6 +84,9 @@ export interface SubtitleSource {
   fetch(hit: SubtitleHit, context: SearchContext): Promise<SubtitleFile>;
 }
 
+/** Why a pick stayed on the device instead of becoming a server sidecar. */
+export type DeviceReason = "permission" | "savingOff" | "uploadRefused" | "language";
+
 export type SubtitleJobStatus = "idle" | "searching" | "found" | "none" | "failed" | "applying" | "applied";
 
 /** One file's search, with its own query and language so a badly named file spoils nothing else. */
@@ -99,6 +102,6 @@ export interface SubtitleJob {
   /** The chain's note on sources that refused, for the state line. */
   note: string | null;
   picked: SubtitleHit | null;
-  applied: { where: "server" | "device"; language: string } | null;
+  applied: { where: "server" | "device"; language: string; deviceReason?: DeviceReason } | null;
   error: string | null;
 }

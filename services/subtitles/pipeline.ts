@@ -2,7 +2,7 @@
  * One video's subtitle search and save: the chain for the search; for a pick, the server when the
  * account may save and the viewer wants that, the device otherwise.
  */
-import { canManageSubtitles, downloadRemoteSubtitle, externalTextStreams, uploadSubtitle, waitForSubtitleStream } from "@/services/jellyfinApi";
+import { canManageSubtitles, downloadRemoteSubtitle, externalTextStreams, notifySubtitlesChanged, uploadSubtitle, waitForSubtitleStream } from "@/services/jellyfinApi";
 import { getConfig } from "@/services/jellyfin/session";
 import { getUiPreferences } from "@/services/uiPreferences";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
@@ -14,7 +14,7 @@ import { languageFor } from "./languages";
 import { fileNameQuery } from "./query";
 import { rankHits } from "./rank";
 import { deviceSubtitleIndex, removeDeviceSubtitle, saveDeviceSubtitle, type DeviceSubtitle } from "./store";
-import { SourceRefusal, type SearchContext, type SubtitleFile, type SubtitleHit, type SubtitleQuery } from "./types";
+import { SourceRefusal, type DeviceReason, type SearchContext, type SubtitleFile, type SubtitleHit, type SubtitleQuery } from "./types";
 import { isRefusal } from "./sources/http";
 
 export async function searchContext(itemId: string): Promise<SearchContext> {
@@ -43,7 +43,7 @@ export async function searchSubtitles(itemId: string, query: SubtitleQuery, lang
 
 export type ApplyResult =
   | { ok: true; where: "server"; language: string; streamIndex: number | null }
-  | { ok: true; where: "device"; language: string; saved: DeviceSubtitle }
+  | { ok: true; where: "device"; language: string; saved: DeviceSubtitle; deviceReason?: DeviceReason }
   | { ok: false; reason: "refused" | "unreadable" | "failed"; source: SubtitleHit["source"]; status?: number };
 
 /** The stream index a saved pick plays under, for the session to turn on; undefined when it is not known. */
@@ -57,7 +57,7 @@ async function readFile(hit: SubtitleHit, context: SearchContext): Promise<Subti
   return sourceFor(hit.source).fetch(hit, context);
 }
 
-async function keepOnDevice(item: JellyfinVideoItem, hit: SubtitleHit, file: SubtitleFile, replacing?: Replacing): Promise<ApplyResult> {
+async function keepOnDevice(item: JellyfinVideoItem, hit: SubtitleHit, file: SubtitleFile, replacing: Replacing | undefined, deviceReason: DeviceReason): Promise<ApplyResult> {
   const vtt = toWebVtt(file.text, file.format || hit.format);
   if (!vtt || !hasCues(vtt)) return { ok: false, reason: "unreadable", source: hit.source };
   const config = await getConfig();
@@ -74,7 +74,7 @@ async function keepOnDevice(item: JellyfinVideoItem, hit: SubtitleHit, file: Sub
     vtt,
   });
   if (!saved) return { ok: false, reason: "failed", source: hit.source };
-  return { ok: true, where: "device", language: hit.language, saved };
+  return { ok: true, where: "device", language: hit.language, saved, deviceReason };
 }
 
 /** A device copy the pick replaces, removed once the new one is kept. A server sidecar is never removed: the account may not. */
@@ -88,6 +88,12 @@ export interface Replacing {
  * the upload is refused, the file stays on this device.
  */
 export async function applyPick(item: JellyfinVideoItem, hit: SubtitleHit, context?: SearchContext, replacing?: Replacing): Promise<ApplyResult> {
+  const result = await apply(item, hit, context, replacing);
+  if (result.ok) notifySubtitlesChanged(item.Id);
+  return result;
+}
+
+async function apply(item: JellyfinVideoItem, hit: SubtitleHit, context?: SearchContext, replacing?: Replacing): Promise<ApplyResult> {
   const resolved = context ?? (await searchContext(item.Id));
   const saveToServer = resolved.serverAllowed && getUiPreferences().saveSubtitles;
   const known = externalTextStreams(item.MediaStreams).map((stream) => stream.Index as number);
@@ -116,8 +122,10 @@ export async function applyPick(item: JellyfinVideoItem, hit: SubtitleHit, conte
         return { ok: true, where: "server", language: hit.language, streamIndex: stream?.Index ?? null };
       }
       logger.warn("Subtitle upload refused, keeping it on the device", { service: "Subtitles", itemId: item.Id, status });
+      return await keepOnDevice(item, hit, file, replacing, "uploadRefused");
     }
-    return await keepOnDevice(item, hit, file, replacing);
+    const deviceReason: DeviceReason = !resolved.serverAllowed ? "permission" : !getUiPreferences().saveSubtitles ? "savingOff" : "language";
+    return await keepOnDevice(item, hit, file, replacing, deviceReason);
   } catch (error) {
     if (error instanceof SourceRefusal) {
       markSourceDown(error.source, error.status);

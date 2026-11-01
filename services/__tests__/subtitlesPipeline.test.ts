@@ -14,6 +14,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   externalTextStreams: jest.fn(() => []),
   searchRemoteSubtitles: jest.fn(),
   fetchRemoteSubtitleFile: jest.fn(),
+  notifySubtitlesChanged: jest.fn(),
 }));
 const mockFetchFile = jest.fn();
 const mockRunChain = jest.fn();
@@ -118,7 +119,7 @@ describe("applyPick", () => {
     api.canManageSubtitles.mockResolvedValue(false);
     const result = await applyPick(item, hit());
     expect(api.uploadSubtitle).not.toHaveBeenCalled();
-    expect(result).toMatchObject({ ok: true, where: "device", language: "es" });
+    expect(result).toMatchObject({ ok: true, where: "device", language: "es", deviceReason: "permission" });
     const kept = deviceSubtitles("http://server:8096", "item1");
     expect(kept).toHaveLength(1);
     expect(fakeFs.get(kept[0].uri)?.content).toBe("WEBVTT\n\n1\n00:00:01.000 --> 00:00:02.000\nHi\n");
@@ -134,13 +135,22 @@ describe("applyPick", () => {
 
   it("keeps the file on the device when saving is switched off", async () => {
     mockPrefs.saveSubtitles = false;
-    expect(await applyPick(item, hit())).toMatchObject({ ok: true, where: "device" });
+    expect(await applyPick(item, hit())).toMatchObject({ ok: true, where: "device", deviceReason: "savingOff" });
     expect(api.uploadSubtitle).not.toHaveBeenCalled();
   });
 
   it("falls to the device when the upload is refused", async () => {
     api.uploadSubtitle.mockResolvedValue(403);
-    expect(await applyPick(item, hit())).toMatchObject({ ok: true, where: "device" });
+    expect(await applyPick(item, hit())).toMatchObject({ ok: true, where: "device", deviceReason: "uploadRefused" });
+  });
+
+  it("a kept pick announces the item's subtitles changed, a refused one does not", async () => {
+    await applyPick(item, hit());
+    expect(api.notifySubtitlesChanged).toHaveBeenCalledWith("item1");
+    api.notifySubtitlesChanged.mockClear();
+    api.downloadRemoteSubtitle.mockResolvedValue(500);
+    await applyPick(item, hit({ source: "server", id: "srv1" }));
+    expect(api.notifySubtitlesChanged).not.toHaveBeenCalled();
   });
 
   it("a server download refused marks the server down for the session", async () => {

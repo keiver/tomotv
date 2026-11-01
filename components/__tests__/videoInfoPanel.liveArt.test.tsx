@@ -60,6 +60,7 @@ jest.mock("expo-image", () => ({ Image: Object.assign(() => null, { loadAsync: a
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 jest.mock("@/services/jellyfinApi", () => ({
   subscribeAuthChange: jest.fn(() => () => {}),
+  subscribeSubtitlesChanged: jest.fn(() => () => {}),
   clearResumePosition: jest.fn(async () => {}),
   deleteItem: jest.fn(async () => {}),
   fetchIsAdministrator: jest.fn(async () => false),

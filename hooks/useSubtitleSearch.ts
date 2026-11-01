@@ -145,7 +145,7 @@ export function useSubtitleSearch(items: JellyfinVideoItem[] | null, skipSubtitl
       }
       if (result.ok) {
         recordSubtitlePick({ kind: "language", tag: result.language });
-        setJobs((current) => jobApplied(current, index, { where: result.where, language: result.language }));
+        setJobs((current) => jobApplied(current, index, { where: result.where, language: result.language, deviceReason: result.where === "device" ? result.deviceReason : undefined }));
         if (sessionVideoId === job.item.Id) reloadSubtitles(appliedStreamIndex(result));
         return result;
       }

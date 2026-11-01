@@ -31,6 +31,7 @@ import {
   notifyResumeChange,
   setVideoFavorite,
   setVideoPlayed,
+  subscribeSubtitlesChanged,
 } from "@/services/jellyfinApi";
 import { COLORS } from "@/constants/colors";
 import { RECESS_EDGE } from "@/constants/app";
@@ -38,6 +39,9 @@ import { useLoadingActions } from "@/contexts/LoadingContext";
 import { containerKey, dismissNextUpContainer } from "@/services/nextUp";
 import { FolderPlayKind, useFolderPlay } from "@/hooks/useFolderPlay";
 import { useTvSubtitlePanel } from "@/hooks/useTvSubtitlePanel";
+import { getCachedConfig } from "@/services/jellyfin/session";
+import { languageFor } from "@/services/subtitles/languages";
+import { deviceSubtitles } from "@/services/subtitles/store";
 import { useFolderPreviewState } from "@/hooks/useFolderPreview";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { useItemPoster } from "@/hooks/useItemPoster";
@@ -169,6 +173,15 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   const [isFavorite, setIsFavorite] = useState(false);
   const [isPlayed, setIsPlayed] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  // A pick landed for this item: reload the details so the new track is on the list.
+  const [subtitleRev, setSubtitleRev] = useState(0);
+  useEffect(
+    () =>
+      subscribeSubtitlesChanged((itemId) => {
+        if (itemId === params.videoId) setSubtitleRev((rev) => rev + 1);
+      }),
+    [params.videoId],
+  );
   // Clear Progress marks the removal, it does not perform one: leaving the panel is what
   // writes. Nothing is sent while the panel is open, so disarming costs nothing.
   const [clearArmed, setClearArmed] = useState(false);
@@ -239,7 +252,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
     return () => {
       cancelled = true;
     };
-  }, [params.videoId, guideProgram, attempt]);
+  }, [params.videoId, guideProgram, attempt, subtitleRev]);
 
   // Leaving the panel performs it. Ref-only and idempotent so the play paths can commit before
   // pushing (tvOS keeps this screen mounted under the player), with unmount as the backstop for
@@ -657,6 +670,8 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   const fileLine = joinMeta([container, formatFileSize(source?.Size), formatBitrate(source?.Bitrate)]);
 
   const streamsOf = (type: string): JellyfinMediaStream[] => details?.MediaStreams?.filter((stream) => stream.Type === type) ?? [];
+  // Subtitle copies kept on this device; details is refetched on every subtitles-changed event, so a fresh pick lands here.
+  const deviceCopies = useMemo(() => (details ? deviceSubtitles(getCachedConfig().server, details.Id) : []), [details]);
   // The complete readout: whatever the server holds that the sections above do
   // not already show. A photo and a series folder have no streams, so this is
   // the only place their metadata appears.
@@ -1023,6 +1038,17 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
           {renderStreamSection(t("info.video"), streamsOf("Video"))}
           {renderStreamSection(t("info.audio"), streamsOf("Audio"))}
           {renderStreamSection(t("info.subtitles"), streamsOf("Subtitle"))}
+          {deviceCopies.length > 0 && (
+            <>
+              {streamsOf("Subtitle").length === 0 && <Text style={styles.sectionHeading}>{t("info.subtitles")}</Text>}
+              {deviceCopies.map((copy) => (
+                <InfoFocusRow key={`device-subtitle-${copy.ordinal}`} style={styles.streamRow}>
+                  <Text style={styles.streamTitle}>{copy.name}</Text>
+                  <Text style={styles.streamDetail}>{joinMeta([languageFor(copy.language)?.native ?? copy.language, t("info.onThisDevice")])}</Text>
+                </InfoFocusRow>
+              ))}
+            </>
+          )}
 
           {detailRows.length > 0 && (
             <>
