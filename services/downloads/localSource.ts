@@ -85,9 +85,8 @@ export function downloadedItems(): JellyfinVideoItem[] {
 }
 
 /**
- * A text subtitle track saved with the download. Text renditions are the one part of a session
- * the engine hands AVPlayer as a URL rather than serving itself, so without this a held file
- * plays with no subtitles at all.
+ * A text subtitle track saved with the download, which the engine serves as the track's one
+ * segment; without it a held file plays with no subtitles at all.
  */
 export function localSubtitleUri(itemId: string, streamIndex: number): string | null {
   if (manifestEntry(itemId)?.state !== "ready") return null;

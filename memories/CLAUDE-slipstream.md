@@ -173,7 +173,7 @@ remains for an image sidecar named through `DeliveryUrl`, which the app's GET Pl
 never fills, so today it serves no track; it stays as the route for one.
 
 A text sidecar rides the master as a rendition the engine serves from Jellyfin's `Stream.vtt`,
-with ASS override blocks removed (`SidecarWebVTT`). On the server-video gateway (`serverVideoOnly`) the session lists
+with its ASS markup rendered (`cleanWebVttCues`). On the server-video gateway (`serverVideoOnly`) the session lists
 sidecars alone, since it never opens the file.
 
 ## Server audio on the rungs (services/localRemux.ts, RemuxSession+AudioLo.swift)
