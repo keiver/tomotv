@@ -42,8 +42,8 @@ const kept = { index: 100000, name: "Kept", language: "en", device: { ordinal: 0
 describe("the transport bar subtitle button", () => {
   const base = { isLiveChannel: false, available: true, active: null, offsetMs: 0 };
 
-  it("finds subtitles with the search glyph when none of ours is on", () => {
-    expect(subtitleTransportButton(base)).toEqual({ id: "subtitles", title: "player.findSubtitles", sfSymbol: "text.magnifyingglass" });
+  it("finds subtitles with the download glyph when none of ours is on", () => {
+    expect(subtitleTransportButton(base)).toEqual({ id: "subtitles", title: "player.findSubtitles", sfSymbol: "square.and.arrow.down" });
   });
 
   it("stays away on a live channel and without the panel", () => {
@@ -51,9 +51,9 @@ describe("the transport bar subtitle button", () => {
     expect(subtitleTransportButton({ ...base, available: false })).toBeNull();
   });
 
-  it("keeps the search glyph and carries the timing of the subtitle of ours that is on", () => {
+  it("keeps the download glyph and carries the timing of the subtitle of ours that is on", () => {
     const active = { index: 2, name: "English", language: "eng" };
-    expect(subtitleTransportButton({ ...base, active })).toEqual({ id: "subtitles", title: "subtitles.timingTitle", sfSymbol: "text.magnifyingglass" });
+    expect(subtitleTransportButton({ ...base, active })).toEqual({ id: "subtitles", title: "subtitles.timingTitle", sfSymbol: "square.and.arrow.down" });
     expect(subtitleTransportButton({ ...base, active, offsetMs: 1500 })?.title).toBe("subtitles.late");
   });
 });
@@ -68,6 +68,7 @@ describe("the panel's state", () => {
     expect(state.current).toEqual({
       name: "Kept",
       meta: "subtitles.source.podnapisi · English",
+      monogram: "P",
       offsetLabel: "subtitles.early",
       earlierLabel: "subtitles.earlier",
       laterLabel: "subtitles.later",

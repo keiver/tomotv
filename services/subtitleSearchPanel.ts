@@ -25,6 +25,8 @@ export interface PanelResult {
 export interface PanelCurrent {
   name: string;
   meta: string;
+  /** The source letter for a device copy, empty for a track of the file. */
+  monogram: string;
   offsetLabel: string;
   earlierLabel: string;
   laterLabel: string;

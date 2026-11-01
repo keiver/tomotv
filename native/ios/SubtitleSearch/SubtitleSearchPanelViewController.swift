@@ -2,9 +2,11 @@
 //  SubtitleSearchPanelViewController.swift
 //  TomoTV
 //
-//  The tvOS subtitle panel: a glass card over the playing video with one row of controls
-//  (language, search text, search), a state line and the results as glass buttons. Every string
-//  arrives from JS. Below tvOS 26 the same layout draws on dark blur with filled buttons.
+//  The tvOS subtitle panel: a glass card over the playing video. The subtitle that is on leads it
+//  as a track row (source mark, name, meta) with round symbol buttons for its timing, then one row
+//  of controls (language, search text, a round search button), a state line and the results as glass
+//  buttons. Every string arrives from JS. Below tvOS 26 the same layout draws on dark blur with
+//  filled buttons.
 //
 
 #if os(tvOS)
@@ -25,16 +27,17 @@
         private let card = SubtitleSearchPanelViewController.surface(cornerRadius: 44)
         private let titleLabel = UILabel()
         private let currentRow = UIStackView()
+        private let currentIcon = UIImageView()
         private let currentName = UILabel()
         private let currentMeta = UILabel()
-        private let earlierButton = UIButton(configuration: SubtitleSearchPanelViewController.pill())
+        private let earlierButton = UIButton(configuration: SubtitleSearchPanelViewController.roundIcon())
         private let offsetLabel = UILabel()
-        private let laterButton = UIButton(configuration: SubtitleSearchPanelViewController.pill())
-        private let resetButton = UIButton(configuration: SubtitleSearchPanelViewController.pill())
+        private let laterButton = UIButton(configuration: SubtitleSearchPanelViewController.roundIcon())
+        private let resetButton = UIButton(configuration: SubtitleSearchPanelViewController.roundIcon())
         private let languageButton = UIButton(configuration: SubtitleSearchPanelViewController.pill())
-        private let fieldWell = SubtitleSearchPanelViewController.surface(cornerRadius: 36)
+        private let fieldWell = SubtitleSearchPanelViewController.surface(cornerRadius: SubtitleSearchPanelViewController.controlHeight / 2)
         private let field = UITextField()
-        private let searchButton = UIButton(configuration: SubtitleSearchPanelViewController.pill(prominent: true))
+        private let searchButton = UIButton(configuration: SubtitleSearchPanelViewController.roundIcon(prominent: true))
         private let stateLabel = UILabel()
         private let noteLabel = UILabel()
         private let spinner = UIActivityIndicatorView(style: .large)
@@ -64,6 +67,14 @@
             view.backgroundColor = UIColor.black.withAlphaComponent(0.35)
             buildCard()
             apply(state, force: true)
+        }
+
+        /// Gone from the screen for any reason but a quiet close: Menu, or the player under it being replaced.
+        override func viewDidDisappear(_ animated: Bool) {
+            super.viewDidDisappear(animated)
+            guard !quiet, isBeingDismissed || view.window == nil, let report = onDismissed else { return }
+            onDismissed = nil
+            report()
         }
 
         override var preferredFocusEnvironments: [UIFocusEnvironment] {
@@ -105,6 +116,19 @@
                 return updated
             }
             return configuration
+        }
+
+        /// A round button carrying one symbol, the way a player's transport bar draws its actions.
+        private static func roundIcon(prominent: Bool = false) -> UIButton.Configuration {
+            var configuration = pill(prominent: prominent)
+            configuration.contentInsets = .zero
+            configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 26, weight: .bold)
+            return configuration
+        }
+
+        /// The source letter as its SF Symbol square, the captions bubble for a track of the file.
+        private static func monogramImage(_ monogram: String) -> UIImage? {
+            (monogram.isEmpty ? nil : UIImage(systemName: "\(monogram.lowercased()).square.fill")) ?? UIImage(systemName: "captions.bubble.fill")
         }
 
         private static func row() -> UIButton.Configuration {
@@ -170,18 +194,26 @@
             field.autocorrectionType = .no
             field.autocapitalizationType = .none
             field.delegate = self
+            // The field fills the well and clips to the same capsule, so the background it draws itself takes the well's shape; the text keeps its side room through the side views.
+            field.layer.cornerRadius = Self.controlHeight / 2
+            field.layer.cornerCurve = .continuous
+            field.clipsToBounds = true
+            field.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 28, height: 1))
+            field.leftViewMode = .always
+            field.rightView = UIView(frame: CGRect(x: 0, y: 0, width: 28, height: 1))
+            field.rightViewMode = .always
             field.translatesAutoresizingMaskIntoConstraints = false
             fieldWell.contentView.addSubview(field)
             NSLayoutConstraint.activate([
-                field.leadingAnchor.constraint(equalTo: fieldWell.contentView.leadingAnchor, constant: 28),
-                field.trailingAnchor.constraint(equalTo: fieldWell.contentView.trailingAnchor, constant: -28),
+                field.leadingAnchor.constraint(equalTo: fieldWell.contentView.leadingAnchor),
+                field.trailingAnchor.constraint(equalTo: fieldWell.contentView.trailingAnchor),
                 field.topAnchor.constraint(equalTo: fieldWell.contentView.topAnchor),
                 field.bottomAnchor.constraint(equalTo: fieldWell.contentView.bottomAnchor),
             ])
             fieldWell.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
             searchButton.configuration?.image = UIImage(systemName: "magnifyingglass")
-            searchButton.configuration?.imagePlacement = .leading
+            searchButton.widthAnchor.constraint(equalToConstant: Self.controlHeight).isActive = true
             searchButton.setContentHuggingPriority(.required, for: .horizontal)
             searchButton.setContentCompressionResistancePriority(.required, for: .horizontal)
             searchButton.addTarget(self, action: #selector(searchPressed), for: .primaryActionTriggered)
@@ -239,11 +271,17 @@
             ])
         }
 
-        /// The subtitle that is on: its name and source on the left, Earlier, the offset, Later and Reset on the right.
+        /// The subtitle that is on as a track row: its source mark, name and meta on the left; sooner, the offset, later and reset as round symbol buttons on the right.
         private func buildCurrentRow() {
-            currentName.font = UIFont.systemFont(ofSize: 27, weight: .medium)
+            currentIcon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 44, weight: .medium)
+            currentIcon.tintColor = Self.accent
+            currentIcon.contentMode = .center
+            currentIcon.setContentHuggingPriority(.required, for: .horizontal)
+            currentIcon.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+            currentName.font = UIFont.systemFont(ofSize: 30, weight: .semibold)
             currentName.textColor = .white
-            currentMeta.font = UIFont.systemFont(ofSize: 20, weight: .regular)
+            currentMeta.font = UIFont.systemFont(ofSize: 22, weight: .regular)
             currentMeta.textColor = Self.dim
             let text = UIStackView(arrangedSubviews: [currentName, currentMeta])
             text.axis = .vertical
@@ -251,14 +289,14 @@
             text.setContentHuggingPriority(.defaultLow, for: .horizontal)
             text.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-            earlierButton.configuration?.image = UIImage(systemName: "minus")
-            laterButton.configuration?.image = UIImage(systemName: "plus")
+            earlierButton.configuration?.image = UIImage(systemName: "backward.fill")
+            laterButton.configuration?.image = UIImage(systemName: "forward.fill")
             resetButton.configuration?.image = UIImage(systemName: "arrow.counterclockwise")
             for button in [earlierButton, laterButton, resetButton] {
-                button.configuration?.imagePlacement = .leading
                 button.setContentHuggingPriority(.required, for: .horizontal)
                 button.setContentCompressionResistancePriority(.required, for: .horizontal)
                 button.heightAnchor.constraint(equalToConstant: Self.controlHeight).isActive = true
+                button.widthAnchor.constraint(equalToConstant: Self.controlHeight).isActive = true
             }
             earlierButton.addAction(UIAction { [weak self] _ in self?.onShift?(-1) }, for: .primaryActionTriggered)
             laterButton.addAction(UIAction { [weak self] _ in self?.onShift?(1) }, for: .primaryActionTriggered)
@@ -275,8 +313,9 @@
             controls.alignment = .center
 
             currentRow.axis = .horizontal
-            currentRow.spacing = 24
+            currentRow.spacing = 22
             currentRow.alignment = .center
+            currentRow.addArrangedSubview(currentIcon)
             currentRow.addArrangedSubview(text)
             currentRow.addArrangedSubview(controls)
             currentRow.isHidden = true
@@ -323,18 +362,19 @@
             titleLabel.text = next.title
             currentRow.isHidden = next.current == nil
             if let current = next.current {
+                currentIcon.image = Self.monogramImage(current.monogram)
                 currentName.text = current.name
                 currentMeta.text = current.meta
                 offsetLabel.text = current.offsetLabel
-                earlierButton.configuration?.title = current.earlierLabel
-                laterButton.configuration?.title = current.laterLabel
-                resetButton.configuration?.title = current.resetLabel
+                earlierButton.accessibilityLabel = current.earlierLabel
+                laterButton.accessibilityLabel = current.laterLabel
+                resetButton.accessibilityLabel = current.resetLabel
             }
             languageButton.configuration?.title = next.languages.indices.contains(next.selectedLanguageIndex) ? next.languages[next.selectedLanguageIndex].name : next.selectedLanguage
             if #available(tvOS 17.0, *) {
                 languageButton.menu = languageMenu()
             }
-            searchButton.configuration?.title = next.searchLabel
+            searchButton.accessibilityLabel = next.searchLabel
             if !field.isEditing, field.text != next.query { field.text = next.query }
             field.attributedPlaceholder = NSAttributedString(string: next.queryPlaceholder, attributes: [.foregroundColor: UIColor(white: 0.5, alpha: 1)])
             stateLabel.text = next.stateLine
@@ -368,11 +408,10 @@
             setNeedsFocusUpdate()
         }
 
-        /// The source letter as its SF Symbol square; a saved row shows the tick instead.
+        /// The source mark leads the row; a saved row shows the tick instead.
         private func configure(_ button: UIButton, with result: SubtitlePanelResult) {
             var configuration = button.configuration ?? Self.row()
-            let letter = result.monogram.lowercased()
-            configuration.image = result.applied ? UIImage(systemName: "checkmark.circle.fill") : UIImage(systemName: "\(letter).square.fill") ?? UIImage(systemName: "captions.bubble.fill")
+            configuration.image = result.applied ? UIImage(systemName: "checkmark.circle.fill") : Self.monogramImage(result.monogram)
             configuration.imageColorTransformer = result.hashMatch || result.applied ? UIConfigurationColorTransformer { _ in Self.accent } : nil
             configuration.showsActivityIndicator = result.applying
             configuration.title = result.name
@@ -393,10 +432,7 @@
         }
 
         private func close() {
-            dismiss(animated: true) { [weak self] in
-                guard let self, !self.quiet else { return }
-                self.onDismissed?()
-            }
+            dismiss(animated: true)
         }
 
         /// A dismissal JS asked for: no dismissed event goes back.

@@ -45,14 +45,17 @@ public struct SubtitlePanelResult: Codable, Equatable {
 public struct SubtitlePanelCurrent: Codable, Equatable {
     public let name: String
     public let meta: String
+    /// The source letter of a device copy, empty for a track of the file.
+    public let monogram: String
     public let offsetLabel: String
     public let earlierLabel: String
     public let laterLabel: String
     public let resetLabel: String
 
-    public init(name: String, meta: String, offsetLabel: String, earlierLabel: String, laterLabel: String, resetLabel: String) {
+    public init(name: String, meta: String, monogram: String, offsetLabel: String, earlierLabel: String, laterLabel: String, resetLabel: String) {
         self.name = name
         self.meta = meta
+        self.monogram = monogram
         self.offsetLabel = offsetLabel
         self.earlierLabel = earlierLabel
         self.laterLabel = laterLabel

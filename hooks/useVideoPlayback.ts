@@ -2711,9 +2711,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       const renditions = onEngineLane ? subtitleRenditionsRef.current : [];
       const freshManifest = isFreshManifestReport(data.textTracks.length, subtitleReportGenerationRef.current, streamGenerationRef.current);
       if (data.textTracks.length > 0) subtitleReportGenerationRef.current = streamGenerationRef.current;
+      let chosen: (typeof renditions)[number] | null = null;
       if (freshManifest && viewerSubtitleStreamRef.current !== undefined) {
         const selection = subtitleSelectionForReport(viewerSubtitleStreamRef.current, renditions, data.textTracks);
         if (selection) setSelectedSubtitleTrack(selection as SelectedTrack);
+        if (selection?.type === "index") chosen = renditions.find((rendition) => rendition.index === viewerSubtitleStreamRef.current) ?? null;
       }
       // A repackaged download carries each bitmap track as an empty tx3g track, so the player
       // lists and reports it like any other; the manifest says which source stream that
@@ -2727,9 +2729,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             ordinal: heldOrdinal,
           };
       setActiveImageSubtitleStream((current) => (current === pick.imageStreamIndex ? current : pick.imageStreamIndex));
-      // The legible track on, as a rendition of ours (engine lane only), for the route's timing controls.
+      // The legible track on, as a rendition of ours (engine lane only), for the route's timing controls:
+      // the one this report says is selected, else the one just selected here from the viewer's choice.
       // While the track is being turned off and on for a timing change, the off report keeps the last one.
-      const active = pick.rendition && !pick.rendition.isImage ? { index: pick.rendition.index, name: pick.rendition.name, language: pick.rendition.language } : null;
+      const on = pick.rendition ?? chosen;
+      const active = on && !on.isImage ? { index: on.index, name: on.name, language: on.language } : null;
       const refreshing = Date.now() < subtitleRefreshUntilRef.current;
       setTextTrackReport((previous) => ({ url: streamUrlRef.current, active: refreshing && !active ? previous.active : active }));
       // Deselecting does change the item's tracks (measured), so this report is the deselect.

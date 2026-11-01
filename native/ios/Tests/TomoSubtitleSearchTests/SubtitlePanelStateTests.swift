@@ -35,9 +35,10 @@ final class SubtitlePanelStateTests: XCTestCase {
         let without = try XCTUnwrap(SubtitlePanelState.from(dictionary: dictionary(results: [])))
         XCTAssertNil(without.current)
         var with = dictionary(results: [])
-        with["current"] = ["name": "Rel a", "meta": "Podnapisi", "offsetLabel": "1.5 s late", "earlierLabel": "Earlier", "laterLabel": "Later", "resetLabel": "Reset"]
+        with["current"] = ["name": "Rel a", "meta": "Podnapisi", "monogram": "P", "offsetLabel": "1.5 s late", "earlierLabel": "Back 0.5 s", "laterLabel": "Forward 0.5 s", "resetLabel": "Reset"]
         let state = try XCTUnwrap(SubtitlePanelState.from(dictionary: with))
         XCTAssertEqual(state.current?.name, "Rel a")
+        XCTAssertEqual(state.current?.monogram, "P")
         XCTAssertEqual(state.current?.offsetLabel, "1.5 s late")
     }
 

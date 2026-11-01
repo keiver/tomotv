@@ -15,7 +15,7 @@ import { ALL_LANGUAGES, languageFor } from "@/services/subtitles/languages";
 import { queryText } from "@/services/subtitles/query";
 import { SUBTITLE_OFFSET_STEP_MS } from "@/services/subtitles/timing";
 import type { SubtitleJob } from "@/services/subtitles/types";
-import { dismissSubtitlePanel, listenToSubtitlePanel, presentSubtitlePanel, subtitlePanelAvailable, updateSubtitlePanel, type PanelCurrent, type PanelState } from "@/services/subtitleSearchPanel";
+import { dismissSubtitlePanel, listenToSubtitlePanel, presentSubtitlePanel, subtitlePanelAvailable, type PanelCurrent, type PanelState } from "@/services/subtitleSearchPanel";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -31,6 +31,7 @@ export function panelCurrentFor(input: PanelCurrentInput): PanelCurrent {
   return {
     name: input.subtitle.name,
     meta: input.subtitle.device ? `${sourceName(input.subtitle.device.source)} · ${language}` : language,
+    monogram: input.subtitle.device ? SOURCE_MONOGRAM[input.subtitle.device.source] : "",
     offsetLabel: offsetLabel(input.offsetMs),
     earlierLabel: t("subtitles.earlier"),
     laterLabel: t("subtitles.later"),
@@ -77,7 +78,7 @@ export interface TransportButtonInput {
 export function subtitleTransportButton(input: TransportButtonInput): { id: "subtitles"; title: string; sfSymbol: string } | null {
   if (input.isLiveChannel || !input.available) return null;
   const title = !input.active ? t("player.findSubtitles") : input.offsetMs === 0 ? t("subtitles.timingTitle") : offsetLabel(input.offsetMs);
-  return { id: "subtitles", title, sfSymbol: "text.magnifyingglass" };
+  return { id: "subtitles", title, sfSymbol: "square.and.arrow.down" };
 }
 
 export function useTvSubtitlePanel(videoId: string, active: ActiveTextSubtitle | null): { available: boolean; open: () => void; offsetMs: number } {
@@ -119,21 +120,15 @@ export function useTvSubtitlePanel(videoId: string, active: ActiveTextSubtitle |
       });
   }, [videoId]);
 
-  // The panel shows once the item is read, and follows every change of the job after that.
+  // The panel shows once the item is read and follows every change of the job after that; the native
+  // side applies the state to the panel on screen, or presents a new one when none is.
   useEffect(() => {
     if (!shown || !items) return;
     const state = panelStateFor(search.jobs[0], search.language, search.choices, search.running, current ? { subtitle: current, offsetMs } : null);
-    if (!presented.current) {
-      presented.current = true;
-      void presentSubtitlePanel(state).then((ok) => {
-        if (!ok) {
-          presented.current = false;
-          setShown(false);
-        }
-      });
-      return;
-    }
-    void updateSubtitlePanel(state);
+    void presentSubtitlePanel(state).then((ok) => {
+      presented.current = ok;
+      if (!ok) setShown(false);
+    });
   }, [shown, items, search.jobs, search.language, search.choices, search.running, current, offsetMs]);
 
   useEffect(() => {

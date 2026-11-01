@@ -36,7 +36,7 @@ class SubtitleSearchModule: RCTEventEmitter {
                     reject("invalid_state", "present needs a panel state", nil)
                     return
                 }
-                if let open = self.panel {
+                if let open = self.panel, open.viewIfLoaded?.window != nil {
                     open.apply(decoded)
                     resolve(nil)
                     return
