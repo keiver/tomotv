@@ -8,6 +8,11 @@ describe("toWebVtt", () => {
     expect(hasCues(vtt as string)).toBe(true);
   });
 
+  it("drops the ASS override blocks an SRT carries and keeps plain braces", () => {
+    const srt = "1\n00:00:01,000 --> 00:00:02,000\n{\\an8}Top line\n\n2\n00:00:03,000 --> 00:00:04,000\n{laughs} {\\i1}said{\\i0}\n";
+    expect(toWebVtt(srt, "srt")).toBe("WEBVTT\n\n1\n00:00:01.000 --> 00:00:02.000\nTop line\n\n2\n00:00:03.000 --> 00:00:04.000\n{laughs} said\n");
+  });
+
   it("keeps a WebVTT file as it is, byte order mark and CRLF aside", () => {
     expect(toWebVtt("﻿WEBVTT\r\n\r\n00:00:01.000 --> 00:00:02.000\r\nHi\r\n", "vtt")).toBe("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHi\n");
   });

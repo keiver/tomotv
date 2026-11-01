@@ -1074,17 +1074,18 @@ extension RemuxSession {
     /// timeline starts at zero, unlike Jellyfin's WebVTT, which stamps
     /// MPEGTS:900000 and displaced every cue by 10 seconds when a file went
     /// through the server's HLS subtitle path.
-    /// The bytes of a text track saved with a download, shifted by the track's time offset, or nil when it has none on disk.
+    /// The bytes of a text track saved with a download, its ASS markup rendered and its cues shifted by the
+    /// track's time offset, or nil when it has none on disk.
     func localSubtitleBody(streamIndex: Int) -> Data? {
         guard let data = rawLocalSubtitleBody(streamIndex: streamIndex) else { return nil }
-        return shiftedSubtitleBody(data, by: timeOffsetMs(for: streamIndex))
+        return servedSubtitleBody(data, shiftedBy: timeOffsetMs(for: streamIndex))
     }
 
-    /// A sidecar's WebVTT fetched from the server once for the session and served shifted by the
-    /// track's time offset; nil when the track is not a sidecar or the fetch failed.
+    /// A sidecar's WebVTT fetched from the server once for the session and served with its ASS markup
+    /// rendered and its cues shifted by the track's time offset; nil when the track is not a sidecar or the fetch failed.
     func remoteSubtitleBody(streamIndex: Int) -> Data? {
         guard let body = rawRemoteSubtitleBody(streamIndex: streamIndex) else { return nil }
-        return shiftedSubtitleBody(body, by: timeOffsetMs(for: streamIndex))
+        return servedSubtitleBody(body, shiftedBy: timeOffsetMs(for: streamIndex))
     }
 
     /// A device copy's or a sidecar's WebVTT as the file has it, no offset applied.
@@ -1126,8 +1127,11 @@ extension RemuxSession {
         stateLock.unlock()
     }
 
-    private func shiftedSubtitleBody(_ data: Data, by offsetMs: Int) -> Data {
-        offsetMs == 0 ? data : Data(shiftWebVtt(String(decoding: data, as: UTF8.self), byMs: offsetMs).utf8)
+    private func servedSubtitleBody(_ data: Data, shiftedBy offsetMs: Int) -> Data {
+        let text = String(decoding: data, as: UTF8.self)
+        let cleaned = cleanWebVttCues(text)
+        if offsetMs == 0, cleaned == text { return data }
+        return Data(shiftWebVtt(cleaned, byMs: offsetMs).utf8)
     }
 
     func emptySubtitleBody() -> String {

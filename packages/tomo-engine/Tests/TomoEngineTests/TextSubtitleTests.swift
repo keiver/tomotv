@@ -272,6 +272,22 @@ final class TextSubtitleTests: XCTestCase {
         XCTAssertEqual(String(decoding: body, as: UTF8.self), "WEBVTT\n\n00:00:00.500 --> 00:00:02.500\nHello\n")
     }
 
+    /// Jellyfin 10.11 writes an .ass sidecar's dialogue into its WebVTT with the override blocks still in (issue 111).
+    func testASidecarBodyWithAssOverrideBlocksIsServedWithThemRendered() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("ass-\(UUID().uuidString).vtt")
+        try "WEBVTT\n\n00:00:01.000 --> 00:00:04.000 region:subtitle line:90%\n{\\fad(120,120)}Some line\n\n00:00:05.000 --> 00:00:06.000 region:subtitle line:90%\n{\\i1}Thought{\\i0} aloud\n".write(to: file, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let copy = RemuxSubtitle(
+            index: 100001, name: "Kept", language: "eng", vttUrl: "", localVtt: file.absoluteString,
+            isDefault: false, isForced: false, isImage: false, isEngineText: false)
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 30, subtitles: [copy]))
+        defer { session.stop() }
+        let body = try XCTUnwrap(session.localSubtitleBody(streamIndex: 100001))
+
+        XCTAssertEqual(String(decoding: body, as: UTF8.self),
+                       "WEBVTT\n\n00:00:01.000 --> 00:00:04.000 region:subtitle line:90%\nSome line\n\n00:00:05.000 --> 00:00:06.000 region:subtitle line:90%\n<i>Thought</i> aloud\n")
+    }
+
     /// The SSA track's first cue runs 2.0 to 4.0 s; delayed 1.5 s it is written 3.5 to 5.5 s in the first segment.
     func testAnEngineTextSegmentMovesItsCuesByTheOffset() throws {
         let session = try coveredSession()

@@ -17,6 +17,7 @@ All notable changes to Tomo TV are documented here.
 
 ### Fixed
 
+- An external .ass or .ssa subtitle file showed its styling codes as text, `{\fad(120,120)}Some line` instead of `Some line`, on Jellyfin 10.11, which writes the dialogue into its WebVTT as it is (issue 111). The on-device engine now renders that markup in every sidecar and downloaded subtitle it serves: bold, italic and underline become tags, positioning, fades, drawings and the rest are dropped, line breaks and hard spaces are kept. Subtitles found by the app's own search drop the same codes from an SRT (`@keiver/tomo-engine@1.6.0`)
 - On Mac the left and right arrow keys turn pages in the book reader and step through photos; the focus system took them before
 - Show in Folder no longer shows on an episode opened from its own season screen. Jellyfin leaves a virtual season out of an episode's ancestors, so the panel also checks the folder it was opened from against the episode's parent
 - On Apple TV the info panel's title logo sits inside the card's 48 pt padding instead of running to its edges

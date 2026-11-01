@@ -26,7 +26,7 @@ function srtToVtt(text: string): string {
     .replace(/^﻿/, "")
     .replace(/\r\n?/g, "\n")
     .split("\n")
-    .map((line) => (/-->/.test(line) ? line.replace(SRT_TIME, (_, h, m, s, ms) => `${h.padStart(2, "0")}:${m}:${s}.${ms.padEnd(3, "0")}`) : line))
+    .map((line) => (/-->/.test(line) ? line.replace(SRT_TIME, (_, h, m, s, ms) => `${h.padStart(2, "0")}:${m}:${s}.${ms.padEnd(3, "0")}`) : line.replace(/\{\\[^}]*\}/g, "")))
     .join("\n")
     .trim();
   return `WEBVTT\n\n${body}\n`;
