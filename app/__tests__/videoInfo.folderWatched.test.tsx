@@ -16,6 +16,7 @@ jest.mock("expo-router", () => ({
 }));
 
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
+jest.mock("@/hooks/useSubtitlePanel", () => ({ useSubtitlePanel: () => ({ available: true, open: jest.fn(), offsetMs: 0 }) }));
 jest.mock("react-native-gesture-handler", () => {
   const { View } = require("react-native");
   const chain: any = new Proxy(() => chain, { get: () => () => chain, apply: () => chain });
@@ -48,6 +49,7 @@ jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 jest.mock("@/components/progress-button", () => ({ ProgressButton: () => null }));
 
 jest.mock("@/services/jellyfinApi", () => ({
+  subscribeSubtitlesChanged: jest.fn(() => () => {}),
   subscribeAuthChange: jest.fn(() => () => {}),
   clearResumePosition: jest.fn(async () => {}),
   deleteItem: jest.fn(async () => {}),
