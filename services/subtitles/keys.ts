@@ -9,7 +9,6 @@ export const SUBTITLE_KEY_STORAGE = {
   OPENSUBTITLES_API_KEY: "subtitles_opensubtitles_api_key",
   OPENSUBTITLES_USERNAME: "subtitles_opensubtitles_username",
   OPENSUBTITLES_PASSWORD: "subtitles_opensubtitles_password",
-  SUBDL_API_KEY: "subtitles_subdl_api_key",
   SUBSOURCE_API_KEY: "subtitles_subsource_api_key",
 } as const;
 
@@ -25,17 +24,10 @@ async function read(name: SubtitleKeyName): Promise<string> {
 
 /** Every pasted key, with a provider left null while any of its fields is empty. */
 export async function readOwnKeys(): Promise<OwnKeys> {
-  const [osKey, osUser, osPassword, subdl, subsource] = await Promise.all([
-    read("OPENSUBTITLES_API_KEY"),
-    read("OPENSUBTITLES_USERNAME"),
-    read("OPENSUBTITLES_PASSWORD"),
-    read("SUBDL_API_KEY"),
-    read("SUBSOURCE_API_KEY"),
-  ]);
+  const [osKey, osUser, osPassword, subsource] = await Promise.all([read("OPENSUBTITLES_API_KEY"), read("OPENSUBTITLES_USERNAME"), read("OPENSUBTITLES_PASSWORD"), read("SUBSOURCE_API_KEY")]);
   return {
     ...NO_KEYS,
     opensubtitles: osKey && osUser && osPassword ? { apiKey: osKey, username: osUser, password: osPassword } : null,
-    subdl: subdl || null,
     subsource: subsource || null,
   };
 }

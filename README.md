@@ -80,7 +80,7 @@ permission on the server overrides all three.
   served by the engine, and image tracks (PGS, VobSub, DVB, XSUB) are decoded
   to bitmaps drawn over the native player. The app also finds subtitles, from
   the info panel or a panel in the Apple TV player, searching the server,
-  OpenSubtitles, SubDL, SubSource, Podnapisi and Gestdown; a pick is saved to
+  OpenSubtitles and SubSource with your own accounts; a pick is saved to
   the server or kept on the device, and the running session takes it without
   restarting. Each track's timing moves in half-second steps, or one press
   matches it to the speech in the audio, measured on the device.

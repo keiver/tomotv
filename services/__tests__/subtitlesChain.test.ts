@@ -4,10 +4,20 @@ jest.mock("@/services/jellyfin/http", () => ({ fetchWithTimeout: jest.fn() }));
 jest.mock("@/constants/app", () => ({ APP_VERSION: "1.0.0" }));
 
 import { markSourceDown, resetSourceChain, runChain, sourcesFor } from "@/services/subtitles/chain";
-import { NO_KEYS, SOURCE_ORDER, SourceRefusal, type SearchContext, type SubtitleHit, type SubtitleQuery, type SubtitleSource, type SubtitleSourceId } from "@/services/subtitles/types";
+import {
+  NO_KEYS,
+  SOURCE_ORDER,
+  SourceRefusal,
+  type SearchContext,
+  type SearchSourceId,
+  type SubtitleHit,
+  type SubtitleQuery,
+  type SubtitleSource,
+  type SubtitleSourceId,
+} from "@/services/subtitles/types";
 
 const query: SubtitleQuery = { kind: "movie", keywords: "Film", fileName: "Film" };
-const context: SearchContext = { itemId: "i", serverAllowed: true, findSubtitles: true, keys: { opensubtitles: { apiKey: "k", username: "u", password: "p" }, subdl: "s", subsource: "x" } };
+const context: SearchContext = { itemId: "i", serverAllowed: true, findSubtitles: true, keys: { opensubtitles: { apiKey: "k", username: "u", password: "p" }, subsource: "x" } };
 
 function hit(source: SubtitleSourceId): SubtitleHit {
   return { id: source, source, name: source, language: "en", format: "", hashMatch: false, forced: false, hearingImpaired: false, machineTranslated: false, rating: null, downloads: null, author: "" };
@@ -17,8 +27,8 @@ function fake(id: SubtitleSourceId, search: () => Promise<SubtitleHit[]>, accept
   return { id, accepts: () => accepts, search, fetch: async () => ({ text: "", format: "srt" }) };
 }
 
-function sources(overrides: Partial<Record<SubtitleSourceId, SubtitleSource>>): Record<SubtitleSourceId, SubtitleSource> {
-  const all = {} as Record<SubtitleSourceId, SubtitleSource>;
+function sources(overrides: Partial<Record<SearchSourceId, SubtitleSource>>): Record<SearchSourceId, SubtitleSource> {
+  const all = {} as Record<SearchSourceId, SubtitleSource>;
   for (const id of SOURCE_ORDER) all[id] = overrides[id] ?? fake(id, async () => []);
   return all;
 }
@@ -31,7 +41,7 @@ describe("runChain", () => {
     const all = sources({
       server: fake("server", async () => (asked.push("server"), [])),
       opensubtitles: fake("opensubtitles", async () => (asked.push("opensubtitles"), [hit("opensubtitles")])),
-      subdl: fake("subdl", async () => (asked.push("subdl"), [hit("subdl")])),
+      subsource: fake("subsource", async () => (asked.push("subsource"), [hit("subsource")])),
     });
     const answer = await runChain(query, "en", context, all);
     expect(asked).toEqual(["server", "opensubtitles"]);
@@ -44,9 +54,9 @@ describe("runChain", () => {
     const serverSearch = jest.fn(async () => {
       throw new SourceRefusal("server", 429, "quota");
     });
-    const all = sources({ server: fake("server", serverSearch), podnapisi: fake("podnapisi", async () => [hit("podnapisi")]) });
+    const all = sources({ server: fake("server", serverSearch), subsource: fake("subsource", async () => [hit("subsource")]) });
     const first = await runChain(query, "en", context, all);
-    expect(first.answeredBy).toBe("podnapisi");
+    expect(first.answeredBy).toBe("subsource");
     expect(first.refused).toEqual([{ source: "server", status: 429 }]);
     const second = await runChain(query, "en", context, all);
     expect(serverSearch).toHaveBeenCalledTimes(1);
@@ -57,7 +67,7 @@ describe("runChain", () => {
     const failing = jest.fn(async () => {
       throw new Error("network");
     });
-    const all = sources({ server: fake("server", failing), podnapisi: fake("podnapisi", async () => [hit("podnapisi")]) });
+    const all = sources({ server: fake("server", failing), subsource: fake("subsource", async () => [hit("subsource")]) });
     await runChain(query, "en", context, all);
     await runChain(query, "en", context, all);
     expect(failing).toHaveBeenCalledTimes(2);
@@ -65,8 +75,8 @@ describe("runChain", () => {
 
   it("leaves out sources that do not take the query or were marked down by a failed save", () => {
     markSourceDown("server", 500);
-    const all = sources({ gestdown: fake("gestdown", async () => [], false) });
-    expect(sourcesFor(query, context, all).map((source) => source.id)).toEqual(["opensubtitles", "subdl", "subsource", "podnapisi"]);
+    const all = sources({ subsource: fake("subsource", async () => [], false) });
+    expect(sourcesFor(query, context, all).map((source) => source.id)).toEqual(["opensubtitles"]);
   });
 
   it("answers empty when nothing is found anywhere", async () => {

@@ -4,13 +4,10 @@
  * refusal is reported so the screen can say why the answer came from further down the chain.
  */
 import { logger } from "@/utils/logger";
-import { gestdownSource } from "./sources/gestdown";
 import { openSubtitlesSource } from "./sources/opensubtitles";
-import { podnapisiSource } from "./sources/podnapisi";
 import { serverSource } from "./sources/server";
-import { subdlSource } from "./sources/subdl";
 import { subsourceSource } from "./sources/subsource";
-import { SOURCE_ORDER, SourceRefusal, type SearchContext, type SubtitleHit, type SubtitleQuery, type SubtitleSource, type SubtitleSourceId } from "./types";
+import { SOURCE_ORDER, SourceRefusal, type SearchContext, type SearchSourceId, type SubtitleHit, type SubtitleQuery, type SubtitleSource, type SubtitleSourceId } from "./types";
 
 export interface Refusal {
   source: SubtitleSourceId;
@@ -25,13 +22,10 @@ export interface ChainAnswer {
   refused: Refusal[];
 }
 
-const SOURCES: Record<SubtitleSourceId, SubtitleSource> = {
+const SOURCES: Record<SearchSourceId, SubtitleSource> = {
   server: serverSource,
   opensubtitles: openSubtitlesSource,
-  subdl: subdlSource,
   subsource: subsourceSource,
-  podnapisi: podnapisiSource,
-  gestdown: gestdownSource,
 };
 
 const down = new Map<SubtitleSourceId, number>();
@@ -50,15 +44,17 @@ export function resetSourceChain(): void {
 }
 
 export function sourceFor(id: SubtitleSourceId): SubtitleSource {
-  return SOURCES[id];
+  const source = (SOURCES as Partial<Record<SubtitleSourceId, SubtitleSource>>)[id];
+  if (!source) throw new Error(`${id} is not a search source`);
+  return source;
 }
 
 /** Sources that will be asked for this query, in order, with the ones already down left out. */
-export function sourcesFor(query: SubtitleQuery, context: SearchContext, sources: Record<SubtitleSourceId, SubtitleSource> = SOURCES): SubtitleSource[] {
+export function sourcesFor(query: SubtitleQuery, context: SearchContext, sources: Record<SearchSourceId, SubtitleSource> = SOURCES): SubtitleSource[] {
   return SOURCE_ORDER.map((id) => sources[id]).filter((source) => !down.has(source.id) && source.accepts(query, context));
 }
 
-export async function runChain(query: SubtitleQuery, language: string, context: SearchContext, sources: Record<SubtitleSourceId, SubtitleSource> = SOURCES): Promise<ChainAnswer> {
+export async function runChain(query: SubtitleQuery, language: string, context: SearchContext, sources: Record<SearchSourceId, SubtitleSource> = SOURCES): Promise<ChainAnswer> {
   const refused: Refusal[] = SOURCE_ORDER.filter((id) => down.has(id) && sources[id].accepts(query, context)).map((id) => ({ source: id, status: down.get(id) as number }));
   for (const source of sourcesFor(query, context, sources)) {
     try {

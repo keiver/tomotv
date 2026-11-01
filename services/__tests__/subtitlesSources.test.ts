@@ -10,12 +10,9 @@ jest.mock("@/services/jellyfinApi", () => ({
 }));
 
 import { zipSync, strToU8 } from "fflate";
-import { gestdownSource, pickShow } from "@/services/subtitles/sources/gestdown";
 import { unpackSubtitle } from "@/services/subtitles/sources/http";
 import { openSubtitlesParams, openSubtitlesSource, resetOpenSubtitlesTokens } from "@/services/subtitles/sources/opensubtitles";
-import { podnapisiParams, podnapisiSource } from "@/services/subtitles/sources/podnapisi";
 import { serverSource } from "@/services/subtitles/sources/server";
-import { subdlParams, subdlSource } from "@/services/subtitles/sources/subdl";
 import { subsourceSearchParams, subsourceSource } from "@/services/subtitles/sources/subsource";
 import { SourceRefusal, type SearchContext, type SubtitleHit, type SubtitleQuery } from "@/services/subtitles/types";
 
@@ -25,7 +22,7 @@ const context: SearchContext = {
   itemId: "item1",
   serverAllowed: true,
   findSubtitles: true,
-  keys: { opensubtitles: { apiKey: "key", username: "me", password: "pw" }, subdl: "sdl", subsource: "ssk" },
+  keys: { opensubtitles: { apiKey: "key", username: "me", password: "pw" }, subsource: "ssk" },
 };
 
 function json(body: unknown, status = 200): Response {
@@ -110,95 +107,6 @@ describe("server source", () => {
   });
 });
 
-describe("podnapisi source", () => {
-  it("builds the query for a film and for an episode", () => {
-    expect(podnapisiParams(movie, "en").toString()).toBe("keywords=Some+Film&language=en&movie_type=movie&year=2020");
-    expect(podnapisiParams(episode, "de").toString()).toBe("keywords=Some+Show&language=de&seasons=1&episodes=3&movie_type=tv-series&movie_type=mini-series");
-  });
-
-  it("maps records, names each by the release of the episode asked, drops duplicates and films answered for an episode", async () => {
-    mockFetch.mockResolvedValue(
-      json({
-        data: [
-          {
-            id: 1,
-            language: "en",
-            flags: ["hearing_impaired"],
-            releases: ["Some.Show.S01.Pack", "Some.Show.S01E03.720p"],
-            custom_releases: [],
-            movie: { type: "tv-series", title: "Some Show", year: 2020 },
-          },
-          { id: 1, language: "en", flags: [], releases: [], movie: { type: "tv-series" } },
-          { id: 2, language: "en", flags: [], releases: [], movie: { type: "movie", title: "Some Show", year: 2020 } },
-        ],
-        page: 1,
-        all_pages: 1,
-      }),
-    );
-    const hits = await podnapisiSource.search(episode, "en", context);
-    expect(mockFetch.mock.calls[0][0]).toBe("https://www.podnapisi.net/subtitles/search/advanced?keywords=Some+Show&language=en&seasons=1&episodes=3&movie_type=tv-series&movie_type=mini-series");
-    expect(hits).toEqual([expect.objectContaining({ id: "1", source: "podnapisi", name: "Some.Show.S01E03.720p", hearingImpaired: true })]);
-  });
-
-  it("downloads the zip and reads the subtitle out of it", async () => {
-    mockFetch.mockResolvedValue(bytes(zipSync({ "Some.Film.srt": strToU8(SRT) })));
-    const file = await podnapisiSource.fetch({ id: "9" } as SubtitleHit, context);
-    expect(mockFetch.mock.calls[0][0]).toBe("https://www.podnapisi.net/subtitles/9/download?container=zip");
-    expect(file).toEqual({ text: SRT, format: "srt" });
-  });
-
-  it("a 429 is a refusal", async () => {
-    mockFetch.mockResolvedValue(json({}, 429));
-    await expect(podnapisiSource.search(movie, "en", context)).rejects.toMatchObject({ source: "podnapisi", status: 429 });
-  });
-});
-
-describe("gestdown source", () => {
-  it("takes episodes only, with the show name long enough to search", () => {
-    expect(gestdownSource.accepts(episode, context)).toBe(true);
-    expect(gestdownSource.accepts(movie, context)).toBe(false);
-    expect(gestdownSource.accepts({ ...episode, keywords: "ab" }, context)).toBe(false);
-  });
-
-  it("finds the show, then the episode's completed subtitles by the language's English name, each named show, episode and release", async () => {
-    mockFetch
-      .mockResolvedValueOnce(
-        json({
-          shows: [
-            { id: "other", name: "Some Show Reloaded" },
-            { id: "show-1", name: "Some Show" },
-          ],
-        }),
-      )
-      .mockResolvedValueOnce(
-        json({
-          matchingSubtitles: [
-            { subtitleId: "s1", version: "HDTV", completed: true, hearingImpaired: false, downloadUri: "/subtitles/download/s1", language: "English", downloadCount: 5, source: "Addic7ed" },
-            { subtitleId: "s2", version: "WEB", completed: false, hearingImpaired: false, downloadUri: "", language: "English" },
-          ],
-        }),
-      );
-    const hits = await gestdownSource.search(episode, "en", context);
-    expect(mockFetch.mock.calls[0][0]).toBe("https://api.gestdown.info/shows/search/Some%20Show");
-    expect(mockFetch.mock.calls[1][0]).toBe("https://api.gestdown.info/subtitles/get/show-1/1/3/English");
-    expect(hits).toEqual([expect.objectContaining({ id: "s1", source: "gestdown", name: "Some Show S01E03 HDTV", downloads: 5, author: "Addic7ed" })]);
-  });
-
-  it("prefers the show whose name matches, else the first", () => {
-    expect(
-      pickShow(
-        [
-          { id: "a", name: "Other" },
-          { id: "b", name: "Some  Show!" },
-        ],
-        "Some Show",
-      )?.id,
-    ).toBe("b");
-    expect(pickShow([{ id: "a", name: "Other" }], "Some Show")?.id).toBe("a");
-    expect(pickShow([], "x")).toBeNull();
-  });
-});
-
 describe("opensubtitles source", () => {
   it("is skipped without an account", () => {
     expect(openSubtitlesSource.accepts(movie, { ...context, keys: { ...context.keys, opensubtitles: null } })).toBe(false);
@@ -265,42 +173,6 @@ describe("opensubtitles source", () => {
   it("a 406 on download is a refusal", async () => {
     mockFetch.mockResolvedValueOnce(json({ token: "tok" })).mockResolvedValueOnce(json({ message: "quota" }, 406));
     await expect(openSubtitlesSource.fetch({ id: "1" } as SubtitleHit, context)).rejects.toMatchObject({ source: "opensubtitles", status: 406 });
-  });
-});
-
-describe("subdl source", () => {
-  it("builds the query with the key, an upper-case language and the episode numbers", () => {
-    const params = subdlParams("sdl", episode, "en");
-    expect(params.get("api_key")).toBe("sdl");
-    expect(params.get("languages")).toBe("EN");
-    expect(params.get("type")).toBe("tv");
-    expect(params.get("film_name")).toBe("Some Show");
-    expect(params.get("season_number")).toBe("1");
-    expect(subdlParams("sdl", { ...movie, imdbId: "tt1" }, "en").get("imdb_id")).toBe("tt1");
-  });
-
-  it("maps subtitles and downloads the zip from dl.subdl.com", async () => {
-    mockFetch.mockResolvedValueOnce(
-      json({
-        status: true,
-        subtitles: [
-          { release_name: "Some.Film.2020", lang: "english", url: "/subtitle/1.zip", hi: true },
-          { name: "bad", url: "https://evil/x" },
-        ],
-      }),
-    );
-    const hits = await subdlSource.search(movie, "en", context);
-    expect(hits).toEqual([expect.objectContaining({ id: "/subtitle/1.zip", source: "subdl", name: "Some.Film.2020", language: "en", hearingImpaired: true })]);
-    mockFetch.mockResolvedValueOnce(bytes(zipSync({ "a.srt": strToU8(SRT) })));
-    expect(await subdlSource.fetch(hits[0], context)).toEqual({ text: SRT, format: "srt" });
-    expect(mockFetch.mock.calls[1][0]).toBe("https://dl.subdl.com/subtitle/1.zip");
-  });
-
-  it("a refused key is a refusal, a not-found is an empty answer", async () => {
-    mockFetch.mockResolvedValueOnce(json({ status: false, error: "Not Authorized" }));
-    await expect(subdlSource.search(movie, "en", context)).rejects.toMatchObject({ source: "subdl" });
-    mockFetch.mockResolvedValueOnce(json({ status: false, error: "can't find movie" }));
-    expect(await subdlSource.search(movie, "en", context)).toEqual([]);
   });
 });
 

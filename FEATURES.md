@@ -54,17 +54,17 @@ Every feature needs a Jellyfin server. The Notes column says when a feature also
 
 ## Subtitles
 
-| Feature                                             | Apple TV | iPhone, iPad | Mac | Notes                                                                                                                                              |
-| --------------------------------------------------- | -------- | ------------ | --- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Text subtitles selectable in the player             | Yes      | Yes          | Yes |                                                                                                                                                    |
-| Embedded text subtitles converted on the device     | Yes      | Yes          | Yes | SubRip, mov_text, ASS, SSA                                                                                                                         |
-| Picture subtitles: PGS, VobSub, DVB, XSUB, teletext | Yes      | Yes          | Yes | Decoded and drawn on the device                                                                                                                    |
-| Forced subtitles are selectable tracks              | Yes      | Yes          | Yes | Burned in only when the server transcodes                                                                                                          |
-| Subtitle language remembered                        | Yes      | Yes          | Yes | Saved to the Jellyfin account; offline or signed out, kept on the device                                                                           |
-| Find and save subtitles                             | Yes      | Yes          | Yes | The server's search, OpenSubtitles, SubDL, SubSource, Podnapisi, Gestdown; saved to the server where the account may, kept on the device otherwise |
-| Find Subtitles in the player                        | Yes      | No           | No  | A panel from the transport bar button and the info panel; elsewhere the same panel from the info panel                                             |
-| Subtitle timing                                     | Yes      | Yes          | Yes | Half-second steps per track, kept per video                                                                                                        |
-| Match a subtitle to the audio                       | Yes      | Yes          | Yes | On the device; runs on its own after a pick                                                                                                        |
+| Feature                                             | Apple TV | iPhone, iPad | Mac | Notes                                                                                                                                                    |
+| --------------------------------------------------- | -------- | ------------ | --- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Text subtitles selectable in the player             | Yes      | Yes          | Yes |                                                                                                                                                          |
+| Embedded text subtitles converted on the device     | Yes      | Yes          | Yes | SubRip, mov_text, ASS, SSA                                                                                                                               |
+| Picture subtitles: PGS, VobSub, DVB, XSUB, teletext | Yes      | Yes          | Yes | Decoded and drawn on the device                                                                                                                          |
+| Forced subtitles are selectable tracks              | Yes      | Yes          | Yes | Burned in only when the server transcodes                                                                                                                |
+| Subtitle language remembered                        | Yes      | Yes          | Yes | Saved to the Jellyfin account; offline or signed out, kept on the device                                                                                 |
+| Find and save subtitles                             | Yes      | Yes          | Yes | The server's search, OpenSubtitles and SubSource with the viewer's own accounts; saved to the server where the account may, kept on the device otherwise |
+| Find Subtitles in the player                        | Yes      | No           | No  | Apple TV has a Find Subtitles button on the transport bar. The info panel opens it on every platform                                                     |
+| Subtitle timing                                     | Yes      | Yes          | Yes | Half-second steps per track, kept per video                                                                                                              |
+| Match a subtitle to the audio                       | Yes      | Yes          | Yes | On the device; runs on its own after a pick                                                                                                              |
 
 ## Quality and server transcoding
 

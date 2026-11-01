@@ -41,7 +41,6 @@ const SERVICES: { source: SubtitleSourceId; url: string; rows: KeyFieldSpec[][] 
       ],
     ],
   },
-  { source: "subdl", url: "subdl.com", rows: [[{ name: "SUBDL_API_KEY", label: "subtitles.apiKey", secret: true }]] },
   { source: "subsource", url: "subsource.net", rows: [[{ name: "SUBSOURCE_API_KEY", label: "subtitles.apiKey", secret: true }]] },
 ];
 

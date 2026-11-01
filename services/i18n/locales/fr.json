@@ -318,7 +318,7 @@
   "subtitles.noVideos": "Aucune vidéo ici",
   "subtitles.sources": "Sources",
   "subtitles.find": "Chercher les sous-titres manquants",
-  "subtitles.findHint": "Sur Podnapisi et Addic7ed, et avec vos propres comptes ci-dessous",
+  "subtitles.findHint": "Sur OpenSubtitles et SubSource, avec vos propres comptes ci-dessous",
   "subtitles.save": "Enregistrer les sous-titres sur mon serveur",
   "subtitles.apiKey": "Clé API",
   "subtitles.username": "Nom d'utilisateur",

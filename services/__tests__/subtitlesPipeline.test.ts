@@ -5,7 +5,7 @@ jest.mock("@/services/jellyfin/http", () => ({ fetchWithTimeout: jest.fn() }));
 jest.mock("@/services/jellyfin/session", () => ({ getConfig: jest.fn(async () => ({ server: "http://server:8096", apiKey: "k", userId: "u", deviceId: "d" })) }));
 const mockPrefs = { findSubtitles: true, saveSubtitles: true };
 jest.mock("@/services/uiPreferences", () => ({ getUiPreferences: () => mockPrefs }));
-jest.mock("@/services/subtitles/keys", () => ({ readOwnKeys: jest.fn(async () => ({ opensubtitles: null, subdl: null, subsource: null })) }));
+jest.mock("@/services/subtitles/keys", () => ({ readOwnKeys: jest.fn(async () => ({ opensubtitles: null, subsource: null })) }));
 jest.mock("@/services/jellyfinApi", () => ({
   canManageSubtitles: jest.fn(async () => true),
   downloadRemoteSubtitle: jest.fn(async () => 204),

@@ -1,9 +1,12 @@
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 
-/** Where a subtitle can come from, in the order the chain asks. */
+/** Where a subtitle came from. A device copy keeps the id it was saved with, so retired sources stay named. */
 export type SubtitleSourceId = "server" | "opensubtitles" | "subdl" | "subsource" | "podnapisi" | "gestdown";
 
-export const SOURCE_ORDER: readonly SubtitleSourceId[] = ["server", "opensubtitles", "subdl", "subsource", "podnapisi", "gestdown"];
+/** The sources the chain asks. */
+export type SearchSourceId = "server" | "opensubtitles" | "subsource";
+
+export const SOURCE_ORDER: readonly SearchSourceId[] = ["server", "opensubtitles", "subsource"];
 
 /** What a file is, as far as a subtitle provider needs to know. */
 export interface SubtitleQuery {
@@ -49,11 +52,10 @@ export interface SubtitleFile {
 /** Accounts and keys the viewer pasted; a source with no key is skipped. */
 export interface OwnKeys {
   opensubtitles: { apiKey: string; username: string; password: string } | null;
-  subdl: string | null;
   subsource: string | null;
 }
 
-export const NO_KEYS: OwnKeys = { opensubtitles: null, subdl: null, subsource: null };
+export const NO_KEYS: OwnKeys = { opensubtitles: null, subsource: null };
 
 /** What the chain knows about the account and the item before asking anyone. */
 export interface SearchContext {
