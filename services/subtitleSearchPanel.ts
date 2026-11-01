@@ -31,6 +31,11 @@ export interface PanelCurrent {
   earlierLabel: string;
   laterLabel: string;
   resetLabel: string;
+  syncLabel: string;
+  /** A match against the audio is running: the sync button spins and takes no press. */
+  syncing: boolean;
+  /** The line under the row: how the last match went, empty when none ran. */
+  note: string;
 }
 
 export interface PanelState {
@@ -54,6 +59,8 @@ export interface PanelHandlers {
   onPick: (id: string) => void;
   /** A timing press: the step in milliseconds, or null for the reset. */
   onShift: (deltaMs: number | null) => void;
+  /** The sync button: match the subtitle that is on to the audio. */
+  onSync: () => void;
   onDismissed: () => void;
 }
 
@@ -107,6 +114,7 @@ export function listenToSubtitlePanel(handlers: PanelHandlers): () => void {
     emitter.addListener("onSubtitlePanelLanguageChanged", (event: { code: string }) => handlers.onLanguageChanged(event.code)),
     emitter.addListener("onSubtitlePanelPick", (event: { id: string }) => handlers.onPick(event.id)),
     emitter.addListener("onSubtitlePanelShift", (event: { deltaMs: number | null }) => handlers.onShift(typeof event.deltaMs === "number" ? event.deltaMs : null)),
+    emitter.addListener("onSubtitlePanelSync", () => handlers.onSync()),
     emitter.addListener("onSubtitlePanelDismissed", () => handlers.onDismissed()),
   ];
   return () => subscriptions.forEach((subscription) => subscription.remove());

@@ -4,6 +4,7 @@
 import { t } from "@/services/i18n";
 import { languageFor } from "./languages";
 import { queryText } from "./query";
+import type { SubtitleSyncState } from "./timing";
 import type { SubtitleHit, SubtitleJob, SubtitleSourceId } from "./types";
 
 /** One letter standing for the source, drawn in a row's monogram. */
@@ -60,6 +61,13 @@ export function offsetLabel(offsetMs: number): string {
   if (offsetMs === 0) return t("subtitles.onTime");
   const seconds = (Math.abs(offsetMs) / 1000).toFixed(1).replace(/\.0$/, "");
   return t(offsetMs > 0 ? "subtitles.late" : "subtitles.early").replace("{seconds}", seconds);
+}
+
+/** The line under a subtitle while and after it is matched to the audio; empty when no match ran. */
+export function syncStateLine(state: SubtitleSyncState | null | undefined): string {
+  if (!state) return "";
+  if (state.status === "syncing") return t("subtitles.syncing");
+  return t(state.status === "synced" ? "subtitles.synced" : "subtitles.syncFailed");
 }
 
 export function hitBadges(hit: SubtitleHit): string[] {

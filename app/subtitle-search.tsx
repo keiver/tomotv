@@ -95,6 +95,8 @@ export default function SubtitleSearchScreen() {
                         subtitle={subtitle}
                         offsetMs={timing.offsetFor(subtitle.index)}
                         onShift={(direction) => timing.shift(subtitle.index, direction === null ? null : direction * SUBTITLE_OFFSET_STEP_MS)}
+                        onSync={timing.canSync ? () => void timing.sync(subtitle.index) : undefined}
+                        syncState={timing.syncStateFor(subtitle.index)}
                         onReplace={() => {
                           setReplacing(subtitle);
                           search.setLanguage(languageCode(subtitle.language) ?? search.language);
@@ -129,7 +131,7 @@ export default function SubtitleSearchScreen() {
                   alone={search.jobs.length === 1}
                   onPick={(hit) => void search.pick(index, hit, replacementFor(hit, replacing))}
                   onQueryText={(text) => search.setQueryText(index, text)}
-                  hideHit={(hit) => isCurrentPick(hit, replacing)}
+                  isCurrent={(hit) => current.some((entry) => isCurrentPick(hit, entry))}
                 />
               ))}
             </>

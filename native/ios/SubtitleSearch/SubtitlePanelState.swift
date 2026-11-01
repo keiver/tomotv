@@ -51,8 +51,13 @@ public struct SubtitlePanelCurrent: Codable, Equatable {
     public let earlierLabel: String
     public let laterLabel: String
     public let resetLabel: String
+    public let syncLabel: String
+    /// A match against the audio is running: the sync button spins and takes no press.
+    public let syncing: Bool
+    /// The line under the row: how the last match went, empty when none ran.
+    public let note: String
 
-    public init(name: String, meta: String, monogram: String, offsetLabel: String, earlierLabel: String, laterLabel: String, resetLabel: String) {
+    public init(name: String, meta: String, monogram: String, offsetLabel: String, earlierLabel: String, laterLabel: String, resetLabel: String, syncLabel: String, syncing: Bool, note: String) {
         self.name = name
         self.meta = meta
         self.monogram = monogram
@@ -60,6 +65,9 @@ public struct SubtitlePanelCurrent: Codable, Equatable {
         self.earlierLabel = earlierLabel
         self.laterLabel = laterLabel
         self.resetLabel = resetLabel
+        self.syncLabel = syncLabel
+        self.syncing = syncing
+        self.note = note
     }
 }
 

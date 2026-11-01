@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ReactVideoProps } from "react-native-video";
 
+import type { SubtitleAlignment } from "@keiver/tomo-engine";
 import type { ActiveTextSubtitle, VideoPlayerState } from "@/hooks/useVideoPlayback";
 import type { MediaSegmentWindow } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
@@ -106,6 +107,8 @@ export interface PlayerHostBridge {
   reloadSubtitles: () => void;
   /** Moves a text track's cues in the running session by `offsetMs`. */
   applySubtitleTimeOffset: (streamIndex: number, offsetMs: number) => void;
+  /** Lines a text track up with the speech in the running session; `attempt` moves the window along the file. */
+  alignSubtitleTiming: (streamIndex: number, attempt: number) => Promise<SubtitleAlignment>;
   /** Relative seek, for the hardware keyboard. The AVKit chrome owns every other scrub. */
   seekBy: (offsetSeconds: number) => void;
   /** Play or pause, for the hardware keyboard. */
@@ -230,6 +233,10 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
   const pause = useCallback(() => withHost("pause", (bridge) => bridge.pause()), [withHost]);
   const retry = useCallback(() => withHost("retry", (bridge) => bridge.retry()), [withHost]);
   const reloadSubtitles = useCallback(() => withHost("reloadSubtitles", (bridge) => bridge.reloadSubtitles()), [withHost]);
+  const alignSubtitleTiming = useCallback(
+    (streamIndex: number, attempt: number): Promise<SubtitleAlignment> => bridgeRef.current?.alignSubtitleTiming(streamIndex, attempt) ?? Promise.resolve({ ok: false, reason: "noSession" }),
+    [],
+  );
   const applySubtitleTimeOffset = useCallback(
     (streamIndex: number, offsetMs: number) => withHost("applySubtitleTimeOffset", (bridge) => bridge.applySubtitleTimeOffset(streamIndex, offsetMs)),
     [withHost],
@@ -251,6 +258,7 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
       retry,
       reloadSubtitles,
       applySubtitleTimeOffset,
+      alignSubtitleTiming,
       seekBy,
       togglePlay,
       toggleVideoFill,
@@ -268,6 +276,7 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
       retry,
       reloadSubtitles,
       applySubtitleTimeOffset,
+      alignSubtitleTiming,
       seekBy,
       togglePlay,
       toggleVideoFill,

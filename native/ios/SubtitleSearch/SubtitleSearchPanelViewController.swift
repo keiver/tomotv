@@ -19,6 +19,7 @@
         var onPick: ((String) -> Void)?
         /// A timing press: the step's sign in milliseconds, or nil for the reset.
         var onShift: ((Int?) -> Void)?
+        var onSync: (() -> Void)?
         var onDismissed: (() -> Void)?
 
         private var state: SubtitlePanelState
@@ -34,13 +35,19 @@
         private let offsetLabel = UILabel()
         private let laterButton = UIButton(configuration: SubtitleSearchPanelViewController.roundIcon())
         private let resetButton = UIButton(configuration: SubtitleSearchPanelViewController.roundIcon())
+        private let syncButton = UIButton(configuration: SubtitleSearchPanelViewController.roundIcon())
+        private let currentNote = UILabel()
+        private let mainStack = UIStackView()
         private let languageButton = UIButton(configuration: SubtitleSearchPanelViewController.pill())
         private let fieldWell = SubtitleSearchPanelViewController.surface(cornerRadius: SubtitleSearchPanelViewController.controlHeight / 2)
         private let field = UITextField()
         private let searchButton = UIButton(configuration: SubtitleSearchPanelViewController.roundIcon(prominent: true))
+        private let stateRow = UIStackView()
         private let stateLabel = UILabel()
         private let noteLabel = UILabel()
-        private let spinner = UIActivityIndicatorView(style: .large)
+        private let busyStack = UIStackView()
+        private let busyLabel = UILabel()
+        private let spinner = UIActivityIndicatorView(style: .medium)
         private let resultsScroll = UIScrollView()
         private let resultsStack = UIStackView()
         private var rows: [UIButton] = []
@@ -229,12 +236,24 @@
             noteLabel.font = UIFont.systemFont(ofSize: 22, weight: .regular)
             noteLabel.textColor = Self.dim
             noteLabel.numberOfLines = 2
+            stateRow.addArrangedSubview(stateLabel)
+            stateRow.axis = .horizontal
+            stateRow.alignment = .center
+
+            // While a search runs with nothing listed yet: a small spinner in the middle of the results space, the state line under it.
             spinner.color = Self.accent
             spinner.hidesWhenStopped = true
-            let stateRow = UIStackView(arrangedSubviews: [spinner, stateLabel])
-            stateRow.axis = .horizontal
-            stateRow.spacing = 14
-            stateRow.alignment = .center
+            busyLabel.font = stateLabel.font
+            busyLabel.textColor = Self.dim
+            busyLabel.textAlignment = .center
+            busyLabel.numberOfLines = 2
+            busyStack.addArrangedSubview(spinner)
+            busyStack.addArrangedSubview(busyLabel)
+            busyStack.axis = .vertical
+            busyStack.spacing = 18
+            busyStack.alignment = .center
+            busyStack.isHidden = true
+            busyStack.translatesAutoresizingMaskIntoConstraints = false
 
             resultsStack.axis = .vertical
             resultsStack.spacing = 10
@@ -251,15 +270,18 @@
                 resultsStack.widthAnchor.constraint(equalTo: resultsScroll.frameLayoutGuide.widthAnchor, constant: -2 * Self.margin),
             ])
 
-            let stack = UIStackView(arrangedSubviews: [titleLabel, currentRow, controls, stateRow, noteLabel])
+            let stack = mainStack
+            for view in [titleLabel, currentRow, currentNote, controls, stateRow, noteLabel] { stack.addArrangedSubview(view) }
             stack.axis = .vertical
             stack.spacing = 22
             stack.setCustomSpacing(28, after: titleLabel)
             stack.setCustomSpacing(28, after: currentRow)
+            stack.setCustomSpacing(28, after: currentNote)
             stack.setCustomSpacing(12, after: stateRow)
             stack.translatesAutoresizingMaskIntoConstraints = false
             content.addSubview(stack)
             content.addSubview(resultsScroll)
+            content.addSubview(busyStack)
             NSLayoutConstraint.activate([
                 stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 48),
                 stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: Self.margin),
@@ -268,6 +290,9 @@
                 resultsScroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
                 resultsScroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
                 resultsScroll.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+                busyStack.centerXAnchor.constraint(equalTo: resultsScroll.centerXAnchor),
+                busyStack.centerYAnchor.constraint(equalTo: resultsScroll.centerYAnchor),
+                busyStack.widthAnchor.constraint(lessThanOrEqualTo: resultsScroll.widthAnchor, constant: -2 * Self.margin),
             ])
         }
 
@@ -292,7 +317,8 @@
             earlierButton.configuration?.image = UIImage(systemName: "backward.fill")
             laterButton.configuration?.image = UIImage(systemName: "forward.fill")
             resetButton.configuration?.image = UIImage(systemName: "arrow.counterclockwise")
-            for button in [earlierButton, laterButton, resetButton] {
+            syncButton.configuration?.image = UIImage(systemName: "waveform.and.magnifyingglass")
+            for button in [earlierButton, laterButton, resetButton, syncButton] {
                 button.setContentHuggingPriority(.required, for: .horizontal)
                 button.setContentCompressionResistancePriority(.required, for: .horizontal)
                 button.heightAnchor.constraint(equalToConstant: Self.controlHeight).isActive = true
@@ -301,13 +327,19 @@
             earlierButton.addAction(UIAction { [weak self] _ in self?.onShift?(-1) }, for: .primaryActionTriggered)
             laterButton.addAction(UIAction { [weak self] _ in self?.onShift?(1) }, for: .primaryActionTriggered)
             resetButton.addAction(UIAction { [weak self] _ in self?.onShift?(nil) }, for: .primaryActionTriggered)
+            syncButton.addAction(UIAction { [weak self] _ in self?.onSync?() }, for: .primaryActionTriggered)
+
+            currentNote.font = UIFont.systemFont(ofSize: 22, weight: .regular)
+            currentNote.textColor = Self.dim
+            currentNote.numberOfLines = 2
+            currentNote.isHidden = true
 
             offsetLabel.font = UIFont.systemFont(ofSize: 26, weight: .semibold)
             offsetLabel.textColor = Self.accent
             offsetLabel.textAlignment = .center
             offsetLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
 
-            let controls = UIStackView(arrangedSubviews: [earlierButton, offsetLabel, laterButton, resetButton])
+            let controls = UIStackView(arrangedSubviews: [earlierButton, offsetLabel, laterButton, resetButton, syncButton])
             controls.axis = .horizontal
             controls.spacing = 16
             controls.alignment = .center
@@ -369,7 +401,14 @@
                 earlierButton.accessibilityLabel = current.earlierLabel
                 laterButton.accessibilityLabel = current.laterLabel
                 resetButton.accessibilityLabel = current.resetLabel
+                syncButton.accessibilityLabel = current.syncLabel
+                syncButton.configuration?.showsActivityIndicator = current.syncing
+                syncButton.isEnabled = !current.syncing
+                currentNote.text = current.note
+                // The note sits close under its row; without one the row keeps its full gap to the controls.
+                mainStack.setCustomSpacing(current.note.isEmpty ? 28 : 10, after: currentRow)
             }
+            currentNote.isHidden = next.current?.note.isEmpty ?? true
             languageButton.configuration?.title = next.languages.indices.contains(next.selectedLanguageIndex) ? next.languages[next.selectedLanguageIndex].name : next.selectedLanguage
             if #available(tvOS 17.0, *) {
                 languageButton.menu = languageMenu()
@@ -378,9 +417,13 @@
             if !field.isEditing, field.text != next.query { field.text = next.query }
             field.attributedPlaceholder = NSAttributedString(string: next.queryPlaceholder, attributes: [.foregroundColor: UIColor(white: 0.5, alpha: 1)])
             stateLabel.text = next.stateLine
+            busyLabel.text = next.stateLine
             noteLabel.text = next.note
             noteLabel.isHidden = next.note.isEmpty
-            if next.busy { spinner.startAnimating() } else { spinner.stopAnimating() }
+            let waiting = next.busy && next.results.isEmpty
+            stateRow.isHidden = waiting
+            busyStack.isHidden = !waiting
+            if waiting { spinner.startAnimating() } else { spinner.stopAnimating() }
             if force || previous.results.count != next.results.count {
                 rebuildRows()
             } else if let changed = next.changedResultRows(from: previous) {

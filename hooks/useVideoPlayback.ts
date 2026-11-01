@@ -19,7 +19,7 @@ import {
   isLiveSource,
   type MediaSegmentWindow,
 } from "@/services/jellyfinApi";
-import { setSubtitleTimeOffset } from "@keiver/tomo-engine";
+import { alignSubtitleTiming as engineAlignSubtitleTiming, setSubtitleTimeOffset, type SubtitleAlignment } from "@keiver/tomo-engine";
 import { LivePlayback } from "@keiver/tomo-live";
 import { linkRungsAllowed, serverTranscodeAllowed, serverTranscodeBlock, type ServerTranscodeBlock } from "@/services/transcodePolicy";
 import { heldImageSubtitleForOrdinal, playsConverted, playsFromDisk, playsRepackaged } from "@/services/downloads/localSource";
@@ -323,6 +323,8 @@ export interface VideoPlaybackResult {
   reloadAtPlayhead: () => void;
   /** Moves a text track's cues in the running engine session. */
   applySubtitleTimeOffset: (streamIndex: number, offsetMs: number) => void;
+  /** Lines a text track up with the speech in the running engine session; `attempt` moves the window along the file. */
+  alignSubtitleTiming: (streamIndex: number, attempt: number) => Promise<SubtitleAlignment>;
 
   // Bitmap subtitles (PGS, DVD/VobSub, DVB, XSUB). AVPlayer cannot render these,
   // so the engine decodes them and the app draws them over the video; these are
@@ -2595,6 +2597,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       }, 500);
     });
   }, []);
+  const alignSubtitleTiming = useCallback((streamIndex: number, attempt: number): Promise<SubtitleAlignment> => {
+    const token = localRemuxTokenRef.current;
+    if (!token || transportRef.current !== "gateway") return Promise.resolve({ ok: false, reason: "noSession" });
+    return engineAlignSubtitleTiming(token, streamIndex, attempt);
+  }, []);
   // The subtitle rendition AVPlayer last asked the engine for; breaks a tie between same-language twins.
   const lastSubtitleRequestRef = useRef<number | null>(null);
 
@@ -3113,7 +3120,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     const current = resolveSubtitlePick(subtitleRenditionsRef.current, reportedTextTracksRef.current, lastSubtitleRequestRef.current).rendition;
     const stream = transportRef.current !== "gateway" ? null : current && keepsCurrentPick(plan, current) ? current.index : renditionForPlan(plan, subtitleRenditionsRef.current);
     const selection = stream === null ? null : subtitleSelectionForReport(stream, subtitleRenditionsRef.current, reportedTextTracksRef.current);
-    if (selection) setSelectedSubtitleTrack(selection as SelectedTrack);
+    if (selection) {
+      setSelectedSubtitleTrack(selection as SelectedTrack);
+      // The track selected here is the one that is on from now, for the route's timing controls.
+      const on = selection.type === "index" ? subtitleRenditionsRef.current.find((rendition) => rendition.index === stream) : undefined;
+      setTextTrackReport({ url: streamUrlRef.current, active: on && !on.isImage ? { index: on.index, name: on.name, language: on.language } : null });
+    }
     logger.debug("📝 Subtitles: selecting", {
       service: "useVideoPlayback",
       preference: plan.preference.kind === "language" ? plan.preference.tag : plan.preference.kind,
@@ -3479,6 +3491,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     retry,
     reloadAtPlayhead,
     applySubtitleTimeOffset,
+    alignSubtitleTiming,
     // Bitmap subtitles: the engine's session URL to fetch cues and images from,
     // and which track the viewer selected. Both null unless local remux is the
     // active lane and an image track is on. Read off the reducer state rather

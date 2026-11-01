@@ -17,6 +17,7 @@ function makeBridge(): jest.Mocked<PlayerHostBridge> {
     retry: jest.fn(),
     reloadSubtitles: jest.fn(),
     applySubtitleTimeOffset: jest.fn(),
+    alignSubtitleTiming: jest.fn(),
     seekBy: jest.fn(),
     togglePlay: jest.fn(),
     toggleVideoFill: jest.fn(),

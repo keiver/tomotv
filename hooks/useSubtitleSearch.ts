@@ -11,6 +11,7 @@ import { applyPick, searchContext, searchSubtitles, type ApplyResult, type Repla
 import { queryFromText } from "@/services/subtitles/query";
 import type { SearchContext, SubtitleHit, SubtitleJob } from "@/services/subtitles/types";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
+import { logger } from "@/utils/logger";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export interface SubtitleSearchState {
@@ -134,7 +135,14 @@ export function useSubtitleSearch(items: JellyfinVideoItem[] | null, skipSubtitl
       const job = boardRef.current.jobs[index];
       if (!job || job.status === "applying") return null;
       setJobs((current) => jobApplying(current, index, hit));
-      const result = await applyPick(job.item, hit, await context(job.item.Id), replacing);
+      let result: ApplyResult;
+      try {
+        result = await applyPick(job.item, hit, await context(job.item.Id), replacing);
+      } catch (error) {
+        logger.warn("Subtitle pick could not be saved", error, { service: "Subtitles", source: hit.source });
+        setJobs((current) => jobApplyFailed(current, index, "failed"));
+        return null;
+      }
       if (result.ok) {
         recordSubtitlePick({ kind: "language", tag: result.language });
         setJobs((current) => jobApplied(current, index, { where: result.where, language: result.language }));

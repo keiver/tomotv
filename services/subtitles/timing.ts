@@ -11,6 +11,9 @@ export const SUBTITLE_OFFSET_STEP_MS = 500;
 /** Past this a cue is not a correction but another track. */
 export const SUBTITLE_OFFSET_LIMIT_MS = 60_000;
 
+/** Where a match of a track against the audio stands: running on its numbered window, matched, or given up. */
+export type SubtitleSyncState = { status: "syncing"; attempt: number } | { status: "synced" } | { status: "failed" };
+
 function key(server: string, itemId: string, streamIndex: number): string {
   return `${server}|${itemId}|${streamIndex}`;
 }

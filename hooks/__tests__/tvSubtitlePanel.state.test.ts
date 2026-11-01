@@ -61,7 +61,7 @@ describe("the transport bar subtitle button", () => {
 describe("the panel's state", () => {
   const item = { Id: "v1", Name: "Clip", Type: "Video", Path: "/v/Clip.mov", MediaStreams: [] } as unknown as JellyfinVideoItem;
 
-  it("leads with the subtitle that is on and leaves its own copy out of the results", () => {
+  it("leads with the subtitle that is on and shows its own copy in place as applied", () => {
     const job = { ...makeJob(item, "en"), status: "found" as const, results: [hit("a"), hit("b")] };
     const state = panelStateFor(job, "en", [{ code: "en", native: "English" }], false, { subtitle: kept, offsetMs: -500 });
     expect(state.title).toBe("subtitles.timingTitle");
@@ -73,8 +73,14 @@ describe("the panel's state", () => {
       earlierLabel: "subtitles.earlier",
       laterLabel: "subtitles.later",
       resetLabel: "subtitles.resetTiming",
+      syncLabel: "subtitles.sync",
+      syncing: false,
+      note: "",
     });
-    expect(state.results.map((result) => result.id)).toEqual(["podnapisi:b"]);
+    expect(state.results.map((result) => [result.id, result.applied])).toEqual([
+      ["podnapisi:a", true],
+      ["podnapisi:b", false],
+    ]);
   });
 
   it("searches plainly when nothing is on, with every language behind the likely ones", () => {
@@ -88,5 +94,13 @@ describe("the panel's state", () => {
 
   it("names a file track by its language alone", () => {
     expect(panelCurrentFor({ subtitle: { index: 2, name: "English (SRT)", language: "eng" }, offsetMs: 0 }).meta).toBe("English");
+  });
+
+  it("spins the sync button while a match runs and notes how it went", () => {
+    const running = panelCurrentFor({ subtitle: kept, offsetMs: 0, sync: { status: "syncing", attempt: 1 } });
+    expect(running.syncing).toBe(true);
+    expect(running.note).toBe("subtitles.syncing");
+    expect(panelCurrentFor({ subtitle: kept, offsetMs: -1700, sync: { status: "synced" } }).note).toBe("subtitles.synced");
+    expect(panelCurrentFor({ subtitle: kept, offsetMs: 0, sync: { status: "failed" } }).note).toBe("subtitles.syncFailed");
   });
 });
