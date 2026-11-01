@@ -1,9 +1,9 @@
 /**
  * The native subtitle panel on every platform: opened from a video's info panel, or from the tvOS
  * player's transport bar, closed by Menu or the sheet pull. From the info panel it carries the
- * video's own text tracks (timing, sync while playing, Replace) and one search job per video, a
- * folder's episodes each with their own. In-player it leads with the playing subtitle's timing and
- * a pick is the way to replace it.
+ * selected language's own track (timing, sync while playing, Replace) and one search job per
+ * video, a folder's episodes each with their own. In-player it leads with the playing subtitle's
+ * timing and a pick is the way to replace it.
  */
 import type { ActiveTextSubtitle } from "@/contexts/PlayerSessionContext";
 import { useSubtitleSearch } from "@/hooks/useSubtitleSearch";
@@ -134,8 +134,9 @@ export function useSubtitlePanel(itemId: string, active: ActiveTextSubtitle | nu
   const [shown, setShown] = useState(false);
   // The stream index a Replace press armed: the next pick replaces that copy.
   const [replacingIndex, setReplacingIndex] = useState<number | null>(null);
-  // In-player every video keeps its job; from the info panel a video already subtitled is skipped.
-  const search = useSubtitleSearch(items, !inPlayer);
+  // One video always gets its search job, so the field and button never disappear; only a
+  // folder's episodes already carrying the language are skipped.
+  const search = useSubtitleSearch(items, !inPlayer && (items?.length ?? 0) > 1);
   const timing = useSubtitleTiming(itemId);
   const searchRef = useRef(search);
   const timingRef = useRef(timing);
@@ -153,9 +154,17 @@ export function useSubtitlePanel(itemId: string, active: ActiveTextSubtitle | nu
   }, [active, items]);
   const offsetMs = active ? timing.offsetFor(active.index) : 0;
 
-  // Rebuilt every render, so a pick's fresh device copy lists itself; the send effect
-  // deduplicates, so an unchanged list costs no bridge call.
-  const listed = inPlayer ? (playerCurrent ? [playerCurrent] : []) : items?.length === 1 ? currentTextSubtitles(items[0], getCachedConfig().server) : [];
+  // Only the selected language's track carries a timing row, so the panel never repeats a control
+  // strip per embedded track; the row follows the language pill. Rebuilt every render, so a pick's
+  // fresh device copy lists itself; the send effect deduplicates, so an unchanged list costs no
+  // bridge call.
+  const listed = inPlayer
+    ? playerCurrent
+      ? [playerCurrent]
+      : []
+    : items?.length === 1
+      ? currentTextSubtitles(items[0], getCachedConfig().server).filter((entry) => languageCode(entry.language) === languageCode(search.language))
+      : [];
   const tracks: PanelTrackInput[] = listed.map((subtitle) => ({
     subtitle,
     offsetMs: timing.offsetFor(subtitle.index),
