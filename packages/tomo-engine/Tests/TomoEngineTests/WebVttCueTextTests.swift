@@ -32,6 +32,10 @@ final class WebVttCueTextTests: XCTestCase {
         XCTAssertEqual(cleanWebVttCues(cue("{\\p1}m 0 0 l 100 0 100 100{\\p0}")), cue(""))
     }
 
+    func testALineLeftEmptyInsideACueIsDropped() {
+        XCTAssertEqual(cleanWebVttCues(cue("A\n{\\an8}\nB")), cue("A\nB"))
+    }
+
     func testMarkupTheBodyAlreadyHasIsKept() {
         let body = cue("{\\an8}<i>Already</i> &amp; kept")
         XCTAssertEqual(cleanWebVttCues(body), cue("<i>Already</i> &amp; kept"))

@@ -34,8 +34,8 @@ struct WebVttTagStack {
 
 /// The same WebVTT with the ASS markup left in its cue text rendered: `\b`, `\i` and `\u` overrides become
 /// WebVTT tags, drawings and every other `{\...}` block are dropped, `\N` and `\n` break the line and `\h`
-/// is a no-break space. A body with none of them, the header, timing lines, NOTE and STYLE blocks pass
-/// through untouched.
+/// is a no-break space. A line left empty goes too, since a blank line ends a WebVTT cue. A body with none
+/// of them, the header, timing lines, NOTE and STYLE blocks pass through untouched.
 func cleanWebVttCues(_ text: String) -> String {
     guard text.contains("{\\") || text.contains("\\N") || text.contains("\\n") || text.contains("\\h") else { return text }
     let blocks = text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n\n")
@@ -101,5 +101,6 @@ private func renderAssMarkup(_ text: String) -> String {
     while let empty = out.range(of: "<([biu])></\\1>", options: .regularExpression) {
         out.removeSubrange(empty)
     }
-    return out.trimmingCharacters(in: .whitespacesAndNewlines)
+    let lines = out.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+    return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
 }
