@@ -34,6 +34,10 @@ All notable changes to Tomo TV are documented here.
 - On a provider that allows one stream, the hold a recording put on the provider could outlast the recording: the app counted a clear as done whether or not the engine applied it, so every channel on that provider kept showing the recording screen until a relaunch. The hold now follows the engine's own held state, and a hold or clear the engine did not take is sent again on the next sync
 - A recording that started between a channel's hold check and its open showed the generic error; it shows the Limited Connections screen with Watch Recording
 - A live channel or recording whose audio is HE-AAC, common on terrestrial and low-bitrate feeds, played with no sound while AAC-LC channels were fine (issue 110). The on-device engine described the audio as plain AAC-LC; it now takes the setup from Apple's own ADTS parser, with the explicit SBR and PS signaling Apple's encoder writes. Measured on a public 720p H.264 + HE-AAC 48 kHz stereo channel through a Dispatcharr TS proxy on the Apple TV: silent on build 38, sound on the fix (`@keiver/tomo-engine@1.4.2`)
+- Live TV search dropped a channel shown again, or one hidden only on another account; it stays in the results
+- Settings > About > Demo credits on Apple TV shows each item's licence name at the row's edge as plain text
+- The demo server's link is measured like any other server's, on connect and on a fresh demo sign-in
+- On Apple TV the card's corner notch is rasterized, since its shadow has no path to draw from, and an engine keyframe poster landing renders at low priority, so a focus move never waits behind it
 
 ### Changed
 
