@@ -38,6 +38,7 @@ import {
   requestPosterFrame as requestEnginePosterFrame,
   setPosterFramesPaused,
   startSession,
+  updateSubtitles,
   videoCodecTag as engineVideoCodecTag,
   videoDecodeSupport,
   type EngineStopRequest,
@@ -933,6 +934,18 @@ export async function startLocalRemux(
   });
 
   return url;
+}
+
+/**
+ * Replaces the running session's subtitle tracks with the item's current list (the same shared
+ * builder the session opened with), re-anchored at `atSeconds`. Resolves the fresh master URL the
+ * player swaps to, or null when the session is gone, live, or the binary has no such method.
+ */
+export async function updateSessionSubtitles(videoItem: JellyfinVideoItem, token: string, atSeconds: number, options: { serverVideoOnly?: boolean } = {}): Promise<string | null> {
+  if (isLiveSource(videoItem)) return null;
+  const subtitles = sessionSubtitleRenditions(videoItem);
+  const served = options.serverVideoOnly === true ? subtitles.filter((sub) => !sub.isEngineText && (!sub.isImage || sub.isExternal === true)) : subtitles;
+  return updateSubtitles(token, served, atSeconds);
 }
 
 /** Where Jellyfin's own screen grabber takes a poster: a tenth of the way in, or 10 s when the runtime is unknown. */

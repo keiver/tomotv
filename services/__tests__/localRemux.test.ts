@@ -27,6 +27,7 @@ import {
   subscribeEngineTier,
   subtitleRenditions,
   tierStopRequests,
+  updateSessionSubtitles,
   videoCodecTag,
   type ImageSubtitleEvent,
   type ThroughputSample,
@@ -38,6 +39,7 @@ import { getCachedConfig } from "@/services/jellyfin/session";
 import { updateUiPreferences } from "@/services/uiPreferences";
 
 const mockStartRemux = jest.fn();
+const mockUpdateSubtitles = jest.fn();
 const mockStopRemux = jest.fn();
 const mockEngineProgress = jest.fn();
 const mockSetPosterQueuePaused = jest.fn();
@@ -55,6 +57,7 @@ jest.mock("react-native", () => ({
   NativeModules: {
     LocalRemuxer: {
       startRemux: (...args: unknown[]) => mockStartRemux(...args),
+      updateSubtitles: (...args: unknown[]) => mockUpdateSubtitles(...args),
       stopRemux: (...args: unknown[]) => mockStopRemux(...args),
       engineProgress: (...args: unknown[]) => mockEngineProgress(...args),
       setPosterQueuePaused: (...args: unknown[]) => mockSetPosterQueuePaused(...args),
@@ -2770,6 +2773,46 @@ describe("startLocalRemux on a live channel", () => {
 
   it("predicts the engine lane for a live channel with no verdict lookup", async () => {
     await expect(predictPlaybackLane(live())).resolves.toEqual({ lane: "deviceTranscode", smallFeedFirst: false });
+  });
+});
+
+describe("updateSessionSubtitles", () => {
+  it("hands the running session the item's current rendition list and resolves the fresh master URL", async () => {
+    mockUpdateSubtitles.mockResolvedValueOnce("http://127.0.0.1:50000/tok1/master1.m3u8");
+    mockDeviceSubtitles.mockReturnValueOnce([{ ordinal: 0, language: "es", name: "Kept", forced: false, hearingImpaired: false, uri: "file:///doc/subtitles/s_i/sub.0.vtt" }]);
+    const video = item({
+      streams: [
+        { Type: "Video", Codec: "h264", Index: 0 },
+        { Type: "Subtitle", Codec: "subrip", Index: 2, Language: "eng" },
+      ],
+    });
+    const url = await updateSessionSubtitles(video, "tok1", 94.2);
+    expect(url).toBe("http://127.0.0.1:50000/tok1/master1.m3u8");
+    expect(mockUpdateSubtitles).toHaveBeenCalledTimes(1);
+    const [token, subtitles, resumeAt] = mockUpdateSubtitles.mock.calls[0];
+    expect(token).toBe("tok1");
+    expect(resumeAt).toBe(94.2);
+    expect((subtitles as { index: number }[]).map((sub) => sub.index)).toEqual([2, 100000]);
+  });
+
+  it("a server-video session gets no engine-decoded track, as its open did", async () => {
+    mockUpdateSubtitles.mockResolvedValueOnce("http://127.0.0.1:50000/tok1/master2.m3u8");
+    mockDeviceSubtitles.mockReturnValueOnce([{ ordinal: 0, language: "es", name: "Kept", forced: false, hearingImpaired: false, uri: "file:///doc/subtitles/s_i/sub.0.vtt" }]);
+    const video = item({
+      streams: [
+        { Type: "Video", Codec: "h264", Index: 0 },
+        { Type: "Subtitle", Codec: "subrip", Index: 2, Language: "eng" },
+      ],
+    });
+    await updateSessionSubtitles(video, "tok1", 10, { serverVideoOnly: true });
+    const [, subtitles] = mockUpdateSubtitles.mock.calls[0];
+    expect((subtitles as { index: number }[]).map((sub) => sub.index)).toEqual([100000]);
+  });
+
+  it("answers null for a live channel without asking the engine", async () => {
+    const live = item({ MediaSources: [{ Id: "item1", Container: "mpegts", IsInfiniteStream: true }] } as Partial<JellyfinVideoItem>);
+    expect(await updateSessionSubtitles(live, "tok1", 10)).toBeNull();
+    expect(mockUpdateSubtitles).not.toHaveBeenCalled();
   });
 });
 

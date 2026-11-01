@@ -67,6 +67,7 @@ import {
   subscribeEngineTier,
   subscribeSubtitleRequests,
   sessionSubtitleRenditions,
+  updateSessionSubtitles,
   videoDecodeSupport,
   type SubtitleRendition,
   type ThroughputSample,
@@ -3348,10 +3349,48 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       if (!isMountedRef.current || !videoDetails) return;
       // A pick names the viewer's subtitle choice for the rebuilt stream.
       if (selectSubtitleStream !== undefined) viewerSubtitleStreamRef.current = selectSubtitleStream;
-      probeEmit("engineRestart", { position: Math.round(currentTimeRef.current), reason: "subtitle list changed" });
-      restartAtPlayhead(currentTimeRef.current);
+      const details = videoDetails;
+      const position = currentTimeRef.current;
+      const fullRestart = () => {
+        probeEmit("engineRestart", { position: Math.round(position), reason: "subtitle list changed" });
+        restartAtPlayhead(position);
+      };
+      const token = localRemuxTokenRef.current;
+      // A running VOD engine session takes the new list in place: the session keeps its input, its
+      // cushion and its measured link, and only the player item swaps to the fresh master.
+      if (!token || transportRef.current !== "gateway" || isLiveRef.current) {
+        fullRestart();
+        return;
+      }
+      const attempt = ++requestIdRef.current;
+      if (resumePausedRef.current === null && autoPlayTriggeredRef.current) resumePausedRef.current = viewerPaused();
+      void updateSessionSubtitles(details, token, position, { serverVideoOnly: currentModeRef.current === "transcode" }).then((url) => {
+        if (!isMountedRef.current || requestIdRef.current !== attempt || localRemuxTokenRef.current !== token) return;
+        if (!url) {
+          fullRestart();
+          return;
+        }
+        subtitleRenditionsRef.current = sessionSubtitleRenditions(details);
+        if (autoPlayTimerRef.current) clearTimeout(autoPlayTimerRef.current);
+        if (seekTimerRef.current) clearTimeout(seekTimerRef.current);
+        if (stablePlaybackTimerRef.current) clearTimeout(stablePlaybackTimerRef.current);
+        autoPlayTriggeredRef.current = false;
+        isPlayingRef.current = false;
+        hasStablePlaybackRef.current = false;
+        setHasStablePlayback(false);
+        // A held subtitle ordinal names a position in the previous manifest; off still holds.
+        setSelectedSubtitleTrack((current) => (current?.type === "index" ? null : current));
+        // The fresh master carries the playhead as its start; the new item needs no seek.
+        seekToPositionAfterLoadRef.current = null;
+        setStartPositionMs(null);
+        streamGenerationRef.current += 1;
+        streamUrlRef.current = url;
+        setStreamUrl(url);
+        probeEmit("stream", { mode: currentModeRef.current, url });
+        dispatch({ type: "STREAM_REPLACED", streamUrl: url });
+      });
     },
-    [restartAtPlayhead, videoDetails],
+    [restartAtPlayhead, videoDetails, viewerPaused],
   );
 
   /**
