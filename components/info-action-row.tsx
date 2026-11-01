@@ -1,16 +1,18 @@
-import { GLASS_CIRCLE, GLASS_SLOT, GlassButton } from "@/components/glass-button";
+import { FocusableButton } from "@/components/FocusableButton";
 import { COLORS } from "@/constants/colors";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { t } from "@/services/i18n";
-import { withAlpha } from "@/utils/color";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Platform, StyleSheet, Text, View } from "react-native";
 
 const IS_TV = Platform.isTV;
-const ICON = IS_TV ? 28 : 18;
-const LABEL = IS_TV ? 13 : 9;
-const ICON_OFF_ALPHA = 0.5;
+const CIRCLE = IS_TV ? 104 : 66;
+const SLOT = CIRCLE + (IS_TV ? 24 : 10);
+const ICON = IS_TV ? 46 : 28;
+/** The height the icon takes in the stack; a taller icon grows upward, so the word stays put. */
+const ICON_BOX = IS_TV ? 32 : 22;
+const LABEL = IS_TV ? 19 : 11;
 /** How long an action report holds the caption before focus takes it back. */
 const MESSAGE_MS = 2200;
 
@@ -77,7 +79,7 @@ const downloadCopy = (): Record<DownloadCircleState, { label: string; done: stri
 });
 
 /**
- * The panel's secondary controls: one glass circle per control, toggles first, each holding its
+ * The panel's secondary controls: one circle per control, toggles first, each holding its
  * icon and word, and a caption under the row.
  *
  * On tvOS the caption names what the focused control's next press will do; on both platforms a
@@ -100,7 +102,7 @@ export function InfoActionRow({
   // Which circle holds focus, never the label itself: tvOS fires the outgoing blur AFTER the
   // incoming focus, so a shared string gets wiped by the button focus just left.
   const [focused, setFocused] = useState<ActionKey | null>(null);
-  const { accent, accentFocused, onAccent } = useCardPalette();
+  const { accent, onAccent } = useCardPalette();
   const [message, setMessage] = useState<{ text: string; failed: boolean } | null>(null);
   const messageTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -151,12 +153,9 @@ export function InfoActionRow({
     report(ok ? done : t("info.couldNotReachServer"), !ok);
   };
 
-  const iconColor = (key: ActionKey, rest: string = accent) => (focused === key ? COLORS.TEXT_PRIMARY : rest);
-  // A chosen toggle's fill is the container itself; focus deepens it the way a primary pill's does.
-  const toggleTint = (key: ActionKey, selected: boolean) => (selected ? (focused === key ? accentFocused : accent) : undefined);
   const labeled = (name: keyof typeof Ionicons.glyphMap, ink: string, word: string) => (
     <View style={styles.content}>
-      <Ionicons name={name} size={ICON} color={ink} />
+      <Ionicons name={name} size={ICON} color={ink} style={styles.icon} />
       <Text style={[styles.label, { color: ink }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
         {word}
       </Text>
@@ -214,11 +213,10 @@ export function InfoActionRow({
       <View style={styles.row}>
         {toggles.map((toggle) => (
           <View key={toggle.key} style={styles.slot}>
-            <GlassButton
-              variant="link"
-              tint={toggleTint(toggle.key, toggle.selected)}
+            <FocusableButton
+              variant={toggle.selected ? "primary" : "secondary"}
               style={styles.circle}
-              icon={labeled(toggle.selected ? toggle.icon : toggle.offIcon, toggle.selected ? onAccent : iconColor(toggle.key, withAlpha(accent, ICON_OFF_ALPHA)), toggle.word)}
+              icon={labeled(toggle.selected ? toggle.icon : toggle.offIcon, toggle.selected ? onAccent : accent, toggle.word)}
               accessibilityLabel={toggle.accessibilityLabel}
               accessibilityState={{ selected: toggle.selected }}
               onFocus={() => setFocused(toggle.key)}
@@ -231,10 +229,10 @@ export function InfoActionRow({
           // Always lit and red: one irreversible press, never a toggle. A bare glyph, since the
           // button is the circle (see the download arrow).
           <View style={styles.slot}>
-            <GlassButton
-              variant="link"
+            <FocusableButton
+              variant="secondary"
               style={styles.circle}
-              icon={labeled("stop", iconColor("stop", COLORS.DESTRUCTIVE), t("info.word.stop"))}
+              icon={labeled("stop", COLORS.DESTRUCTIVE, t("info.word.stop"))}
               accessibilityLabel={t("liveTv.stopRecording")}
               accessibilityState={{ disabled: stopSpent }}
               onFocus={() => setFocused("stop")}
@@ -247,10 +245,10 @@ export function InfoActionRow({
           // Always lit: this is an action, not a toggle. Every state it renders in is a press
           // worth making, "none" most of all. Failure takes the ink; the caption carries state.
           <View style={styles.slot}>
-            <GlassButton
-              variant="link"
+            <FocusableButton
+              variant="secondary"
               style={styles.circle}
-              icon={labeled("arrow-down", iconColor("download", downloadState === "failed" ? COLORS.DESTRUCTIVE : accent), t("info.word.download"))}
+              icon={labeled("arrow-down", downloadState === "failed" ? COLORS.DESTRUCTIVE : accent, t("info.word.download"))}
               accessibilityLabel={download.label}
               accessibilityState={{ selected: downloadState === "ready" }}
               onFocus={() => setFocused("download")}
@@ -263,10 +261,10 @@ export function InfoActionRow({
           const key = `extra:${extra.key}` as const;
           return (
             <View key={extra.key} style={styles.slot}>
-              <GlassButton
-                variant="link"
+              <FocusableButton
+                variant="secondary"
                 style={styles.circle}
-                icon={labeled(extra.icon, iconColor(key, extra.destructive ? COLORS.DESTRUCTIVE : accent), extra.word)}
+                icon={labeled(extra.icon, extra.destructive ? COLORS.DESTRUCTIVE : accent, extra.word)}
                 accessibilityLabel={extra.label}
                 onFocus={() => setFocused(key)}
                 onBlur={() => blur(key)}
@@ -296,42 +294,39 @@ const styles = StyleSheet.create({
     alignItems: "center",
     maxWidth: "100%",
   },
-  // Touch: five 63pt slots make 315, inside a 375pt iPhone's 319 of card.
+  // Touch: four 76pt slots make 304, inside a 375pt iPhone's 319 of card; a fifth wraps.
   row: {
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "center",
   },
   slot: {
-    width: GLASS_SLOT,
+    width: SLOT,
     alignItems: "center",
   },
-  // Flattened AFTER every variant state, so the inner button stays bare in all of them and the
-  // glass container is the one surface that colours. minHeight has to be restated or
-  // styles.button's CONTROL_HEIGHT floor wins.
+  // Shape and no border: fill and focus come from the primary and secondary variants, as on the
+  // panel's two pills. minHeight has to be restated or styles.button's CONTROL_HEIGHT floor wins.
   circle: {
-    width: GLASS_CIRCLE,
-    height: GLASS_CIRCLE,
+    width: CIRCLE,
+    height: CIRCLE,
     minWidth: 0,
-    minHeight: GLASS_CIRCLE,
+    minHeight: CIRCLE,
     paddingVertical: 0,
     paddingHorizontal: 0,
-    backgroundColor: "transparent",
-    borderColor: "transparent",
-    shadowOpacity: 0,
-    elevation: 0,
-    boxShadow: "none",
+    borderWidth: 0,
   },
   content: {
-    width: GLASS_CIRCLE,
-    height: GLASS_CIRCLE,
     alignItems: "center",
     justifyContent: "center",
+    gap: IS_TV ? 4 : 1,
+  },
+  icon: {
+    marginTop: ICON_BOX - ICON,
   },
   label: {
     fontSize: LABEL,
     fontWeight: "600",
-    maxWidth: GLASS_CIRCLE - 6,
+    maxWidth: CIRCLE - (IS_TV ? 16 : 14),
     textAlign: "center",
   },
   caption: {

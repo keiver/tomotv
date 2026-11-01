@@ -3,14 +3,14 @@ import { InfoActionRow } from "@/components/info-action-row";
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 
-jest.mock("@/components/glass-button", () => ({ GlassButton: () => null, CAPSULE_PADDING: 6, GLASS_CIRCLE: 44, GLASS_SLOT: 60, GLASS_PILL_PARALLAX: {} }));
+jest.mock("@/components/FocusableButton", () => ({ FocusableButton: () => null }));
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 jest.mock("@/services/i18n", () => ({ t: (key: string) => key }));
 
-const { GlassButton } = jest.requireMock("@/components/glass-button") as { GlassButton: React.ComponentType };
+const { FocusableButton } = jest.requireMock("@/components/FocusableButton") as { FocusableButton: React.ComponentType };
 type CircleProps = { accessibilityLabel: string; onFocus: () => void; onBlur: () => void; onPress?: () => void };
 const stopCircle = (renderer: TestRenderer.ReactTestRenderer) =>
-  renderer.root.findAllByType(GlassButton).find((node) => (node.props as CircleProps).accessibilityLabel === "liveTv.stopRecording")?.props as CircleProps | undefined;
+  renderer.root.findAllByType(FocusableButton).find((node) => (node.props as CircleProps).accessibilityLabel === "liveTv.stopRecording")?.props as CircleProps | undefined;
 
 describe("InfoActionRow stop circle", () => {
   it("stays, spent, while focused after the recording stops, and leaves with focus", async () => {
@@ -69,7 +69,7 @@ describe("InfoActionRow toggles and actions", () => {
       downloadState: "none",
       extras: [{ key: "delete", icon: "trash-outline", label: "common.delete", word: "info.word.delete", destructive: true, onPress: jest.fn() }],
     });
-    expect(renderer.root.findAllByType(GlassButton).map((node) => (node.props as CircleProps).accessibilityLabel)).toEqual([
+    expect(renderer.root.findAllByType(FocusableButton).map((node) => (node.props as CircleProps).accessibilityLabel)).toEqual([
       "info.addFavorite",
       "info.markWatched",
       "info.clearProgress",
@@ -78,12 +78,18 @@ describe("InfoActionRow toggles and actions", () => {
     ]);
   });
 
-  it("tints the circle of a toggle that is on and leaves one that is off clear", async () => {
+  it("fills the circle of a toggle that is on like the primary pill and rings one that is off like the secondary pill", async () => {
     const renderer = await mountRow({ isFavorite: true, isPlayed: false, onToggleFavorite: jest.fn(async () => true), onToggleWatched: jest.fn(async () => true) });
-    const circles = renderer.root.findAllByType(GlassButton).map((node) => node.props as { variant?: string; tint?: string });
-    expect(circles.map((circle) => circle.variant)).toEqual(["link", "link"]);
-    expect(circles[0].tint).toBeDefined();
-    expect(circles[1].tint).toBeUndefined();
+    const circles = renderer.root.findAllByType(FocusableButton).map((node) => node.props as { variant?: string });
+    expect(circles.map((circle) => circle.variant)).toEqual(["primary", "secondary"]);
+  });
+
+  it("draws a toggle that is off in the same full accent as the download circle", async () => {
+    const renderer = await mountRow({ isFavorite: false, onToggleFavorite: jest.fn(async () => true), onToggleDownload: jest.fn(async () => true), downloadState: "none" });
+    const inks = renderer.root
+      .findAllByType(FocusableButton)
+      .map((node) => (node.props as { icon: React.ReactElement<{ children: React.ReactElement<{ color: string }>[] }> }).icon.props.children[0].props.color);
+    expect(inks[0]).toBe(inks[1]);
   });
 
   it("puts one word inside every control's circle", async () => {
@@ -95,7 +101,7 @@ describe("InfoActionRow toggles and actions", () => {
       extras: [{ key: "delete", icon: "trash-outline", label: "common.delete", word: "info.word.delete", destructive: true, onPress: jest.fn() }],
     });
     const words = renderer.root
-      .findAllByType(GlassButton)
+      .findAllByType(FocusableButton)
       .map((node) => (node.props as { icon: React.ReactElement<{ children: React.ReactElement<{ children: string }>[] }> }).icon.props.children[1].props.children);
     expect(words).toEqual(["info.word.favorite", "info.word.watched", "info.word.download", "info.word.delete"]);
   });
