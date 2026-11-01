@@ -344,6 +344,20 @@ export async function stopLocalRemux(token: string | null): Promise<void> {
   }
 }
 
+/**
+ * Moves a subtitle track's cues in the running session by `offsetMs` (positive delays them). The
+ * engine serves the shift from the next body the player asks for; false when the session is gone.
+ */
+export async function setSubtitleTimeOffset(token: string | null, streamIndex: number, offsetMs: number): Promise<boolean> {
+  if (!isLocalRemuxAvailable() || !token || typeof engineModule().setSubtitleTimeOffset !== "function") return false;
+  try {
+    return (await engineModule().setSubtitleTimeOffset(token, streamIndex, offsetMs)) === true;
+  } catch (error) {
+    engineLog().warn("Subtitle time offset not applied", error, { service: "LocalRemux", token, streamIndex });
+    return false;
+  }
+}
+
 /** Resizes a live session's window from here on: a hot ring neighbour starts short and widens once adopted. */
 export async function setLiveWindow(token: string | null, seconds: number): Promise<void> {
   if (!isLocalRemuxAvailable() || !token || typeof engineModule().setLiveWindow !== "function") return;

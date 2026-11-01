@@ -344,6 +344,7 @@ class LocalRemuxer: RCTEventEmitter {
             subtitle.isExternal = raw["isExternal"] as? Bool ?? false
             subtitle.isSelected = raw["isSelected"] as? Bool ?? false
             subtitle.isHearingImpaired = raw["isHearingImpaired"] as? Bool ?? false
+            subtitle.timeOffsetMs = raw["timeOffsetMs"] as? Int ?? 0
             subtitle.source = SourcePosition(raw["source"])
             guard raw["source"] == nil || subtitle.source != nil else { return nil }
             return subtitle
@@ -850,6 +851,21 @@ class LocalRemuxer: RCTEventEmitter {
         let session = Self.sessions[token as String]
         Self.lock.unlock()
         session?.setLiveWindow(seconds: seconds.doubleValue)
+        resolve(session != nil)
+    }
+
+    /// Moves a subtitle track's cues in the running session: the next body served carries the offset.
+    @objc func setSubtitleTimeOffset(
+        _ token: NSString,
+        streamIndex: NSNumber,
+        offsetMs: NSNumber,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter _: @escaping RCTPromiseRejectBlock
+    ) {
+        Self.lock.lock()
+        let session = Self.sessions[token as String]
+        Self.lock.unlock()
+        session?.setSubtitleTimeOffset(streamIndex: streamIndex.intValue, offsetMs: offsetMs.intValue)
         resolve(session != nil)
     }
 

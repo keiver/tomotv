@@ -86,8 +86,14 @@ extension RemuxSession {
                 requestSubtitleActivation(subtitle)
                 return .data(Data(emptySubtitleBody().utf8), contentType: "text/vtt")
             }
-            guard !subtitle.localVtt.isEmpty else { return .notFound }
-            if let body = localSubtitleBody(streamIndex: index) {
+            if !subtitle.localVtt.isEmpty {
+                if let body = localSubtitleBody(streamIndex: index) {
+                    return .data(body, contentType: "text/vtt")
+                }
+                return .temporarilyUnavailable
+            }
+            guard !subtitle.vttUrl.isEmpty else { return .notFound }
+            if let body = remoteSubtitleBody(streamIndex: index) {
                 return .data(body, contentType: "text/vtt")
             }
             return .temporarilyUnavailable

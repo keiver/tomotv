@@ -316,6 +316,10 @@ final class RemuxSession {
 
     /// Text subtitle decoders, same lifetime and locking as the image ones.
     var textSubtitles: [Int32: TextSubtitleDecoder] = [:]
+    /// A sidecar's WebVTT as the server sent it, by stream index, fetched once for the session.
+    var remoteSubtitleBodies: [Int: Data] = [:]
+    /// Time offsets changed while the session runs, by stream index; a track not here keeps the one it was configured with.
+    var subtitleTimeOffsets: [Int: Int] = [:]
 
     /// The decoder set is decided: every text track that will have a decoder has
     /// one. A track that got none is answered now rather than waited out.

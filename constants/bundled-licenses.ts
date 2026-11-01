@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: a288c429f831cb7c
+ * fingerprint: e9a373aa08dc4348
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.

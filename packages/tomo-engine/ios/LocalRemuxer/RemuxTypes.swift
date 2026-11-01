@@ -49,6 +49,8 @@ struct RemuxSubtitle {
     /// SDH: the rendition carries the accessibility CHARACTERISTICS (HLS authoring spec 4.5).
     var isHearingImpaired = false
     var source: SourcePosition? = nil
+    /// The viewer's correction, added to every cue time when the track is served: positive delays the cues.
+    var timeOffsetMs = 0
 }
 
 /// Where a track sits in the container: the nth stream of its type, of how many, and its FFmpeg codec name.

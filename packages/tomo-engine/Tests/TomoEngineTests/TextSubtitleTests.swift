@@ -229,7 +229,8 @@ final class TextSubtitleTests: XCTestCase {
         XCTAssertTrue(playlist.contains("#EXT-X-TARGETDURATION:\(session.sessionTargetDuration())"))
     }
 
-    func testSidecarTrackKeepsTheServerUrl() throws {
+    /// A sidecar is one body the engine serves, fetched from the server once, so its cues can move with a time offset.
+    func testSidecarTrackIsServedByTheEngineAsOneBody() throws {
         let sidecar = RemuxSubtitle(
             index: 3, name: "Track 3", language: "eng", vttUrl: "http://server/3.vtt", localVtt: "",
             isDefault: false, isForced: false, isImage: false, isEngineText: false)
@@ -237,8 +238,59 @@ final class TextSubtitleTests: XCTestCase {
         defer { session.stop() }
         let playlist = try XCTUnwrap(session.subtitlePlaylist(streamIndex: 3))
 
-        XCTAssertTrue(playlist.contains("http://server/3.vtt"))
+        XCTAssertTrue(playlist.contains("sub3.vtt"))
+        XCTAssertFalse(playlist.contains("http://server/3.vtt"))
         XCTAssertFalse(playlist.contains("sub3-0.vtt"))
+    }
+
+    /// An offset set while the session runs reaches the next segment served, no new session needed.
+    func testATimeOffsetSetWhileTheSessionRunsMovesTheNextSegment() throws {
+        let session = try coveredSession()
+        defer { session.stop() }
+        XCTAssertTrue(try XCTUnwrap(session.subtitleSegment(streamIndex: 2, segment: 0)).contains("00:00:02.000 --> 00:00:04.000\nSSA v4 plain"))
+
+        session.setSubtitleTimeOffset(streamIndex: 2, offsetMs: 1500)
+        XCTAssertEqual(session.timeOffsetMs(for: 2), 1500)
+        XCTAssertTrue(try XCTUnwrap(session.subtitleSegment(streamIndex: 2, segment: 0)).contains("00:00:03.500 --> 00:00:05.500\nSSA v4 plain"))
+
+        session.setSubtitleTimeOffset(streamIndex: 2, offsetMs: 0)
+        XCTAssertTrue(try XCTUnwrap(session.subtitleSegment(streamIndex: 2, segment: 0)).contains("00:00:02.000 --> 00:00:04.000\nSSA v4 plain"))
+    }
+
+    func testADeviceCopyIsServedShiftedByItsTimeOffset() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("shift-\(UUID().uuidString).vtt")
+        try "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nHello\n".write(to: file, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: file) }
+        var copy = RemuxSubtitle(
+            index: 100000, name: "Kept", language: "eng", vttUrl: "", localVtt: file.absoluteString,
+            isDefault: false, isForced: false, isImage: false, isEngineText: false)
+        copy.timeOffsetMs = -500
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 30, subtitles: [copy]))
+        defer { session.stop() }
+        let body = try XCTUnwrap(session.localSubtitleBody(streamIndex: 100000))
+
+        XCTAssertEqual(String(decoding: body, as: UTF8.self), "WEBVTT\n\n00:00:00.500 --> 00:00:02.500\nHello\n")
+    }
+
+    /// The SSA track's first cue runs 2.0 to 4.0 s; delayed 1.5 s it is written 3.5 to 5.5 s in the first segment.
+    func testAnEngineTextSegmentMovesItsCuesByTheOffset() throws {
+        let session = try coveredSession()
+        defer { session.stop() }
+        let plain = try XCTUnwrap(session.subtitleSegment(streamIndex: 2, segment: 0))
+        XCTAssertTrue(plain.contains("00:00:02.000 --> 00:00:04.000\nSSA v4 plain"))
+
+        var delayed = engineSub(2)
+        delayed.timeOffsetMs = 1500
+        let shifted = try RemuxSession(config: makeConfig(durationSeconds: 30, subtitles: [delayed]))
+        defer { shifted.stop() }
+        shifted.textSubtitles[2] = try decodedTrack()
+        shifted.subtitleDecodersBuilt = true
+        shifted.sessionAnchorSeconds = 0
+        shifted.readSpanFrom = 0
+        shifted.readSpanUpTo = 18
+        let body = try XCTUnwrap(shifted.subtitleSegment(streamIndex: 2, segment: 0))
+        XCTAssertTrue(body.contains("00:00:03.500 --> 00:00:05.500\nSSA v4 plain"))
+        XCTAssertFalse(body.contains("00:00:02.000 --> 00:00:04.000"))
     }
 
     /// Identity-mapped: the engine's timeline starts at zero, where Jellyfin's
