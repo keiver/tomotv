@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.0
+
+- `alignSubtitleTiming(token, streamIndex, attempt)` lines a subtitle track up with the speech in the audio, the way ffsubsync does: the audio of a three-minute window around the playhead (attempt 1 moves it four minutes on, attempt 2 four minutes back) is decoded on its own to 16 kHz mono (`AudioWindowReader.swift`), marked speech or not per 10 ms by an energy detector with an adaptive floor, 150 ms gap bridging and 50 ms burst dropping (`SpeechTimeline.swift`), and every shift within ±60 s of the track's cues is scored with a vDSP correlation, a speech frame under a cue +1 and under none -1 (`SubtitleAligner.swift`). The best shift is the track's whole correction, measured against the cues as the file has them (a device copy's or sidecar's WebVTT, or the decoder's cues for a track of the file); a best score under 6 standard deviations above the mean answers `noMatch`, and the other refusals are `noTrack`, `noCues`, `noAudio`, `noSpeech` and `window`. Measured (`SubtitleAlignerTests`): speech-like noise bursts with cues 1.7 s late answer -1700 ms at confidence 8.9 from the file and -1710 ms at 7.2 through the session; cues 2.5 s early answer +2500 ms; silence, and cues unrelated to the bursts, answer nothing.
+
 ## 1.5.1
 
 - The per-keyframe `[IFrames] kf<N>` log line is gone from Debug builds; the master and sampled mean lines stay.

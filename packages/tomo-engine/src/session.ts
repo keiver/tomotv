@@ -358,6 +358,24 @@ export async function setSubtitleTimeOffset(token: string | null, streamIndex: n
   }
 }
 
+export type SubtitleAlignment = { ok: true; offsetMs: number; confidence: number } | { ok: false; reason: string };
+
+/**
+ * Lines a subtitle track up with the speech in the running session's audio: the whole correction
+ * for the track, measured against its cues as the file has them. `attempt` moves the three-minute
+ * window along the file. A failed answer names why: noSession, noTrack, noCues, noAudio, noSpeech,
+ * noMatch or window.
+ */
+export async function alignSubtitleTiming(token: string | null, streamIndex: number, attempt: number): Promise<SubtitleAlignment> {
+  if (!isLocalRemuxAvailable() || !token || typeof engineModule().alignSubtitleTiming !== "function") return { ok: false, reason: "noSession" };
+  try {
+    return (await engineModule().alignSubtitleTiming(token, streamIndex, attempt)) as SubtitleAlignment;
+  } catch (error) {
+    engineLog().warn("Subtitle alignment failed", error, { service: "LocalRemux", token, streamIndex, attempt });
+    return { ok: false, reason: "failed" };
+  }
+}
+
 /** Resizes a live session's window from here on: a hot ring neighbour starts short and widens once adopted. */
 export async function setLiveWindow(token: string | null, seconds: number): Promise<void> {
   if (!isLocalRemuxAvailable() || !token || typeof engineModule().setLiveWindow !== "function") return;

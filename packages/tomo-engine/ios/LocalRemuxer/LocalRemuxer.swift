@@ -869,6 +869,32 @@ class LocalRemuxer: RCTEventEmitter {
         resolve(session != nil)
     }
 
+    /// Lines a subtitle track up with the speech in the audio; `attempt` moves the window along the file.
+    /// Answers `{ ok: true, offsetMs, confidence }` or `{ ok: false, reason }`.
+    @objc func alignSubtitleTiming(
+        _ token: NSString,
+        streamIndex: NSNumber,
+        attempt: NSNumber,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter _: @escaping RCTPromiseRejectBlock
+    ) {
+        Self.lock.lock()
+        let session = Self.sessions[token as String]
+        Self.lock.unlock()
+        guard let session else {
+            resolve(["ok": false, "reason": "noSession"])
+            return
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            switch session.alignSubtitleTiming(streamIndex: streamIndex.intValue, attempt: attempt.intValue) {
+            case let .aligned(offsetMs, confidence):
+                resolve(["ok": true, "offsetMs": offsetMs, "confidence": confidence])
+            case let .failed(reason):
+                resolve(["ok": false, "reason": reason])
+            }
+        }
+    }
+
     /// A session changing hands (a ring neighbour or a preview adopted by the player) takes the new owner's rank.
     @objc func setLivePriority(
         _ token: NSString,

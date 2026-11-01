@@ -1076,31 +1076,40 @@ extension RemuxSession {
     /// through the server's HLS subtitle path.
     /// The bytes of a text track saved with a download, shifted by the track's time offset, or nil when it has none on disk.
     func localSubtitleBody(streamIndex: Int) -> Data? {
-        guard let sub = config.subtitles.first(where: { $0.index == streamIndex }), !sub.localVtt.isEmpty else { return nil }
-        // JS hands over a file:// URI, which contents(atPath:) does not take.
-        let path = sub.localVtt.hasPrefix("file://") ? (URL(string: sub.localVtt)?.path ?? sub.localVtt) : sub.localVtt
-        guard let data = FileManager.default.contents(atPath: path) else { return nil }
+        guard let data = rawLocalSubtitleBody(streamIndex: streamIndex) else { return nil }
         return shiftedSubtitleBody(data, by: timeOffsetMs(for: streamIndex))
     }
 
     /// A sidecar's WebVTT fetched from the server once for the session and served shifted by the
     /// track's time offset; nil when the track is not a sidecar or the fetch failed.
     func remoteSubtitleBody(streamIndex: Int) -> Data? {
+        guard let body = rawRemoteSubtitleBody(streamIndex: streamIndex) else { return nil }
+        return shiftedSubtitleBody(body, by: timeOffsetMs(for: streamIndex))
+    }
+
+    /// A device copy's or a sidecar's WebVTT as the file has it, no offset applied.
+    func rawSubtitleBody(streamIndex: Int) -> Data? {
+        rawLocalSubtitleBody(streamIndex: streamIndex) ?? rawRemoteSubtitleBody(streamIndex: streamIndex)
+    }
+
+    private func rawLocalSubtitleBody(streamIndex: Int) -> Data? {
+        guard let sub = config.subtitles.first(where: { $0.index == streamIndex }), !sub.localVtt.isEmpty else { return nil }
+        // JS hands over a file:// URI, which contents(atPath:) does not take.
+        let path = sub.localVtt.hasPrefix("file://") ? (URL(string: sub.localVtt)?.path ?? sub.localVtt) : sub.localVtt
+        return FileManager.default.contents(atPath: path)
+    }
+
+    private func rawRemoteSubtitleBody(streamIndex: Int) -> Data? {
         guard let sub = config.subtitles.first(where: { $0.index == streamIndex }), !sub.vttUrl.isEmpty, let url = URL(string: sub.vttUrl) else { return nil }
         stateLock.lock()
         let cached = remoteSubtitleBodies[streamIndex]
         stateLock.unlock()
-        let body: Data
-        if let cached {
-            body = cached
-        } else {
-            guard let fetched = fetchTier(url).data else { return nil }
-            stateLock.lock()
-            remoteSubtitleBodies[streamIndex] = fetched
-            stateLock.unlock()
-            body = fetched
-        }
-        return shiftedSubtitleBody(body, by: timeOffsetMs(for: streamIndex))
+        if let cached { return cached }
+        guard let fetched = fetchTier(url).data else { return nil }
+        stateLock.lock()
+        remoteSubtitleBodies[streamIndex] = fetched
+        stateLock.unlock()
+        return fetched
     }
 
     /// The track's time offset as served now: the one set while the session runs, else the configured one.
