@@ -358,6 +358,22 @@ export async function setSubtitleTimeOffset(token: string | null, streamIndex: n
   }
 }
 
+/**
+ * Replaces the subtitle tracks the running session serves (a pick saved mid-play), re-anchored at
+ * `resumeAtSeconds`. Resolves the fresh master URL the player swaps to, or null when the session is
+ * gone, live, or the binary has no such method.
+ */
+export async function updateSubtitles(token: string | null, subtitles: SubtitleRendition[], resumeAtSeconds: number): Promise<string | null> {
+  if (!isLocalRemuxAvailable() || !token || typeof engineModule().updateSubtitles !== "function") return null;
+  try {
+    const url: unknown = await engineModule().updateSubtitles(token, subtitles, Math.max(0, resumeAtSeconds));
+    return typeof url === "string" && url.length > 0 ? url : null;
+  } catch (error) {
+    engineLog().warn("Subtitle list update failed", error, { service: "LocalRemux", token });
+    return null;
+  }
+}
+
 export type SubtitleAlignment = { ok: true; offsetMs: number; confidence: number } | { ok: false; reason: string };
 
 /**

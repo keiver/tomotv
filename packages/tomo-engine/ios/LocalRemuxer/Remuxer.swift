@@ -320,6 +320,9 @@ final class RemuxSession {
     var remoteSubtitleBodies: [Int: Data] = [:]
     /// Time offsets changed while the session runs, by stream index; a track not here keeps the one it was configured with.
     var subtitleTimeOffsets: [Int: Int] = [:]
+    /// A subtitle list swapped in while the session runs re-anchors EXT-X-START here and names a fresh master.
+    var resumeOffsetSeconds: Double? = nil
+    var masterGeneration = 0
 
     /// The decoder set is decided: every text track that will have a decoder has
     /// one. A track that got none is answered now rather than waited out.

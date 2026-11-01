@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.7.0
+
+- `updateSubtitles(token, subtitles, resumeAtSeconds)` replaces the subtitle tracks a running VOD session serves (a pick saved mid-play), without a new session: the list swaps under the session lock (an engine-decoded track the session does not already serve is dropped, so undecodable ones stay dropped), every media playlist re-anchors `EXT-X-START` at `resumeAtSeconds`, and the call resolves a fresh master URL (`master<N>.m3u8`, counted per swap) so the player re-reads a multivariant playlist it has never seen. Null for a live session or a gone token. The device-copy and sidecar body readers, the per-track offset fallback and the rung variants' `SUBTITLES` attribute now read the served list instead of the opening config. Measured (`TextSubtitleTests`, 46 of 46): a session opened with no subtitles serves a swapped-in device copy's body and lists it on `master1.m3u8` with `SUBTITLES="subs"` on the variant, the media playlist carries `EXT-X-START:TIME-OFFSET=94.200`, the plain master answers the same list, a second swap names `master2.m3u8`, an unknown engine-text index is dropped, and a live session answers nil.
+
 ## 1.6.0
 
 - A sidecar's or device copy's WebVTT is served with the ASS markup in its cue text rendered (`WebVttCueText.swift`): `\b`, `\i` and `\u` overrides become WebVTT tags, drawings and every other `{\...}` block are dropped, `\N` breaks the line and `\h` is a no-break space; a body with none passes through as its bytes are. Jellyfin 10.11 writes an .ass sidecar's dialogue into `Stream.vtt` with the blocks still in (issue 111). The tag stack is shared with `AssToWebVTT`. Measured: `WebVttCueTextTests` 10, `TextSubtitleTests` 43, `WebVttShiftTests` 4, 0 failures.

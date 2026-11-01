@@ -42,6 +42,13 @@ RCT_EXTERN_METHOD(alignSubtitleTiming
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(updateSubtitles
+                  : (nonnull NSString *)token subtitles
+                  : (nonnull NSArray *)subtitles resumeAt
+                  : (nonnull NSNumber *)resumeAt resolver
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(startPlaylistShim
                   : (NSDictionary *)config resolver
                   : (RCTPromiseResolveBlock)resolve rejecter

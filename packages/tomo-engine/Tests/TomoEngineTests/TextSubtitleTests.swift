@@ -329,6 +329,56 @@ final class TextSubtitleTests: XCTestCase {
         XCTAssertNil(session.subtitleSegment(streamIndex: 9, segment: 0))
     }
 
+    // MARK: - A subtitle list swapped in while the session runs
+
+    private func keptCopy(at file: URL, index: Int = 100000) -> RemuxSubtitle {
+        RemuxSubtitle(
+            index: index, name: "Kept", language: "eng", vttUrl: "", localVtt: file.absoluteString,
+            isDefault: false, isForced: false, isImage: false, isEngineText: false)
+    }
+
+    func testASubtitleSwapServesTheNewCopyUnderAFreshMaster() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("swap-\(UUID().uuidString).vtt")
+        try "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nHello\n".write(to: file, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 30))
+        defer { session.stop() }
+        XCTAssertFalse(session.masterPlaylist().contains("SUBTITLES=\"subs\""))
+
+        let name = try XCTUnwrap(session.updateSubtitles([keptCopy(at: file)], resumeAt: 94.2))
+        XCTAssertEqual(name, "master1.m3u8")
+
+        guard case .data(let body, _) = session.route(name) else { return XCTFail("the fresh master name did not route") }
+        let master = String(decoding: body, as: UTF8.self)
+        XCTAssertTrue(master.contains("NAME=\"Kept\""))
+        XCTAssertTrue(master.contains("URI=\"sub100000.m3u8\""))
+        XCTAssertTrue(master.contains("SUBTITLES=\"subs\""))
+        XCTAssertEqual(session.masterPlaylist(), master, "the plain master answers the same list")
+        XCTAssertTrue(session.mediaPlaylist().contains("#EXT-X-START:TIME-OFFSET=94.200"))
+
+        guard case .data(let vtt, _) = session.route("sub100000.vtt") else { return XCTFail("the copy did not route") }
+        XCTAssertTrue(String(decoding: vtt, as: UTF8.self).contains("Hello"))
+
+        XCTAssertEqual(session.updateSubtitles([keptCopy(at: file)], resumeAt: 95.9), "master2.m3u8")
+    }
+
+    func testASwapDropsAnEngineTextTrackTheSessionDoesNotServe() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("swap-\(UUID().uuidString).vtt")
+        try "WEBVTT\n".write(to: file, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 30, subtitles: [engineSub(2)]))
+        defer { session.stop() }
+
+        XCTAssertNotNil(session.updateSubtitles([engineSub(2), engineSub(4), keptCopy(at: file)], resumeAt: 0))
+        XCTAssertEqual(session.sessionSubtitles().map(\.index), [2, 100000])
+    }
+
+    func testASwapIsRefusedOnALiveSession() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 0, isLive: true))
+        defer { session.stop() }
+        XCTAssertNil(session.updateSubtitles([], resumeAt: 10))
+    }
+
     func testWebVTTTimestampFormat() {
         XCTAssertEqual(webVTTTimestamp(0), "00:00:00.000")
         XCTAssertEqual(webVTTTimestamp(1.5), "00:00:01.500")

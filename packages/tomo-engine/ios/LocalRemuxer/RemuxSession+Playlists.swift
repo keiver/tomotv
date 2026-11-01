@@ -534,7 +534,7 @@ extension RemuxSession {
                 line += String(format: ",FRAME-RATE=%g", frameRate)
             }
             if !tracks.isEmpty { line += ",AUDIO=\"\(group)\"" }
-            if !config.subtitles.isEmpty {
+            if !subtitles.isEmpty {
                 line += ",SUBTITLES=\"subs\""
             }
             // RFC 8216 4.3.4.2: CLOSED-CAPTIONS=NONE on one variant requires it on all of them.
@@ -584,10 +584,29 @@ extension RemuxSession {
         return inputSubtitles ?? config.subtitles
     }
 
+    /// Replaces the subtitle tracks the session serves and re-anchors EXT-X-START at `resumeAt`,
+    /// for the player item the app swaps in. Returns the master name serving the new list, or nil live.
+    func updateSubtitles(_ subtitles: [RemuxSubtitle], resumeAt: Double) -> String? {
+        guard !config.isLive else { return nil }
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        let servedIndexes = Set((inputSubtitles ?? config.subtitles).map(\.index))
+        // An engine-decoded track the session does not serve has no decoder to gain: one the
+        // pipeline dropped as undecodable stays dropped.
+        inputSubtitles = subtitles.filter { !$0.isEngineText || servedIndexes.contains($0.index) }
+        resumeOffsetSeconds = max(0, resumeAt)
+        masterGeneration += 1
+        return "master\(masterGeneration).m3u8"
+    }
+
     /// EXT-X-START line for resume sessions, or empty. Media playlists only:
     /// the proven placement (the master carries no per-timeline tags here).
     var startTag: String {
-        config.startOffsetSeconds > 0 ? String(format: "#EXT-X-START:TIME-OFFSET=%.3f,PRECISE=NO\n", config.startOffsetSeconds) : ""
+        stateLock.lock()
+        let resume = resumeOffsetSeconds
+        stateLock.unlock()
+        let offset = resume ?? config.startOffsetSeconds
+        return offset > 0 ? String(format: "#EXT-X-START:TIME-OFFSET=%.3f,PRECISE=NO\n", offset) : ""
     }
 
     /// One TARGETDURATION for every playlist of the session (Apple authoring
@@ -1094,14 +1113,14 @@ extension RemuxSession {
     }
 
     private func rawLocalSubtitleBody(streamIndex: Int) -> Data? {
-        guard let sub = config.subtitles.first(where: { $0.index == streamIndex }), !sub.localVtt.isEmpty else { return nil }
+        guard let sub = sessionSubtitles().first(where: { $0.index == streamIndex }), !sub.localVtt.isEmpty else { return nil }
         // JS hands over a file:// URI, which contents(atPath:) does not take.
         let path = sub.localVtt.hasPrefix("file://") ? (URL(string: sub.localVtt)?.path ?? sub.localVtt) : sub.localVtt
         return FileManager.default.contents(atPath: path)
     }
 
     private func rawRemoteSubtitleBody(streamIndex: Int) -> Data? {
-        guard let sub = config.subtitles.first(where: { $0.index == streamIndex }), !sub.vttUrl.isEmpty, let url = URL(string: sub.vttUrl) else { return nil }
+        guard let sub = sessionSubtitles().first(where: { $0.index == streamIndex }), !sub.vttUrl.isEmpty, let url = URL(string: sub.vttUrl) else { return nil }
         stateLock.lock()
         let cached = remoteSubtitleBodies[streamIndex]
         stateLock.unlock()
@@ -1113,11 +1132,11 @@ extension RemuxSession {
         return fetched
     }
 
-    /// The track's time offset as served now: the one set while the session runs, else the configured one.
+    /// The track's time offset as served now: the one set while the session runs, else the track's own.
     func timeOffsetMs(for streamIndex: Int) -> Int {
         stateLock.lock()
         defer { stateLock.unlock() }
-        return subtitleTimeOffsets[streamIndex] ?? config.subtitles.first(where: { $0.index == streamIndex })?.timeOffsetMs ?? 0
+        return subtitleTimeOffsets[streamIndex] ?? (inputSubtitles ?? config.subtitles).first(where: { $0.index == streamIndex })?.timeOffsetMs ?? 0
     }
 
     /// Moves a track's cues from the next body served on.

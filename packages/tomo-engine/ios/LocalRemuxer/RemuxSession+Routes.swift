@@ -38,6 +38,10 @@ extension RemuxSession {
            let generation = Int(name.dropFirst(6).dropLast(4)) {
             return initResponse(generation: generation)
         }
+        // "master{N}.m3u8": the master re-served after a subtitle swap, under a name AVPlayer has not read.
+        if name.hasPrefix("master"), name.hasSuffix(".m3u8"), Int(name.dropFirst(6).dropLast(5)) != nil {
+            return .data(Data(masterPlaylist().utf8), contentType: m3u8)
+        }
         if name.hasPrefix("sub"), name.hasSuffix(".m3u8"),
            let index = Int(name.dropFirst(3).dropLast(5)),
            let playlist = subtitlePlaylist(streamIndex: index) {
