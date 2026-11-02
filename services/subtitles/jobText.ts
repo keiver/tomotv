@@ -14,12 +14,7 @@ export function sourceName(source: SubtitleSourceId): string {
   return t(`subtitles.source.${source}`);
 }
 
-/** The sources the results came from, named, in the order they appear. */
-function resultSources(job: SubtitleJob): string {
-  return [...new Set(job.results.map((hit) => hit.source))].map(sourceName).join(", ");
-}
-
-/** What the state column says for a job: what is searched and in which language, where the results came from, which pick went where. */
+/** What the state column says for a job: what is searched and in which language, how many results, which pick went where. */
 export function jobStateLine(job: SubtitleJob): string {
   const query = queryText(job.query);
   const language = languageFor(job.language)?.native ?? job.language;
@@ -29,7 +24,7 @@ export function jobStateLine(job: SubtitleJob): string {
     case "searching":
       return t("subtitles.searching").replace("{query}", query).replace("{language}", language);
     case "found":
-      return (job.results.length === 1 ? t("subtitles.oneResult") : t("subtitles.results").replace("{count}", String(job.results.length))).replace("{source}", resultSources(job));
+      return job.results.length === 1 ? t("subtitles.oneResult") : t("subtitles.results").replace("{count}", String(job.results.length));
     case "none":
       return t("subtitles.none").replace("{query}", query).replace("{language}", language);
     case "failed":
