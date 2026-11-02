@@ -232,6 +232,25 @@ final class SubtitleAlignerTests: XCTestCase {
         XCTAssertEqual(session.alignSubtitleTiming(streamIndex: 7, attempt: 0), .failed("noTrack"))
     }
 
+    /// A pick saved mid-play joins the running session's list: the match finds it there, not in the opening config.
+    func testTheSessionAlignsACopySwappedInWhilePlaying() throws {
+        guard let file = Self.burstFile() else { throw XCTSkip("host ffmpeg not found") }
+        var vtt = "WEBVTT\n\n"
+        for (position, cue) in Self.cues(late: 1.7, seconds: Self.seconds).enumerated() {
+            vtt += "\(webVTTTimestamp(cue.start)) --> \(webVTTTimestamp(cue.end))\nLine \(position + 1)\n\n"
+        }
+        let copy = Self.fixtureDir.appendingPathComponent("swapped.vtt")
+        try vtt.write(to: copy, atomically: true, encoding: .utf8)
+        let track = RemuxSubtitle(index: 100_001, name: "Swapped", language: "eng", vttUrl: "", localVtt: copy.absoluteString, isDefault: false, isForced: false, isImage: false, isEngineText: false)
+        let session = try RemuxSession(config: makeConfig(durationSeconds: Self.seconds, inputUrl: file.absoluteString, subtitles: []))
+        XCTAssertEqual(session.alignSubtitleTiming(streamIndex: 100_001, attempt: 0), .failed("noTrack"))
+        XCTAssertNotNil(session.updateSubtitles([track], resumeAt: 0))
+        guard case let .aligned(offsetMs, _) = session.alignSubtitleTiming(streamIndex: 100_001, attempt: 0) else {
+            return XCTFail("the session did not align the swapped-in copy")
+        }
+        XCTAssertEqual(offsetMs, -1700, accuracy: 100)
+    }
+
     func testLevelsMeasuredAsTheFileIsReadLineTheCuesUpWithoutDecodingAgain() throws {
         guard let file = Self.burstFile() else { throw XCTSkip("host ffmpeg not found") }
         var format: UnsafeMutablePointer<AVFormatContext>? = nil

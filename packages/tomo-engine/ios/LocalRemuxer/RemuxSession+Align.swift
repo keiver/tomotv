@@ -55,7 +55,7 @@ extension RemuxSession {
     }
 
     private func alignOutcome(streamIndex: Int, attempt: Int) -> SubtitleAlignOutcome {
-        guard let sub = config.subtitles.first(where: { $0.index == streamIndex }) else { return .failed("noTrack") }
+        guard let sub = sessionSubtitles().first(where: { $0.index == streamIndex }) else { return .failed("noTrack") }
         let embedded = sub.localVtt.isEmpty && sub.vttUrl.isEmpty
         stateLock.lock()
         // Segment times count from the session anchor; cues, audio and read spans are in source time.
@@ -138,7 +138,7 @@ extension RemuxSession {
     /// The track's cues as the file has them, no offset, overlapping [from, to]: a device copy or a
     /// sidecar from its WebVTT, a track of the file from its decoder. Nil when the track is unknown.
     func cueSpans(streamIndex: Int, from: Double, to: Double) -> [(start: Double, end: Double)]? {
-        guard let sub = config.subtitles.first(where: { $0.index == streamIndex }) else { return nil }
+        guard let sub = sessionSubtitles().first(where: { $0.index == streamIndex }) else { return nil }
         if !sub.localVtt.isEmpty || !sub.vttUrl.isEmpty {
             guard let body = rawSubtitleBody(streamIndex: streamIndex) else { return nil }
             return webVTTCueSpans(String(decoding: body, as: UTF8.self)).filter { $0.end > from && $0.start < to }
