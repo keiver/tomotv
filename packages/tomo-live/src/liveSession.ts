@@ -2,11 +2,12 @@
  * A live channel's play, from the session it takes over to the one it hands back to the ring: the
  * engine's in-session reopens, the failure that ends a session, and what each drop asks for.
  */
-import { engineProgress, LIVE_BUFFER_SECONDS, localRemuxToken, stopLocalRemux, subscribeEngineFailure, subscribeEngineLive, type EngineLiveEvent } from "@keiver/tomo-engine";
+import { engineProgress, localRemuxToken, stopLocalRemux, subscribeEngineFailure, subscribeEngineLive, type EngineLiveEvent } from "@keiver/tomo-engine";
 
 import { isPermanentLiveFailure, liveReopenCount, planLiveRecovery, type LiveRecoveryDecision } from "./liveRecovery";
 import { takeLivePreview } from "./livePreview";
 import { retainLiveSession, takeRingSession, takeWarmDetails, type HotChannel, type RingSession } from "./liveRing";
+import { liveStartBufferSeconds } from "./startBuffer";
 
 export interface LiveSessionWatch {
   /** The engine lost the input and is opening it again in place; the player rides its buffer meanwhile. */
@@ -244,7 +245,7 @@ export class LivePlayback<Item> {
           if (current()) this.dropPlay(message, false, decision);
         },
       });
-      if (!(await this.startBuffered(token, current))) return;
+      if (!(await this.startBuffered(token, liveStartBufferSeconds(play.channelId), current))) return;
       this.setState("buffering");
       this.attempting = false;
       play.handlers.onUrl(url, token);
@@ -255,15 +256,15 @@ export class LivePlayback<Item> {
     }
   }
 
-  /** Waits until the session holds LIVE_BUFFER_SECONDS, at most 20 s past them; false when the attempt ended or its session dropped. */
-  private async startBuffered(token: string, current: () => boolean): Promise<boolean> {
+  /** Waits until the session holds the channel's start buffer, at most 20 s past it; false when the attempt ended or its session dropped. */
+  private async startBuffered(token: string, bufferSeconds: number, current: () => boolean): Promise<boolean> {
     const now = this.deps.now ?? Date.now;
-    const deadline = now() + (20 + LIVE_BUFFER_SECONDS) * 1000;
+    const deadline = now() + (20 + bufferSeconds) * 1000;
     const read = this.deps.bufferedSeconds ?? ((t: string) => engineProgress(t).then((progress) => progress?.bufferedSeconds ?? null));
     while (current() && this.session?.token === token) {
       const buffered = await read(token);
       if (!current() || this.session?.token !== token) return false;
-      if (buffered === null || buffered >= LIVE_BUFFER_SECONDS || now() >= deadline) return true;
+      if (buffered === null || buffered >= bufferSeconds || now() >= deadline) return true;
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
     return false;

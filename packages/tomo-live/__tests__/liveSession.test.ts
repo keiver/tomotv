@@ -6,7 +6,7 @@ const liveListeners = mockLiveListeners;
 const failureListeners = mockFailureListeners;
 const mockStopped: string[] = [];
 jest.mock("@keiver/tomo-engine", () => ({
-  LIVE_BUFFER_SECONDS: 15,
+  LIVE_BUFFER_SECONDS: 2,
   isRecordingHoldFailure: jest.requireActual("@keiver/tomo-engine").isRecordingHoldFailure,
   engineProgress: async () => null,
   localRemuxToken: (url: string) => /^http:\/\/127\.0\.0\.1\/([^/]+)\//.exec(url)?.[1] ?? null,
@@ -26,6 +26,7 @@ jest.mock("@keiver/tomo-engine", () => ({
 import { LIVE_RECOVERY_RESET_MS } from "../src/liveRecovery";
 import { LiveDropCounter, LivePlayback, watchLiveSession } from "../src/liveSession";
 import type { RingSession } from "../src/liveRing";
+import { noteLiveStall, resetLiveStartBuffersForTests } from "../src/startBuffer";
 
 beforeEach(() => {
   liveListeners.clear();
@@ -188,24 +189,39 @@ describe("LivePlayback open and play", () => {
     return urls;
   }
 
-  it("hands the URL over only once the session holds 15 s", async () => {
+  it("hands the URL over only once the session holds 2 s", async () => {
     let buffered = 0;
     const urls = buffering(() => buffered);
     await flush();
-    buffered = 14.9;
+    buffered = 1.9;
     jest.advanceTimersByTime(250);
     await flush();
     expect(urls).toEqual([]);
-    buffered = 15;
+    buffered = 2;
     jest.advanceTimersByTime(250);
     await flush();
     expect(urls).toEqual(["http://127.0.0.1/t-ls-1/master.m3u8"]);
   });
 
-  it("hands the URL over at the 35 s deadline when the session never holds 15 s", async () => {
-    const urls = buffering(() => 8);
+  it("waits for the 6 s step on a channel that stalled early on an earlier start", async () => {
+    noteLiveStall("c1", 0);
+    let buffered = 2;
+    const urls = buffering(() => buffered);
     await flush();
-    for (let step = 0; step < 139; step++) {
+    jest.advanceTimersByTime(250);
+    await flush();
+    expect(urls).toEqual([]);
+    buffered = 6;
+    jest.advanceTimersByTime(250);
+    await flush();
+    expect(urls).toEqual(["http://127.0.0.1/t-ls-1/master.m3u8"]);
+    resetLiveStartBuffersForTests();
+  });
+
+  it("hands the URL over at the 22 s deadline when the session never holds 2 s", async () => {
+    const urls = buffering(() => 1);
+    await flush();
+    for (let step = 0; step < 87; step++) {
       jest.advanceTimersByTime(250);
       await flush();
     }

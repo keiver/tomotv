@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.0
+
+- A channel's start buffer steps through `LIVE_START_STEPS` (2, 6, then 15 s): `noteLiveStall(channelId, playedMs)` steps it up one on a stall within `LIVE_POOR_START_WINDOW_MS` (60 s) of the picture coming up and returns the seconds to hold the picture for, the gap to the next step; `noteLiveCleanStart(channelId)` steps it back down one after a clean minute; `liveStartBufferSeconds(channelId)` is what the channel's next session builds. Kept in memory for the app run. `LivePlayback` waits for the channel's step, at most 20 s past it.
+- `@keiver/tomo-engine` 1.8.0 or later, whose `LIVE_BUFFER_SECONDS` (2) is the first step.
+
 ## 1.5.0
 
 - `providerStreamsInUse(streamUrl, headers?)`: an Xtream-style provider's own count of the streams the account holds and allows (`active_cons`, `max_connections` from its `player_api.php`), read with no stream opened; null for a stream URL that names no account or a provider without that API. `providerApiUrl(streamUrl)` builds the API address from `/live/{user}/{pass}/{id}` or `/{user}/{pass}/{id}`.
