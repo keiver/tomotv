@@ -2128,7 +2128,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
 
             stablePlaybackTimerRef.current = setTimeout(() => {
               if (isMountedRef.current && isPlayingRef.current) {
-                logger.debug("Stable playback detected, hiding spinner", { service: "useVideoPlayback" });
+                logger.debug("Stable playback detected", { service: "useVideoPlayback" });
                 hasStablePlaybackRef.current = true;
                 resetPlaybackStages();
                 // Past startup AVPlayer builds the deep buffer a link drop is survived on (6s held
@@ -3495,12 +3495,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   const isAudioOnlyFile = videoDetails ? isAudioOnly(videoDetails) : false;
 
   const isLoading =
-    state.type === "FETCHING_METADATA" ||
-    state.type === "CREATING_STREAM" ||
-    state.type === "INITIALIZING_PLAYER" ||
-    state.type === "READY" ||
-    (state.type === "ERROR" && state.canRetryWithTranscode) ||
-    (state.type === "PLAYING" && !hasStablePlayback);
+    state.type === "FETCHING_METADATA" || state.type === "CREATING_STREAM" || state.type === "INITIALIZING_PLAYER" || state.type === "READY" || (state.type === "ERROR" && state.canRetryWithTranscode);
 
   const showLoadingOverlay = isLoading;
 

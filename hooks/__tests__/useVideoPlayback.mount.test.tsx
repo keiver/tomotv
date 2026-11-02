@@ -3093,6 +3093,17 @@ describe("useVideoPlayback (mounted)", () => {
         expect(ref.current!.get().showLoadingOverlay).toBe(false);
       });
 
+      it("and drops it the moment the player reports playing, with no wait for steady playback", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        await unpaused(ref);
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onPlaybackStateChanged({ isPlaying: true, isSeeking: false } as never);
+          tick(ref, 0);
+        });
+        expect(ref.current!.get().state.type).toBe("PLAYING");
+        expect(ref.current!.get().showLoadingOverlay).toBe(false);
+      });
+
       it("and drops it once the playhead steps without a playing report", async () => {
         const { ref } = await mount({ videoId: "video-1" });
         await unpaused(ref);
