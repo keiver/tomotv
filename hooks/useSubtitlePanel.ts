@@ -142,7 +142,16 @@ export function useSubtitlePanel(itemId: string, active: ActiveTextSubtitle | nu
   const [replacingIndex, setReplacingIndex] = useState<number | null>(null);
   // One video always gets its search job, so the field and button never disappear; only a
   // folder's episodes already carrying the language are skipped.
-  const search = useSubtitleSearch(items, !inPlayer && (items?.length ?? 0) > 1);
+  const presented = useRef(false);
+  // In the player a kept pick reloads the session, so the panel closes before the reload starts.
+  const closeBeforeReload = useCallback(async () => {
+    if (!presented.current) return;
+    presented.current = false;
+    await dismissSubtitlePanel();
+    setShown(false);
+    setReplacingIndex(null);
+  }, []);
+  const search = useSubtitleSearch(items, !inPlayer && (items?.length ?? 0) > 1, inPlayer ? closeBeforeReload : undefined);
   const timing = useSubtitleTiming(itemId);
   const searchRef = useRef(search);
   const timingRef = useRef(timing);
@@ -150,7 +159,6 @@ export function useSubtitlePanel(itemId: string, active: ActiveTextSubtitle | nu
     searchRef.current = search;
     timingRef.current = timing;
   }, [search, timing]);
-  const presented = useRef(false);
 
   // The subtitle that is on, as the item lists it: a device copy carries what a replacement removes.
   const playerCurrent = useMemo<CurrentSubtitle | null>(() => {

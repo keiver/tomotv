@@ -55,8 +55,15 @@ function boardFor(items: JellyfinVideoItem[] | null, skipSubtitled: boolean): Bo
   return { items, language: start.language, choices: start.choices, jobs, skipped: items.length - jobs.length };
 }
 
-/** With `skipSubtitled` on, a video already carrying the language gets no job; a single playing video keeps its job either way. */
-export function useSubtitleSearch(items: JellyfinVideoItem[] | null, skipSubtitled: boolean = true): SubtitleSearchState & SubtitleSearchActions {
+/**
+ * With `skipSubtitled` on, a video already carrying the language gets no job; a single playing video keeps its job either way.
+ * `beforeReload` runs after a pick is kept and before the playing session reloads to take it.
+ */
+export function useSubtitleSearch(items: JellyfinVideoItem[] | null, skipSubtitled: boolean = true, beforeReload?: () => Promise<void>): SubtitleSearchState & SubtitleSearchActions {
+  const beforeReloadRef = useRef(beforeReload);
+  useEffect(() => {
+    beforeReloadRef.current = beforeReload;
+  }, [beforeReload]);
   const { sessionVideoId, reloadSubtitles } = usePlayerSession();
   const [board, setBoard] = useState<Board>(() => boardFor(items, skipSubtitled));
   // A new set of videos starts a new board; derived in render so the first frame already shows it.
@@ -146,7 +153,10 @@ export function useSubtitleSearch(items: JellyfinVideoItem[] | null, skipSubtitl
       if (result.ok) {
         recordSubtitlePick({ kind: "language", tag: result.language });
         setJobs((current) => jobApplied(current, index, { where: result.where, language: result.language, deviceReason: result.where === "device" ? result.deviceReason : undefined }));
-        if (sessionVideoId === job.item.Id) reloadSubtitles(appliedStreamIndex(result));
+        if (sessionVideoId === job.item.Id) {
+          await beforeReloadRef.current?.();
+          reloadSubtitles(appliedStreamIndex(result));
+        }
         return result;
       }
       if (result.reason === "refused") {
