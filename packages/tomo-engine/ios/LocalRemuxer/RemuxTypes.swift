@@ -179,6 +179,9 @@ struct RemuxConfig {
     var liveLowLatency = false
     /// Live LL-HLS: the PART-TARGET, fixed for the session.
     var livePartSeconds: Double = 0.5
+    /// Live LL-HLS: the least TARGETDURATION, fixed at the first answer, which comes at the first part, before a second keyframe
+    /// shows the source's interval. 0: the first answer waits for the first full segment and the target is fixed from it.
+    var liveLowLatencyTargetSeconds = 4
     var primaryVideoCodecs = ""
     var primaryVideoBandwidth = 0
     var sourceBandwidth = 0

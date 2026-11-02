@@ -273,6 +273,7 @@ class LocalRemuxer: RCTEventEmitter {
     ///   liveTargetNearest: Bool?   : live: TARGETDURATION is the nearest integer of the longest allowed segment, not its ceiling
     ///   liveLowLatency: Bool?      : live: serve LL-HLS parts when the input is continuous (MPEG-TS)
     ///   livePartSeconds: Double?   : live LL-HLS: the PART-TARGET (default 0.5)
+    ///   liveLowLatencyTargetSeconds: Int? : live LL-HLS: the least TARGETDURATION, fixed for the session (default 4)
     ///   describesInput: Bool?      : the open input names its own range, size, rate and bit rate, and the audio tracks,
     ///                                subtitles and durationSeconds the config leaves empty; the master waits for it
     ///
@@ -393,6 +394,7 @@ class LocalRemuxer: RCTEventEmitter {
                 liveTargetNearest: (config["liveTargetNearest"] as? Bool) ?? false,
                 liveLowLatency: (config["liveLowLatency"] as? Bool) ?? false,
                 livePartSeconds: (config["livePartSeconds"] as? Double) ?? 0.5,
+                liveLowLatencyTargetSeconds: (config["liveLowLatencyTargetSeconds"] as? Int) ?? 4,
                 primaryVideoCodecs: (config["primaryVideoCodecs"] as? String) ?? "",
                 primaryVideoBandwidth: (config["primaryVideoBandwidth"] as? Int) ?? 0,
                 sourceBandwidth: (config["sourceBandwidth"] as? Int) ?? 0,

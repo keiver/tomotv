@@ -366,6 +366,8 @@ final class RemuxSession {
     var lowLatencyInput = false
     /// Broadcast when a part is cut or a segment lands; LL-HLS waits take it before stateLock, never inside it.
     let partSignal = NSCondition()
+    /// LL-HLS: a segment has run past the fixed target (logged once). Under stateLock.
+    var liveTargetExceeded = false
     /// Every audio stream the demuxer found, in rendition order, for a session that reads its tracks
     /// off the input (live, `describesInput`); nil until the input is open.
     var inputAudioTracks: [RemuxAudioTrack]? = nil

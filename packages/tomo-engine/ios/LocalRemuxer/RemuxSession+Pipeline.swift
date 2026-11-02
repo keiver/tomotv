@@ -397,6 +397,7 @@ extension RemuxSession {
         failed = true
         stateLock.unlock()
         if first { onFailed?(["token": token, "message": message]) }
+        signalParts()
     }
 
     /// One output rendition: its own mp4 muxer, its own byte buffer, its own
@@ -2542,9 +2543,12 @@ extension RemuxSession {
                    Self.partClosesBefore(dts: dts, duration: duration, partStartDts: start, target: config.livePartSeconds) {
                     guard flushPart(rendition, segment: currentSegment) else { return false }
                 }
+                // 4.4.4.9: INDEPENDENT marks a part that contains an independent frame, wherever in the part it falls.
                 if rendition.partStartSeconds == nil {
                     rendition.partStartSeconds = dts
                     rendition.partIndependent = independent
+                } else if independent {
+                    rendition.partIndependent = true
                 }
                 rendition.partEndSeconds = max(rendition.partEndSeconds, dts + duration)
             }

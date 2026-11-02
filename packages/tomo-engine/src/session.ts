@@ -89,6 +89,8 @@ export interface EngineSessionConfig {
   liveLowLatency?: boolean;
   /** Live LL-HLS: the PART-TARGET in seconds; 0.5 when absent. */
   livePartSeconds?: number;
+  /** Live LL-HLS: the least TARGETDURATION in seconds, fixed for the session; 4 when absent. */
+  liveLowLatencyTargetSeconds?: number;
   stopRequests?: EngineStopRequest[];
   /**
    * The open input names its own range, size, rate and bit rate, and whichever of `audioTracks`,

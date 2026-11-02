@@ -25,11 +25,14 @@ extension RemuxSession {
         let inRange = config.isLive ? n >= firstRetainedSegment : n < segmentCount
         let done = rendition?.completed.contains(n) == true
         let dead = failed || cancelled
+        let landing = rendition.flatMap { landingSegmentLocked(n, $0) }
+        if landing != nil, !sourceReleased { lastPrimaryDemandAt = Date() }
         // The copy serving counts too: a rung left for the copy is as idle as one left for another rung.
         if prefix.isEmpty, !config.isLive, !config.tiers.isEmpty { segmentsServed += 1 }
         stateLock.unlock()
         // A segment no stream will fill is answered by segmentURL with a stand-in, never a 404.
         if dead || !inRange { return .notFound }
+        if let landing { return .data(landing, contentType: "video/iso.segment") }
         if prefix.isEmpty, !config.isLive, !config.tiers.isEmpty { stopIdleRungs() }
         if done, let rendition {
             let file = dir.appendingPathComponent(rendition.segmentName(n))

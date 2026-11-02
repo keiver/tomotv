@@ -145,7 +145,7 @@ final class LiveAVPlayerTests: XCTestCase {
     }
 
     /// Open to moving picture on a continuous real-time TS source, timed from `session.start()` as the app opens a channel. Recorded, not asserted.
-    /// Opt in with TOMO_CONTINUOUS_START=25:1,30000/1001:2:mpeg2,25:2::20 (fps:keyframe s[:codec[:bind after s]]); TOMO_START_RUNS, _WATCH, _BUFFER, TOMO_LIVE_SEGMENT, TOMO_LIVE_COPY_CUT, TOMO_TARGET_NEAREST, TOMO_LOW_LATENCY (part seconds), TOMO_LOG_REQUESTS.
+    /// Opt in with TOMO_CONTINUOUS_START=25:1,30000/1001:2:mpeg2,25:2::20 (fps:keyframe s[:codec[:bind after s]]); TOMO_START_RUNS, _WATCH, _BUFFER, TOMO_LIVE_SEGMENT, TOMO_LIVE_COPY_CUT, TOMO_TARGET_NEAREST, TOMO_LOW_LATENCY (part seconds), TOMO_LL_TARGET, TOMO_LOG_REQUESTS.
     func testLiveStartOnAContinuousSource() throws {
         let env = ProcessInfo.processInfo.environment
         guard let specs = env["TOMO_CONTINUOUS_START"]?.split(separator: ",").map({ $0.split(separator: ":", omittingEmptySubsequences: false).map(String.init) }) else {
@@ -176,6 +176,7 @@ final class LiveAVPlayerTests: XCTestCase {
                 let partSeconds = env["TOMO_LOW_LATENCY"].flatMap(Double.init)
                 config.liveLowLatency = partSeconds != nil
                 config.livePartSeconds = partSeconds ?? 0.5
+                if let target = env["TOMO_LL_TARGET"].flatMap(Int.init) { config.liveLowLatencyTargetSeconds = target }
                 let session = try RemuxSession(config: config)
                 let opened = Date()
                 session.start()

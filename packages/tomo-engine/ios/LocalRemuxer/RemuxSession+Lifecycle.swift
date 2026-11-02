@@ -29,6 +29,7 @@ extension RemuxSession {
         let iframeFrames = iframeGrabber
         let iframes = iframeStore
         stateLock.unlock()
+        signalParts()
         frames?.stop()
         iframeFrames?.stop()
         iframes?.stop()

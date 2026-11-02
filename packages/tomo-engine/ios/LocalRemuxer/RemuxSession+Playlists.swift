@@ -727,12 +727,27 @@ extension RemuxSession {
 
     /// Live TARGETDURATION: never below the longest retained segment, and it only ever rises.
     /// A copied segment runs to the next keyframe, so a GOP longer than the headroom lifts it.
-    func liveTarget() -> Int {
+    /// `fixing`: LL-HLS only, a media playlist's answer, which fixes the target; any other read before it does not.
+    func liveTarget(fixing: Bool = false) -> Int {
         stateLock.lock()
         defer { stateLock.unlock() }
         let longest = liveDurations.values.max() ?? 0
         let bound = max(liveCapSecondsLocked(), longest)
-        let target = max(liveTargetDuration ?? 0, max(1, Int(config.liveTargetNearest ? bound.rounded() : ceil(bound))))
+        let needed = max(1, Int(config.liveTargetNearest ? bound.rounded() : ceil(bound)))
+        // LL-HLS: the target is fixed at the first answer (draft-pantos-hls-rfc8216bis 6.2.1: it MUST NOT change).
+        if lowLatencyInput {
+            if let fixed = liveTargetDuration {
+                if Int(longest.rounded()) > fixed, !liveTargetExceeded {
+                    liveTargetExceeded = true
+                    NSLog("[LocalRemuxer] a %.2fs live segment rounds past the fixed LL-HLS target %d", longest, fixed)
+                }
+                return fixed
+            }
+            let target = max(needed, config.liveLowLatencyTargetSeconds)
+            if fixing { liveTargetDuration = target }
+            return target
+        }
+        let target = max(liveTargetDuration ?? 0, needed)
         liveTargetDuration = target
         return target
     }
@@ -824,13 +839,18 @@ extension RemuxSession {
     /// The image track's live playlist: the primary rendition's window, one cue-less VTT per segment.
     func liveSubtitlePlaylist(_ sub: RemuxSubtitle) -> String {
         guard let rendition = rendition(withPrefix: "") else { return "#EXTM3U\n" }
-        _ = waitUntil(deadline: liveFirstAnswerDeadline) { [weak self] in
+        // LL-HLS: no start buffer and no EXT-X-START, the first full segment answers; and a report for every other playlist (Appendix B.1).
+        let lowLatency = servesParts
+        let ready: () -> Bool = { [weak self] in
             guard let self else { return true }
             self.stateLock.lock()
             defer { self.stateLock.unlock() }
-            return self.liveAnswerReadyLocked(rendition) || self.failed || self.cancelled
+            let answers = lowLatency ? !rendition.completed.isEmpty : self.liveAnswerReadyLocked(rendition)
+            return answers || self.failed || self.cancelled
         }
-        let target = liveTarget()
+        _ = lowLatency ? waitForParts(deadline: liveFirstAnswerDeadline, ready) : waitUntil(deadline: liveFirstAnswerDeadline, ready)
+        let target = liveTarget(fixing: true)
+        let subtitles = lowLatency ? sessionSubtitles() : []
         stateLock.lock()
         let first = firstRetainedSegment
         let segments = rendition.completed.filter { $0 >= first }.sorted()
@@ -838,12 +858,13 @@ extension RemuxSession {
         let dates = liveDates
         let starts = liveGenerationStarts
         let removed = liveDiscontinuitiesRemoved
-        let startOffset = liveStartOffsetLocked(segments: segments, durations: durations)
+        let startOffset = lowLatency ? nil : liveStartOffsetLocked(segments: segments, durations: durations)
+        let reports = lowLatency ? renditionReportsLocked(excluding: "sub\(sub.index).m3u8", subtitles: subtitles) : []
         stateLock.unlock()
         return Self.renderLivePlaylist(
             target: target, firstRetained: first, segments: segments, durations: durations, generationStarts: starts, discontinuitiesRemoved: removed,
             dates: dates, fallbackDuration: config.liveSegmentSeconds, startOffset: Self.publishedLiveStart(startOffset, target: target), initName: nil,
-            segmentName: { "sub\(sub.index)-\($0).vtt" })
+            segmentName: { "sub\(sub.index)-\($0).vtt" }, reports: reports)
     }
 
     /// The live playlist text from a snapshot of the session's live state (pure, host-testable).
@@ -861,7 +882,8 @@ extension RemuxSession {
     /// `initName` maps a generation to its MAP; nil writes no MAP (a WebVTT rendition has none).
     static func renderLivePlaylist(
         target: Int, firstRetained: Int, segments: [Int], durations: [Int: Double], generationStarts: [Int: Int], discontinuitiesRemoved: Int = 0,
-        dates: [Int: Date], fallbackDuration: Double, startOffset: Double? = nil, initName: ((Int) -> String)?, segmentName: (Int) -> String
+        dates: [Int: Date], fallbackDuration: Double, startOffset: Double? = nil, initName: ((Int) -> String)?, segmentName: (Int) -> String,
+        reports: [RenditionReport] = []
     ) -> String {
         func generation(of n: Int) -> Int { generationStarts.filter { $0.key <= n }.values.max() ?? 0 }
         let formatter = ISO8601DateFormatter()
@@ -885,7 +907,7 @@ extension RemuxSession {
             out += String(format: "#EXTINF:%.6f,\n", durations[n] ?? fallbackDuration)
             out += segmentName(n) + "\n"
         }
-        return out
+        return out + renditionReportLines(reports)
     }
 
     /// Subtitle playlist. An engine-decoded text track is cut on the session
