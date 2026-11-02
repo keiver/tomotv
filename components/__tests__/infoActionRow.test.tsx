@@ -1,5 +1,5 @@
 /** The info panel's Stop circle outlives its recording while it holds focus, so tvOS focus never falls off the row. */
-import { InfoActionRow } from "@/components/info-action-row";
+import { fittedSlot, InfoActionRow } from "@/components/info-action-row";
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 
@@ -46,8 +46,15 @@ describe("InfoActionRow layout", () => {
       renderer = TestRenderer.create(<InfoActionRow onToggleFavorite={jest.fn(async () => true)} onToggleWatched={jest.fn(async () => true)} />);
     });
     const [wrap, row] = renderer.root.findAllByType(View).map((node: TestRenderer.ReactTestInstance) => StyleSheet.flatten(node.props.style));
-    expect(wrap).toMatchObject({ alignSelf: "center", maxWidth: "100%" });
+    expect(wrap).toMatchObject({ alignSelf: "stretch", maxWidth: "100%" });
     expect(row).toMatchObject({ flexDirection: "row", flexWrap: "wrap", justifyContent: "center" });
+  });
+
+  it("narrows the touch slots so five circles share a 375pt iPhone's 319pt card, and keeps full size when that would go under 56pt", () => {
+    expect(fittedSlot(319, 5)).toEqual({ slot: 63, circle: 59 });
+    expect(fittedSlot(400, 4)).toEqual({ slot: 76, circle: 66 });
+    expect(fittedSlot(319, 6)).toEqual({ slot: 76, circle: 66 });
+    expect(fittedSlot(0, 5)).toEqual({ slot: 76, circle: 66 });
   });
 });
 

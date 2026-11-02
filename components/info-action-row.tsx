@@ -13,6 +13,8 @@ const ICON = IS_TV ? 46 : 28;
 /** The height the icon takes in the stack; a taller icon grows upward, so the word stays put. */
 const ICON_BOX = IS_TV ? 32 : 22;
 const LABEL = IS_TV ? 19 : 11;
+/** The smallest circle the phone row narrows to; past it the row wraps. */
+const MIN_CIRCLE = 56;
 /** How long an action report holds the caption before focus takes it back. */
 const MESSAGE_MS = 2200;
 
@@ -45,6 +47,13 @@ export interface InfoExtraAction {
   word: string;
   destructive?: boolean;
   onPress: () => void;
+}
+
+/** Slot and circle sizes that put every circle on one line of `width`, or the full sizes when they would fall under MIN_CIRCLE. */
+export function fittedSlot(width: number, count: number): { slot: number; circle: number } {
+  const slot = count > 0 && width > 0 ? Math.min(SLOT, Math.floor(width / count)) : SLOT;
+  if (slot === SLOT || slot - 4 < MIN_CIRCLE) return { slot: SLOT, circle: CIRCLE };
+  return { slot, circle: slot - 4 };
 }
 
 export type DownloadCircleState = "none" | "queued" | "downloading" | "paused" | "ready" | "failed";
@@ -104,6 +113,7 @@ export function InfoActionRow({
   const [focused, setFocused] = useState<ActionKey | null>(null);
   const { accent, onAccent } = useCardPalette();
   const [message, setMessage] = useState<{ text: string; failed: boolean } | null>(null);
+  const [rowWidth, setRowWidth] = useState(0);
   const messageTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => () => (messageTimer.current ? clearTimeout(messageTimer.current) : undefined), []);
@@ -208,14 +218,19 @@ export function InfoActionRow({
       : []),
   ];
 
+  const count = toggles.length + (onStopRecording || stopSpent ? 1 : 0) + (onToggleDownload && downloadState ? 1 : 0) + extras.length;
+  const fitted = IS_TV ? { slot: SLOT, circle: CIRCLE } : fittedSlot(rowWidth, count);
+  const slotStyle = [styles.slot, { width: fitted.slot }];
+  const circleStyle = { ...styles.circle, width: fitted.circle, height: fitted.circle, minHeight: fitted.circle };
+
   return (
-    <View style={styles.wrap}>
+    <View style={styles.wrap} onLayout={IS_TV ? undefined : (event) => setRowWidth(event.nativeEvent.layout.width)}>
       <View style={styles.row}>
         {toggles.map((toggle) => (
-          <View key={toggle.key} style={styles.slot}>
+          <View key={toggle.key} style={slotStyle}>
             <FocusableButton
               variant={toggle.selected ? "primary" : "secondary"}
-              style={styles.circle}
+              style={circleStyle}
               icon={labeled(toggle.selected ? toggle.icon : toggle.offIcon, toggle.selected ? onAccent : accent, toggle.word)}
               accessibilityLabel={toggle.accessibilityLabel}
               accessibilityState={{ selected: toggle.selected }}
@@ -228,10 +243,10 @@ export function InfoActionRow({
         {(!!onStopRecording || stopSpent) && (
           // Always lit and red: one irreversible press, never a toggle. A bare glyph, since the
           // button is the circle (see the download arrow).
-          <View style={styles.slot}>
+          <View style={slotStyle}>
             <FocusableButton
               variant="secondary"
-              style={styles.circle}
+              style={circleStyle}
               icon={labeled("stop", COLORS.DESTRUCTIVE, t("info.word.stop"))}
               accessibilityLabel={t("liveTv.stopRecording")}
               accessibilityState={{ disabled: stopSpent }}
@@ -244,10 +259,10 @@ export function InfoActionRow({
         {!!onToggleDownload && !!downloadState && (
           // Always lit: this is an action, not a toggle. Every state it renders in is a press
           // worth making, "none" most of all. Failure takes the ink; the caption carries state.
-          <View style={styles.slot}>
+          <View style={slotStyle}>
             <FocusableButton
               variant="secondary"
-              style={styles.circle}
+              style={circleStyle}
               icon={labeled("arrow-down", downloadState === "failed" ? COLORS.DESTRUCTIVE : accent, t("info.word.download"))}
               accessibilityLabel={download.label}
               accessibilityState={{ selected: downloadState === "ready" }}
@@ -260,10 +275,10 @@ export function InfoActionRow({
         {extras.map((extra) => {
           const key = `extra:${extra.key}` as const;
           return (
-            <View key={extra.key} style={styles.slot}>
+            <View key={extra.key} style={slotStyle}>
               <FocusableButton
                 variant="secondary"
-                style={styles.circle}
+                style={circleStyle}
                 icon={labeled(extra.icon, extra.destructive ? COLORS.DESTRUCTIVE : accent, extra.word)}
                 accessibilityLabel={extra.label}
                 onFocus={() => setFocused(key)}
@@ -288,13 +303,14 @@ export function InfoActionRow({
 
 const styles = StyleSheet.create({
   // Capped at the panel's width, so circles past it wrap to a centred second line instead of
-  // hanging off both sides (iPhone Duo's closed screen, beside its side column).
+  // hanging off both sides (iPhone Duo's closed screen, beside its side column). On touch it
+  // spans that width, which the slots are fitted to.
   wrap: {
-    alignSelf: "center",
+    alignSelf: IS_TV ? "center" : "stretch",
     alignItems: "center",
     maxWidth: "100%",
   },
-  // Touch: four 76pt slots make 304, inside a 375pt iPhone's 319 of card; a fifth wraps.
+  // Touch: five slots narrow to 63pt to share a 375pt iPhone's 319 of card.
   row: {
     flexDirection: "row",
     flexWrap: "wrap",
