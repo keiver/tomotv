@@ -50,6 +50,14 @@ describe("query text", () => {
     expect(queryFromText("s02e01 Other Show", episode)).toMatchObject({ keywords: "Other Show", season: 2, episode: 1 });
   });
 
+  it("searches typed words instead of the item's ids and file name, and keeps them when the words are unchanged", () => {
+    const withIds = { ...episode, imdbId: "tt18246720", tmdbId: "5051965" };
+    const typed = queryFromText("Other Show", withIds);
+    expect(typed).toMatchObject({ keywords: "Other Show", imdbId: undefined, tmdbId: undefined, fileName: "" });
+    expect(fileNameQuery(typed)).toBeNull();
+    expect(queryFromText(queryText(withIds), withIds)).toBe(withIds);
+  });
+
   it("asks a second time by the file name, with the episode the file name carries", () => {
     expect(fileNameQuery(episode)).toMatchObject({ kind: "episode", keywords: "Some Show S04E06 720p HDTV x264-GRP", season: 4, episode: 6, fileName: episode.fileName });
     const film = subtitleQuery({ ...base, Name: "A Film", Type: "Movie", Path: "/movies/A.Film.2019.1080p.mkv", ProductionYear: 2019 });

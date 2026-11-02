@@ -66,13 +66,17 @@ export function queryText(query: SubtitleQuery): string {
 
 /** The query a typed text means: an "S04E06" in it sets the episode, the rest is the title; without one the base episode stays. */
 export function queryFromText(text: string, base: SubtitleQuery): SubtitleQuery {
+  // The words already shown change nothing, so the item's own ids keep the search exact.
+  if (text.replace(/\s+/g, " ").trim() === queryText(base)) return base;
   const match = text.match(EPISODE_IN_NAME);
   const keywords = text
     .replace(EPISODE_IN_NAME, " ")
     .replace(/\s{2,}/g, " ")
     .trim();
-  if (match) return { ...base, kind: "episode", keywords, season: Number(match[1]), episode: Number(match[2]) };
-  return { ...base, keywords };
+  // Other words drop the item's ids and file name, which would otherwise answer instead of them.
+  const typed: SubtitleQuery = { ...base, imdbId: undefined, tmdbId: undefined, fileName: "" };
+  if (match) return { ...typed, kind: "episode", keywords, season: Number(match[1]), episode: Number(match[2]) };
+  return { ...typed, keywords };
 }
 
 /** A second query asking by the file name itself, or null when the file name says nothing more than the title does. */
