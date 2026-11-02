@@ -90,8 +90,14 @@ export function hitBadges(hit: SubtitleHit): string[] {
   ].filter(Boolean);
 }
 
+/** Downloads first, then rating and author; the source is named only when it is not OpenSubtitles, which the panel credits once. */
 export function hitMeta(hit: SubtitleHit): string {
-  return [sourceName(hit.source), hit.downloads !== null ? t("subtitles.downloads").replace("{count}", String(hit.downloads)) : "", hit.rating !== null ? hit.rating.toFixed(1) : "", hit.author]
+  return [
+    hit.downloads !== null ? t("subtitles.downloads").replace("{count}", String(hit.downloads)) : "",
+    hit.rating !== null ? hit.rating.toFixed(1) : "",
+    hit.author,
+    hit.source === "opensubtitles" ? "" : sourceName(hit.source),
+  ]
     .filter(Boolean)
     .join(" · ");
 }

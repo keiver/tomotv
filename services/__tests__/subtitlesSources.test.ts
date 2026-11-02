@@ -11,7 +11,7 @@ jest.mock("@/services/jellyfinApi", () => ({
 
 import { zipSync, strToU8 } from "fflate";
 import { unpackSubtitle } from "@/services/subtitles/sources/http";
-import { openSubtitlesParams, openSubtitlesSource, resetOpenSubtitlesTokens } from "@/services/subtitles/sources/opensubtitles";
+import { openSubtitlesHit, openSubtitlesParams, openSubtitlesSource, resetOpenSubtitlesTokens } from "@/services/subtitles/sources/opensubtitles";
 import { serverSource } from "@/services/subtitles/sources/server";
 import { SourceRefusal, type SearchContext, type SubtitleHit, type SubtitleQuery } from "@/services/subtitles/types";
 
@@ -147,6 +147,7 @@ describe("opensubtitles source", () => {
               release: "Some.Film.2020.1080p",
               download_count: 900,
               ratings: 7.5,
+              votes: 4,
               moviehash_match: true,
               files: [{ file_id: 123, file_name: "Some.Film.srt" }],
               uploader: { name: "up" },
@@ -159,6 +160,10 @@ describe("opensubtitles source", () => {
     const hits = await openSubtitlesSource.search(movie, "en", anonymous);
     expect((mockFetch.mock.calls[0][1] as RequestInit).headers).toMatchObject({ "Api-Key": "key", "User-Agent": "TomoTV v1.0.0" });
     expect(hits).toEqual([expect.objectContaining({ id: "123", source: "opensubtitles", name: "Some.Film.srt", hashMatch: true, rating: 7.5, downloads: 900, author: "up" })]);
+  });
+
+  it("gives an unrated subtitle no rating instead of 0.0", () => {
+    expect(openSubtitlesHit({ attributes: { ratings: 0, votes: 0, files: [{ file_id: 1 }] } }, "en")?.rating).toBeNull();
   });
 
   it("downloads with the app key alone when the viewer keeps no account", async () => {

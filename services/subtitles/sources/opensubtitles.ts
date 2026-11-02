@@ -16,6 +16,7 @@ interface OsAttributes {
   release?: string;
   download_count?: number;
   ratings?: number;
+  votes?: number;
   hearing_impaired?: boolean;
   foreign_parts_only?: boolean;
   machine_translated?: boolean;
@@ -158,7 +159,8 @@ export function openSubtitlesHit(entry: { id?: string; attributes?: OsAttributes
     forced: attributes.foreign_parts_only === true,
     hearingImpaired: attributes.hearing_impaired === true,
     machineTranslated: attributes.machine_translated === true || attributes.ai_translated === true,
-    rating: typeof attributes.ratings === "number" ? attributes.ratings : null,
+    // An unrated subtitle answers ratings 0.0 with votes 0: no rating, not a zero one.
+    rating: typeof attributes.ratings === "number" && (attributes.votes ?? 0) > 0 ? attributes.ratings : null,
     downloads: typeof attributes.download_count === "number" ? attributes.download_count : null,
     author: attributes.uploader?.name?.trim() ?? "",
   };

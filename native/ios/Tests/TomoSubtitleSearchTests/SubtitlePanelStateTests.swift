@@ -44,7 +44,7 @@ final class SubtitlePanelStateTests: XCTestCase {
         with["tracks"] = [
             [
                 "id": 100_000, "name": "Kept", "meta": "Podnapisi · English", "monogram": "P", "offsetLabel": "1.5 s late", "earlierLabel": "Back 0.5 s",
-                "laterLabel": "Forward 0.5 s", "resetLabel": "Reset", "syncLabel": "Match the audio", "replaceLabel": "Replace", "canSync": true, "canReplace": true,
+                "laterLabel": "Forward 0.5 s", "resetLabel": "Reset", "syncLabel": "Sync to audio", "replaceLabel": "Replace", "canSync": true, "canReplace": true,
                 "replacing": true, "syncing": false, "note": "",
             ]
         ]

@@ -335,7 +335,7 @@
   "subtitles.later": "0,5 s vor",
   "subtitles.resetTiming": "Zurücksetzen",
   "subtitles.replace": "Ersetzen",
-  "subtitles.sync": "An den Ton anpassen",
+  "subtitles.sync": "Mit Ton synchronisieren",
   "subtitles.syncing": "Wird an den Ton angepasst…",
   "subtitles.synced": "An den Ton angepasst",
   "subtitles.syncFailed": "Diese Untertitel passten in zwei Versuchen nicht zum Ton. Sie gehören womöglich zu einem anderen Schnitt dieses Videos.",

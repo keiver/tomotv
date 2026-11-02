@@ -335,7 +335,7 @@
   "subtitles.later": "Forward 0.5 s",
   "subtitles.resetTiming": "Reset",
   "subtitles.replace": "Replace",
-  "subtitles.sync": "Match the audio",
+  "subtitles.sync": "Sync to audio",
   "subtitles.syncing": "Matching the audio…",
   "subtitles.synced": "Matched to the audio",
   "subtitles.syncFailed": "Could not match these subtitles to the audio in two tries. They may be for another cut of this video.",

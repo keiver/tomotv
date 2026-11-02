@@ -127,11 +127,6 @@ private func rowConfiguration() -> UIButton.Configuration {
     return configuration
 }
 
-/// The source letter as its SF Symbol square, the captions bubble for a track of the file.
-private func monogramImage(_ monogram: String) -> UIImage? {
-    (monogram.isEmpty ? nil : UIImage(systemName: "\(monogram.lowercased()).square.fill")) ?? UIImage(systemName: "captions.bubble.fill")
-}
-
 // MARK: - Track row
 
 /// The shown text subtitle: its name on a pill that lists the video's other tracks, then earlier,
@@ -146,7 +141,7 @@ private final class TrackRowView: UIStackView {
     private let offsetLabel = UILabel()
     private let laterButton = UIButton(configuration: roundIconConfiguration())
     private let resetButton = UIButton(configuration: roundIconConfiguration())
-    private let syncButton = UIButton(configuration: roundIconConfiguration())
+    private let syncButton = UIButton(configuration: pillConfiguration(prominent: true))
     private let replaceButton = UIButton(configuration: roundIconConfiguration())
     private let note = UILabel()
 
@@ -167,7 +162,10 @@ private final class TrackRowView: UIStackView {
         resetButton.configuration?.image = UIImage(systemName: "arrow.counterclockwise")
         syncButton.configuration?.image = UIImage(systemName: "waveform.and.magnifyingglass")
         replaceButton.configuration?.image = UIImage(systemName: "arrow.left.arrow.right")
-        for button in [earlierButton, laterButton, resetButton, syncButton, replaceButton] {
+        syncButton.setContentHuggingPriority(.required, for: .horizontal)
+        syncButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+        syncButton.heightAnchor.constraint(equalToConstant: Metrics.controlHeight).isActive = true
+        for button in [earlierButton, laterButton, resetButton, replaceButton] {
             button.setContentHuggingPriority(.required, for: .horizontal)
             button.setContentCompressionResistancePriority(.required, for: .horizontal)
             button.heightAnchor.constraint(equalToConstant: Metrics.controlHeight).isActive = true
@@ -189,7 +187,7 @@ private final class TrackRowView: UIStackView {
         note.numberOfLines = 2
         note.isHidden = true
 
-        let controls = UIStackView(arrangedSubviews: [earlierButton, offsetLabel, laterButton, resetButton, syncButton, replaceButton])
+        let controls = UIStackView(arrangedSubviews: [earlierButton, offsetLabel, laterButton, resetButton, replaceButton])
         controls.axis = .horizontal
         controls.spacing = Metrics.controlSpacing
         controls.alignment = .center
@@ -199,8 +197,9 @@ private final class TrackRowView: UIStackView {
         head.spacing = Metrics.controlSpacing
         head.alignment = .center
 
-        // The TV's width takes the whole row on one line; a phone stacks the controls under the pill.
+        // The TV's width takes the whole row on one line; a phone stacks the controls, then the sync button, under the pill.
         if Metrics.isTV {
+            controls.addArrangedSubview(syncButton)
             head.addArrangedSubview(controls)
             addArrangedSubview(head)
         } else {
@@ -208,6 +207,7 @@ private final class TrackRowView: UIStackView {
             line.axis = .horizontal
             addArrangedSubview(head)
             addArrangedSubview(line)
+            addArrangedSubview(syncButton)
         }
         addArrangedSubview(note)
         axis = .vertical
@@ -224,7 +224,7 @@ private final class TrackRowView: UIStackView {
         earlierButton.accessibilityLabel = track.earlierLabel
         laterButton.accessibilityLabel = track.laterLabel
         resetButton.accessibilityLabel = track.resetLabel
-        syncButton.accessibilityLabel = track.syncLabel
+        syncButton.configuration?.title = track.syncLabel
         syncButton.isHidden = !track.canSync
         syncButton.configuration?.showsActivityIndicator = track.syncing
         syncButton.isEnabled = !track.syncing
@@ -442,15 +442,15 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
         rows.forEach(resultsStack.addArrangedSubview)
     }
 
-    /// The source mark leads the row; a saved row shows the tick instead.
+    /// The name over its downloads and the rest of its meta, then its badges; a saved row leads with the tick.
     private func configure(_ button: UIButton, with result: SubtitlePanelResult) {
         var configuration = button.configuration ?? rowConfiguration()
-        configuration.image = result.applied ? UIImage(systemName: "checkmark.circle.fill") : monogramImage(result.monogram)
-        configuration.imageColorTransformer = result.hashMatch || result.applied ? UIConfigurationColorTransformer { _ in Metrics.accent } : nil
+        configuration.image = result.applied ? UIImage(systemName: "checkmark.circle.fill") : nil
+        configuration.imageColorTransformer = result.applied ? UIConfigurationColorTransformer { _ in Metrics.accent } : nil
         configuration.showsActivityIndicator = result.applying
         configuration.title = result.name
         let badges = result.badges.joined(separator: "  ")
-        configuration.subtitle = badges.isEmpty ? result.meta : "\(badges)  ·  \(result.meta)"
+        configuration.subtitle = badges.isEmpty ? result.meta : "\(result.meta)  ·  \(badges)"
         button.configuration = configuration
         button.alpha = result.applied ? 0.7 : 1
     }
