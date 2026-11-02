@@ -10,6 +10,8 @@
 #                                               #  store language)
 #   npm run archive -- <buildNumber> --upload --notes
 #                                               # and translate missing release notes first
+#   npm run archive -- <buildNumber> --upload --no-testflight
+#                                               # upload without the external TestFlight submission
 #   --nuke-node-modules                         # any mode: wipe node_modules and `npm ci`
 #                                               # (default `npm i` keeps the tested tree;
 #                                               #  the lockfile is never deleted)
@@ -52,18 +54,20 @@ source scripts/native-build-lock.sh
 BUILD_NUMBER="${1:-}"
 UPLOAD=0
 NOTES=0
+TESTFLIGHT=1
 NUKE_NODE_MODULES=0
 for arg in "${@:2}"; do
   case "$arg" in
     --upload) UPLOAD=1 ;;
     --notes) NOTES=1 ;;
+    --no-testflight) TESTFLIGHT=0 ;;
     --nuke-node-modules) NUKE_NODE_MODULES=1 ;;
     *) echo "Unknown option: $arg" >&2; exit 1 ;;
   esac
 done
 
 if [[ ! "$BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
-  echo "Usage: npm run archive -- <buildNumber> [--upload [--notes]] [--nuke-node-modules]" >&2
+  echo "Usage: npm run archive -- <buildNumber> [--upload [--notes] [--no-testflight]] [--nuke-node-modules]" >&2
   echo "Build number must be a positive integer (check the last one in App Store Connect)." >&2
   exit 1
 fi
@@ -178,6 +182,11 @@ fi
 
 if [[ $NOTES -eq 1 && $UPLOAD -eq 0 ]]; then
   echo "--notes only runs with --upload." >&2
+  exit 1
+fi
+
+if [[ $TESTFLIGHT -eq 0 && $UPLOAD -eq 0 ]]; then
+  echo "--no-testflight only runs with --upload." >&2
   exit 1
 fi
 
@@ -351,7 +360,7 @@ build_platform() {
 
 # ---------------------------------------------------------------- pipeline
 
-STEPS=$([[ $UPLOAD -eq 1 ]] && echo 8 || echo 5)
+STEPS=$([[ $UPLOAD -eq 1 ]] && echo 9 || echo 5)
 
 echo "[1/$STEPS] Stamping build number $BUILD_NUMBER into app.json"
 node -e 'const fs=require("fs");const n=process.argv[1];const s=fs.readFileSync("app.json","utf8");const out=s.replace(/("buildNumber":\s*")[^"]*(")/,"$1"+n+"$2");if(!out.includes(`"buildNumber": "${n}"`))throw new Error("buildNumber not stamped in app.json");fs.writeFileSync("app.json",out);' "$BUILD_NUMBER"
@@ -378,6 +387,20 @@ build_platform macOS "generic/platform=macOS,variant=Mac Catalyst" macos macosx 
 echo "[5/$STEPS] tvOS"
 build_platform tvOS "generic/platform=tvOS" appletvos appletvos 1 scripts/exportOptions-tvos.plist
 
+if [[ $UPLOAD -eq 1 ]]; then
+  echo "[6/$STEPS] External TestFlight"
+  if [[ $TESTFLIGHT -eq 0 ]]; then
+    echo "  skipped (--no-testflight)"
+    RESULTS+=("testflight | skipped (--no-testflight)")
+  elif node scripts/appstore-testflight.mjs "$BUILD_NUMBER"; then
+    RESULTS+=("testflight | build $BUILD_NUMBER submitted where the review slot was free (see above)")
+  else
+    echo "External TestFlight step failed; the build is uploaded, submit it in App Store Connect." >&2
+    RESULTS+=("testflight | FAILED, submit build $BUILD_NUMBER by hand")
+  fi
+  echo ""
+fi
+
 # ---------------------------------------------------------------- summary
 
 # ------------------------------------------------------- store screenshots
@@ -390,7 +413,7 @@ build_platform tvOS "generic/platform=tvOS" appletvos appletvos 1 scripts/export
 # Captures are taken by hand. --render composes those staged files directly;
 # an archive must not import unrelated screenshots from the Desktop.
 if [[ $UPLOAD -eq 1 ]]; then
-  echo "[6/$STEPS] Screenshots"
+  echo "[7/$STEPS] Screenshots"
   npm run shots -- --render || { echo "Screenshot composition failed; the build is uploaded, the shots are not." >&2; exit 1; }
   # --create-version: the binary for this version just went up, so opening its
   # draft to hang the shots on is intended, not the silent open the flag guards.
@@ -411,11 +434,11 @@ if [[ $UPLOAD -eq 1 ]]; then
 
   # A language with screenshots and no description cannot be submitted, so the
   # text goes up in the same run as the pictures.
-  echo "[7/$STEPS] Listing text"
+  echo "[8/$STEPS] Listing text"
   npm run meta:upload || { echo "Listing text upload failed; the build and shots are uploaded, the text is not." >&2; exit 1; }
   RESULTS+=("listing text | uploaded, every store language, platforms held by a review skipped (see above)")
 
-  echo "[8/$STEPS] Build $BUILD_NUMBER on the $VERSION versions"
+  echo "[9/$STEPS] Build $BUILD_NUMBER on the $VERSION versions"
   node scripts/appstore-attach-build.mjs "$BUILD_NUMBER" || { echo "Selecting the build failed; everything is uploaded, pick build $BUILD_NUMBER in App Store Connect." >&2; exit 1; }
   RESULTS+=("build $BUILD_NUMBER | selected on the open $VERSION versions, platforms held by a review skipped (see above)")
 fi

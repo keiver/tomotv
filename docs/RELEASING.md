@@ -8,7 +8,29 @@ One command produces App Store artifacts for iOS, Mac Catalyst, then tvOS:
 ```bash
 npm run archive -- <next-build>            # archive, export signed IPA/PKG files, validate
 npm run archive -- <next-build> --upload   # also upload all three platforms and their listings
+npm run archive -- <next-build> --upload --no-testflight   # upload, without the external TestFlight submission
 ```
+
+### External TestFlight
+
+Every build reaches the internal group "Tomo Internal Testers" on its own. `--upload` also
+sends each platform's build to the external group "Tomo Warrior Testers": it submits the build
+for TestFlight beta review, then adds it to the group. Testers are notified once Apple approves it.
+
+Apple allows one build of each version in review at a time, and each platform has its own slot.
+Before submitting, the step asks App Store Connect whether a build of that version and platform is
+waiting for review or in review. If one is, nothing is submitted and the step prints which build
+holds the slot. Apple keeps no queue, so a build skipped this way stays "Ready to Submit"; once the
+review ends, submit the one you want by hand:
+
+```bash
+node scripts/appstore-testflight.mjs <build> --platform IOS   # IOS, MAC_OS or TV_OS; all three without --platform
+```
+
+The first build of a version gets a full review. Later builds of the same version usually do not,
+but each still needs its own submission. Apple takes at most six beta review submissions in 24 hours;
+a refused submission is printed with Apple's reason and the build is not added to the group. A
+failure in this step never stops the rest of the archive run. `--no-testflight` skips it.
 
 A platform whose last version is still in review gets its build for TestFlight but keeps its
 listing. Once that review ends, open the new version with
