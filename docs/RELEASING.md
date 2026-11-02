@@ -36,6 +36,13 @@ ASC_ISSUER_ID=<issuer uuid from the same ASC page>
 API_PRIVATE_KEYS_DIR=/absolute/path/to/dir/containing/AuthKey_XXXXXXXXXX.p8
 ```
 
+The release bundle also reads a gitignored `.env.local` at the repo root. It must hold
+Tomo's OpenSubtitles consumer key, or the build ships with OpenSubtitles off:
+
+```bash
+EXPO_PUBLIC_OPENSUBTITLES_API_KEY=<key from opensubtitles.com/en/consumers>
+```
+
 Without API credentials the default mode skips App Store validation;
 Xcode-managed signing uses the account configured in Xcode. `--upload` requires
 the API credentials above.

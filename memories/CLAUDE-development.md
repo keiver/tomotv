@@ -41,8 +41,14 @@ same flow production users follow:
 4. On success the app drops you on the Library root; credentials persist in the device
    Keychain (SecureStore) across restarts
 
-There is no `.env.local` / build-time credential mechanism: connecting through Settings
-is the only path, on simulator and device alike.
+Server credentials have no build-time mechanism: connecting through Settings is the
+only path, on simulator and device alike.
+
+The gitignored `.env.local` holds one build-time value, Tomo's OpenSubtitles consumer
+key, as `EXPO_PUBLIC_OPENSUBTITLES_API_KEY=<key>`. Expo loads it when Metro starts and
+when the release bundle is built, and inlines it into the JS. A build without it skips
+OpenSubtitles and searches the server only. Viewers never enter an API key: OpenSubtitles
+bans apps that make users create one. Their own username and password are optional.
 
 ---
 

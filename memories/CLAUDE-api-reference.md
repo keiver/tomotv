@@ -26,7 +26,7 @@ Reference for the Jellyfin API surface: server connection, video streaming, libr
 ## Module Map
 
 `services/jellyfinApi.ts` is a barrel with no logic. The implementation lives in
-`services/jellyfin/`. **Always import from `@/services/jellyfinApi`** — a dozen test files
+`services/jellyfin/`. **Always import from `@/services/jellyfinApi`**: a dozen test files
 mock that specifier, so bypassing it silently defeats their mocks.
 
 | Module                  | Owns                                                                                                                                                                        |
@@ -81,7 +81,6 @@ This document provides a reference for the `services/jellyfinApi.ts` public surf
 | `connectToDemoServer(clearCaches?)` | Connect to the Tomo TV demo      | `Promise<void>` |
 | `disconnectFromDemo()`              | Disconnect and clear credentials | `Promise<void>` |
 | `isDemoMode()`                      | Check if using demo server       | `boolean`       |
-| `syncDevCredentials()`              | Sync .env.local to SecureStore   | `Promise<void>` |
 
 ## Library & Content
 
@@ -174,4 +173,3 @@ renditions (`SubtitleMethod=Hls` is not sent).
 - **Retry Logic:** Exponential backoff (3 attempts max)
 - **Timeouts:** 10-30 seconds per request
 - **Configuration Caching:** Synchronous URL generation
-- **Development Fallback:** `.env.local` credentials

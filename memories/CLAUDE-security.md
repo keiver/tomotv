@@ -61,9 +61,24 @@ This document describes the security architecture, known limitations, and mitiga
 **Verified:**
 
 - ✅ Zero hardcoded credentials in source code
-- ✅ `.env.local` is git-ignored (development only)
+- ✅ `.env.local` is git-ignored; it holds only Tomo's OpenSubtitles consumer key
 - ✅ Production builds require user configuration via Settings
 - ✅ The demo server's account is shared and passwordless, so its constants hold no secret
+
+### OpenSubtitles Consumer Key
+
+The key is inlined into the release bundle, so anyone can read it from the app or from
+their own network traffic. That is accepted on a free key: OpenSubtitles requires one key
+per application, and free-key limits are per IP (5 downloads a day without sign-in) and
+per viewer account (20, or 1000 for VIP), not per key. Jellyfin's Open Subtitles plugin,
+Bazarr and OpenSubtitles' own Kodi addon all ship their key in public source the same way.
+
+- Keep it out of git: the repo is public, and a fork must not ship Tomo's key.
+- If OpenSubtitles blocks it, create a new consumer key, put it in `.env.local` and ship a build.
+- Never ship a paid-plan key this way: a paid key downloads on the plan's quota, so a copied
+  key spends the plan. A paid key needs a server that holds it, with App Attest in front.
+- Free keys must show "Subtitles provided by OpenSubtitles.com" where subtitles are searched;
+  the subtitle panel's title carries it.
 
 ---
 

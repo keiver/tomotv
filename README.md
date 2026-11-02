@@ -79,8 +79,8 @@ permission on the server overrides all three.
   tracks become WebVTT on the device, sidecar text files are fetched once and
   served by the engine, and image tracks (PGS, VobSub, DVB, XSUB) are decoded
   to bitmaps drawn over the native player. The app also finds subtitles, from
-  the info panel or a panel in the Apple TV player, searching the server,
-  OpenSubtitles and SubSource with your own accounts; a pick is saved to
+  the info panel or a panel in the Apple TV player, searching the server
+  and OpenSubtitles, signed in to your own account if you choose; a pick is saved to
   the server or kept on the device, and the running session takes it without
   restarting. Each track's timing moves in half-second steps, or one press
   matches it to the speech in the audio, measured on the device.
