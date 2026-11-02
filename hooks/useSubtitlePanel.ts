@@ -107,7 +107,7 @@ export function panelStateFor(
   const left = openSubtitlesDownloadsLeft();
   return {
     title,
-    credit: left === null ? t("subtitles.credit") : `${t("subtitles.credit")} · ${t("subtitles.downloadsLeft").replace("{count}", String(left))}`,
+    credit: t("subtitles.credit"),
     confirm: {
       title: t("subtitles.confirmDownload"),
       remaining: left === null ? "" : t("subtitles.downloadsLeft").replace("{count}", String(left)),
@@ -149,11 +149,13 @@ export function useSubtitlePanel(itemId: string, active: ActiveTextSubtitle | nu
   // folder's episodes already carrying the language are skipped.
   const presented = useRef(false);
   // In the player a kept pick reloads the session, so the panel closes before the reload starts.
+  // Shown drops in the same tick as the pick's job update, so no send re-presents the closing panel and marks it presented after it is gone.
   const closeBeforeReload = useCallback(async () => {
     if (!presented.current) return;
     presented.current = false;
-    await dismissSubtitlePanel();
     setShown(false);
+    await dismissSubtitlePanel();
+    presented.current = false;
   }, []);
   const search = useSubtitleSearch(items, !inPlayer && (items?.length ?? 0) > 1, inPlayer ? closeBeforeReload : undefined);
   const timing = useSubtitleTiming(itemId);

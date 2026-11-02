@@ -112,10 +112,9 @@ describe("the panel's state", () => {
     expect(stillTheOld.jobs[0].results.map((result) => result.timing ?? null)).toEqual([null, null]);
   });
 
-  it("adds the free downloads left today to the credit once the API has said how many", () => {
-    expect(panelStateFor(search([]), [], 1, "subtitles.title", "#4F99FF").credit).toBe("subtitles.credit");
+  it("keeps the downloads left out of the credit, for the download alert alone", () => {
     jest.mocked(openSubtitlesDownloadsLeft).mockReturnValueOnce(4);
-    expect(panelStateFor(search([]), [], 1, "subtitles.title", "#4F99FF").credit).toBe("subtitles.credit · subtitles.downloadsLeft");
+    expect(panelStateFor(search([]), [], 1, "subtitles.title", "#4F99FF").credit).toBe("subtitles.credit");
   });
 
   it("gives the download alert its words, with the downloads left only once known", () => {

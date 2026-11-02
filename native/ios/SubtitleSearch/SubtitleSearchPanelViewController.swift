@@ -13,7 +13,7 @@ import UIKit
 private enum Metrics {
     #if os(tvOS)
         static let isTV = true
-        static let cardSize = CGSize(width: 1180, height: 760)
+        static let cardSize = CGSize(width: 1180, height: 700)
         static let cardCornerRadius: CGFloat = 44
         static let rowCornerRadius: CGFloat = 28
         static let controlHeight: CGFloat = 72
