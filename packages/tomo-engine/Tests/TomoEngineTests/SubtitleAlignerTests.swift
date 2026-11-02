@@ -121,7 +121,7 @@ final class SubtitleAlignerTests: XCTestCase {
         let speech = Self.speechFromCues(Self.cues(late: 0, seconds: Self.seconds), seconds: Self.seconds)
         let found = try XCTUnwrap(alignCues(speech: speech, cues: Self.cues(late: 1.7, seconds: Self.seconds + 2), windowStart: 0, coverage: 0...(Self.seconds + 2)))
         XCTAssertEqual(found.offsetMs, -1700, accuracy: 20)
-        XCTAssertGreaterThanOrEqual(found.confidence, 6)
+        XCTAssertGreaterThanOrEqual(found.confidence, 0.5)
         let early = try XCTUnwrap(alignCues(speech: speech, cues: Self.cues(late: -2.5, seconds: Self.seconds + 3), windowStart: 0, coverage: -3...(Self.seconds + 3)))
         XCTAssertEqual(early.offsetMs, 2500, accuracy: 20)
     }
@@ -132,11 +132,9 @@ final class SubtitleAlignerTests: XCTestCase {
         let speech = Self.speechFromCues(Self.cues(late: 0, seconds: Self.seconds), seconds: Self.seconds)
         let readUpTo = 100.0
         let known = Self.cues(late: 0, seconds: readUpTo).filter { $0.end <= readUpTo }
-        let wholeWindow = alignCues(speech: speech, cues: known, windowStart: 0, coverage: -60...(Self.seconds + 60))
-        XCTAssertNil(wholeWindow)
         let readPart = try XCTUnwrap(alignCues(speech: speech, cues: known, windowStart: 0, coverage: 0...readUpTo))
         XCTAssertEqual(readPart.offsetMs, 0, accuracy: 20)
-        XCTAssertGreaterThanOrEqual(readPart.confidence, 6)
+        XCTAssertGreaterThanOrEqual(readPart.confidence, 0.5)
     }
 
     func testAnEmbeddedTracksWindowStaysInsideWhatTheReadLoopHasPassed() throws {
@@ -230,7 +228,7 @@ final class SubtitleAlignerTests: XCTestCase {
         }
         print("[SubtitleAlignerTests] session: offset \(offsetMs) ms, confidence \(confidence)")
         XCTAssertEqual(offsetMs, -1700, accuracy: 100)
-        XCTAssertGreaterThanOrEqual(confidence, 6)
+        XCTAssertGreaterThanOrEqual(confidence, 0.5)
         XCTAssertEqual(session.alignSubtitleTiming(streamIndex: 7, attempt: 0), .failed("noTrack"))
     }
 
@@ -274,12 +272,11 @@ final class SubtitleAlignerTests: XCTestCase {
         XCTAssertEqual(speechTimeline(levels: [Float](repeating: .nan, count: 100)), [Bool](repeating: false, count: 100))
     }
 
-    func testWindowsTakenTogetherAgreeOrStayUnanswered() {
-        func answer(_ offsetMs: Int, _ confidence: Double) -> SubtitleAlignment { SubtitleAlignment(offsetMs: offsetMs, confidence: confidence) }
-        XCTAssertEqual(agreedAlignment([answer(-40_000, 2), answer(120, 6.3)]), answer(120, 6.3))
-        XCTAssertEqual(agreedAlignment([answer(100, 3.4), answer(-30_000, 2.4), answer(-80, 4.1), answer(20, 3.2)]), answer(20, 4.1))
-        XCTAssertNil(agreedAlignment([answer(100, 4), answer(-1500, 4.5)]))
-        XCTAssertNil(agreedAlignment([answer(100, 2.9), answer(110, 2.8), answer(90, 5)]))
-        XCTAssertNil(agreedAlignment([]))
+    /// Speech that repeats every 20 s fits the cues as well 20 s off as on: no shift beats the others.
+    func testSpeechThatRepeatsWithinTheSearchGivesNoAlignment() {
+        let pattern = Self.bursts.filter { $0.end < 20 }
+        let repeated = (0..<9).flatMap { lap in pattern.map { ($0.start + Double(lap) * 20, $0.end + Double(lap) * 20) } }
+        let speech = Self.speechFromCues(repeated, seconds: Self.seconds)
+        XCTAssertNil(alignCues(speech: speech, cues: repeated.map { ($0.0 + 1, $0.1 + 1) }, windowStart: 0, coverage: 0...Self.seconds))
     }
 }

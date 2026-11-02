@@ -42,9 +42,10 @@ extension RemuxSession {
         return AlignWindow(start: start, end: end, coverage: coverage)
     }
 
-    /// Lines the track's cues up with the speech in the audio of a window of up to three minutes:
-    /// attempt 0 around the playhead, later attempts elsewhere in the file. The offset answered is the
-    /// track's whole correction, measured against the cues as the file has them.
+    /// Lines the track's cues up with the speech in the audio the read loop measured around the playhead;
+    /// with under 30 s of it, a window of up to three minutes decoded on its own, attempt 0 around the
+    /// playhead and later attempts elsewhere. The offset answered is the track's whole correction,
+    /// measured against the cues as the file has them.
     func alignSubtitleTiming(streamIndex: Int, attempt: Int) -> SubtitleAlignOutcome {
         let outcome = alignOutcome(streamIndex: streamIndex, attempt: attempt)
         if case let .failed(reason) = outcome {
@@ -65,7 +66,7 @@ extension RemuxSession {
         if embedded && known == nil { return .failed("notRead") }
 
         // The audio the read loop has already measured answers at once; with too little of it, the window is decoded below.
-        if attempt == 0, let tracked = speechLevels.span(containing: playhead),
+        if let tracked = speechLevels.span(containing: playhead),
            case let lower = max(known?.lowerBound ?? tracked.lowerBound, tracked.lowerBound),
            case let upper = min(known?.upperBound ?? tracked.upperBound, tracked.upperBound), upper > lower {
             if let outcome = Self.alignFromLevels(speechLevels, span: lower...upper, fileStart: anchor, duration: durationSeconds, cues: { [self] from, to in
@@ -89,15 +90,13 @@ extension RemuxSession {
         let speech = speechTimeline(samples: audio.samples, sampleRate: audio.sampleRate)
         guard speech.contains(true) else { return .failed("noSpeech") }
         guard let found = alignCues(speech: speech, cues: cues, windowStart: audio.startSeconds, coverage: window.coverage) else { return .failed("noMatch") }
-        NSLog("[SubtitleAligner] stream %ld attempt %ld window %.0f-%.0fs: offset %ld ms, confidence %.1f", streamIndex, attempt, window.start, window.end, found.offsetMs, found.confidence)
+        NSLog("[SubtitleAligner] stream %ld attempt %ld window %.0f-%.0fs: offset %ld ms, margin %.2f", streamIndex, attempt, window.start, window.end, found.offsetMs, found.confidence)
         return .aligned(offsetMs: found.offsetMs, confidence: found.confidence)
     }
 
-    /// Windows of `alignHalfWindowSeconds * 2` laid back from the end of `span`, `alignLevelStepSeconds`
-    /// apart, each matched against the cues on the measured levels, and their answers taken together.
-    /// Nil when `span` holds no window.
-    static let alignLevelStepSeconds = 120.0
-    static let alignLevelWindows = 6
+    /// The last `alignLevelSeconds` of `span` matched against the cues on the measured levels, in one pass.
+    /// Nil when `span` holds under 30 s.
+    static let alignLevelSeconds = 600.0
     static func alignFromLevels(
         _ levels: SpeechLevels,
         span: ClosedRange<Double>,
@@ -106,26 +105,18 @@ extension RemuxSession {
         cues: (Double, Double) -> [(start: Double, end: Double)]?,
         log: (String) -> Void
     ) -> SubtitleAlignOutcome? {
-        var windows: [AlignWindow] = []
-        for step in 0..<alignLevelWindows {
-            let centre = span.upperBound - alignHalfWindowSeconds - Double(step) * alignLevelStepSeconds
-            guard centre + alignHalfWindowSeconds > span.lowerBound + 30,
-                  let window = alignWindow(centre: centre, half: alignHalfWindowSeconds, fileStart: fileStart, duration: duration, known: span),
-                  !windows.contains(window) else { continue }
-            windows.append(window)
+        let half = alignLevelSeconds / 2
+        guard let window = alignWindow(centre: span.upperBound - half, half: half, fileStart: fileStart, duration: duration, known: span) else { return nil }
+        guard let windowCues = cues(window.coverage.lowerBound, window.coverage.upperBound) else { return .failed("noTrack") }
+        guard !windowCues.isEmpty else { return .failed("noCues") }
+        let speech = speechTimeline(levels: levels.levels(from: window.start, to: window.end))
+        guard speech.contains(true) else { return .failed("noSpeech") }
+        guard let found = alignCues(speech: speech, cues: windowCues, windowStart: window.start, coverage: window.coverage) else {
+            log(String(format: "measured %.0f-%.0fs: no shift stands out", window.start, window.end))
+            return .failed("noMatch")
         }
-        guard !windows.isEmpty else { return nil }
-        var found: [SubtitleAlignment] = []
-        for window in windows {
-            guard let windowCues = cues(window.coverage.lowerBound, window.coverage.upperBound) else { return .failed("noTrack") }
-            let speech = speechTimeline(levels: levels.levels(from: window.start, to: window.end))
-            guard !windowCues.isEmpty, speech.contains(true),
-                  let answer = alignCues(speech: speech, cues: windowCues, windowStart: window.start, coverage: window.coverage, minConfidence: 0) else { continue }
-            log(String(format: "measured window %.0f-%.0fs: offset %ld ms, confidence %.1f", window.start, window.end, answer.offsetMs, answer.confidence))
-            found.append(answer)
-        }
-        guard let agreed = agreedAlignment(found) else { return .failed("noMatch") }
-        return .aligned(offsetMs: agreed.offsetMs, confidence: agreed.confidence)
+        log(String(format: "measured %.0f-%.0fs: offset %ld ms, margin %.2f", window.start, window.end, found.offsetMs, found.confidence))
+        return .aligned(offsetMs: found.offsetMs, confidence: found.confidence)
     }
 
     /// The stretch of source time the read loop has passed without a break that holds `time`, the
