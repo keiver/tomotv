@@ -33,6 +33,9 @@ export interface PanelTrack {
   offsetLabel: string;
   earlierLabel: string;
   laterLabel: string;
+  /** The words on the step buttons themselves ("−0.5 s", "+0.5 s"); the labels above are what a screen reader says. */
+  earlierTitle: string;
+  laterTitle: string;
   resetLabel: string;
   syncLabel: string;
   replaceLabel: string;

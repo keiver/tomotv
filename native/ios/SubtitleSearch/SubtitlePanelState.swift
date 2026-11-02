@@ -52,6 +52,9 @@ public struct SubtitlePanelTrack: Codable, Equatable {
     public let offsetLabel: String
     public let earlierLabel: String
     public let laterLabel: String
+    /// The words on the step buttons themselves ("−0.5 s", "+0.5 s"); the labels above are what a screen reader says.
+    public let earlierTitle: String
+    public let laterTitle: String
     public let resetLabel: String
     public let syncLabel: String
     public let replaceLabel: String
@@ -67,8 +70,8 @@ public struct SubtitlePanelTrack: Codable, Equatable {
     public let note: String
 
     public init(
-        id: Int, name: String, meta: String, monogram: String, offsetLabel: String, earlierLabel: String, laterLabel: String, resetLabel: String, syncLabel: String,
-        replaceLabel: String, canSync: Bool, canReplace: Bool, replacing: Bool, syncing: Bool, note: String
+        id: Int, name: String, meta: String, monogram: String, offsetLabel: String, earlierLabel: String, laterLabel: String, earlierTitle: String, laterTitle: String,
+        resetLabel: String, syncLabel: String, replaceLabel: String, canSync: Bool, canReplace: Bool, replacing: Bool, syncing: Bool, note: String
     ) {
         self.id = id
         self.name = name
@@ -77,6 +80,8 @@ public struct SubtitlePanelTrack: Codable, Equatable {
         self.offsetLabel = offsetLabel
         self.earlierLabel = earlierLabel
         self.laterLabel = laterLabel
+        self.earlierTitle = earlierTitle
+        self.laterTitle = laterTitle
         self.resetLabel = resetLabel
         self.syncLabel = syncLabel
         self.replaceLabel = replaceLabel

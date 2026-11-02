@@ -44,7 +44,7 @@ final class SubtitlePanelStateTests: XCTestCase {
         with["tracks"] = [
             [
                 "id": 100_000, "name": "Kept", "meta": "Podnapisi · English", "monogram": "P", "offsetLabel": "1.5 s late", "earlierLabel": "Back 0.5 s",
-                "laterLabel": "Forward 0.5 s", "resetLabel": "Reset", "syncLabel": "Sync to audio", "replaceLabel": "Replace", "canSync": true, "canReplace": true,
+                "laterLabel": "Forward 0.5 s", "earlierTitle": "−0.5 s", "laterTitle": "+0.5 s", "resetLabel": "Reset", "syncLabel": "Sync to audio", "replaceLabel": "Replace", "canSync": true, "canReplace": true,
                 "replacing": true, "syncing": false, "note": "",
             ]
         ]
@@ -52,6 +52,7 @@ final class SubtitlePanelStateTests: XCTestCase {
         let state = try XCTUnwrap(SubtitlePanelState.from(dictionary: with))
         XCTAssertEqual(state.tracks.map(\.id), [100_000])
         XCTAssertEqual(state.tracks[0].offsetLabel, "1.5 s late")
+        XCTAssertEqual(state.tracks[0].earlierTitle, "−0.5 s")
         XCTAssertTrue(state.tracks[0].replacing)
         XCTAssertEqual(state.takeAll?.label, "Take 3 matches")
     }
@@ -59,7 +60,7 @@ final class SubtitlePanelStateTests: XCTestCase {
     func testTheShownTrackIsTheChosenOneWhileListedElseTheFirst() throws {
         func track(_ id: Int) -> [String: Any] {
             [
-                "id": id, "name": "T\(id)", "meta": "English", "monogram": "", "offsetLabel": "On time", "earlierLabel": "", "laterLabel": "", "resetLabel": "",
+                "id": id, "name": "T\(id)", "meta": "English", "monogram": "", "offsetLabel": "On time", "earlierLabel": "", "laterLabel": "", "earlierTitle": "", "laterTitle": "", "resetLabel": "",
                 "syncLabel": "", "replaceLabel": "", "canSync": false, "canReplace": true, "replacing": false, "syncing": false, "note": "",
             ]
         }

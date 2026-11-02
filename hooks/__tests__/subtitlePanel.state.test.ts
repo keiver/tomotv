@@ -84,6 +84,8 @@ describe("the panel's state", () => {
         offsetLabel: "subtitles.early",
         earlierLabel: "subtitles.earlier",
         laterLabel: "subtitles.later",
+        earlierTitle: "subtitles.earlierStep",
+        laterTitle: "subtitles.laterStep",
         resetLabel: "subtitles.resetTiming",
         syncLabel: "subtitles.sync",
         replaceLabel: "subtitles.replace",

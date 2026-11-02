@@ -31,7 +31,7 @@ private enum Metrics {
         static let iconSymbol: CGFloat = 26
         static let pillSideInset: CGFloat = 28
         static let rowInsets = NSDirectionalEdgeInsets(top: 18, leading: 24, bottom: 18, trailing: 24)
-        static let sectionSpacing: CGFloat = 22
+        static let sectionSpacing: CGFloat = 30
         static let controlSpacing: CGFloat = 16
     #else
         static let isTV = false
@@ -50,7 +50,7 @@ private enum Metrics {
         static let iconSymbol: CGFloat = 16
         static let pillSideInset: CGFloat = 16
         static let rowInsets = NSDirectionalEdgeInsets(top: 10, leading: 14, bottom: 10, trailing: 14)
-        static let sectionSpacing: CGFloat = 14
+        static let sectionSpacing: CGFloat = 18
         static let controlSpacing: CGFloat = 8
     #endif
 
@@ -135,11 +135,13 @@ private final class TrackRowView: UIStackView {
     var onShift: ((Int?) -> Void)?
     var onSync: (() -> Void)?
     var onReplace: (() -> Void)?
+    /// A match is running: the sync button spins and ignores presses, but stays enabled so focus keeps its normal look.
+    private var syncing = false
 
     let trackButton = UIButton(configuration: pillConfiguration())
-    private let earlierButton = UIButton(configuration: roundIconConfiguration())
+    private let earlierButton = UIButton(configuration: pillConfiguration())
     private let offsetLabel = UILabel()
-    private let laterButton = UIButton(configuration: roundIconConfiguration())
+    private let laterButton = UIButton(configuration: pillConfiguration())
     private let resetButton = UIButton(configuration: roundIconConfiguration())
     private let syncButton = UIButton(configuration: pillConfiguration(prominent: true))
     private let replaceButton = UIButton(configuration: roundIconConfiguration())
@@ -157,15 +159,16 @@ private final class TrackRowView: UIStackView {
         trackButton.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         trackButton.heightAnchor.constraint(equalToConstant: Metrics.controlHeight).isActive = true
 
-        earlierButton.configuration?.image = UIImage(systemName: "arrow.backward.to.line")
-        laterButton.configuration?.image = UIImage(systemName: "arrow.forward.to.line")
         resetButton.configuration?.image = UIImage(systemName: "arrow.counterclockwise")
         syncButton.configuration?.image = UIImage(systemName: "waveform.and.magnifyingglass")
         replaceButton.configuration?.image = UIImage(systemName: "arrow.left.arrow.right")
-        syncButton.setContentHuggingPriority(.required, for: .horizontal)
-        syncButton.setContentCompressionResistancePriority(.required, for: .horizontal)
-        syncButton.heightAnchor.constraint(equalToConstant: Metrics.controlHeight).isActive = true
-        for button in [earlierButton, laterButton, resetButton, replaceButton] {
+        // The step buttons and the sync button carry words, so they are pills sized by their text.
+        for button in [earlierButton, laterButton, syncButton] {
+            button.setContentHuggingPriority(.required, for: .horizontal)
+            button.setContentCompressionResistancePriority(.required, for: .horizontal)
+            button.heightAnchor.constraint(equalToConstant: Metrics.controlHeight).isActive = true
+        }
+        for button in [resetButton, replaceButton] {
             button.setContentHuggingPriority(.required, for: .horizontal)
             button.setContentCompressionResistancePriority(.required, for: .horizontal)
             button.heightAnchor.constraint(equalToConstant: Metrics.controlHeight).isActive = true
@@ -174,7 +177,11 @@ private final class TrackRowView: UIStackView {
         earlierButton.addAction(UIAction { [weak self] _ in self?.onShift?(-1) }, for: .primaryActionTriggered)
         laterButton.addAction(UIAction { [weak self] _ in self?.onShift?(1) }, for: .primaryActionTriggered)
         resetButton.addAction(UIAction { [weak self] _ in self?.onShift?(nil) }, for: .primaryActionTriggered)
-        syncButton.addAction(UIAction { [weak self] _ in self?.onSync?() }, for: .primaryActionTriggered)
+        syncButton.addAction(
+            UIAction { [weak self] _ in
+                guard let self, !self.syncing else { return }
+                self.onSync?()
+            }, for: .primaryActionTriggered)
         replaceButton.addAction(UIAction { [weak self] _ in self?.onReplace?() }, for: .primaryActionTriggered)
 
         offsetLabel.font = UIFont.systemFont(ofSize: Metrics.pillTitleFont, weight: .semibold)
@@ -184,7 +191,8 @@ private final class TrackRowView: UIStackView {
 
         note.font = UIFont.systemFont(ofSize: Metrics.metaFont, weight: .regular)
         note.textColor = Metrics.dim
-        note.numberOfLines = 2
+        note.numberOfLines = 0
+        note.setContentCompressionResistancePriority(.required, for: .vertical)
         note.isHidden = true
 
         let controls = UIStackView(arrangedSubviews: [earlierButton, offsetLabel, laterButton, resetButton, replaceButton])
@@ -211,7 +219,7 @@ private final class TrackRowView: UIStackView {
         }
         addArrangedSubview(note)
         axis = .vertical
-        spacing = Metrics.isTV ? 10 : 8
+        spacing = Metrics.isTV ? 16 : 10
     }
 
     @available(*, unavailable)
@@ -221,13 +229,15 @@ private final class TrackRowView: UIStackView {
         trackButton.configuration?.title = track.name
         offsetLabel.textColor = accent
         offsetLabel.text = track.offsetLabel
+        earlierButton.configuration?.title = track.earlierTitle
+        laterButton.configuration?.title = track.laterTitle
         earlierButton.accessibilityLabel = track.earlierLabel
         laterButton.accessibilityLabel = track.laterLabel
         resetButton.accessibilityLabel = track.resetLabel
         syncButton.configuration?.title = track.syncLabel
         syncButton.isHidden = !track.canSync
+        syncing = track.syncing
         syncButton.configuration?.showsActivityIndicator = track.syncing
-        syncButton.isEnabled = !track.syncing
         replaceButton.accessibilityLabel = track.replaceLabel
         replaceButton.isHidden = !track.canReplace
         // The armed row's Replace fills in, so the next pick visibly belongs to it.
@@ -331,13 +341,15 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
         noteLabel.font = UIFont.systemFont(ofSize: Metrics.metaFont, weight: .regular)
         noteLabel.textColor = Metrics.dim
         noteLabel.numberOfLines = 0
+        noteLabel.setContentCompressionResistancePriority(.required, for: .vertical)
+        stateLabel.setContentCompressionResistancePriority(.required, for: .vertical)
 
         resultsStack.axis = .vertical
-        resultsStack.spacing = Metrics.isTV ? 10 : 6
+        resultsStack.spacing = Metrics.isTV ? 14 : 8
 
         for view in [controls, stateRow, noteLabel, resultsStack] { body.addArrangedSubview(view) }
         body.axis = .vertical
-        body.spacing = Metrics.isTV ? 12 : 8
+        body.spacing = Metrics.isTV ? 20 : 12
 
         addArrangedSubview(header)
         addArrangedSubview(body)

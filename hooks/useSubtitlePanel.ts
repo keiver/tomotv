@@ -53,6 +53,8 @@ export function panelTrackFor(input: PanelTrackInput): PanelTrack {
     offsetLabel: offsetLabel(input.offsetMs),
     earlierLabel: t("subtitles.earlier"),
     laterLabel: t("subtitles.later"),
+    earlierTitle: t("subtitles.earlierStep"),
+    laterTitle: t("subtitles.laterStep"),
     resetLabel: t("subtitles.resetTiming"),
     syncLabel: t("subtitles.sync"),
     replaceLabel: t("subtitles.replace"),

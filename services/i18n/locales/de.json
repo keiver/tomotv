@@ -333,6 +333,8 @@
   "subtitles.early": "{seconds} s zu früh",
   "subtitles.earlier": "0,5 s zurück",
   "subtitles.later": "0,5 s vor",
+  "subtitles.earlierStep": "−0,5 s",
+  "subtitles.laterStep": "+0,5 s",
   "subtitles.resetTiming": "Zurücksetzen",
   "subtitles.replace": "Ersetzen",
   "subtitles.sync": "Mit Ton synchronisieren",
