@@ -271,6 +271,8 @@ class LocalRemuxer: RCTEventEmitter {
     ///   liveBufferSeconds: Double? : live: seconds of output the media playlists wait for, the player's start buffer
     ///   liveCopyCutSeconds: Double? : live copy lane: the cut threshold past a segment's open keyframe (liveSegmentSeconds when absent)
     ///   liveTargetNearest: Bool?   : live: TARGETDURATION is the nearest integer of the longest allowed segment, not its ceiling
+    ///   liveLowLatency: Bool?      : live: serve LL-HLS parts when the input is continuous (MPEG-TS)
+    ///   livePartSeconds: Double?   : live LL-HLS: the PART-TARGET (default 0.5)
     ///   describesInput: Bool?      : the open input names its own range, size, rate and bit rate, and the audio tracks,
     ///                                subtitles and durationSeconds the config leaves empty; the master waits for it
     ///
@@ -389,6 +391,8 @@ class LocalRemuxer: RCTEventEmitter {
                 liveBufferSeconds: (config["liveBufferSeconds"] as? Double) ?? 0,
                 liveCopyCutSeconds: (config["liveCopyCutSeconds"] as? Double) ?? 0,
                 liveTargetNearest: (config["liveTargetNearest"] as? Bool) ?? false,
+                liveLowLatency: (config["liveLowLatency"] as? Bool) ?? false,
+                livePartSeconds: (config["livePartSeconds"] as? Double) ?? 0.5,
                 primaryVideoCodecs: (config["primaryVideoCodecs"] as? String) ?? "",
                 primaryVideoBandwidth: (config["primaryVideoBandwidth"] as? Int) ?? 0,
                 sourceBandwidth: (config["sourceBandwidth"] as? Int) ?? 0,

@@ -85,6 +85,10 @@ export interface EngineSessionConfig {
   liveCopyCutSeconds?: number;
   /** Live: TARGETDURATION is the nearest integer of the longest segment the cut allows, not its ceiling. */
   liveTargetNearest?: boolean;
+  /** Live: serve LL-HLS parts when the input is continuous (MPEG-TS); off when absent. */
+  liveLowLatency?: boolean;
+  /** Live LL-HLS: the PART-TARGET in seconds; 0.5 when absent. */
+  livePartSeconds?: number;
   stopRequests?: EngineStopRequest[];
   /**
    * The open input names its own range, size, rate and bit rate, and whichever of `audioTracks`,

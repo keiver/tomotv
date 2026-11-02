@@ -896,6 +896,7 @@ extension RemuxSession {
             "hasPlayableSupplier": !cancelled && !failed && (sourceReady || serverAvailable),
             "sourceRetryAfterSeconds": sourceState == .retryWait ? max(0, sourceRetryAt.timeIntervalSinceNow) : 0,
             "bufferedSeconds": liveBufferedSecondsLocked(),
+            "lowLatency": lowLatencyInput,
         ]
     }
 
@@ -1543,6 +1544,11 @@ extension RemuxSession {
 
         let inputFormat = input.pointee.iformat.map { String(cString: $0.pointee.name) } ?? ""
         let playlistInput = inputFormat == "hls" || inputFormat == "dash"
+        if config.isLive, config.liveLowLatency, Self.continuousLiveInput(format: inputFormat) {
+            stateLock.lock()
+            lowLatencyInput = true
+            stateLock.unlock()
+        }
         if let bound = liveProbeBound(format: inputFormat, isLive: config.isLive) {
             input.pointee.max_analyze_duration = bound
         }

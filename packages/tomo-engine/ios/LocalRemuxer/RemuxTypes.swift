@@ -175,6 +175,10 @@ struct RemuxConfig {
     var liveCopyCutSeconds: Double = 0
     /// Live: TARGETDURATION is the nearest integer of the longest segment the cut allows, not its ceiling (RFC 8216 4.3.3.1).
     var liveTargetNearest = false
+    /// Live: serve LL-HLS parts (draft-pantos-hls-rfc8216bis 4.4.4.9) when the input is continuous (MPEG-TS).
+    var liveLowLatency = false
+    /// Live LL-HLS: the PART-TARGET, fixed for the session.
+    var livePartSeconds: Double = 0.5
     var primaryVideoCodecs = ""
     var primaryVideoBandwidth = 0
     var sourceBandwidth = 0
