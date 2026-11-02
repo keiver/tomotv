@@ -47,6 +47,36 @@ extension RemuxSession {
         }
     }
 
+    /// The title's words, lowercased.
+    static func titleWords(_ title: String) -> [String] {
+        title.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+    }
+
+    /// Region or script subtags (RFC 5646 2.2.3, 2.2.4) a track title names, by the language's registered primary subtag.
+    private static let titledVariants: [(languages: Set<String>, primary: String, words: [[String]], subtag: String)] = [
+        (["spa", "es"], "es", [["latin", "american"], ["latin", "america"]], "419"),
+        (["spa", "es"], "es", [["european"], ["castilian"], ["spain"]], "ES"),
+        (["por", "pt"], "pt", [["brazilian"], ["brazil"]], "BR"),
+        (["por", "pt"], "pt", [["european"], ["portugal"]], "PT"),
+        (["fra", "fre", "fr"], "fr", [["canadian"], ["canada"]], "CA"),
+        (["zho", "chi", "zh"], "zh", [["simplified"]], "Hans"),
+        (["zho", "chi", "zh"], "zh", [["traditional"]], "Hant"),
+    ]
+
+    /// The LANGUAGE a subtitle rendition declares: the region or script its title names joins the tag, so same-language
+    /// members differ in LANGUAGE (RFC 8216 4.3.4.1.1). A tag that already has subtags is kept.
+    static func subtitleLanguageTag(_ language: String, title: String) -> String {
+        let code = language.lowercased()
+        guard !code.contains("-"), !code.contains("_") else { return language }
+        let words = titleWords(title)
+        let variant = titledVariants.first { variant in
+            variant.languages.contains(code) && variant.words.contains { phrase in
+                words.indices.contains { start in Array(words[start...].prefix(phrase.count)) == phrase }
+            }
+        }
+        return variant.map { "\($0.primary)-\($0.subtag)" } ?? language
+    }
+
     static func codecTokens(_ codecs: String) -> [String] {
         codecs.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
@@ -338,7 +368,7 @@ extension RemuxSession {
             let name = subtitleNames[position]
             let isDefault = position == defaultSubtitle
             var line = "#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"subs\",NAME=\"\(name)\""
-            line += ",LANGUAGE=\"\(Self.playlistQuotedValue(sub.language.isEmpty ? "und" : sub.language))\""
+            line += ",LANGUAGE=\"\(Self.playlistQuotedValue(Self.subtitleLanguageTag(sub.language.isEmpty ? "und" : sub.language, title: sub.name)))\""
             // DEFAULT=YES without AUTOSELECT=YES makes AVFoundation reject the master (-12642).
             // AUTOSELECT=NO hides a track from tvOS automatic subtitles, which then mark it On and draw nothing.
             line += isDefault ? ",DEFAULT=YES" : ",DEFAULT=NO"
@@ -375,7 +405,7 @@ extension RemuxSession {
             // on that pair has never run on a device.
             line += ",FORCED=NO"
             // Authoring spec 4.5; it also keeps an SDH track distinct from a same-language one (RFC 8216 4.3.4.1.1).
-            if sub.isHearingImpaired {
+            if sub.isHearingImpaired || Self.titleWords(sub.name).contains("sdh") {
                 line += ",CHARACTERISTICS=\"public.accessibility.transcribes-spoken-dialog,public.accessibility.describes-music-and-sound\""
             }
             line += ",URI=\"sub\(sub.index).m3u8\"\n"
