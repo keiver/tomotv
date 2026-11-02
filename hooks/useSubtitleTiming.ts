@@ -12,7 +12,7 @@ import { useCallback, useRef, useState } from "react";
 export const SUBTITLE_SYNC_ATTEMPTS = 2;
 
 /** Answers that another window of the same file cannot change. */
-const FINAL_REASONS = new Set(["noSession", "noTrack", "noCues"]);
+const FINAL_REASONS = new Set(["noSession", "noTrack", "notRead"]);
 
 export interface SubtitleTiming {
   /** The stored offset for a stream index, read live. */

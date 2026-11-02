@@ -378,9 +378,9 @@ export type SubtitleAlignment = { ok: true; offsetMs: number; confidence: number
 
 /**
  * Lines a subtitle track up with the speech in the running session's audio: the whole correction
- * for the track, measured against its cues as the file has them. `attempt` moves the three-minute
- * window along the file. A failed answer names why: noSession, noTrack, noCues, noAudio, noSpeech,
- * noMatch or window.
+ * for the track, measured against its cues as the file has them. `attempt` moves the window of up
+ * to three minutes elsewhere in the file. A failed answer names why: noSession, noTrack, noCues,
+ * noAudio, noSpeech, noMatch, notRead or window.
  */
 export async function alignSubtitleTiming(token: string | null, streamIndex: number, attempt: number): Promise<SubtitleAlignment> {
   if (!isLocalRemuxAvailable() || !token || typeof engineModule().alignSubtitleTiming !== "function") return { ok: false, reason: "noSession" };

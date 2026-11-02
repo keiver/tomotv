@@ -125,6 +125,45 @@ final class SubtitleAlignerTests: XCTestCase {
         XCTAssertEqual(early.offsetMs, 2500, accuracy: 20)
     }
 
+    /// An embedded track knows its cues only as far as the read loop has gone: speech past that point
+    /// must not count as speech without a subtitle.
+    func testCuesKnownForOnlyTheReadPartLineUpWhenCoverageStopsWhereTheReadStopped() throws {
+        let speech = Self.speechFromCues(Self.cues(late: 0, seconds: Self.seconds), seconds: Self.seconds)
+        let readUpTo = 100.0
+        let known = Self.cues(late: 0, seconds: readUpTo).filter { $0.end <= readUpTo }
+        let wholeWindow = alignCues(speech: speech, cues: known, windowStart: 0, coverage: -60...(Self.seconds + 60))
+        XCTAssertNil(wholeWindow)
+        let readPart = try XCTUnwrap(alignCues(speech: speech, cues: known, windowStart: 0, coverage: 0...readUpTo))
+        XCTAssertEqual(readPart.offsetMs, 0, accuracy: 20)
+        XCTAssertGreaterThanOrEqual(readPart.confidence, 6)
+    }
+
+    func testAnEmbeddedTracksWindowStaysInsideWhatTheReadLoopHasPassed() throws {
+        // Playhead 600 s into a 3000 s file read from 400 s to 640 s: the window stops at the read edge.
+        let window = try XCTUnwrap(RemuxSession.alignWindow(centre: 600, half: 90, fileStart: 0, duration: 3000, known: 400...640))
+        XCTAssertEqual(window, AlignWindow(start: 510, end: 640, coverage: 450...640))
+        // A window wholly before the read began has nothing to judge; one overlapping it keeps the overlap.
+        XCTAssertNil(RemuxSession.alignWindow(centre: 300, half: 90, fileStart: 0, duration: 3000, known: 400...640))
+        XCTAssertEqual(RemuxSession.alignWindow(centre: 360, half: 90, fileStart: 0, duration: 3000, known: 400...640), AlignWindow(start: 400, end: 450, coverage: 400...510))
+        // A track whose cues are all known keeps the whole window, with the reach either side.
+        XCTAssertEqual(RemuxSession.alignWindow(centre: 600, half: 90, fileStart: 0, duration: 3000, known: nil), AlignWindow(start: 510, end: 690, coverage: 450...750))
+        // Source time starts at the anchor: the first window sits after it, not before.
+        XCTAssertEqual(RemuxSession.alignWindow(centre: 12, half: 90, fileStart: 10, duration: 3000, known: nil)?.start, 10)
+    }
+
+    func testTheReadSpansMergeIntoTheStretchThatHoldsThePlayhead() throws {
+        let session = try RemuxSession(config: makeConfig(durationSeconds: 3000, inputUrl: "file:///nothing.mkv", subtitles: []))
+        session.stateLock.lock()
+        session.readSpans = [(from: 0, upTo: 120), (from: 110, upTo: 300), (from: 900, upTo: 1000)]
+        session.readSpanFrom = 280
+        session.readSpanUpTo = 420
+        let held = session.readSpanLocked(containing: 350)
+        let gap = session.readSpanLocked(containing: 600)
+        session.stateLock.unlock()
+        XCTAssertEqual(held, 0...420)
+        XCTAssertNil(gap)
+    }
+
     func testCuesUnrelatedToTheSpeechGiveNoAlignment() {
         let speech = Self.speechFromCues(Self.cues(late: 0, seconds: Self.seconds), seconds: Self.seconds)
         var state: UInt32 = 99
