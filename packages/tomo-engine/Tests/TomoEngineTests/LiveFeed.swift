@@ -27,7 +27,8 @@ func startLiveFeed(in root: URL, segments: Int = 3, keyframes: String? = nil, ts
 /// A continuous real-time MPEG-TS feed from the host's ffmpeg into a FIFO, the shape of a tuner or Xtream TS stream: a
 /// keyframe every `keyframeSeconds` at `fps` (a ffmpeg rate such as "25" or "30000/1001"), H.264 or MPEG-2 video, AAC audio.
 /// ffmpeg opens the FIFO when the reader does, so the source starts with the session. The caller terminates it.
-func startContinuousFeed(fps: String, keyframeSeconds: Double, codec: String = "h264") throws -> (feed: Process, path: String) {
+/// `muxing` adds MPEG-TS muxer arguments.
+func startContinuousFeed(fps: String, keyframeSeconds: Double, codec: String = "h264", muxing: [String] = []) throws -> (feed: Process, path: String) {
     let ffmpeg = "/opt/homebrew/bin/ffmpeg"
     guard FileManager.default.isExecutableFile(atPath: ffmpeg) else { throw XCTSkip("no ffmpeg at \(ffmpeg)") }
     let path = FileManager.default.temporaryDirectory.appendingPathComponent("continuous-\(UUID().uuidString).ts").path
@@ -39,7 +40,7 @@ func startContinuousFeed(fps: String, keyframeSeconds: Double, codec: String = "
     feed.executableURL = URL(fileURLWithPath: ffmpeg)
     feed.arguments = ["-hide_banner", "-loglevel", "error", "-re",
                       "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=\(fps)", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000"]
-        + video + ["-g", gop, "-keyint_min", gop, "-sc_threshold", "0", "-c:a", "aac", "-f", "mpegts", "-y", path]
+        + video + ["-g", gop, "-keyint_min", gop, "-sc_threshold", "0", "-c:a", "aac"] + muxing + ["-f", "mpegts", "-y", path]
     try feed.run()
     return (feed, path)
 }

@@ -14,6 +14,7 @@ All notable changes to Tomo TV are documented here.
 
 ### Fixed
 
+- A live channel could play with no sound for the whole tune and with sound on the next, on any MPEG-TS source (a tuner, Dispatcharr, an IPTV link): the engine's 2 s stream probe could end before the channel's first audio packet, and an audio stream with no rate or layout was left out. The engine now reads on for it. Measured on a public 720p channel: 2.27 to 2.30 s of video comes before the first audio packet of each segment, so a tune that joined at a segment start lost its audio (`@keiver/tomo-engine@1.8.0`)
 - The loading overlay stayed for the player's 500 ms steady-playback timer after playback began, and on Apple TV it kept the player off screen, so the sound started before the picture. The overlay now drops the moment the player reports playing
 - On Apple TV a folder mixing posters with wide cards could switch from fixed columns to 7 columns once another page loaded, leaving the right column empty. A folder keeps the layout its first listing picked
 - A subtitle track picked during playback could be answered with no cues for the stretch an earlier read had passed, so it showed nothing. Its windows now wait for the read made with its own decoder open (`@keiver/tomo-engine@1.8.0`)

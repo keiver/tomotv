@@ -1614,6 +1614,37 @@ extension RemuxSession {
             stateLock.unlock()
         }
 
+        // Packets read before the loop, which replays them in order: the late-audio read and the ADTS setup
+        // read keep every packet they scanned, the parameter-set read adds the opening keyframe, and a seek drops them.
+        var queuedPackets: [UnsafeMutablePointer<AVPacket>] = []
+        func dropQueuedPackets() {
+            for packet in queuedPackets {
+                var freeing: UnsafeMutablePointer<AVPacket>? = packet
+                av_packet_free(&freeing)
+            }
+            queuedPackets = []
+        }
+        defer { dropQueuedPackets() }
+
+        // A bounded live TS probe ends before an audio stream whose first packet is muxed late, and an audio
+        // stream with no rate or layout is left out below: read on for it instead of opening a silent channel.
+        if hasVideo, liveProbeBound(format: inputFormat, isLive: config.isLive) != nil {
+            let carried = carriedProgram.map { program in
+                (0..<Int(program.pointee.nb_stream_indexes)).map { Int32(program.pointee.stream_index[$0]) }
+            } ?? Array(0..<Int32(input.pointee.nb_streams))
+            let audio: [(index: Int32, described: Bool)] = carried.compactMap { index in
+                guard let par = input.pointee.streams[Int(index)]?.pointee.codecpar, par.pointee.codec_type == AVMEDIA_TYPE_AUDIO else { return nil }
+                return (index, par.pointee.sample_rate > 0 && par.pointee.ch_layout.nb_channels > 0)
+            }
+            let undescribed = LiveLateAudio.streamsToReadOn(audio)
+            if !undescribed.isEmpty {
+                let read = LiveLateAudio.readOn(input, for: undescribed, videoIn: videoIn) { queuedPackets.append($0) }
+                NSLog("[LocalRemuxer] live audio read on past the probe: %d packet(s), %.2f s of video, described %@, still undescribed %@",
+                      read.packets, read.videoSeconds, read.described.map(String.init).joined(separator: ","),
+                      undescribed.filter { !read.described.contains($0) }.map(String.init).joined(separator: ","))
+            }
+        }
+
         // Resolve the audio tracks to carry, in the order the playlist will
         // advertise them. Several tracks: each becomes an audio-only rendition
         // ("a0", "a1", …) and the variant is video-only; see masterPlaylist()
@@ -1895,18 +1926,6 @@ extension RemuxSession {
             }
             return .some(transcoder)
         }
-
-        // Packets read before the loop, which replays them in order: the ADTS setup read keeps every
-        // packet it scanned, the parameter-set read adds the opening keyframe, and a seek drops them.
-        var queuedPackets: [UnsafeMutablePointer<AVPacket>] = []
-        func dropQueuedPackets() {
-            for packet in queuedPackets {
-                var freeing: UnsafeMutablePointer<AVPacket>? = packet
-                av_packet_free(&freeing)
-            }
-            queuedPackets = []
-        }
-        defer { dropQueuedPackets() }
 
         /// The ADTS AAC inputs the demuxer gave no setup for.
         func bareAdtsStreams() -> [Int32] {
