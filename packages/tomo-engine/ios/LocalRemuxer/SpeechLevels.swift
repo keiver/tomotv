@@ -79,11 +79,8 @@ final class SpeechLevelReader {
     private let sampleRate: Int
     private var pending: [Float] = []
     private var pendingIndex: Int?
-    private let backlogLock = NSLock()
-    private var backlog = 0
-    private(set) var dropped = 0
-    /// Packets waiting past this many are dropped: a hole in the levels, never a stall in the read loop.
-    private static let maxBacklog = 400
+    /// At most this many packets wait to be decoded; the read loop waits for a free place, so the levels have no holes.
+    private let places = DispatchSemaphore(value: 400)
 
     init?(stream: UnsafeMutablePointer<AVStream>, index: Int32, into levels: SpeechLevels) {
         guard let params = stream.pointee.codecpar, params.pointee.codec_type == AVMEDIA_TYPE_AUDIO,
@@ -118,7 +115,6 @@ final class SpeechLevelReader {
     }
 
     deinit {
-        if dropped > 0 { NSLog("[SubtitleAligner] speech levels skipped %ld audio packets the decoder could not keep up with", dropped) }
         av_frame_free(&frame)
         swr_free(&resampler)
         avcodec_free_context(&decoder)
@@ -126,19 +122,14 @@ final class SpeechLevelReader {
 
     /// Takes a reference to the packet and decodes it later; the caller keeps its own.
     func feed(_ packet: UnsafeMutablePointer<AVPacket>) {
-        backlogLock.lock()
-        let full = backlog >= Self.maxBacklog
-        if full { dropped += 1 } else { backlog += 1 }
-        backlogLock.unlock()
-        guard !full, let copy = av_packet_clone(packet) else { return }
+        guard let copy = av_packet_clone(packet) else { return }
+        places.wait()
         let address = Int(bitPattern: copy)
         queue.async { [self] in
             var owned = UnsafeMutablePointer<AVPacket>(bitPattern: address)
             decode(owned!)
             av_packet_free(&owned)
-            backlogLock.lock()
-            backlog -= 1
-            backlogLock.unlock()
+            places.signal()
         }
     }
 
