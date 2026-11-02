@@ -20,7 +20,7 @@ import { COLORS } from "@/constants/colors";
 import { getRecoveryStatus, RecoveryStatus, subscribeRecoveryStatus } from "@/services/connectionRecovery";
 import { isFolder, signOut } from "@/services/jellyfinApi";
 import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
-import { isStrandedAboveLastRow, packArtworkRows, packColumnRows, PackedRow } from "@/utils/artworkRows";
+import { heldLayout, isStrandedAboveLastRow, packArtworkRows, packColumnRows, PackedRow } from "@/utils/artworkRows";
 import { cleanLabel } from "@/utils/cleanLabel";
 import { logger } from "@/utils/logger";
 import { cardResumeProgress } from "@/utils/resumeProgress";
@@ -293,11 +293,15 @@ export function LibraryGrid({
   const zoom = useCardZoom();
   const rowHeights = useMemo(() => slotRowHeights(windowWidth, windowHeight, insets.left, insets.right, IS_TV, "grid", zoom), [windowWidth, windowHeight, insets.left, insets.right, zoom]);
   // TV folders mixing posters with wide cards sit on fixed columns: a wide card spans two, its art cropped to fill.
-  const columnGrid = useMemo(() => {
+  const mixedShapes = useMemo(() => {
     if (!IS_TV || liveChannels) return false;
     const shapes = new Set(items.map((item) => (item.Type === "Episode" ? "landscape" : itemSlotShape(item.PrimaryImageAspectRatio))));
     return shapes.has("portrait") && shapes.size > 1;
   }, [items, liveChannels]);
+  const [heldColumnGrid, setHeldColumnGrid] = useState<boolean | null>(null);
+  const nextColumnGrid = heldLayout(heldColumnGrid, items.length, mixedShapes);
+  if (nextColumnGrid !== heldColumnGrid) setHeldColumnGrid(nextColumnGrid);
+  const columnGrid = nextColumnGrid ?? false;
   const packedRows = useMemo(
     () =>
       columnGrid

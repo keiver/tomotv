@@ -1,5 +1,5 @@
 import { cardSlotRatio, itemSlotRatio, itemSlotShape, slotCardPadding, slotRowHeights } from "@/constants/app";
-import { CardMetrics, isStrandedAboveLastRow, packArtworkRows, PackedRow } from "../artworkRows";
+import { CardMetrics, heldLayout, isStrandedAboveLastRow, packArtworkRows, packColumnRows, PackedRow } from "../artworkRows";
 
 // Simple fixtures: ratio IS the item, uniform height 100, padding 0 → natural width = 100 * ratio.
 const pack = (ratios: number[], availableWidth: number) => packArtworkRows(ratios, availableWidth, (r) => ({ ratio: r, height: 100 }), 0);
@@ -257,5 +257,42 @@ describe("isStrandedAboveLastRow", () => {
     expect(rows).toHaveLength(2);
     const [rowA, rowB] = rows;
     expect(rowA.cards.every((c) => !isStrandedAboveLastRow(c, rowB.width))).toBe(true);
+  });
+});
+
+describe("heldLayout", () => {
+  it("takes the first listing's layout", () => {
+    expect(heldLayout(null, 60, false)).toBe(false);
+    expect(heldLayout(null, 60, true)).toBe(true);
+  });
+
+  it("keeps justified rows when a later page brings the first poster", () => {
+    expect(heldLayout(false, 120, true)).toBe(false);
+  });
+
+  it("keeps the columns when a later page has one shape", () => {
+    expect(heldLayout(true, 120, false)).toBe(true);
+  });
+
+  it("picks again once the grid is empty", () => {
+    expect(heldLayout(false, 0, true)).toBeNull();
+    expect(heldLayout(null, 60, true)).toBe(true);
+  });
+});
+
+describe("packColumnRows", () => {
+  const span = (wide: boolean) => (wide ? 2 : 1);
+
+  it("leaves the seventh column empty in a run of wide cards", () => {
+    const wide = Array.from({ length: 9 }, () => true);
+    const rows = packColumnRows(wide, 1750, 7, span, 2 / 3, 16);
+    expect(rows.map((row) => row.cards.length)).toEqual([3, 3, 3]);
+    expect(rows[0].width).toBeCloseTo(1500, 5);
+  });
+
+  it("fills a row by pulling a poster forward from the next row", () => {
+    const rows = packColumnRows([true, true, true, true, false], 1750, 7, span, 2 / 3, 16);
+    expect(rows[0].cards.map((card) => card.item)).toEqual([true, true, true, false]);
+    expect(rows[0].width).toBeCloseTo(1750, 5);
   });
 });
