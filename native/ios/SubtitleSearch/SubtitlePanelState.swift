@@ -81,6 +81,22 @@ public struct SubtitlePanelTrack: Codable, Equatable {
     }
 }
 
+/// The alert a result press raises before it downloads.
+public struct SubtitlePanelConfirm: Codable, Equatable {
+    public let title: String
+    /// The downloads left today, empty until the provider has said.
+    public let remaining: String
+    public let download: String
+    public let cancel: String
+
+    public init(title: String, remaining: String, download: String, cancel: String) {
+        self.title = title
+        self.remaining = remaining
+        self.download = download
+        self.cancel = cancel
+    }
+}
+
 /// One button for the whole set: applies every hash match and lone result at once.
 public struct SubtitlePanelTakeAll: Codable, Equatable {
     public let label: String
@@ -126,6 +142,8 @@ public struct SubtitlePanelState: Codable, Equatable {
     public let credit: String
     /// The viewer's theme colour, "#RRGGBB".
     public let accent: String
+    /// Nil sends a press straight to the download.
+    public let confirm: SubtitlePanelConfirm?
     public let languages: [SubtitlePanelLanguage]
     public let selectedLanguage: String
     /// Set while hash matches wait: the one button that takes them all.
@@ -140,12 +158,13 @@ public struct SubtitlePanelState: Codable, Equatable {
     public let jobs: [SubtitlePanelJob]
 
     public init(
-        title: String, credit: String = "", accent: String = "", languages: [SubtitlePanelLanguage], selectedLanguage: String, takeAll: SubtitlePanelTakeAll? = nil,
+        title: String, credit: String = "", accent: String = "", confirm: SubtitlePanelConfirm? = nil, languages: [SubtitlePanelLanguage], selectedLanguage: String, takeAll: SubtitlePanelTakeAll? = nil,
         skippedLine: String = "", emptyLine: String = "", queryPlaceholder: String, searchLabel: String, jobs: [SubtitlePanelJob]
     ) {
         self.title = title
         self.credit = credit
         self.accent = accent
+        self.confirm = confirm
         self.languages = languages
         self.selectedLanguage = selectedLanguage
         self.takeAll = takeAll

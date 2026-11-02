@@ -682,6 +682,22 @@ final class SubtitleSearchPanelViewController: UIViewController {
         onLanguageChanged?(next.code)
     }
 
+    /// A result press asks first: the result's name and the downloads left today, then Download or Cancel.
+    private func confirmPick(jobId: String, resultId: String) {
+        guard let confirm = state.confirm else {
+            onPick?(jobId, resultId)
+            return
+        }
+        let name = state.jobs.first(where: { $0.id == jobId })?.results.first(where: { $0.id == resultId })?.name ?? ""
+        let message = [name, confirm.remaining].filter { !$0.isEmpty }.joined(separator: "\n\n")
+        let alert = UIAlertController(title: confirm.title, message: message.isEmpty ? nil : message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: confirm.cancel, style: .cancel))
+        let download = UIAlertAction(title: confirm.download, style: .default) { [weak self] _ in self?.onPick?(jobId, resultId) }
+        alert.addAction(download)
+        alert.preferredAction = download
+        present(alert, animated: true)
+    }
+
     private func languageMenu() -> UIMenu {
         UIMenu(
             options: [.singleSelection],
@@ -753,7 +769,7 @@ final class SubtitleSearchPanelViewController: UIViewController {
         jobSections = state.jobs.map { job in
             let section = JobSectionView(job: job, expanded: expandedJobs[job.id] ?? false)
             section.onQueryChanged = { [weak self] query in self?.onQueryChanged?(job.id, query) }
-            section.onPick = { [weak self] id in self?.onPick?(job.id, id) }
+            section.onPick = { [weak self] id in self?.confirmPick(jobId: job.id, resultId: id) }
             section.onToggled = { [weak self] expanded in self?.expandedJobs[job.id] = expanded }
             section.onShift = { [weak self] id, delta in self?.onShift?(id, delta) }
             section.onSync = { [weak self] id in self?.onSync?(id) }

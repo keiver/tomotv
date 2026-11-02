@@ -65,6 +65,8 @@ export interface PanelState {
   credit: string;
   /** The viewer's theme colour, "#RRGGBB". */
   accent: string;
+  /** The alert a result press raises before it downloads: its title, the downloads left line (empty until known) and its buttons. */
+  confirm: { title: string; remaining: string; download: string; cancel: string };
   /** Every language, the likely ones first; the panel shows the selected one on its pill and the rest in a menu. */
   languages: PanelLanguage[];
   selectedLanguage: string;

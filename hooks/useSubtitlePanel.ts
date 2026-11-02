@@ -63,7 +63,7 @@ export function isPlayingPick(job: SubtitleJob, hit: SubtitleHit, track: Current
   return job.status === "applied" && job.picked?.id === hit.id && job.picked.source === hit.source && job.applied?.streamIndex === track.index;
 }
 
-/** One job as its panel section; a lone job carries no heading and is the whole search. The result kept as one of `tracks` carries that track's timing controls. */
+/** One job as its panel section; a lone job carries no heading and is the whole search. While the video plays, the result kept as one of `tracks` carries that track's timing controls. */
 export function panelJobFor(job: SubtitleJob, alone: boolean, tracks: PanelTrackInput[]): PanelJob {
   const currents = tracks.map((track) => track.subtitle);
   return {
@@ -76,7 +76,7 @@ export function panelJobFor(job: SubtitleJob, alone: boolean, tracks: PanelTrack
     // An idle job searches itself on the next tick and already says "Searching", so it spins too.
     busy: job.status === "idle" || job.status === "searching" || job.status === "applying",
     results: job.results.map((hit) => {
-      const timing = tracks.find((track) => isPlayingPick(job, hit, track.subtitle));
+      const timing = tracks.find((track) => track.canSync && isPlayingPick(job, hit, track.subtitle));
       return {
         id: `${hit.source}:${hit.id}`,
         name: hit.name,
@@ -108,6 +108,12 @@ export function panelStateFor(
   return {
     title,
     credit: left === null ? t("subtitles.credit") : `${t("subtitles.credit")} · ${t("subtitles.downloadsLeft").replace("{count}", String(left))}`,
+    confirm: {
+      title: t("subtitles.confirmDownload"),
+      remaining: left === null ? "" : t("subtitles.downloadsLeft").replace("{count}", String(left)),
+      download: t("subtitles.download"),
+      cancel: t("common.cancel"),
+    },
     accent,
     languages: [...search.choices, ...rest].map((row) => ({ code: row.code, name: row.native })),
     selectedLanguage: search.language,
@@ -131,7 +137,7 @@ export interface TransportButtonInput {
 export function subtitleTransportButton(input: TransportButtonInput): { id: "subtitles"; title: string; sfSymbol: string } | null {
   if (input.isLiveChannel || !input.available) return null;
   const title = !input.active ? t("player.findSubtitles") : input.offsetMs === 0 ? t("subtitles.timingTitle") : offsetLabel(input.offsetMs);
-  return { id: "subtitles", title, sfSymbol: "square.and.arrow.down" };
+  return { id: "subtitles", title, sfSymbol: "text.magnifyingglass" };
 }
 
 export function useSubtitlePanel(itemId: string, active: ActiveTextSubtitle | null, inPlayer = false): { available: boolean; open: () => void; offsetMs: number } {

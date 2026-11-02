@@ -53,8 +53,8 @@ const english = [{ code: "en", native: "English" }];
 describe("the transport bar subtitle button", () => {
   const base = { isLiveChannel: false, available: true, active: null, offsetMs: 0 };
 
-  it("finds subtitles with the download glyph when none of ours is on", () => {
-    expect(subtitleTransportButton(base)).toEqual({ id: "subtitles", title: "player.findSubtitles", sfSymbol: "square.and.arrow.down" });
+  it("finds subtitles with the magnifying glass over text when none of ours is on", () => {
+    expect(subtitleTransportButton(base)).toEqual({ id: "subtitles", title: "player.findSubtitles", sfSymbol: "text.magnifyingglass" });
   });
 
   it("stays away on a live channel and without the panel", () => {
@@ -62,9 +62,9 @@ describe("the transport bar subtitle button", () => {
     expect(subtitleTransportButton({ ...base, available: false })).toBeNull();
   });
 
-  it("keeps the download glyph and carries the timing of the subtitle of ours that is on", () => {
+  it("keeps the same glyph and carries the timing of the subtitle of ours that is on", () => {
     const active = { index: 2, name: "English", language: "eng" };
-    expect(subtitleTransportButton({ ...base, active })).toEqual({ id: "subtitles", title: "subtitles.timingTitle", sfSymbol: "square.and.arrow.down" });
+    expect(subtitleTransportButton({ ...base, active })).toEqual({ id: "subtitles", title: "subtitles.timingTitle", sfSymbol: "text.magnifyingglass" });
     expect(subtitleTransportButton({ ...base, active, offsetMs: 1500 })?.title).toBe("subtitles.late");
   });
 });
@@ -97,6 +97,12 @@ describe("the panel's state", () => {
     expect(state.jobs[0].results[1].timing).toBeNull();
   });
 
+  it("shows no timing controls while the video is not playing", () => {
+    const job = { ...makeJob(item, "en"), status: "found" as const, results: [hit("a")] };
+    const state = panelStateFor(search([job]), [{ ...keptTrack, canSync: false }], 1, "subtitles.title", "#4F99FF");
+    expect(state.jobs[0].results[0]).toMatchObject({ applied: true, timing: null });
+  });
+
   it("puts the timing controls under a pick saved to the server once that stream is the one playing", () => {
     const saved = { index: 7, name: "English", language: "en" };
     const job = { ...makeJob(item, "en"), status: "applied" as const, results: [hit("a"), hit("b")], picked: hit("b"), applied: { where: "server" as const, language: "en", streamIndex: 7 } };
@@ -110,6 +116,17 @@ describe("the panel's state", () => {
     expect(panelStateFor(search([]), [], 1, "subtitles.title", "#4F99FF").credit).toBe("subtitles.credit");
     jest.mocked(openSubtitlesDownloadsLeft).mockReturnValueOnce(4);
     expect(panelStateFor(search([]), [], 1, "subtitles.title", "#4F99FF").credit).toBe("subtitles.credit · subtitles.downloadsLeft");
+  });
+
+  it("gives the download alert its words, with the downloads left only once known", () => {
+    expect(panelStateFor(search([]), [], 1, "subtitles.title", "#4F99FF").confirm).toEqual({
+      title: "subtitles.confirmDownload",
+      remaining: "",
+      download: "subtitles.download",
+      cancel: "common.cancel",
+    });
+    jest.mocked(openSubtitlesDownloadsLeft).mockReturnValueOnce(4);
+    expect(panelStateFor(search([]), [], 1, "subtitles.title", "#4F99FF").confirm.remaining).toBe("subtitles.downloadsLeft");
   });
 
   it("gives a lone job no heading and every language behind the likely ones", () => {

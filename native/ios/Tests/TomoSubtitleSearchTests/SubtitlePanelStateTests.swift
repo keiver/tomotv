@@ -46,7 +46,10 @@ final class SubtitlePanelStateTests: XCTestCase {
         ]
         var with = dictionary(jobs: [job("v1", results: [result("a"), kept])])
         with["takeAll"] = ["label": "Take 3 matches", "busy": false]
+        with["confirm"] = ["title": "Download this subtitle?", "remaining": "4 free downloads left today", "download": "Download", "cancel": "Cancel"]
         let state = try XCTUnwrap(SubtitlePanelState.from(dictionary: with))
+        XCTAssertEqual(state.confirm?.remaining, "4 free downloads left today")
+        XCTAssertNil(try XCTUnwrap(SubtitlePanelState.from(dictionary: dictionary(jobs: []))).confirm)
         XCTAssertNil(state.jobs[0].results[0].timing)
         let timing = try XCTUnwrap(state.jobs[0].results[1].timing)
         XCTAssertEqual(timing.id, 100_000)
