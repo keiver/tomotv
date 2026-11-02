@@ -94,6 +94,11 @@ final class LiveFrameQueue {
         return [SWIFT_AVERROR_EOF, SWIFT_AVERROR_INVALIDDATA, -EIO, -ECONNRESET, -EPIPE].contains(code)
     }
 
+    /// Whether the grabber's open reached an origin that may count it: opened, or left with no answer (`openMayBeCounted`).
+    private static func mayBeCounted(_ grabber: FrameGrabber) -> Bool {
+        grabber.sourceOpened || grabber.openError.map(RemuxSession.openMayBeCounted) == true
+    }
+
     /// Whether the grabber's open was turned away by the provider rather than failing on the channel.
     private static func refusedOpen(_ grabber: FrameGrabber) -> Bool {
         !grabber.sourceOpened && grabber.openError.map(RemuxSession.httpOpenErrors.contains) == true
@@ -149,9 +154,11 @@ final class LiveFrameQueue {
                 outcome = .busy
                 return
             }
-            // A read the origin only ever refused was never counted by it, so its close is no recent close.
+            // A read the origin only ever refused was never counted by it, so its close is no recent close. One no
+            // HTTP status refused may be counted before its first byte (an origin waiting on its own source).
             var served = false
-            defer { lease.release(counted: served) }
+            var askedUnrefused = false
+            defer { lease.release(counted: served || askedUnrefused) }
             let shared = LiveConnectionBroker.shared.sharesUnknownOrigin(lease)
             let started = Date()
             let base = "\(Self.filePrefix)\(Int64(started.timeIntervalSince1970 * 1000))"
@@ -201,6 +208,7 @@ final class LiveFrameQueue {
                 return
             }
             var refused = Self.refusedOpen(grabber)
+            if Self.mayBeCounted(grabber) { askedUnrefused = true }
             var retries = 0
             // The fight: a refused open is asked again every second while the provider may still count a read it admitted
             // to us, until the origin admits it or the fight is lost. A refusal with no such read is the answer.
@@ -212,6 +220,7 @@ final class LiveFrameQueue {
                 guard let again = attempt() else { break }
                 result = again
                 refused = Self.refusedOpen(grabber)
+                if Self.mayBeCounted(grabber) { askedUnrefused = true }
             }
             if refused, !isCancelled(channelId), let code = grabber.openError {
                 // A fight lost beside a preview: the preview yields; a 4xx from the origin teaches its budget.

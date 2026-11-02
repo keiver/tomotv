@@ -626,6 +626,40 @@ final class LiveConnectionBrokerTests: XCTestCase {
         XCTAssertEqual(try relay.stats()["admitted"], 1)
     }
 
+    /// A grab the origin admitted and never served was counted by it: its close is a recent close, so a refused open
+    /// right after it is the origin catching up and is asked again.
+    func testAGrabTheOriginAdmittedAndNeverServedCountsAsARecentClose() throws {
+        let relay = try cappedRelay(mode: "refuse", port: 19852, holdMs: 2000)
+        defer { relay.stop() }
+        let key = "held-grab-close"
+        let queue = try frameQueue()
+        let done = XCTestExpectation(description: "grab")
+        queue.request(channelId: "held-close", inputUrl: relay.url, headers: [:], deadline: 3, originKey: key) { _ in done.fulfill() }
+        wait(for: [done], timeout: 20)
+        XCTAssertEqual(try relay.stats()["admitted"], 1)
+        XCTAssertTrue(LiveConnectionBroker.shared.recentlyClosed(key: key, within: 15))
+    }
+
+    /// A live session whose open the origin admitted and never answered, stopped before any byte: its close counts too.
+    func testASessionTheOriginAdmittedAndNeverServedCountsAsARecentClose() throws {
+        let relay = try cappedRelay(mode: "refuse", port: 19862, holdMs: 8000)
+        defer { relay.stop() }
+        let key = "held-session-close"
+        var config = makeConfig(durationSeconds: 0, inputUrl: relay.url, width: 128, height: 96, isLive: true, liveSegmentSeconds: 2, liveWindowSeconds: 30)
+        config.liveOriginKey = key
+        config.livePriority = .playback
+        let session = try RemuxSession(config: config)
+        session.start()
+        let admitted = Date().addingTimeInterval(5)
+        while (try? relay.stats()["admitted"]) != 1, Date() < admitted { Thread.sleep(forTimeInterval: 0.05) }
+        XCTAssertEqual(try relay.stats()["admitted"], 1, "the origin never admitted the open")
+        session.stop()
+        let released = Date().addingTimeInterval(5)
+        while LiveConnectionBroker.shared.activeCount(for: key) > 0, Date() < released { Thread.sleep(forTimeInterval: 0.05) }
+        XCTAssertEqual(LiveConnectionBroker.shared.activeCount(for: key), 0, "the session never released its connection")
+        XCTAssertTrue(LiveConnectionBroker.shared.recentlyClosed(key: key, within: 15))
+    }
+
     /// An origin serving a trickle: the grab's deadline counts from the first byte, so a probe the trickle drags out
     /// is cut by it, and our cut is not the channel's answer.
     func testAGrabOnATrickleEndsAtItsDeadlineFromTheFirstByte() throws {

@@ -98,6 +98,10 @@ extension RemuxSession {
     /// Any HTTP answer but a 404 to an open: the reads below make room and the open retries. A 5xx teaches no
     /// number, since an origin answers 503 both for a full account and for a channel restarting.
     static let httpOpenErrors: Set<Int32> = errorTags(["400", "401", "403", "429", "4XX", "5XX"])
+    /// An open the origin may have admitted and counted with no answer yet: it opened, ran out of time, was cut by us, or the origin closed it.
+    static func openMayBeCounted(_ code: Int32) -> Bool {
+        code >= 0 || [-ETIMEDOUT, SWIFT_AVERROR_EXIT, SWIFT_AVERROR_EOF, SWIFT_AVERROR_EIO, -ECONNRESET, -EPIPE].contains(code)
+    }
 
     /// Interrupt callback: aborts blocking network I/O when the session dies. It runs on the pipeline
     /// thread inside the open, the probe and every read, so it is also where the bytes the input has
@@ -1336,6 +1340,8 @@ extension RemuxSession {
         var rangedLeases: [LiveConnectionBroker.Lease] = []
         let originRead = SourceReadEvidence()
         var rangedServedBody = false
+        // An open of the origin it may have admitted (openMayBeCounted): an origin that admits a read before its first byte still counts it.
+        var askedUnrefused = false
         let originKey = config.liveOriginKey ?? LiveConnectionBroker.key(forURL: config.inputUrl)
         // A file read over ranged connections: remote, and not a playlist the demuxer reads itself.
         let rangedInput: URL? = config.isLive ? nil : URL(string: config.inputUrl).flatMap { remote in
@@ -1371,7 +1377,7 @@ extension RemuxSession {
             stateLock.unlock()
             rangedLeases.forEach { $0.release() }
             // A rejected open (or only a served fallback) leaves no origin connection behind to count.
-            lease?.release(counted: originRead.served || rangedServedBody)
+            lease?.release(counted: originRead.served || rangedServedBody || askedUnrefused)
         }
         var inputCtx: UnsafeMutablePointer<AVFormatContext>?
         var ret: Int32 = 0
@@ -1464,6 +1470,7 @@ extension RemuxSession {
             }
             ret = avformat_open_input(&inputCtx, inputUrl == config.inputUrl ? trimmedSource ?? inputUrl : inputUrl, nil, &openOpts)
             av_dict_free(&openOpts)
+            if inputUrl == config.inputUrl, Self.openMayBeCounted(ret) { askedUnrefused = true }
             // A failed open freed the context itself.
             if ret < 0 { openingInput = nil }
             // Only a read on a provider's budget retries its open: a live input, or a file that names its provider.
@@ -2652,6 +2659,7 @@ extension RemuxSession {
                 openingInput = fresh
                 var opened = avformat_open_input(&opening, url, nil, &options)
                 av_dict_free(&options)
+                if leased != nil, Self.openMayBeCounted(opened) { askedUnrefused = true }
                 guard opened >= 0, let reopened = opening else {
                     openingInput = nil
                     // The read this reopen closed counts as a close, as one released through the broker does.
