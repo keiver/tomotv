@@ -433,6 +433,13 @@ extension RemuxSession {
         /// Muxer output accumulates here; the pipeline drains it into files at
         /// fragment boundaries. Per rendition, since each has its own muxer.
         var pending = Data()
+        /// LL-HLS parts of each segment in the window, in order; a landed segment's keep only their sizes. Under the session lock.
+        var liveParts: [Int: [LivePart]] = [:]
+        /// The open part on its clock stream, output seconds, and whether a packet went in since the last flush. Pipeline thread only.
+        var partStartSeconds: Double?
+        var partEndSeconds = 0.0
+        var partIndependent = false
+        var wroteSincePartFlush = false
         /// Segments this rendition has written. Guarded by the session lock.
         var completed = Set<Int>()
         /// Segments handed to the writer and not yet on disk, and those the prune doomed while in flight:
@@ -549,6 +556,8 @@ extension RemuxSession {
             lastDts = [:]
             muxZero = nil
             adtsStreams = []
+            partStartSeconds = nil
+            wroteSincePartFlush = false
         }
     }
 
@@ -1544,7 +1553,8 @@ extension RemuxSession {
 
         let inputFormat = input.pointee.iformat.map { String(cString: $0.pointee.name) } ?? ""
         let playlistInput = inputFormat == "hls" || inputFormat == "dash"
-        if config.isLive, config.liveLowLatency, Self.continuousLiveInput(format: inputFormat) {
+        let lowLatency = config.isLive && config.liveLowLatency && Self.continuousLiveInput(format: inputFormat)
+        if lowLatency {
             stateLock.lock()
             lowLatencyInput = true
             stateLock.unlock()
@@ -2291,6 +2301,16 @@ extension RemuxSession {
                 if onDisk { continue }
                 let flushStarted = Date()
                 defer { flushSecondsInSegment += Date().timeIntervalSince(flushStarted) }
+                if lowLatency {
+                    guard flushPart(rendition, segment: n) else { return }
+                    stateLock.lock()
+                    if n == partialOpenSegment { rendition.liveParts[n] = nil }
+                    let joined = (rendition.liveParts[n] ?? []).reduce(into: Data()) { $0.append($1.data ?? Data()) }
+                    if !joined.isEmpty { rendition.writing.insert(n) }
+                    stateLock.unlock()
+                    if !joined.isEmpty { finished.append((rendition, joined, Self.stypBox.count + joined.count)) }
+                    continue
+                }
                 let flushed = av_write_frame(ctx, nil) // flush the open fragment
                 avio_flush(avio)
                 // A delay_moov muxer flushed before any packet cannot write its moov (the dac3
@@ -2424,6 +2444,96 @@ extension RemuxSession {
                 lastThroughputLog = Date()
             }
             reportThroughput(segment: n, cushion: n - askedPlayhead, activating: activating)
+        }
+
+        /// LL-HLS: close the open part of segment `n` on `rendition`. A rendition with nothing written since its
+        /// last flush records nothing, since a delay_moov flush before any packet fails. False on a fatal error.
+        func flushPart(_ rendition: Rendition, segment n: Int) -> Bool {
+            let start = rendition.partStartSeconds
+            defer {
+                rendition.partStartSeconds = nil
+                rendition.wroteSincePartFlush = false
+            }
+            guard rendition.wroteSincePartFlush, let ctx = rendition.ctx, let avio = rendition.avio else { return true }
+            let label = rendition.prefix.isEmpty ? "primary" : rendition.prefix
+            let flushed = av_write_frame(ctx, nil)
+            avio_flush(avio)
+            if flushed < 0 {
+                NSLog("[LocalRemuxer] segment %d part flush failed on %@: %@", n, label, averr(flushed))
+                _ = rendition.takePending()
+                return true
+            }
+            var data = rendition.takePending()
+            if rendition.awaitingDeferredInit {
+                do {
+                    try data.write(to: dir.appendingPathComponent(rendition.initName))
+                    let codec = VideoCodecDeclaration.fromInit(data)
+                    stateLock.lock()
+                    if let codec { resolvedVideoCodecs = codec }
+                    if rendition.prefix.isEmpty { primaryInitWritten = true }
+                    stateLock.unlock()
+                } catch {
+                    fail("write \(rendition.initName): \(error.localizedDescription)")
+                    return false
+                }
+                rendition.awaitingDeferredInit = false
+                av_write_frame(ctx, nil)
+                avio_flush(avio)
+                data = rendition.takePending()
+            }
+            guard !data.isEmpty else { return true }
+            guard let fragmentStart = Self.firstFragmentOffset(in: data) else {
+                fail("segment \(n) part (\(label)) contains no moof box")
+                return false
+            }
+            if fragmentStart > 0 { data = data.subdata(in: fragmentStart..<data.count) }
+            var offsets: [UInt32: Int64] = [:]
+            for (_, outIndex) in rendition.streamMap {
+                if let base = rendition.baseDts[outIndex], base != 0 { offsets[UInt32(outIndex) + 1] = base }
+            }
+            if !offsets.isEmpty { Self.patchTfdtToAbsolute(in: &data, offsets: offsets) }
+            stateLock.lock()
+            var parts = rendition.liveParts[n] ?? []
+            if let start {
+                parts.append(LivePart(data: data, size: data.count, duration: max(0.001, rendition.partEndSeconds - start),
+                                      independent: rendition.partIndependent))
+            } else if let last = parts.popLast() {
+                // Only packets off the part clock since the last cut: they ride the part before.
+                let joined = (last.data ?? Data()) + data
+                parts.append(LivePart(data: joined, size: joined.count, duration: last.duration, independent: last.independent))
+            } else {
+                parts.append(LivePart(data: data, size: data.count, duration: 0.001, independent: false))
+            }
+            rendition.liveParts[n] = parts
+            stateLock.unlock()
+            return true
+        }
+
+        /// LL-HLS: before `packet` (in `timeBase`) is written into `rendition`, close the open part when the packet
+        /// would carry it past the part target. Only packets of the rendition's clock stream move parts. False on a fatal error.
+        func cutPart(before packet: UnsafeMutablePointer<AVPacket>, in rendition: Rendition, timeBase: AVRational,
+                     clock: Bool, independent: Bool, frameSeconds: Double) -> Bool {
+            guard lowLatency else { return true }
+            if clock, packet.pointee.dts != SWIFT_AV_NOPTS_VALUE {
+                let dts = Double(packet.pointee.dts) * av_q2d(timeBase)
+                let duration = packet.pointee.duration > 0 ? Double(packet.pointee.duration) * av_q2d(timeBase) : frameSeconds
+                if let start = rendition.partStartSeconds,
+                   Self.partClosesBefore(dts: dts, duration: duration, partStartDts: start, target: config.livePartSeconds) {
+                    guard flushPart(rendition, segment: currentSegment) else { return false }
+                }
+                if rendition.partStartSeconds == nil {
+                    rendition.partStartSeconds = dts
+                    rendition.partIndependent = independent
+                }
+                rendition.partEndSeconds = max(rendition.partEndSeconds, dts + duration)
+            }
+            rendition.wroteSincePartFlush = true
+            return true
+        }
+
+        /// Whether `rendition` carries the picture: its parts then move on video packets, otherwise on its first stream's.
+        func carriesVideo(_ rendition: Rendition) -> Bool {
+            hasVideo && rendition.inputStreams.contains(videoIn)
         }
 
         /// The ramp, at the cut closing segment `n`: the track brought up at the last cut stays if
@@ -3425,8 +3535,9 @@ extension RemuxSession {
                 }
 
                 var writeError: Int32 = 0
+                var partFailed = false
                 videoTranscoder.process(packet: pkt) { encoded in
-                    guard writeError == 0 else { return }
+                    guard writeError == 0, !partFailed else { return }
                     if encoded.pointee.pts != SWIFT_AV_NOPTS_VALUE {
                         let seconds = Double(encoded.pointee.pts) * av_q2d(videoTranscoder.encoderTimeBase)
                         let boundary = nextBoundarySeconds()
@@ -3460,9 +3571,18 @@ extension RemuxSession {
                     rendition.repairTimestamps(encoded, streamIndex: outIndex)
                     rendition.noteMuxZero(encoded, timeBase: outStream.pointee.time_base)
                     rendition.noteBaseDts(streamIndex: outIndex, dts: encoded.pointee.dts)
+                    if lowLatency {
+                        let fps = av_q2d(inStream.pointee.avg_frame_rate)
+                        if !cutPart(before: encoded, in: rendition, timeBase: outStream.pointee.time_base, clock: true,
+                                    independent: encoded.pointee.flags & SWIFT_AV_PKT_FLAG_KEY != 0, frameSeconds: fps > 0 ? 1 / fps : 0.04) {
+                            partFailed = true
+                            return
+                        }
+                    }
                     let w = av_write_frame(ctx, encoded)
                     if w < 0 { writeError = w }
                 }
+                if partFailed { break }
                 if videoTranscoder.failed {
                     fail("video transcode failed (pixel format or encoder rejection)")
                     break
@@ -3538,10 +3658,11 @@ extension RemuxSession {
             // clock, so the input packet is consumed rather than written.
             if !isVideo, let transcoder = rendition.transcoder {
                 var writeError: Int32 = 0
+                var partFailed = false
                 let encodeStarted = Date()
                 defer { audioSecondsInSegment += Date().timeIntervalSince(encodeStarted) }
                 transcoder.process(packet: pkt) { encoded in
-                    guard writeError == 0 else { return }
+                    guard writeError == 0, !partFailed else { return }
                     av_packet_rescale_ts(encoded, transcoder.encoderTimeBase, outStream.pointee.time_base)
                     encoded.pointee.stream_index = outIndex
                     encoded.pointee.pos = -1
@@ -3549,9 +3670,15 @@ extension RemuxSession {
                     rendition.noteMuxZero(encoded, timeBase: outStream.pointee.time_base)
                     rendition.noteBaseDts(streamIndex: outIndex, dts: encoded.pointee.dts)
                     let end = Double(encoded.pointee.pts + max(0, encoded.pointee.duration)) * av_q2d(outStream.pointee.time_base)
+                    if lowLatency, !cutPart(before: encoded, in: rendition, timeBase: outStream.pointee.time_base,
+                                            clock: !carriesVideo(rendition), independent: true, frameSeconds: 0) {
+                        partFailed = true
+                        return
+                    }
                     let w = av_write_frame(ctx, encoded)
                     if w < 0 { writeError = w } else { rendition.audioEndSeconds = end }
                 }
+                if partFailed { break }
                 if writeError < 0 {
                     fail("write_frame (audio): \(averr(writeError))")
                     break
@@ -3592,6 +3719,12 @@ extension RemuxSession {
             rendition.noteBaseDts(streamIndex: outIndex, dts: pkt.pointee.dts)
 
             let audioEnd = isVideo ? nil : Double(pkt.pointee.pts + max(0, pkt.pointee.duration)) * av_q2d(outStream.pointee.time_base)
+            if lowLatency {
+                let fps = av_q2d(inStream.pointee.avg_frame_rate)
+                let clock = isVideo || (!carriesVideo(rendition) && pkt.pointee.stream_index == rendition.inputStreams.first)
+                guard cutPart(before: pkt, in: rendition, timeBase: outStream.pointee.time_base, clock: clock,
+                              independent: !isVideo || isKey, frameSeconds: fps > 0 ? 1 / fps : 0.04) else { break }
+            }
             let muxStarted = Date()
             ret = av_write_frame(ctx, pkt)
             muxSecondsInSegment += Date().timeIntervalSince(muxStarted)
@@ -3628,6 +3761,9 @@ extension RemuxSession {
         let current = renditions.first { $0.prefix == rendition.prefix } ?? rendition
         current.writing.remove(n)
         let doomed = current.prunedWhileWriting.remove(n) != nil
+        if let parts = rendition.liveParts.removeValue(forKey: n), !doomed {
+            current.liveParts[n] = parts.map { LivePart(data: nil, size: $0.size, duration: $0.duration, independent: $0.independent) }
+        }
         if !doomed {
             current.completed.insert(n)
             if !config.isLive {
@@ -3673,6 +3809,9 @@ extension RemuxSession {
             for n in liveDurations.keys where n < first { liveDurations.removeValue(forKey: n) }
             for n in liveDates.keys where n < first { liveDates.removeValue(forKey: n) }
             for n in liveSegmentStarts.keys where n < first { liveSegmentStarts.removeValue(forKey: n) }
+            for rendition in renditions where !rendition.liveParts.isEmpty {
+                rendition.liveParts = rendition.liveParts.filter { $0.key >= first }
+            }
             if let windowStart = liveSegmentStarts[first] {
                 textSubtitles.values.forEach { $0.dropCues(endingBefore: windowStart) }
             }

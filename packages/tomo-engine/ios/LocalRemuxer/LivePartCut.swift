@@ -1,5 +1,13 @@
 import Foundation
 
+/// One LL-HLS part: moof+mdat bytes with absolute tfdt, held until its segment's file lands.
+struct LivePart {
+    var data: Data?
+    let size: Int
+    let duration: Double
+    let independent: Bool
+}
+
 /// Where an LL-HLS part ends. AVPlayer refuses the whole playlist (-12642) when a part runs past PART-TARGET or a
 /// non-final part without an independent frame is under 85% of it (draft-pantos-hls-rfc8216bis 4.4.4.9).
 extension RemuxSession {
