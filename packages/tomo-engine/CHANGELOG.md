@@ -3,6 +3,7 @@
 ## 1.8.0
 
 - A live open the origin may have admitted with no answer yet counts as a connection it holds, so its close is a recent close and a refused open right after it is asked again: a session's first open, an in-session reopen and a frame grab that opened, timed out, was cut by us or was closed by the origin (`openMayBeCounted`). An HTTP refusal or an unreachable origin is still not counted. Measured on a local Dispatcharr (Xtream account, `stream_limit` 1): a client it admitted counts against the limit before its first byte ("connecting"), and a closed read stays counted for 1.7 to 8.8 s. `LiveConnectionBrokerTests`: a grab and a session the relay admitted and never served, cut before any byte, each leave a recent close.
+- The startup link probe ends once 0.3 s have flowed when the link reads at 8 times or more what the copy needs (`linkProbeSettleSeconds`, `linkProbeSettleFactor`; `RateProbe` takes a `settled` check); any other link reads the whole 1.5 s, and the mid-session probes are unchanged. The factor covers the over-read of a short probe (up to 5 times the link under 0.26 s). Measured on a Mac with `scripts/abr-drill.mjs --host` (T101, LAN): the first frame came at 2.05 s before and 1.55 s after. `RateProbeTests`: 120 Mb/s against an 8 Mb/s copy ends under 1 s, against a 20 Mb/s copy reads the whole budget.
 
 ## 1.7.0
 

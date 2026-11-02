@@ -115,10 +115,31 @@ private final class PacedServer {
 final class RateProbeTests: XCTestCase {
     private let mbps = 1_000_000.0
 
-    private func probe(_ server: PacedServer, budget: Double = 3, repeats: Bool = false, connections: Int = 1, beside: @escaping () -> Int64 = { 0 }) -> (RateProbe.Outcome, Double) {
+    private func probe(_ server: PacedServer, budget: Double = 3, repeats: Bool = false, connections: Int = 1, beside: @escaping () -> Int64 = { 0 },
+                       settled: ((RateMeter.Reading) -> Bool)? = nil, settleAfter: Double = 0) -> (RateProbe.Outcome, Double) {
         let started = Date()
-        let outcome = RateProbe(request: URLRequest(url: server.url), budget: budget, firstByteWithin: 1, repeats: repeats, connections: connections, beside: beside).run()
+        let outcome = RateProbe(request: URLRequest(url: server.url), budget: budget, firstByteWithin: 1, repeats: repeats, connections: connections, beside: beside,
+                                settled: settled, settleAfter: settleAfter).run()
         return (outcome, Date().timeIntervalSince(started))
+    }
+
+    func testAReadingTheCallerAcceptsEndsTheReadEarly() throws {
+        let server = try PacedServer(.init(bps: 40 * mbps, length: 200_000_000))
+        defer { server.stop() }
+        let (outcome, elapsed) = probe(server, settled: { $0.bps >= 10 * 1_000_000 }, settleAfter: 0.3)
+        let reading = try XCTUnwrap(outcome.reading)
+        XCTAssertNil(outcome.failure)
+        XCTAssertLessThan(elapsed, 1, "the three-second budget is not waited out")
+        XCTAssertGreaterThanOrEqual(reading.seconds, 0.3)
+        XCTAssertEqual(reading.bps / mbps, 40, accuracy: 8)
+    }
+
+    func testAReadingTheCallerDoesNotAcceptRunsTheWholeBudget() throws {
+        let server = try PacedServer(.init(bps: 40 * mbps, length: 200_000_000))
+        defer { server.stop() }
+        let (outcome, elapsed) = probe(server, settled: { $0.bps >= 1_000 * 1_000_000 }, settleAfter: 0.3)
+        XCTAssertEqual(try XCTUnwrap(outcome.reading).kind, .full)
+        XCTAssertGreaterThanOrEqual(elapsed, 3)
     }
 
     /// A link that paces each connection reads as their sum, the way the pipeline's three connections pull it.
@@ -275,6 +296,30 @@ final class LinkEstimateTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(s.wireLinkBps) / mbps, 120, accuracy: 6)
         XCTAssertEqual(server.requests, 3)
         XCTAssertNil(s.sourceProbeFailure)
+    }
+
+    /// 120 Mb/s against an 8 Mb/s copy is past 8x its need: the startup probe ends after 0.3s of reading.
+    func testTheStartupProbeEndsEarlyOnALinkFarAboveTheCopy() throws {
+        let server = try PacedServer(.init(bps: 40 * mbps, length: 200_000_000))
+        defer { server.stop() }
+        let s = try RemuxSession(config: makeConfig(durationSeconds: 18, inputUrl: server.url.absoluteString, bandwidth: 8_000_000))
+        defer { s.stop() }
+        let started = Date()
+        s.probeLink()
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1)
+        XCTAssertGreaterThan(try XCTUnwrap(s.wireLinkBps), 8_000_000 * 1.2)
+    }
+
+    /// 120 Mb/s against a 20 Mb/s copy is under 8x its need: the startup probe reads its whole 1.5s.
+    func testTheStartupProbeReadsItsWholeBudgetWhenTheLinkIsNotFarAboveTheCopy() throws {
+        let server = try PacedServer(.init(bps: 40 * mbps, length: 200_000_000))
+        defer { server.stop() }
+        let s = try RemuxSession(config: makeConfig(durationSeconds: 18, inputUrl: server.url.absoluteString, bandwidth: 20_000_000))
+        defer { s.stop() }
+        let started = Date()
+        s.probeLink()
+        XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(started), RemuxSession.linkProbeSeconds)
+        XCTAssertEqual(try XCTUnwrap(s.wireLinkBps) / mbps, 120, accuracy: 6)
     }
 
     /// A server disk waking from sleep answers late; the startup probe waits for it and reads the link.

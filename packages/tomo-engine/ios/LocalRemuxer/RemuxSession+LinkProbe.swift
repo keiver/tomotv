@@ -79,6 +79,10 @@ extension RemuxSession {
     static let linkProbeStartSeconds = 3.0
     /// Connections the startup probe reads on, the pipeline's own count (`ParallelRangeReader.defaultConnections`).
     static let linkProbeConnections = ParallelRangeReader.defaultConnections
+    /// Flowing seconds before the startup probe may end on a reading far above the copy's need.
+    static let linkProbeSettleSeconds = 0.3
+    /// How far above the copy's need that reading must be: probes under 0.26s read up to 5x the link (measured below).
+    static let linkProbeSettleFactor = 8.0
 
     /// How often the link is re-read while the session rides a rung. A rung's body is small and
     /// rides TCP's ramp, so it reads under a fast wire: a link that recovered to 30 Mb/s read
@@ -101,9 +105,12 @@ extension RemuxSession {
         // The startup probe reads the way the pipeline does, on several connections: one connection read 65
         // to 153 Mb/s run to run on a link the pipeline's three read at 150 to 320 (measured on an Apple TV).
         // Beside a rung, one connection: a probe there takes its share of a thin link for its length.
+        let settleBps = Double(sourceBandwidth) * Self.copyLeadsMargin * Self.linkProbeSettleFactor
+        let settled: ((RateMeter.Reading) -> Bool)? = reporting || sourceBandwidth <= 0 ? nil : { $0.bps >= settleBps }
         let probe = RateProbe(request: request, budget: Self.linkProbeSeconds, firstByteWithin: firstByteWithin,
                               connections: reporting ? 1 : Self.linkProbeConnections,
-                              beside: { [transfers] in transfers.carried() })
+                              beside: { [transfers] in transfers.carried() },
+                              settled: settled, settleAfter: Self.linkProbeSettleSeconds)
         transfers.probeStarted()
         let outcome = probe.run()
         transfers.probeEnded()
