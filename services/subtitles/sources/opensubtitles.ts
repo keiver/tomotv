@@ -59,6 +59,13 @@ type Account = NonNullable<OwnKeys["opensubtitles"]>;
 const sessions = new Map<string, Session>();
 /** Username and password pairs the login refused; the API asks never to send them again. */
 const refusedSignIns = new Set<string>();
+/** The downloads the API last said are left today, or null before it said. */
+let downloadsLeft: number | null = null;
+
+/** The downloads left today as the API last answered: a sign-in's count, or the last download's. Null until one answers. */
+export function openSubtitlesDownloadsLeft(): number | null {
+  return downloadsLeft;
+}
 
 /** Tomo's consumer key, inlined at build time; empty in a build made without it. */
 export function openSubtitlesAppKey(): string {
@@ -86,6 +93,7 @@ async function login(account: Account): Promise<Session> {
   if (!response.ok) throw new SourceRefusal("opensubtitles", response.status, `opensubtitles login answered ${response.status}`);
   const body = (await response.json()) as OsLogin;
   if (!body.token) throw new SourceRefusal("opensubtitles", 401, "opensubtitles login gave no token");
+  if (typeof body.user?.remaining_downloads === "number") downloadsLeft = body.user.remaining_downloads;
   const session = { token: body.token, host: body.base_url === VIP_HOST ? VIP_HOST : DEFAULT_HOST };
   sessions.set(account.username, session);
   return session;
@@ -195,6 +203,7 @@ export const openSubtitlesSource: SubtitleSource = {
     }
     if (!response.ok) throw new SourceRefusal("opensubtitles", response.status, `opensubtitles download answered ${response.status}`);
     const info = (await response.json()) as OsDownload;
+    if (typeof info.remaining === "number") downloadsLeft = info.remaining;
     if (!info.link) throw new Error("opensubtitles gave no download link");
     const bytes = await providerBytes("opensubtitles", info.link);
     const file = bytes ? unpackSubtitle(bytes, info.file_name ?? `${hit.name}.srt`) : null;
@@ -207,4 +216,5 @@ export const openSubtitlesSource: SubtitleSource = {
 export function resetOpenSubtitlesTokens(): void {
   sessions.clear();
   refusedSignIns.clear();
+  downloadsLeft = null;
 }

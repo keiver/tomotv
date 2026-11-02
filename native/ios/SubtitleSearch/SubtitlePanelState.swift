@@ -28,8 +28,10 @@ public struct SubtitlePanelResult: Codable, Equatable {
     public let hashMatch: Bool
     public let applying: Bool
     public let applied: Bool
+    /// The timing controls under the row of the kept pick that is playing, nil on every other row.
+    public let timing: SubtitlePanelTrack?
 
-    public init(id: String, name: String, meta: String, badges: [String], monogram: String, hashMatch: Bool, applying: Bool, applied: Bool) {
+    public init(id: String, name: String, meta: String, badges: [String], monogram: String, hashMatch: Bool, applying: Bool, applied: Bool, timing: SubtitlePanelTrack? = nil) {
         self.id = id
         self.name = name
         self.meta = meta
@@ -38,17 +40,14 @@ public struct SubtitlePanelResult: Codable, Equatable {
         self.hashMatch = hashMatch
         self.applying = applying
         self.applied = applied
+        self.timing = timing
     }
 }
 
-/// A text subtitle the video already has, with the words its timing controls show.
+/// The timing controls of a kept pick, with the words they show.
 public struct SubtitlePanelTrack: Codable, Equatable {
     /// The stream index the shift and sync events name.
     public let id: Int
-    public let name: String
-    public let meta: String
-    /// The source letter of a device copy, empty for a track of the file.
-    public let monogram: String
     public let offsetLabel: String
     public let earlierLabel: String
     public let laterLabel: String
@@ -57,26 +56,18 @@ public struct SubtitlePanelTrack: Codable, Equatable {
     public let laterTitle: String
     public let resetLabel: String
     public let syncLabel: String
-    public let replaceLabel: String
     /// A match can only run while the video plays; the sync button hides without it.
     public let canSync: Bool
-    /// The in-player panel hides Replace: picking a result is the replacement there.
-    public let canReplace: Bool
-    /// The row a Replace press armed: the next pick replaces this copy.
-    public let replacing: Bool
     /// A match against the audio is running: the sync button spins and takes no press.
     public let syncing: Bool
     /// The line under the row: how the last match went, empty when none ran.
     public let note: String
 
     public init(
-        id: Int, name: String, meta: String, monogram: String, offsetLabel: String, earlierLabel: String, laterLabel: String, earlierTitle: String, laterTitle: String,
-        resetLabel: String, syncLabel: String, replaceLabel: String, canSync: Bool, canReplace: Bool, replacing: Bool, syncing: Bool, note: String
+        id: Int, offsetLabel: String, earlierLabel: String, laterLabel: String, earlierTitle: String, laterTitle: String,
+        resetLabel: String, syncLabel: String, canSync: Bool, syncing: Bool, note: String
     ) {
         self.id = id
-        self.name = name
-        self.meta = meta
-        self.monogram = monogram
         self.offsetLabel = offsetLabel
         self.earlierLabel = earlierLabel
         self.laterLabel = laterLabel
@@ -84,10 +75,7 @@ public struct SubtitlePanelTrack: Codable, Equatable {
         self.laterTitle = laterTitle
         self.resetLabel = resetLabel
         self.syncLabel = syncLabel
-        self.replaceLabel = replaceLabel
         self.canSync = canSync
-        self.canReplace = canReplace
-        self.replacing = replacing
         self.syncing = syncing
         self.note = note
     }
@@ -138,8 +126,6 @@ public struct SubtitlePanelState: Codable, Equatable {
     public let credit: String
     /// The viewer's theme colour, "#RRGGBB".
     public let accent: String
-    /// The video's own text subtitles, led by their timing controls; the playing one alone in-player.
-    public let tracks: [SubtitlePanelTrack]
     public let languages: [SubtitlePanelLanguage]
     public let selectedLanguage: String
     /// Set while hash matches wait: the one button that takes them all.
@@ -154,13 +140,12 @@ public struct SubtitlePanelState: Codable, Equatable {
     public let jobs: [SubtitlePanelJob]
 
     public init(
-        title: String, credit: String = "", accent: String = "", tracks: [SubtitlePanelTrack] = [], languages: [SubtitlePanelLanguage], selectedLanguage: String, takeAll: SubtitlePanelTakeAll? = nil,
+        title: String, credit: String = "", accent: String = "", languages: [SubtitlePanelLanguage], selectedLanguage: String, takeAll: SubtitlePanelTakeAll? = nil,
         skippedLine: String = "", emptyLine: String = "", queryPlaceholder: String, searchLabel: String, jobs: [SubtitlePanelJob]
     ) {
         self.title = title
         self.credit = credit
         self.accent = accent
-        self.tracks = tracks
         self.languages = languages
         self.selectedLanguage = selectedLanguage
         self.takeAll = takeAll
@@ -187,10 +172,5 @@ public struct SubtitlePanelState: Codable, Equatable {
         let hex = accent.hasPrefix("#") ? String(accent.dropFirst()) : accent
         guard hex.count == 6, let value = UInt32(hex, radix: 16) else { return nil }
         return (Double((value >> 16) & 0xFF) / 255, Double((value >> 8) & 0xFF) / 255, Double(value & 0xFF) / 255)
-    }
-
-    /// The track the timing row shows: the one the viewer chose while it is listed, else the first.
-    public func shownTrack(choosing id: Int?) -> SubtitlePanelTrack? {
-        tracks.first(where: { $0.id == id }) ?? tracks.first
     }
 }

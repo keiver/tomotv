@@ -17,7 +17,6 @@ class SubtitleSearchModule: RCTEventEmitter {
     private static let picked = "onSubtitlePanelPick"
     private static let shifted = "onSubtitlePanelShift"
     private static let synced = "onSubtitlePanelSync"
-    private static let replaced = "onSubtitlePanelReplace"
     private static let tookAll = "onSubtitlePanelTakeAll"
     private static let dismissed = "onSubtitlePanelDismissed"
 
@@ -26,7 +25,7 @@ class SubtitleSearchModule: RCTEventEmitter {
     @objc override static func requiresMainQueueSetup() -> Bool { true }
 
     override func supportedEvents() -> [String]! {
-        [Self.queryChanged, Self.languageChanged, Self.picked, Self.shifted, Self.synced, Self.replaced, Self.tookAll, Self.dismissed]
+        [Self.queryChanged, Self.languageChanged, Self.picked, Self.shifted, Self.synced, Self.tookAll, Self.dismissed]
     }
 
     @objc func present(_ state: NSDictionary, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
@@ -51,7 +50,6 @@ class SubtitleSearchModule: RCTEventEmitter {
             controller.onPick = { [weak self] jobId, id in self?.sendEvent(withName: Self.picked, body: ["jobId": jobId, "id": id]) }
             controller.onShift = { [weak self] trackId, deltaMs in self?.sendEvent(withName: Self.shifted, body: ["trackId": trackId, "deltaMs": deltaMs.map { $0 as Any } ?? NSNull()]) }
             controller.onSync = { [weak self] trackId in self?.sendEvent(withName: Self.synced, body: ["trackId": trackId]) }
-            controller.onReplace = { [weak self] trackId in self?.sendEvent(withName: Self.replaced, body: ["trackId": trackId]) }
             controller.onTakeAll = { [weak self] in self?.sendEvent(withName: Self.tookAll, body: [:]) }
             controller.onDismissed = { [weak self] in
                 self?.panel = nil

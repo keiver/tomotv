@@ -20,16 +20,14 @@ export interface PanelResult {
   hashMatch: boolean;
   applying: boolean;
   applied: boolean;
+  /** The timing controls of the kept pick that is playing, under its row. */
+  timing?: PanelTrack | null;
 }
 
-/** A text subtitle the video already has: its timing controls sit above the search. */
+/** The timing controls of a kept pick, under its result row. */
 export interface PanelTrack {
   /** The stream index the shift and sync events name. */
   id: number;
-  name: string;
-  meta: string;
-  /** The source letter for a device copy, empty for a track of the file. */
-  monogram: string;
   offsetLabel: string;
   earlierLabel: string;
   laterLabel: string;
@@ -38,13 +36,8 @@ export interface PanelTrack {
   laterTitle: string;
   resetLabel: string;
   syncLabel: string;
-  replaceLabel: string;
   /** A match can only run while the video plays; the sync button hides without it. */
   canSync: boolean;
-  /** The in-player panel hides Replace: picking a result is the replacement there. */
-  canReplace: boolean;
-  /** The row a Replace press armed: the next pick replaces this copy. */
-  replacing: boolean;
   /** A match against the audio is running: the sync button spins and takes no press. */
   syncing: boolean;
   /** The line under the row: how the last match went, empty when none ran. */
@@ -72,8 +65,6 @@ export interface PanelState {
   credit: string;
   /** The viewer's theme colour, "#RRGGBB". */
   accent: string;
-  /** The video's own text subtitles, led by their timing controls; the playing one alone in-player. */
-  tracks: PanelTrack[];
   /** Every language, the likely ones first; the panel shows the selected one on its pill and the rest in a menu. */
   languages: PanelLanguage[];
   selectedLanguage: string;
@@ -96,8 +87,6 @@ export interface PanelHandlers {
   onShift: (trackId: number, deltaMs: number | null) => void;
   /** The sync button: match that track to the audio. */
   onSync: (trackId: number) => void;
-  /** The Replace button: the next pick replaces that track's copy. */
-  onReplace: (trackId: number) => void;
   /** The take-all button: every hash match and lone result at once. */
   onTakeAll: () => void;
   onDismissed: () => void;
@@ -154,7 +143,6 @@ export function listenToSubtitlePanel(handlers: PanelHandlers): () => void {
     emitter.addListener("onSubtitlePanelPick", (event: { jobId: string; id: string }) => handlers.onPick(event.jobId, event.id)),
     emitter.addListener("onSubtitlePanelShift", (event: { trackId: number; deltaMs: number | null }) => handlers.onShift(event.trackId, typeof event.deltaMs === "number" ? event.deltaMs : null)),
     emitter.addListener("onSubtitlePanelSync", (event: { trackId: number }) => handlers.onSync(event.trackId)),
-    emitter.addListener("onSubtitlePanelReplace", (event: { trackId: number }) => handlers.onReplace(event.trackId)),
     emitter.addListener("onSubtitlePanelTakeAll", () => handlers.onTakeAll()),
     emitter.addListener("onSubtitlePanelDismissed", () => handlers.onDismissed()),
   ];

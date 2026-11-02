@@ -11,7 +11,7 @@ jest.mock("@/services/jellyfinApi", () => ({
 
 import { zipSync, strToU8 } from "fflate";
 import { unpackSubtitle } from "@/services/subtitles/sources/http";
-import { openSubtitlesHit, openSubtitlesParams, openSubtitlesSource, resetOpenSubtitlesTokens } from "@/services/subtitles/sources/opensubtitles";
+import { openSubtitlesDownloadsLeft, openSubtitlesHit, openSubtitlesParams, openSubtitlesSource, resetOpenSubtitlesTokens } from "@/services/subtitles/sources/opensubtitles";
 import { serverSource } from "@/services/subtitles/sources/server";
 import { SourceRefusal, type SearchContext, type SubtitleHit, type SubtitleQuery } from "@/services/subtitles/types";
 
@@ -169,7 +169,9 @@ describe("opensubtitles source", () => {
   it("downloads with the app key alone when the viewer keeps no account", async () => {
     mockFetch.mockResolvedValueOnce(json({ link: "https://dl.example/x.srt", file_name: "x.srt", remaining: 4 })).mockResolvedValueOnce(bytes(strToU8(SRT)));
     const hit = { id: "123", name: "x", source: "opensubtitles" } as SubtitleHit;
+    expect(openSubtitlesDownloadsLeft()).toBeNull();
     expect(await openSubtitlesSource.fetch(hit, anonymous)).toEqual({ text: SRT, format: "srt" });
+    expect(openSubtitlesDownloadsLeft()).toBe(4);
     expect(mockFetch.mock.calls.map((call) => call[0])).toEqual(["https://api.opensubtitles.com/api/v1/download", "https://dl.example/x.srt"]);
     const sent = (mockFetch.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
     expect(sent["Api-Key"]).toBe("key");
@@ -185,7 +187,9 @@ describe("opensubtitles source", () => {
       .mockResolvedValueOnce(bytes(strToU8(SRT)));
     const hit = { id: "123", name: "x", source: "opensubtitles" } as SubtitleHit;
     expect(await openSubtitlesSource.fetch(hit, context)).toEqual({ text: SRT, format: "srt" });
+    expect(openSubtitlesDownloadsLeft()).toBe(18);
     await openSubtitlesSource.fetch(hit, context);
+    expect(openSubtitlesDownloadsLeft()).toBe(17);
     const urls = mockFetch.mock.calls.map((call) => call[0]);
     expect(urls).toEqual([
       "https://api.opensubtitles.com/api/v1/login",

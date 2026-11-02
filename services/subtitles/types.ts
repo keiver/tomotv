@@ -114,6 +114,7 @@ export interface SubtitleJob {
   /** The chain's note on sources that refused, for the state line. */
   note: string | null;
   picked: SubtitleHit | null;
-  applied: { where: "server" | "device"; language: string; deviceReason?: DeviceReason } | null;
+  /** `streamIndex` is the track the kept pick plays as once the session reloads. */
+  applied: { where: "server" | "device"; language: string; deviceReason?: DeviceReason; streamIndex?: number } | null;
   error: string | null;
 }

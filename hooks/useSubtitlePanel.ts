@@ -1,9 +1,8 @@
 /**
  * The native subtitle panel on every platform: opened from a video's info panel, or from the tvOS
- * player's transport bar, closed by Menu or the sheet pull. From the info panel it carries the
- * selected language's own track (timing, sync while playing, Replace) and one search job per
- * video, a folder's episodes each with their own. In-player it leads with the playing subtitle's
- * timing and a pick is the way to replace it.
+ * player's transport bar, closed by Menu or the sheet pull. It carries one search job per video, a
+ * folder's episodes each with their own; the kept pick's result row carries its timing, and a new
+ * pick replaces the copy of its language.
  */
 import type { ActiveTextSubtitle } from "@/contexts/PlayerSessionContext";
 import { useSubtitleSearch } from "@/hooks/useSubtitleSearch";
@@ -12,11 +11,12 @@ import { t } from "@/services/i18n";
 import { fetchItemDetails, fetchRecursiveDownloadables, isAudioItem, isBook, isFolder, isPhoto } from "@/services/jellyfinApi";
 import { getCachedConfig } from "@/services/jellyfin/session";
 import { currentTextSubtitles, isCurrentPick, replacementFor, type CurrentSubtitle } from "@/services/subtitles/current";
-import { hitBadges, hitMeta, jobErrorLine, jobNoteLine, jobStateLine, offsetLabel, SOURCE_MONOGRAM, sourceName, syncStateLine } from "@/services/subtitles/jobText";
+import { hitBadges, hitMeta, jobErrorLine, jobNoteLine, jobStateLine, offsetLabel, SOURCE_MONOGRAM, syncStateLine } from "@/services/subtitles/jobText";
 import { ALL_LANGUAGES, languageCode, languageFor } from "@/services/subtitles/languages";
 import { queryText } from "@/services/subtitles/query";
 import { SUBTITLE_OFFSET_STEP_MS, type SubtitleSyncState } from "@/services/subtitles/timing";
-import type { SubtitleJob } from "@/services/subtitles/types";
+import { openSubtitlesDownloadsLeft } from "@/services/subtitles/sources/opensubtitles";
+import type { SubtitleHit, SubtitleJob } from "@/services/subtitles/types";
 import { getUiPreferences } from "@/services/uiPreferences";
 import { dismissSubtitlePanel, listenToSubtitlePanel, presentSubtitlePanel, subtitlePanelAvailable, type PanelJob, type PanelState, type PanelTrack } from "@/services/subtitleSearchPanel";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
@@ -38,18 +38,12 @@ export interface PanelTrackInput {
   /** How the match against the audio stands, or null when none ran. */
   sync?: SubtitleSyncState | null;
   canSync: boolean;
-  canReplace: boolean;
-  replacing: boolean;
 }
 
-/** One of the video's own text subtitles, with the words its row shows. */
+/** The timing controls of a kept pick, with the words they show. */
 export function panelTrackFor(input: PanelTrackInput): PanelTrack {
-  const language = languageFor(input.subtitle.language)?.native ?? input.subtitle.language;
   return {
     id: input.subtitle.index,
-    name: input.subtitle.name,
-    meta: input.subtitle.device ? `${sourceName(input.subtitle.device.source)} · ${language}` : language,
-    monogram: input.subtitle.device ? SOURCE_MONOGRAM[input.subtitle.device.source] : "",
     offsetLabel: offsetLabel(input.offsetMs),
     earlierLabel: t("subtitles.earlier"),
     laterLabel: t("subtitles.later"),
@@ -57,17 +51,21 @@ export function panelTrackFor(input: PanelTrackInput): PanelTrack {
     laterTitle: t("subtitles.laterStep"),
     resetLabel: t("subtitles.resetTiming"),
     syncLabel: t("subtitles.sync"),
-    replaceLabel: t("subtitles.replace"),
     canSync: input.canSync,
-    canReplace: input.canReplace,
-    replacing: input.replacing,
     syncing: input.sync?.status === "syncing",
     note: syncStateLine(input.sync ?? null),
   };
 }
 
-/** One job as its panel section; a lone job carries no heading and is the whole search. */
-export function panelJobFor(job: SubtitleJob, alone: boolean, currents: CurrentSubtitle[]): PanelJob {
+/** Whether a result is the kept pick now playing as `track`: the device copy it became, or the stream its save reloaded to. */
+export function isPlayingPick(job: SubtitleJob, hit: SubtitleHit, track: CurrentSubtitle): boolean {
+  if (isCurrentPick(hit, track)) return true;
+  return job.status === "applied" && job.picked?.id === hit.id && job.picked.source === hit.source && job.applied?.streamIndex === track.index;
+}
+
+/** One job as its panel section; a lone job carries no heading and is the whole search. The result kept as one of `tracks` carries that track's timing controls. */
+export function panelJobFor(job: SubtitleJob, alone: boolean, tracks: PanelTrackInput[]): PanelJob {
+  const currents = tracks.map((track) => track.subtitle);
   return {
     id: job.item.Id,
     label: alone ? "" : (job.label ?? ""),
@@ -77,16 +75,20 @@ export function panelJobFor(job: SubtitleJob, alone: boolean, currents: CurrentS
     note: jobErrorLine(job) ?? jobNoteLine(job) ?? "",
     // An idle job searches itself on the next tick and already says "Searching", so it spins too.
     busy: job.status === "idle" || job.status === "searching" || job.status === "applying",
-    results: job.results.map((hit) => ({
-      id: `${hit.source}:${hit.id}`,
-      name: hit.name,
-      meta: hitMeta(hit),
-      badges: hitBadges(hit),
-      monogram: SOURCE_MONOGRAM[hit.source],
-      hashMatch: hit.hashMatch,
-      applying: job.status === "applying" && job.picked?.id === hit.id && job.picked.source === hit.source,
-      applied: (job.status === "applied" && job.picked?.id === hit.id && job.picked.source === hit.source) || currents.some((current) => isCurrentPick(hit, current)),
-    })),
+    results: job.results.map((hit) => {
+      const timing = tracks.find((track) => isPlayingPick(job, hit, track.subtitle));
+      return {
+        id: `${hit.source}:${hit.id}`,
+        name: hit.name,
+        meta: hitMeta(hit),
+        badges: hitBadges(hit),
+        monogram: SOURCE_MONOGRAM[hit.source],
+        hashMatch: hit.hashMatch,
+        applying: job.status === "applying" && job.picked?.id === hit.id && job.picked.source === hit.source,
+        applied: (job.status === "applied" && job.picked?.id === hit.id && job.picked.source === hit.source) || currents.some((current) => isCurrentPick(hit, current)),
+        timing: timing ? panelTrackFor(timing) : null,
+      };
+    }),
   };
 }
 
@@ -102,12 +104,11 @@ export function panelStateFor(
   const alone = search.jobs.length === 1;
   const busy = search.jobs.some((job) => job.status === "applying");
   const languageName = languageFor(search.language)?.native ?? search.language;
-  const currents = tracks.map((track) => track.subtitle);
+  const left = openSubtitlesDownloadsLeft();
   return {
     title,
-    credit: t("subtitles.credit"),
+    credit: left === null ? t("subtitles.credit") : `${t("subtitles.credit")} · ${t("subtitles.downloadsLeft").replace("{count}", String(left))}`,
     accent,
-    tracks: tracks.map(panelTrackFor),
     languages: [...search.choices, ...rest].map((row) => ({ code: row.code, name: row.native })),
     selectedLanguage: search.language,
     takeAll: search.matches.length > 0 ? { label: t("subtitles.takeMatches").replace("{count}", String(search.matches.length)), busy } : null,
@@ -115,7 +116,7 @@ export function panelStateFor(
     emptyLine: search.jobs.length > 0 ? "" : videoCount === 0 ? t("subtitles.noVideos") : t("subtitles.allSubtitled").replace("{language}", languageName),
     queryPlaceholder: t("subtitles.searchPlaceholder"),
     searchLabel: t("subtitles.search"),
-    jobs: search.jobs.map((job) => panelJobFor(job, alone, currents)),
+    jobs: search.jobs.map((job) => panelJobFor(job, alone, tracks)),
   };
 }
 
@@ -138,8 +139,6 @@ export function useSubtitlePanel(itemId: string, active: ActiveTextSubtitle | nu
   const [loaded, setLoaded] = useState<{ itemId: string; items: JellyfinVideoItem[] } | null>(null);
   const items = loaded?.itemId === itemId ? loaded.items : null;
   const [shown, setShown] = useState(false);
-  // The stream index a Replace press armed: the next pick replaces that copy.
-  const [replacingIndex, setReplacingIndex] = useState<number | null>(null);
   // One video always gets its search job, so the field and button never disappear; only a
   // folder's episodes already carrying the language are skipped.
   const presented = useRef(false);
@@ -149,7 +148,6 @@ export function useSubtitlePanel(itemId: string, active: ActiveTextSubtitle | nu
     presented.current = false;
     await dismissSubtitlePanel();
     setShown(false);
-    setReplacingIndex(null);
   }, []);
   const search = useSubtitleSearch(items, !inPlayer && (items?.length ?? 0) > 1, inPlayer ? closeBeforeReload : undefined);
   const timing = useSubtitleTiming(itemId);
@@ -168,10 +166,9 @@ export function useSubtitlePanel(itemId: string, active: ActiveTextSubtitle | nu
   }, [active, items]);
   const offsetMs = active ? timing.offsetFor(active.index) : 0;
 
-  // Only the selected language's track carries a timing row, so the panel never repeats a control
-  // strip per embedded track; the row follows the language pill. Rebuilt every render, so a pick's
-  // fresh device copy lists itself; the send effect deduplicates, so an unchanged list costs no
-  // bridge call.
+  // The subtitles a kept pick can be: the one playing in-player, the selected language's otherwise. Only the
+  // result kept as one of them shows timing controls. Rebuilt every render, so a pick's fresh device copy
+  // lists itself; the send effect deduplicates, so an unchanged list costs no bridge call.
   const listed = inPlayer
     ? playerCurrent
       ? [playerCurrent]
@@ -184,26 +181,21 @@ export function useSubtitlePanel(itemId: string, active: ActiveTextSubtitle | nu
     offsetMs: timing.offsetFor(subtitle.index),
     sync: timing.syncStateFor(subtitle.index),
     canSync: timing.canSync,
-    canReplace: !inPlayer,
-    replacing: replacingIndex === subtitle.index,
   }));
   const tracksRef = useRef(tracks);
-  const replacingRef = useRef<CurrentSubtitle | null>(null);
   useEffect(() => {
     tracksRef.current = tracks;
-    replacingRef.current = tracks.find((track) => track.replacing)?.subtitle ?? null;
   }, [tracks]);
   const playerCurrentRef = useRef(playerCurrent);
   useEffect(() => {
     playerCurrentRef.current = playerCurrent;
   }, [playerCurrent]);
 
-  // A copy just picked here is matched to the audio as soon as it is the track on, once per track.
+  // A pick kept here, on the device or the server, is matched to the audio as soon as it is the track on, once per track.
   const autoSynced = useRef<string | null>(null);
   useEffect(() => {
     const job = search.jobs.find((candidate) => candidate.status === "applied");
-    if (!playerCurrent?.device || !job?.picked) return;
-    if (job.picked.source !== playerCurrent.device.source || job.picked.id !== playerCurrent.device.sourceId) return;
+    if (!playerCurrent || !job?.picked || !isPlayingPick(job, job.picked, playerCurrent)) return;
     const key = `${itemId}:${playerCurrent.index}`;
     if (autoSynced.current === key) return;
     autoSynced.current = key;
@@ -236,8 +228,7 @@ export function useSubtitlePanel(itemId: string, active: ActiveTextSubtitle | nu
   const lastSent = useRef("");
   useEffect(() => {
     if (!shown || !items) return;
-    const title = inPlayer && tracks.length > 0 ? t("subtitles.timingTitle") : t("subtitles.title");
-    const state = panelStateFor(search, tracks, items.length, title, getUiPreferences().cardTheme.accent);
+    const state = panelStateFor(search, tracks, items.length, t("subtitles.title"), getUiPreferences().cardTheme.accent);
     const sent = JSON.stringify(state);
     if (presented.current && sent === lastSent.current) return;
     lastSent.current = sent;
@@ -245,7 +236,7 @@ export function useSubtitlePanel(itemId: string, active: ActiveTextSubtitle | nu
       presented.current = ok;
       if (!ok) setShown(false);
     });
-  }, [shown, items, search, tracks, inPlayer]);
+  }, [shown, items, search, tracks]);
 
   useEffect(() => {
     if (!shown) return;
@@ -260,22 +251,16 @@ export function useSubtitlePanel(itemId: string, active: ActiveTextSubtitle | nu
         const job = searchRef.current.jobs[index];
         const hit = job?.results.find((candidate) => `${candidate.source}:${candidate.id}` === id);
         if (!hit) return;
-        void searchRef.current.pick(index, hit, replacementFor(hit, replacingRef.current ?? playerCurrentRef.current));
+        // A pick replaces the copy of its language that is on: the playing one in-player, the latest kept one otherwise.
+        const copies = tracksRef.current.map((track) => track.subtitle).filter((subtitle) => subtitle.device);
+        void searchRef.current.pick(index, hit, replacementFor(hit, playerCurrentRef.current ?? copies[copies.length - 1]));
       },
       onShift: (trackId, deltaMs) => timingRef.current.shift(trackId, deltaMs === null ? null : Math.sign(deltaMs) * SUBTITLE_OFFSET_STEP_MS),
       onSync: (trackId) => void timingRef.current.sync(trackId),
-      onReplace: (trackId) => {
-        const track = tracksRef.current.find((candidate) => candidate.subtitle.index === trackId);
-        if (!track) return;
-        setReplacingIndex(trackId);
-        // The armed track's language leads the next search, the way a replacement wants it.
-        searchRef.current.setLanguage(languageCode(track.subtitle.language) ?? searchRef.current.language);
-      },
       onTakeAll: () => void searchRef.current.takeAll(),
       onDismissed: () => {
         presented.current = false;
         setShown(false);
-        setReplacingIndex(null);
       },
     });
   }, [shown]);

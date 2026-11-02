@@ -16,7 +16,6 @@ final class SubtitlePanelStateTests: XCTestCase {
             "title": "Subtitles",
             "credit": "Subtitles provided by OpenSubtitles.com",
             "accent": "#4F99FF",
-            "tracks": [],
             "languages": [["code": "en", "name": "English"], ["code": "es", "name": "Español"]],
             "selectedLanguage": selected,
             "skippedLine": "",
@@ -39,39 +38,21 @@ final class SubtitlePanelStateTests: XCTestCase {
         XCTAssertEqual(state.jobs[0].results[0].badges, ["SDH"])
     }
 
-    func testTracksAndTheTakeAllButtonDecodeWhenSent() throws {
-        var with = dictionary(jobs: [])
-        with["tracks"] = [
-            [
-                "id": 100_000, "name": "Kept", "meta": "Podnapisi · English", "monogram": "P", "offsetLabel": "1.5 s late", "earlierLabel": "Back 0.5 s",
-                "laterLabel": "Forward 0.5 s", "earlierTitle": "−0.5 s", "laterTitle": "+0.5 s", "resetLabel": "Reset", "syncLabel": "Sync to audio", "replaceLabel": "Replace", "canSync": true, "canReplace": true,
-                "replacing": true, "syncing": false, "note": "",
-            ]
+    func testTheKeptPicksTimingAndTheTakeAllButtonDecodeWhenSent() throws {
+        var kept = result("k", applied: true)
+        kept["timing"] = [
+            "id": 100_000, "offsetLabel": "1.5 s late", "earlierLabel": "Back 0.5 s", "laterLabel": "Forward 0.5 s", "earlierTitle": "−0.5 s", "laterTitle": "+0.5 s",
+            "resetLabel": "Reset", "syncLabel": "Sync to audio", "canSync": true, "syncing": false, "note": "",
         ]
+        var with = dictionary(jobs: [job("v1", results: [result("a"), kept])])
         with["takeAll"] = ["label": "Take 3 matches", "busy": false]
         let state = try XCTUnwrap(SubtitlePanelState.from(dictionary: with))
-        XCTAssertEqual(state.tracks.map(\.id), [100_000])
-        XCTAssertEqual(state.tracks[0].offsetLabel, "1.5 s late")
-        XCTAssertEqual(state.tracks[0].earlierTitle, "−0.5 s")
-        XCTAssertTrue(state.tracks[0].replacing)
+        XCTAssertNil(state.jobs[0].results[0].timing)
+        let timing = try XCTUnwrap(state.jobs[0].results[1].timing)
+        XCTAssertEqual(timing.id, 100_000)
+        XCTAssertEqual(timing.offsetLabel, "1.5 s late")
+        XCTAssertEqual(timing.earlierTitle, "−0.5 s")
         XCTAssertEqual(state.takeAll?.label, "Take 3 matches")
-    }
-
-    func testTheShownTrackIsTheChosenOneWhileListedElseTheFirst() throws {
-        func track(_ id: Int) -> [String: Any] {
-            [
-                "id": id, "name": "T\(id)", "meta": "English", "monogram": "", "offsetLabel": "On time", "earlierLabel": "", "laterLabel": "", "earlierTitle": "", "laterTitle": "", "resetLabel": "",
-                "syncLabel": "", "replaceLabel": "", "canSync": false, "canReplace": true, "replacing": false, "syncing": false, "note": "",
-            ]
-        }
-        var with = dictionary(jobs: [])
-        with["tracks"] = [track(2), track(3)]
-        let state = try XCTUnwrap(SubtitlePanelState.from(dictionary: with))
-        XCTAssertEqual(state.shownTrack(choosing: 3)?.id, 3)
-        XCTAssertEqual(state.shownTrack(choosing: 9)?.id, 2)
-        XCTAssertEqual(state.shownTrack(choosing: nil)?.id, 2)
-        let empty = try XCTUnwrap(SubtitlePanelState.from(dictionary: dictionary(jobs: [])))
-        XCTAssertNil(empty.shownTrack(choosing: 2))
     }
 
     func testTheThemeColourReadsFromHexAndAnythingElseIsNil() throws {

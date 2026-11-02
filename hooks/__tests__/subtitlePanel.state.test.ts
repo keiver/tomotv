@@ -19,10 +19,12 @@ jest.mock("@/services/subtitleSearchPanel", () => ({
   listenToSubtitlePanel: jest.fn(),
 }));
 jest.mock("@/services/subtitles/current", () => ({ currentTextSubtitles: () => [], isCurrentPick: jest.requireActual("@/services/subtitles/current").isCurrentPick, replacementFor: jest.fn() }));
+jest.mock("@/services/subtitles/sources/opensubtitles", () => ({ openSubtitlesDownloadsLeft: jest.fn(() => null) }));
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
 
 import { panelStateFor, panelTrackFor, subtitleTransportButton, type PanelTrackInput } from "@/hooks/useSubtitlePanel";
 import { makeJob } from "@/services/subtitles/jobs";
+import { openSubtitlesDownloadsLeft } from "@/services/subtitles/sources/opensubtitles";
 import type { SubtitleHit } from "@/services/subtitles/types";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 
@@ -45,7 +47,7 @@ function hit(id: string, over: Partial<SubtitleHit> = {}): SubtitleHit {
 }
 
 const kept = { index: 100000, name: "Kept", language: "en", device: { ordinal: 0, source: "podnapisi" as const, sourceId: "a" } };
-const keptTrack: PanelTrackInput = { subtitle: kept, offsetMs: -500, canSync: true, canReplace: true, replacing: false };
+const keptTrack: PanelTrackInput = { subtitle: kept, offsetMs: -500, canSync: true };
 const english = [{ code: "en", native: "English" }];
 
 describe("the transport bar subtitle button", () => {
@@ -72,34 +74,42 @@ describe("the panel's state", () => {
   const second = { Id: "v2", Name: "Clip Two", Type: "Video", Path: "/v/Clip Two.mov", MediaStreams: [] } as unknown as JellyfinVideoItem;
   const search = (jobs: ReturnType<typeof makeJob>[], over: Partial<Parameters<typeof panelStateFor>[0]> = {}) => ({ jobs, language: "en", choices: english, skipped: 0, matches: [], ...over });
 
-  it("leads with the video's tracks and shows its own copy in place as applied", () => {
+  it("puts the timing controls under the result kept as a device copy, and on no other row", () => {
     const job = { ...makeJob(item, "en"), status: "found" as const, results: [hit("a"), hit("b")] };
     const state = panelStateFor(search([job]), [keptTrack], 1, "subtitles.title", "#4F99FF");
-    expect(state.tracks).toEqual([
-      {
-        id: 100000,
-        name: "Kept",
-        meta: "subtitles.source.podnapisi · English",
-        monogram: "P",
-        offsetLabel: "subtitles.early",
-        earlierLabel: "subtitles.earlier",
-        laterLabel: "subtitles.later",
-        earlierTitle: "subtitles.earlierStep",
-        laterTitle: "subtitles.laterStep",
-        resetLabel: "subtitles.resetTiming",
-        syncLabel: "subtitles.sync",
-        replaceLabel: "subtitles.replace",
-        canSync: true,
-        canReplace: true,
-        replacing: false,
-        syncing: false,
-        note: "",
-      },
-    ]);
     expect(state.jobs[0].results.map((result) => [result.id, result.applied])).toEqual([
       ["podnapisi:a", true],
       ["podnapisi:b", false],
     ]);
+    expect(state.jobs[0].results[0].timing).toEqual({
+      id: 100000,
+      offsetLabel: "subtitles.early",
+      earlierLabel: "subtitles.earlier",
+      laterLabel: "subtitles.later",
+      earlierTitle: "subtitles.earlierStep",
+      laterTitle: "subtitles.laterStep",
+      resetLabel: "subtitles.resetTiming",
+      syncLabel: "subtitles.sync",
+      canSync: true,
+      syncing: false,
+      note: "",
+    });
+    expect(state.jobs[0].results[1].timing).toBeNull();
+  });
+
+  it("puts the timing controls under a pick saved to the server once that stream is the one playing", () => {
+    const saved = { index: 7, name: "English", language: "en" };
+    const job = { ...makeJob(item, "en"), status: "applied" as const, results: [hit("a"), hit("b")], picked: hit("b"), applied: { where: "server" as const, language: "en", streamIndex: 7 } };
+    const playing = panelStateFor(search([job]), [{ subtitle: saved, offsetMs: 0, canSync: true }], 1, "subtitles.title", "#4F99FF");
+    expect(playing.jobs[0].results.map((result) => result.timing?.id ?? null)).toEqual([null, 7]);
+    const stillTheOld = panelStateFor(search([job]), [{ subtitle: { ...saved, index: 3 }, offsetMs: 0, canSync: true }], 1, "subtitles.title", "#4F99FF");
+    expect(stillTheOld.jobs[0].results.map((result) => result.timing ?? null)).toEqual([null, null]);
+  });
+
+  it("adds the free downloads left today to the credit once the API has said how many", () => {
+    expect(panelStateFor(search([]), [], 1, "subtitles.title", "#4F99FF").credit).toBe("subtitles.credit");
+    jest.mocked(openSubtitlesDownloadsLeft).mockReturnValueOnce(4);
+    expect(panelStateFor(search([]), [], 1, "subtitles.title", "#4F99FF").credit).toBe("subtitles.credit · subtitles.downloadsLeft");
   });
 
   it("gives a lone job no heading and every language behind the likely ones", () => {
@@ -132,19 +142,11 @@ describe("the panel's state", () => {
     expect(panelStateFor(search([{ ...job, error: "accountLimit" }]), [], 1, "subtitles.title", "#4F99FF").jobs[0].note).toBe("subtitles.accountDownloadLimit");
   });
 
-  it("names a file track by its language alone", () => {
-    expect(panelTrackFor({ subtitle: { index: 2, name: "English (SRT)", language: "eng" }, offsetMs: 0, canSync: false, canReplace: true, replacing: false }).meta).toBe("English");
-  });
-
   it("spins the sync button while a match runs and notes how it went", () => {
     const running = panelTrackFor({ ...keptTrack, offsetMs: 0, sync: { status: "syncing", attempt: 1 } });
     expect(running.syncing).toBe(true);
     expect(running.note).toBe("subtitles.syncing");
     expect(panelTrackFor({ ...keptTrack, offsetMs: -1700, sync: { status: "synced" } }).note).toBe("subtitles.synced");
     expect(panelTrackFor({ ...keptTrack, offsetMs: 0, sync: { status: "failed" } }).note).toBe("subtitles.syncFailed");
-  });
-
-  it("marks the armed track so the panel shows where the next pick lands", () => {
-    expect(panelTrackFor({ ...keptTrack, replacing: true }).replacing).toBe(true);
   });
 });
