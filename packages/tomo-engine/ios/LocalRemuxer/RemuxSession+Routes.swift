@@ -14,13 +14,14 @@ extension RemuxSession {
     }
 
     /// Routes one file name under this session's token.
-    func route(_ name: String) -> LocalHTTPResponse {
+    func route(_ name: String, query: [String: String] = [:]) -> LocalHTTPResponse {
         let m3u8 = "application/vnd.apple.mpegurl"
 
         switch name {
         case "master.m3u8":
             return .data(Data(masterPlaylist().utf8), contentType: m3u8)
         case "media.m3u8":
+            if config.isLive, servesParts { return lowLatencyPlaylistResponse(prefix: "", query: query) }
             return .data(Data(mediaPlaylist().utf8), contentType: m3u8)
         case "source.m3u8":
             return sourcePlaylistResponse()
@@ -142,6 +143,7 @@ extension RemuxSession {
            let n = Int(name.dropFirst(3).dropLast(4)) {
             return segmentResponse(n)
         }
+        if let (n, k) = Self.partIndices(Substring(name)) { return partResponse(n, part: k) }
 
         // Slipstream audio-lo renditions: "aNs.m3u8", "aNs-init.mp4",
         // "aNs-seg{index}.m4s" must match before the engine "aN" block,
@@ -169,11 +171,13 @@ extension RemuxSession {
             guard prefix.count > 1, prefix.dropFirst().allSatisfy(\.isNumber) else { return .notFound }
             let rest = String(name[split...])
             if rest == ".m3u8" {
+                if config.isLive, servesParts { return lowLatencyPlaylistResponse(prefix: prefix, query: query) }
                 return .data(Data(mediaPlaylist(prefix: prefix).utf8), contentType: m3u8)
             }
             if rest == "-init.mp4" {
                 return initResponse(prefix: prefix)
             }
+            if let (n, k) = Self.partIndices(rest.dropFirst()) { return partResponse(n, part: k, prefix: prefix) }
             if rest.hasPrefix("-init-g"), rest.hasSuffix(".mp4"),
                let generation = Int(rest.dropFirst(7).dropLast(4)) {
                 return initResponse(prefix: prefix, generation: generation)

@@ -364,6 +364,8 @@ final class RemuxSession {
     var maxKeyframeGapSeconds: Double = 0
     /// Live: this session serves LL-HLS parts, set once at the open (a continuous input with `liveLowLatency` on). Under stateLock.
     var lowLatencyInput = false
+    /// Broadcast when a part is cut or a segment lands; LL-HLS waits take it before stateLock, never inside it.
+    let partSignal = NSCondition()
     /// Every audio stream the demuxer found, in rendition order, for a session that reads its tracks
     /// off the input (live, `describesInput`); nil until the input is open.
     var inputAudioTracks: [RemuxAudioTrack]? = nil

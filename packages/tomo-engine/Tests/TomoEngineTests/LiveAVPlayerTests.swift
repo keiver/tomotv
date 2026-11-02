@@ -145,7 +145,7 @@ final class LiveAVPlayerTests: XCTestCase {
     }
 
     /// Open to moving picture on a continuous real-time TS source, timed from `session.start()` as the app opens a channel. Recorded, not asserted.
-    /// Opt in with TOMO_CONTINUOUS_START=25:1,30000/1001:2:mpeg2,25:2::20 (fps:keyframe s[:codec[:bind after s]]); TOMO_START_RUNS, _WATCH, _BUFFER, TOMO_LIVE_SEGMENT, TOMO_LIVE_COPY_CUT, TOMO_TARGET_NEAREST.
+    /// Opt in with TOMO_CONTINUOUS_START=25:1,30000/1001:2:mpeg2,25:2::20 (fps:keyframe s[:codec[:bind after s]]); TOMO_START_RUNS, _WATCH, _BUFFER, TOMO_LIVE_SEGMENT, TOMO_LIVE_COPY_CUT, TOMO_TARGET_NEAREST, TOMO_LOW_LATENCY (part seconds), TOMO_LOG_REQUESTS.
     func testLiveStartOnAContinuousSource() throws {
         let env = ProcessInfo.processInfo.environment
         guard let specs = env["TOMO_CONTINUOUS_START"]?.split(separator: ",").map({ $0.split(separator: ":", omittingEmptySubsequences: false).map(String.init) }) else {
@@ -173,13 +173,26 @@ final class LiveAVPlayerTests: XCTestCase {
                 config.liveBufferSeconds = buffer
                 config.liveCopyCutSeconds = env["TOMO_LIVE_COPY_CUT"].flatMap(Double.init) ?? 0
                 config.liveTargetNearest = env["TOMO_TARGET_NEAREST"] != nil
+                let partSeconds = env["TOMO_LOW_LATENCY"].flatMap(Double.init)
+                config.liveLowLatency = partSeconds != nil
+                config.livePartSeconds = partSeconds ?? 0.5
                 let session = try RemuxSession(config: config)
                 let opened = Date()
                 session.start()
                 defer { session.stop() }
-                let (server, url) = try serve(session)
+                let requestLock = NSLock()
+                var blockingReloads = 0
+                var partFetches = 0
+                let (server, url) = try serve(session) { name in
+                    requestLock.lock()
+                    if env["TOMO_LOG_REQUESTS"] != nil { NSLog("[LiveAVPlayerTests] GET %@ at %.2fs", name, Date().timeIntervalSince(opened)) }
+                    if name.contains("_HLS_msn=") { blockingReloads += 1 }
+                    if RemuxSession.partIndices(Substring(name.split(separator: "-").last ?? "")) != nil { partFetches += 1 }
+                    requestLock.unlock()
+                }
                 defer { server.stop() }
-                if lead > 0 { spin(seconds: lead) { false } } else { awaitStartBuffer(session, seconds: buffer) }
+                // An LL-HLS session holds its own first answer until a part exists: the player binds at the open.
+                if lead > 0 { spin(seconds: lead) { false } } else if partSeconds == nil { awaitStartBuffer(session, seconds: buffer) }
                 let bound = Date().timeIntervalSince(opened)
                 let player = AVPlayer(url: url)
                 player.play()
@@ -198,10 +211,20 @@ final class LiveAVPlayerTests: XCTestCase {
                     wasPlaying = playing
                 }
                 let behind = player.currentItem?.currentDate().map { Date().timeIntervalSince($0) } ?? .nan
-                let media = session.mediaPlaylist().split(separator: "\n")
+                var playlist = session.mediaPlaylist()
+                if case .data(let data, _) = session.route("media.m3u8") { playlist = String(decoding: data, as: UTF8.self) }
+                let media = playlist.split(separator: "\n")
+                if env["TOMO_LOG_REQUESTS"] != nil { NSLog("[LiveAVPlayerTests] master:\n%@\nmedia:\n%@", session.masterPlaylist(), playlist) }
                 let longest = media.compactMap { $0.hasPrefix("#EXTINF:") ? Double($0.dropFirst(8).split(separator: ",").first ?? "") : nil }.max() ?? 0
                 let target = (media.first { $0.hasPrefix("#EXT-X-TARGETDURATION:") }.map(String.init) ?? "(none)") + String(format: ", longest segment %.3fs", longest)
                 if let moving { starts.append(lead > 0 ? moving - bound : moving) }
+                requestLock.lock()
+                let reloads = blockingReloads
+                let fetches = partFetches
+                requestLock.unlock()
+                let errors = player.currentItem?.errorLog()?.events.map { "\($0.errorStatusCode) \($0.errorComment ?? "")" }.joined(separator: "; ") ?? ""
+                NSLog("[LiveAVPlayerTests] continuous start low latency: parts %@, %d blocking reloads, %d part fetches, player errors [%@]",
+                      partSeconds.map { String(format: "%.2fs", $0) } ?? "off", reloads, fetches, errors)
                 NSLog("[LiveAVPlayerTests] continuous start: %@ fps, keyframe %.2fs, %@, segment %.2fs, buffer %.0fs, run %d: %@, bound at %.2fs, moving at %@, %d stalls in %.0fs, %.2fs behind the cut clock, error %@",
                       fps, keyframes, codec, segment, buffer, run, target, bound, moving.map { String(format: "%.2fs", $0) } ?? "never", stalls, watch, behind,
                       String(describing: player.currentItem?.error))

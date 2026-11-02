@@ -2309,6 +2309,7 @@ extension RemuxSession {
                     if !joined.isEmpty { rendition.writing.insert(n) }
                     stateLock.unlock()
                     if !joined.isEmpty { finished.append((rendition, joined, Self.stypBox.count + joined.count)) }
+                    signalParts()
                     continue
                 }
                 let flushed = av_write_frame(ctx, nil) // flush the open fragment
@@ -2506,6 +2507,7 @@ extension RemuxSession {
             }
             rendition.liveParts[n] = parts
             stateLock.unlock()
+            signalParts()
             return true
         }
 
@@ -3777,7 +3779,9 @@ extension RemuxSession {
         }
         sourceRetryAttempts = 0
         recovering = false
+        let lowLatency = lowLatencyInput
         stateLock.unlock()
+        if lowLatency { signalParts() }
         if doomed { try? FileManager.default.removeItem(at: file) }
     }
 

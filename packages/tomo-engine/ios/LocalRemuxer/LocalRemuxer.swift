@@ -201,7 +201,7 @@ class LocalRemuxer: RCTEventEmitter {
 
     // MARK: - Routing
 
-    private static func route(_ path: String) -> LocalHTTPResponse {
+    private static func route(_ path: String, query: [String: String]) -> LocalHTTPResponse {
         let parts = path.split(separator: "/").map(String.init)
         guard parts.count == 2 else { return .notFound }
 
@@ -232,7 +232,7 @@ class LocalRemuxer: RCTEventEmitter {
             return .notFound
         }
         guard let current else { return .notFound }
-        return current.route(parts[1])
+        return current.route(parts[1], query: query)
     }
 
     // MARK: - JS API
@@ -496,7 +496,7 @@ class LocalRemuxer: RCTEventEmitter {
         // Bound before anything is torn down. The old sessions are unreachable either way, but
         // a bind that throws here used to take them with it and leave no server behind: a
         // second player reading its own session lost it to another player's failed start.
-        let fresh = LocalHTTPServer(route: route)
+        let fresh = LocalHTTPServer(route: route(_:query:))
         let freshPort = try fresh.start()
 
         if let server {
