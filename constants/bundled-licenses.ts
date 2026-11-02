@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: 77f28836e11933ca
+ * fingerprint: bfe534e0a2888ae5
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -342,7 +342,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "fast-deep-equal", version: "3.1.3", license: "MIT", body: "L1", copyright: ["Copyright (c) 2017 Evgeny Poberezkin"] },
   { name: "fdir", version: "6.5.0", license: "MIT", body: "L2", copyright: ["Copyright 2023 Abdullah Atta"] },
   { name: "fetch-nodeshim", version: "0.4.10", license: "MIT", body: "L1", copyright: ["Copyright (c) Phil Pluckthun,","Copyright (c) 650 Industries, Inc. (aka Expo),","Copyright (c) 2016 - 2020 Node Fetch Team,","Copyright (c) Remix Software Inc. 2020-2021,","Copyright (c) Shopify Inc. 2022-2024"] },
-  { name: "fflate", version: "0.8.2", license: "MIT", body: "L1", copyright: ["Copyright (c) 2023 Arjun Barrett"] },
+  { name: "fflate", version: "0.8.3", license: "MIT", body: "L1", copyright: ["Copyright (c) 2026 Arjun Barrett"] },
   { name: "fill-range", version: "7.1.1", license: "MIT", body: "L3", copyright: ["Copyright (c) 2014-present, Jon Schlinkert."] },
   { name: "filter-obj", version: "1.1.0", license: "MIT", body: "L3", copyright: ["Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)"] },
   { name: "finalhandler", version: "1.1.2", license: "MIT", body: "L8", copyright: ["Copyright (c) 2014-2017 Douglas Christopher Wilson <doug@somethingdoug.com>"] },
