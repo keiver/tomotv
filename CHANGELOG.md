@@ -2,6 +2,24 @@
 
 All notable changes to Tomo TV are documented here.
 
+## [2.2.15]
+
+### Added
+
+- An item page reads the player's details as it opens, and after 2 s on the page opens the engine session that Play then takes, so playback starts without waiting for either. The session opens only for a copy with a quality ladder on a link remembered to carry the source by 1.2 times, so no server encode starts for an item nobody plays; it cuts 2 segments until the player asks, is taken only when the item, audio track, resume point and subtitle match, and is stopped 5 s after the page closes, when something else starts playing, or when the app goes to the background. A Continue Watching card reads the details on focus. Channels get neither, since their read opens a tuner (`@keiver/tomo-engine@1.8.0`)
+- Live channels start faster: a live session answers the player after 2 s of output instead of 15, on 1 s segments instead of 2. Measured with AVPlayer on a source arriving in real time: press to picture took about 7.3 s on 2 s segments and 3.3 s on 1 s segments with keyframes every second (`@keiver/tomo-engine@1.8.0`)
+- A live channel that stalls in its first minute holds its picture while the engine cuts the next start buffer, then plays, so one wait replaces repeated stalls; a play or pause ends the hold. The channel's start buffer steps up from 2 s to 6, then 15 s, after each such stall, and back down after a minute with no stall, for the app run (`@keiver/tomo-live@1.6.0`)
+- The startup link probe ends after 0.3 s on a link reading 8 times what the copy needs, instead of always reading 1.5 s. Measured on a Mac on the LAN: the first frame came at 1.55 s instead of 2.05 s (`@keiver/tomo-engine@1.8.0`)
+- An item's remembered audio language comes from the stored track settings at once, with no wait of up to 1.5 s for the refresh from the server; a language changed on another device applies one play later
+
+### Fixed
+
+- The loading overlay stayed for the player's 500 ms steady-playback timer after playback began, and on Apple TV it kept the player off screen, so the sound started before the picture. The overlay now drops the moment the player reports playing
+- On Apple TV a folder mixing posters with wide cards could switch from fixed columns to 7 columns once another page loaded, leaving the right column empty. A folder keeps the layout its first listing picked
+- A subtitle track picked during playback could be answered with no cues for the stretch an earlier read had passed, so it showed nothing. Its windows now wait for the read made with its own decoder open (`@keiver/tomo-engine@1.8.0`)
+- Subtitle tracks of one language that differ by region, script or SDH showed as one entry in the player's subtitle menu, which names a track by its language and accessibility characteristics only. A title naming Latin American or European Spanish, Brazilian or European Portuguese, Canadian French, or Simplified or Traditional Chinese now sets the track's language tag, and a title containing SDH marks it as SDH (`@keiver/tomo-engine@1.8.0`)
+- On a live provider that allows one stream, the player's open right after a cut channel preview could be refused and fail, because a preview cut before its first byte did not count as a connection the provider still held. Such an open now counts as a recent close and the refused open is asked again. Measured on a local Dispatcharr with a stream limit of 1: a closed read stays counted for 1.7 to 8.8 s (`@keiver/tomo-engine@1.8.0`)
+
 ## [2.2.14]
 
 ### Added

@@ -107,6 +107,43 @@ Tomo TV ships no media, channels, playlists or guides. It plays what your Jellyf
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
 ```
 
+### What's New (2.2.15), macOS (530 / 4000)
+
+```text
+- Videos start sooner after you open an item's page
+- Live channels start faster
+- A live channel that stutters as it starts pauses once to catch up, instead of stopping again and again
+- The picture shows the moment playback starts
+- Regional subtitles, like Latin American and European Spanish, and SDH subtitles show as separate choices in the subtitle menu
+- A subtitle you pick while a video plays no longer stays blank
+- Live TV: on a provider that allows one stream, a channel opened right after its preview no longer fails
+```
+
+### What's New (2.2.15), iOS (530 / 4000)
+
+```text
+- Videos start sooner after you open an item's page
+- Live channels start faster
+- A live channel that stutters as it starts pauses once to catch up, instead of stopping again and again
+- The picture shows the moment playback starts
+- Regional subtitles, like Latin American and European Spanish, and SDH subtitles show as separate choices in the subtitle menu
+- A subtitle you pick while a video plays no longer stays blank
+- Live TV: on a provider that allows one stream, a channel opened right after its preview no longer fails
+```
+
+### What's New (2.2.15), tvOS (601 / 4000)
+
+```text
+- Videos start sooner after you open an item's page
+- Live channels start faster
+- A live channel that stutters as it starts pauses once to catch up, instead of stopping again and again
+- The picture and the sound start together, the moment playback starts
+- Regional subtitles, like Latin American and European Spanish, and SDH subtitles show as separate choices in the subtitle menu
+- A subtitle you pick while a video plays no longer stays blank
+- Live TV: on a provider that allows one stream, a channel opened right after its preview no longer fails
+- Folders keep their layout as more items load
+```
+
 ### What's New (2.2.14), macOS (1090 / 4000)
 
 ```text
@@ -577,6 +614,43 @@ Tomo TV enthält keine Medien, Kanäle, Wiedergabelisten oder Fernsehprogramme. 
 Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin und steht in keiner Verbindung zum Jellyfin-Projekt und wird von ihm nicht unterstützt. Jellyfin ist eine Marke des jeweiligen Inhabers.
 ```
 
+#### What's New (2.2.15), macOS (608 / 4000)
+
+```text
+- Videos starten schneller, nachdem du die Seite eines Titels geöffnet hast
+- Live-Kanäle starten schneller
+- Ein Live-Kanal, der beim Start stockt, hält einmal kurz an, statt immer wieder zu stoppen
+- Das Bild erscheint, sobald die Wiedergabe beginnt
+- Regionale Untertitel, etwa lateinamerikanisches und europäisches Spanisch, und SDH-Untertitel erscheinen im Untertitelmenü als eigene Einträge
+- Ein Untertitel, den du während der Wiedergabe wählst, bleibt nicht mehr leer
+- Live-TV: bei einem Anbieter mit nur einem Stream schlägt ein Kanal, der direkt nach seiner Vorschau geöffnet wird, nicht mehr fehl
+```
+
+#### What's New (2.2.15), iOS (608 / 4000 chars)
+
+```text
+- Videos starten schneller, nachdem du die Seite eines Titels geöffnet hast
+- Live-Kanäle starten schneller
+- Ein Live-Kanal, der beim Start stockt, hält einmal kurz an, statt immer wieder zu stoppen
+- Das Bild erscheint, sobald die Wiedergabe beginnt
+- Regionale Untertitel, etwa lateinamerikanisches und europäisches Spanisch, und SDH-Untertitel erscheinen im Untertitelmenü als eigene Einträge
+- Ein Untertitel, den du während der Wiedergabe wählst, bleibt nicht mehr leer
+- Live-TV: bei einem Anbieter mit nur einem Stream schlägt ein Kanal, der direkt nach seiner Vorschau geöffnet wird, nicht mehr fehl
+```
+
+#### What's New (2.2.15), tvOS (677 / 4000 chars)
+
+```text
+- Videos starten schneller, nachdem du die Seite eines Titels geöffnet hast
+- Live-Kanäle starten schneller
+- Ein Live-Kanal, der beim Start stockt, hält einmal kurz an, statt immer wieder zu stoppen
+- Bild und Ton starten zusammen, sobald die Wiedergabe beginnt
+- Regionale Untertitel, etwa lateinamerikanisches und europäisches Spanisch, und SDH-Untertitel erscheinen im Untertitelmenü als eigene Einträge
+- Ein Untertitel, den du während der Wiedergabe wählst, bleibt nicht mehr leer
+- Live-TV: bei einem Anbieter mit nur einem Stream schlägt ein Kanal, der direkt nach seiner Vorschau geöffnet wird, nicht mehr fehl
+- Ordner behalten ihr Layout, während weitere Titel laden
+```
+
 #### What's New (2.2.14), macOS (1238 / 4000)
 
 ```text
@@ -1025,6 +1099,43 @@ Tomo TV ne fournit aucun média, chaîne, liste de lecture ni guide. L'app lit c
 Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'est ni affilié au projet Jellyfin ni approuvé par lui. Jellyfin est une marque de son détenteur respectif.
 ```
 
+#### What's New (2.2.15), macOS (622 / 4000)
+
+```text
+- Les vidéos démarrent plus vite une fois la page d'un titre ouverte
+- Les chaînes en direct démarrent plus vite
+- Une chaîne en direct qui saccade au démarrage fait une seule pause pour se rattraper, au lieu de s'arrêter encore et encore
+- L'image s'affiche dès que la lecture commence
+- Les sous-titres régionaux, comme l'espagnol d'Amérique latine et d'Espagne, et les sous-titres SDH sont des choix distincts dans le menu des sous-titres
+- Un sous-titre choisi pendant la lecture ne reste plus vide
+- TV en direct : chez un fournisseur qui n'autorise qu'un flux, une chaîne ouverte juste après son aperçu n'échoue plus
+```
+
+#### What's New (2.2.15), iOS (622 / 4000 chars)
+
+```text
+- Les vidéos démarrent plus vite une fois la page d'un titre ouverte
+- Les chaînes en direct démarrent plus vite
+- Une chaîne en direct qui saccade au démarrage fait une seule pause pour se rattraper, au lieu de s'arrêter encore et encore
+- L'image s'affiche dès que la lecture commence
+- Les sous-titres régionaux, comme l'espagnol d'Amérique latine et d'Espagne, et les sous-titres SDH sont des choix distincts dans le menu des sous-titres
+- Un sous-titre choisi pendant la lecture ne reste plus vide
+- TV en direct : chez un fournisseur qui n'autorise qu'un flux, une chaîne ouverte juste après son aperçu n'échoue plus
+```
+
+#### What's New (2.2.15), tvOS (726 / 4000 chars)
+
+```text
+- Les vidéos démarrent plus vite une fois la page d'un titre ouverte
+- Les chaînes en direct démarrent plus vite
+- Une chaîne en direct qui saccade au démarrage fait une seule pause pour se rattraper, au lieu de s'arrêter encore et encore
+- L'image et le son démarrent ensemble, dès que la lecture commence
+- Les sous-titres régionaux, comme l'espagnol d'Amérique latine et d'Espagne, et les sous-titres SDH sont des choix distincts dans le menu des sous-titres
+- Un sous-titre choisi pendant la lecture ne reste plus vide
+- TV en direct : chez un fournisseur qui n'autorise qu'un flux, une chaîne ouverte juste après son aperçu n'échoue plus
+- Les dossiers gardent leur disposition pendant que les titres suivants se chargent
+```
+
 #### What's New (2.2.14), macOS (1253 / 4000)
 
 ```text
@@ -1471,6 +1582,43 @@ Sin analítica, sin rastreo, sin anuncios, sin cuenta con nosotros. Tus credenci
 Tomo TV no incluye contenido, canales, listas de reproducción ni guías. Reproduce lo que ofrecen tu servidor Jellyfin y las fuentes que añades. Tú eres responsable de tener derecho a usarlos.
 
 Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin, y no está afiliado al proyecto Jellyfin ni respaldado por él. Jellyfin es una marca de su titular correspondiente.
+```
+
+#### What's New (2.2.15), macOS (637 / 4000)
+
+```text
+- Los videos empiezan antes cuando abres la página de un título
+- Los canales en vivo empiezan más rápido
+- Un canal en vivo que se entrecorta al empezar hace una sola pausa para ponerse al día, en lugar de detenerse una y otra vez
+- La imagen aparece en cuanto empieza la reproducción
+- Los subtítulos regionales, como el español latinoamericano y el de España, y los subtítulos SDH aparecen como opciones separadas en el menú de subtítulos
+- Un subtítulo que eliges durante la reproducción ya no se queda en blanco
+- TV en vivo: con un proveedor que permite un solo stream, un canal abierto justo después de su vista previa ya no falla
+```
+
+#### What's New (2.2.15), iOS (637 / 4000 chars)
+
+```text
+- Los videos empiezan antes cuando abres la página de un título
+- Los canales en vivo empiezan más rápido
+- Un canal en vivo que se entrecorta al empezar hace una sola pausa para ponerse al día, en lugar de detenerse una y otra vez
+- La imagen aparece en cuanto empieza la reproducción
+- Los subtítulos regionales, como el español latinoamericano y el de España, y los subtítulos SDH aparecen como opciones separadas en el menú de subtítulos
+- Un subtítulo que eliges durante la reproducción ya no se queda en blanco
+- TV en vivo: con un proveedor que permite un solo stream, un canal abierto justo después de su vista previa ya no falla
+```
+
+#### What's New (2.2.15), tvOS (726 / 4000 chars)
+
+```text
+- Los videos empiezan antes cuando abres la página de un título
+- Los canales en vivo empiezan más rápido
+- Un canal en vivo que se entrecorta al empezar hace una sola pausa para ponerse al día, en lugar de detenerse una y otra vez
+- La imagen y el sonido empiezan juntos, en cuanto empieza la reproducción
+- Los subtítulos regionales, como el español latinoamericano y el de España, y los subtítulos SDH aparecen como opciones separadas en el menú de subtítulos
+- Un subtítulo que eliges durante la reproducción ya no se queda en blanco
+- TV en vivo: con un proveedor que permite un solo stream, un canal abierto justo después de su vista previa ya no falla
+- Las carpetas conservan su disposición mientras cargan más títulos
 ```
 
 #### What's New (2.2.14), macOS (1208 / 4000)
