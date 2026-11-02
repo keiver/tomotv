@@ -920,14 +920,22 @@ extension RemuxSession {
         return readSpans.contains { $0.from < end && $0.upTo >= end }
     }
 
-    func readCoversLocked(from start: Double, to end: Double) -> Bool {
-        guard let reached = readCoverageEndLocked(from: start) else { return false }
+    func readCoversLocked(from start: Double, to end: Double, streamIndex: Int? = nil) -> Bool {
+        guard let reached = readCoverageEndLocked(from: start, streamIndex: streamIndex) else { return false }
         return reached >= end
     }
 
-    func readCoverageEndLocked(from start: Double) -> Double? {
-        var spans = readSpans
+    /// The read spans, the running one last; only those read with the track's decoder open when
+    /// `streamIndex` is given. Caller holds stateLock.
+    func readSpansLocked(streamIndex: Int?) -> [(from: Double, upTo: Double)] {
+        let floor = streamIndex.flatMap { subtitleSpanFloor[Int32($0)] } ?? 0
+        var spans = Array(readSpans.dropFirst(floor))
         if let from = readSpanFrom { spans.append((from: from, upTo: readSpanUpTo)) }
+        return spans
+    }
+
+    func readCoverageEndLocked(from start: Double, streamIndex: Int? = nil) -> Double? {
+        let spans = readSpansLocked(streamIndex: streamIndex)
         var reached = start
         var covered = false
         for span in spans.sorted(by: { $0.from < $1.from }) {
@@ -941,9 +949,9 @@ extension RemuxSession {
 
     /// Nothing will bring the read to this window: no span reaches its start, the running read began
     /// past it, and no seek or waiting media request is headed back there. Caller holds stateLock.
-    func subtitleWindowUnreachableLocked(segment: Int, from start: Double) -> Bool {
+    func subtitleWindowUnreachableLocked(segment: Int, from start: Double, streamIndex: Int) -> Bool {
         guard !sourceReleased, let anchor = sessionAnchorSeconds, let readFrom = readSpanFrom, readFrom > start + anchor else { return false }
-        if readCoverageEndLocked(from: start + anchor) != nil { return false }
+        if readCoverageEndLocked(from: start + anchor, streamIndex: streamIndex) != nil { return false }
         if let seek = pendingSeekSegment, seek <= segment { return false }
         if let seek = activationSeekSegment, seek <= segment { return false }
         return lastRequestedSegmentLocked() > segment && !activeWaiters.keys.contains { $0 <= segment }
@@ -995,7 +1003,7 @@ extension RemuxSession {
         defer { stateLock.unlock() }
         let decoder = textSubtitles[Int32(streamIndex)]
         let anchor = sessionAnchorSeconds ?? 0
-        var covered = sessionAnchorSeconds != nil && readCoversLocked(from: start + anchor, to: end + anchor)
+        var covered = sessionAnchorSeconds != nil && readCoversLocked(from: start + anchor, to: end + anchor, streamIndex: streamIndex)
         if sessionAnchorSeconds != nil, decoder?.isComplete == true, let from = readSpanFrom,
            from <= start + anchor, readSpanUpTo >= start + anchor {
             covered = true
@@ -1020,26 +1028,41 @@ extension RemuxSession {
             NSLog("[LocalRemuxer] subtitle segment %d of stream %d has no source reading toward it, answered without cues", segment, streamIndex)
             return emptySubtitleBody()
         }
-        if !window.covered, window.decoder == nil {
-            _ = awaitTextDecoder(streamIndex: streamIndex)
-        } else if !window.covered, !waitUntil(deadline: Self.unreachableSubtitleGraceSeconds, { [weak self] in
-            guard let self else { return true }
-            self.stateLock.lock()
-            defer { self.stateLock.unlock() }
-            return self.failed || self.cancelled || !self.subtitleWindowUnreachableLocked(segment: segment, from: start)
-        }) {
+        func staysBehindTheRead() -> Bool {
+            !waitUntil(deadline: Self.unreachableSubtitleGraceSeconds) { [weak self] in
+                guard let self else { return true }
+                self.stateLock.lock()
+                defer { self.stateLock.unlock() }
+                return self.failed || self.cancelled || !self.subtitleWindowUnreachableLocked(segment: segment, from: start, streamIndex: streamIndex)
+            }
+        }
+        func behindTheRead() -> String {
             // AVPlayer asks two segments behind the playhead when the rendition changes (probed),
             // and after a seek it asks for every segment again, so these cues are not lost.
             NSLog("[LocalRemuxer] subtitle segment %d of stream %d is behind the read, answered without cues", segment, streamIndex)
             return emptySubtitleBody()
         }
-        _ = waitUntil(deadline: Self.subtitleSegmentWaitSeconds) { [weak self] in
-            guard let self else { return true }
-            window = self.textSubtitleWindow(streamIndex: streamIndex, from: start, to: end)
-            self.stateLock.lock()
-            let dead = self.failed || self.cancelled
-            self.stateLock.unlock()
-            return window.covered || dead
+        if !window.covered, window.decoder == nil {
+            _ = awaitTextDecoder(streamIndex: streamIndex)
+        } else if !window.covered, staysBehindTheRead() {
+            return behindTheRead()
+        }
+        let deadline = Date().addingTimeInterval(Self.subtitleSegmentWaitSeconds)
+        while true {
+            var behind = false
+            _ = waitUntil(deadline: max(0, deadline.timeIntervalSinceNow)) { [weak self] in
+                guard let self else { return true }
+                window = self.textSubtitleWindow(streamIndex: streamIndex, from: start, to: end)
+                self.stateLock.lock()
+                let dead = self.failed || self.cancelled
+                // A pick's decoder opens on a restart that can land past this window.
+                behind = !window.covered && !dead && window.decoder != nil
+                    && self.subtitleWindowUnreachableLocked(segment: segment, from: start, streamIndex: streamIndex)
+                self.stateLock.unlock()
+                return window.covered || dead || behind
+            }
+            guard behind, deadline.timeIntervalSinceNow > 0 else { break }
+            if staysBehindTheRead() { return behindTheRead() }
         }
         if !window.covered {
             NSLog("[LocalRemuxer] subtitle segment %d of stream %d awaits coverage at read head %.1fs, window ends %.1fs",
@@ -1178,7 +1201,7 @@ extension RemuxSession {
         let anchor = sessionAnchorSeconds ?? 0
         let start = segmentStartSeconds(requestedSegment)
         let end = config.isLive ? start : start + segmentDurationSeconds(requestedSegment)
-        let localReadUpTo = readCoverageEndLocked(from: start + anchor).map { $0 - anchor }
+        let localReadUpTo = readCoverageEndLocked(from: start + anchor, streamIndex: streamIndex).map { $0 - anchor }
         let localCovers = localReadUpTo.map { $0 >= end } ?? false
         stateLock.unlock()
         if let server, !config.isLive,

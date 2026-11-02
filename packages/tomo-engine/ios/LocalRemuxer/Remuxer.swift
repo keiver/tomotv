@@ -494,6 +494,8 @@ final class RemuxSession {
     /// Source-time spans each read generation covered, so a subtitle window waits for the read
     /// that covers it. Under stateLock.
     var readSpans: [(from: Double, upTo: Double)] = []
+    /// Per subtitle track, the first entry of `readSpans` read with its decoder open. Under stateLock.
+    var subtitleSpanFloor: [Int32: Int] = [:]
     var readSpanFrom: Double?
     var readSpanUpTo: Double = 0
     /// The loudness of the first audio track for every stretch the read loop has passed.

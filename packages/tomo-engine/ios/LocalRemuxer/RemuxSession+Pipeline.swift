@@ -1297,6 +1297,12 @@ extension RemuxSession {
         readSpanUpTo = 0
     }
 
+    /// A decoder opened now holds no cue of what was read before it: its spans start with the next packet. Caller holds stateLock.
+    func startSubtitleSpansLocked(_ index: Int32) {
+        archiveReadSpanLocked()
+        subtitleSpanFloor[index] = readSpans.count
+    }
+
     private func sourceIndexPeak(input: UnsafeMutablePointer<AVFormatContext>, streamIndex: Int32) -> Int? {
         guard let stream = input.pointee.streams[Int(streamIndex)],
               let io = input.pointee.pb, io.pointee.seekable & 1 != 0 else { return nil }
@@ -1775,6 +1781,7 @@ extension RemuxSession {
                 }
                 stateLock.lock()
                 imageSubtitles[index] = decoder
+                startSubtitleSpansLocked(index)
                 stateLock.unlock()
             } else {
                 guard let decoder = TextSubtitleDecoder(stream: stream) else {
@@ -1784,6 +1791,7 @@ extension RemuxSession {
                 }
                 stateLock.lock()
                 textSubtitles[index] = decoder
+                startSubtitleSpansLocked(index)
                 stateLock.unlock()
             }
             return true
