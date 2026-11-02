@@ -20,7 +20,7 @@ import {
   type MediaSegmentWindow,
 } from "@/services/jellyfinApi";
 import { alignSubtitleTiming as engineAlignSubtitleTiming, setSubtitleTimeOffset, type SubtitleAlignment } from "@keiver/tomo-engine";
-import { LivePlayback } from "@keiver/tomo-live";
+import { LIVE_POOR_START_WINDOW_MS, LivePlayback, noteLiveCleanStart, noteLiveStall } from "@keiver/tomo-live";
 import { linkRungsAllowed, serverTranscodeAllowed, serverTranscodeBlock, type ServerTranscodeBlock } from "@/services/transcodePolicy";
 import { heldImageSubtitleForOrdinal, playsConverted, playsFromDisk, playsRepackaged } from "@/services/downloads/localSource";
 import { usePlaybackReporter } from "./usePlaybackReporter";
@@ -635,6 +635,21 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   // recovery of its own, a starving session stalls WITHOUT an error, so
   // nothing fires the ladder and playback hangs forever.
   const stallWatchRef = useRef<{ pos: number; timer: ReturnType<typeof setTimeout> } | null>(null);
+  // A live attempt's first minute of picture: a stall in it steps the channel's start buffer up (tomo-live startBuffer).
+  type LiveStart = { attempt: number; at: number; stalled: boolean; clean: ReturnType<typeof setTimeout> | null; hold: ReturnType<typeof setTimeout> | null };
+  const liveStartRef = useRef<LiveStart | null>(null);
+  const endLiveStartHold = useCallback(() => {
+    const start = liveStartRef.current;
+    if (start?.hold) clearTimeout(start.hold);
+    if (start) start.hold = null;
+  }, []);
+  const endLiveStart = useCallback(() => {
+    const start = liveStartRef.current;
+    if (start?.clean) clearTimeout(start.clean);
+    endLiveStartHold();
+    liveStartRef.current = null;
+  }, [endLiveStartHold]);
+  useEffect(() => endLiveStart, [endLiveStart]);
 
   // Track last logged state for deduplication
   const lastLoggedAudioTracksRef = useRef<string>("");
@@ -2142,6 +2157,20 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       // A frozen live channel raises no error and reports nothing, so the server's transcode for it
       // never ends; past the deadline it fails into the live ladder like any other live error.
       if (isLiveRef.current) {
+        const start = liveStartRef.current;
+        if (data.isBuffering && start?.attempt === requestIdRef.current && start.hold === null && Date.now() - start.at <= LIVE_POOR_START_WINDOW_MS) {
+          start.stalled = true;
+          const holdSeconds = noteLiveStall(videoId, Date.now() - start.at);
+          // The live edge moves on while the picture holds: the hold is the cushion the next step adds.
+          if (holdSeconds !== null && !pausedRef.current) {
+            logger.info("Live channel stalled early, holding to build its buffer", { service: "useVideoPlayback", holdSeconds });
+            setPaused(true);
+            start.hold = setTimeout(() => {
+              start.hold = null;
+              if (isMountedRef.current && liveStartRef.current === start) setPaused(false);
+            }, holdSeconds * 1000);
+          }
+        }
         if (data.isBuffering && stallWatchRef.current == null) {
           const attempt = requestIdRef.current;
           const pos = currentTimeRef.current;
@@ -2203,7 +2232,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         return;
       }
     },
-    [restartAtPlayhead, viewerPaused],
+    [restartAtPlayhead, viewerPaused, videoId],
   );
 
   // Callback: Video playback ended
@@ -3252,14 +3281,16 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
    * Playback control functions
    */
   const play = useCallback(() => {
+    endLiveStartHold();
     setPaused(false);
     reportPauseChange(false);
-  }, [reportPauseChange]);
+  }, [reportPauseChange, endLiveStartHold]);
 
   const pause = useCallback(() => {
+    endLiveStartHold();
     setPaused(true);
     reportPauseChange(true);
-  }, [reportPauseChange]);
+  }, [reportPauseChange, endLiveStartHold]);
 
   const togglePlay = useCallback(() => {
     if (!viewerPaused()) return pause();
@@ -3314,13 +3345,22 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       if (event.isPlaying && isLiveRef.current) {
         liveChannel.notePlaying();
         admitUntilPlaying(null);
+        if (liveStartRef.current?.attempt !== requestIdRef.current) {
+          endLiveStart();
+          const start: LiveStart = { attempt: requestIdRef.current, at: Date.now(), stalled: false, clean: null, hold: null };
+          start.clean = setTimeout(() => {
+            start.clean = null;
+            if (!start.stalled) noteLiveCleanStart(videoId);
+          }, LIVE_POOR_START_WINDOW_MS);
+          liveStartRef.current = start;
+        }
       }
       // RNV's programmatic seek pauses the player itself and reports it with isSeeking.
       if (event.isPlaying) nativePausedRef.current = false;
       else if (!event.isSeeking) nativePausedRef.current = true;
       reportPauseChange(!event.isPlaying);
     },
-    [reportPauseChange, liveChannel],
+    [reportPauseChange, liveChannel, videoId, endLiveStart],
   );
 
   const onBandwidthUpdate = useCallback((event: OnBandwidthUpdateData) => {

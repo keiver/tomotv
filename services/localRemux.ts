@@ -45,6 +45,7 @@ import {
   type SubtitleRendition,
   type VideoStreamInfo,
 } from "@keiver/tomo-engine";
+import { liveStartBufferSeconds } from "@keiver/tomo-live";
 
 import { JELLYFIN_TIME } from "@/services/jellyfin/constants";
 import { audioCatalogue, playbackMediaStreams, sourcePosition, type AudioCatalogueTrack } from "@/services/jellyfin/audioTracks";
@@ -753,6 +754,7 @@ export async function startLocalRemux(
       liveSessionConfig({
         inputUrl: videoItem.liveStreamUrl ?? getVideoStreamUrl(videoItem.Id, videoItem),
         itemId: videoItem.Id,
+        bufferSeconds: liveStartBufferSeconds(videoItem.Id),
         ...(videoItem.liveHttpHeaders ? { httpHeaders: videoItem.liveHttpHeaders } : {}),
         ...(videoItem.liveOriginKey ? { originKey: videoItem.liveOriginKey } : {}),
         ...(videoItem.livePlaylist ? { playlist: true } : {}),
