@@ -3381,16 +3381,21 @@ extension RemuxSession {
                 if config.isLive {
                     // Generation 0 opens the timeline at 0; a rolled generation continues where
                     // the spliced segment ended, so tfdt stays monotonic across the MAP change.
-                    let anchor = keyframeUs - liveResumeUs
+                    // The keyframe's decode time opens it, so the keyframe and the frames decoded before
+                    // its presentation keep a DTS at or past zero and are written.
+                    let decodeUs = pkt.pointee.dts != SWIFT_AV_NOPTS_VALUE
+                        ? min(keyframeUs, av_rescale_q(pkt.pointee.dts, inStream.pointee.time_base, microTb)) : keyframeUs
+                    let anchor = decodeUs - liveResumeUs
                     sessionAnchorUs = sessionAnchorUs ?? anchor
                     timelineAnchorUs = anchor
                     stateLock.lock()
                     sessionAnchorSeconds = Double(anchor) / Double(SWIFT_AV_TIME_BASE)
                     liveGenerationStarts[currentSegment] = generation
-                    liveSegmentStarts[currentSegment] = Double(liveResumeUs) / Double(SWIFT_AV_TIME_BASE)
+                    let openSeconds = Double(keyframeUs - anchor) / Double(SWIFT_AV_TIME_BASE)
+                    liveSegmentStarts[currentSegment] = openSeconds
                     liveDates[currentSegment] = Date()
                     stateLock.unlock()
-                    segmentOpenSeconds = Double(liveResumeUs) / Double(SWIFT_AV_TIME_BASE)
+                    segmentOpenSeconds = openSeconds
                     partialOpenSegment = -1
                     lastTimingPtsUs = keyframeUs
                     lastKeyframeUs = keyframeUs

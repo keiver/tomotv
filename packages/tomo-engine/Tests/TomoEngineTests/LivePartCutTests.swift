@@ -93,9 +93,7 @@ final class LivePartCutTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(segment.parts.count, 2, "segment \(segment.n)")
             XCTAssertEqual(segment.file.count, RemuxSession.stypBox.count + segment.parts.reduce(0) { $0 + $1.size }, "segment \(segment.n)")
             XCTAssertTrue(segment.parts.allSatisfy { $0.data == nil }, "a landed segment's parts still hold their bytes")
-            if segment.n > 0 {
-                XCTAssertTrue(segment.parts.first?.independent == true, "segment \(segment.n) opens on a part without a keyframe")
-            }
+            XCTAssertTrue(segment.parts.first?.independent == true, "segment \(segment.n) opens on a part without a keyframe")
             var offset = RemuxSession.stypBox.count
             for (k, part) in segment.parts.enumerated() {
                 XCTAssertEqual(String(decoding: segment.file[(offset + 4)..<(offset + 8)], as: UTF8.self), "moof", "segment \(segment.n) part \(k)")
