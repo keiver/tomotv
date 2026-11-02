@@ -131,6 +131,8 @@ struct RemuxConfig {
     /// Producer read-ahead depth in segments; 0 means the built-in default.
     /// Config-driven from JS so the cushion is tunable without a rebuild.
     let readAheadSegments: Int
+    /// Segments produced before any player has asked for one; 0 means no limit beyond `readAheadSegments`.
+    var idleReadAheadSegments: Int = 0
     /// Slipstream ladder (memories/CLAUDE-slipstream.md): server transcode
     /// variants, sorted ascending by bandwidth. Empty (every non-gateway
     /// session) keeps the fixed 6s grid untouched. The first rung's playlist

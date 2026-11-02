@@ -2869,9 +2869,12 @@ extension RemuxSession {
                 let takingOver = sourceTakeoverSegment != nil
                 let held = sessionAnchorUs != nil && !takingOver && (riding ? follow == .hold : openingHoldLocked())
                 let tierHold = held && seekTo == nil && !stop && !starvedWaiter
+                // A session no player has asked yet (a prewarm) cuts only its idle segments.
+                let idleHeld = config.idleReadAheadSegments > 0 && !firstMediaRequestSeen && producingSegment >= config.idleReadAheadSegments
                 // Live never throttles: the source arrives at its own pace and reads must keep up.
                 let throttled = !config.isLive
-                    && ((producingSegment > lastRequestedSegmentLocked() + aheadWindow && seekTo == nil && !stop && !starvedWaiter) || tierHold)
+                    && ((producingSegment > lastRequestedSegmentLocked() + aheadWindow && seekTo == nil && !stop && !starvedWaiter) || tierHold
+                        || (idleHeld && seekTo == nil && !stop && !starvedWaiter))
                 // A text window asked while held answers without cues: nothing reads toward it.
                 producerHeld = riding && tierHold
                 stateLock.unlock()

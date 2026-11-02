@@ -60,6 +60,8 @@ export interface EngineSessionConfig {
   frameRate: number;
   bandwidth: number;
   readAheadSegments: number;
+  /** Segments a session cuts before any player asks for one (a prewarm); absent or 0 is no limit. */
+  idleReadAheadSegments?: number;
   startOffsetSeconds: number;
   tiers: EngineTierConfig[];
   isLive: boolean;

@@ -357,6 +357,7 @@ class LocalRemuxer: RCTEventEmitter {
                 frameRate: (config["frameRate"] as? Double) ?? 0,
                 bandwidth: (config["bandwidth"] as? Int) ?? 0,
                 readAheadSegments: (config["readAheadSegments"] as? Int) ?? 0,
+                idleReadAheadSegments: (config["idleReadAheadSegments"] as? Int) ?? 0,
                 tiers: (config["tiers"] as? [[String: Any]] ?? []).map { t in
                     TierConfig(
                         playlistUrl: (t["playlistUrl"] as? String) ?? "",

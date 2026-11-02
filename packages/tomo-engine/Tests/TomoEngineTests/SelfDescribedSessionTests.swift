@@ -120,6 +120,26 @@ final class SelfDescribedSessionTests: XCTestCase {
         XCTAssertNil(session.rendition(withPrefix: "a0"))
     }
 
+    /// A prewarm cuts only its idle segments until a player asks for one, then reads on as any session does.
+    func testASessionNoPlayerHasAskedCutsOnlyItsIdleSegments() throws {
+        guard FileManager.default.isExecutableFile(atPath: Self.ffmpeg), let source = fixture() else {
+            throw XCTSkip("could not generate the fixture")
+        }
+        var config = makeConfig(durationSeconds: 13, inputUrl: source.path, width: 320, height: 240, frameRate: 25, readAheadSegments: 8)
+        config.idleReadAheadSegments = 1
+        let session = try RemuxSession(config: config)
+        session.start()
+        defer { session.stop() }
+        _ = session.masterPlaylist()
+        let primary = { session.rendition(withPrefix: "")?.completed ?? [] }
+        XCTAssertTrue(session.waitUntil(deadline: 10) { primary().contains(0) })
+        XCTAssertFalse(session.waitUntil(deadline: 1) { primary().contains(1) }, "segment 1 was cut before any player asked")
+
+        _ = session.segmentResponse(0)
+        XCTAssertTrue(session.waitUntil(deadline: 10) { primary().contains(1) }, "the asked session did not read on")
+        XCTAssertFalse(session.hasFailed)
+    }
+
     /// A file that names its provider holds one of that provider's connections while its input is open.
     func testAFileNamingItsProviderHoldsALeaseUntilItStops() throws {
         guard FileManager.default.isExecutableFile(atPath: Self.ffmpeg), let source = fixture() else {
