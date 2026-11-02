@@ -63,6 +63,13 @@ final class LivePlaylistTests: XCTestCase {
         XCTAssertLessThan(out.range(of: "#EXT-X-START")!.lowerBound, out.range(of: "#EXTINF")!.lowerBound)
     }
 
+    func testAStartOffsetUnderTwoAndAHalfTargetsIsLeftOutForThePlayerToPick() {
+        XCTAssertNil(RemuxSession.publishedLiveStart(2, target: 4))
+        XCTAssertNil(RemuxSession.publishedLiveStart(8, target: 4))
+        XCTAssertEqual(RemuxSession.publishedLiveStart(10, target: 4), 10)
+        XCTAssertNil(RemuxSession.publishedLiveStart(nil, target: 4))
+    }
+
     func testTheStartOffsetIsFixedByTheFirstPlaylistAndCoversWhatItListed() throws {
         let s = try RemuxSession(config: makeConfig(durationSeconds: 0, isLive: true, liveSegmentSeconds: 2))
         defer { s.stop() }

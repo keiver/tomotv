@@ -744,7 +744,7 @@ extension RemuxSession {
         return Self.renderLivePlaylist(
             prefix: prefix, target: target, firstRetained: first, segments: segments,
             durations: durations, generationStarts: starts, discontinuitiesRemoved: removed, dates: dates, fallbackDuration: config.liveSegmentSeconds,
-            startOffset: startOffset)
+            startOffset: Self.publishedLiveStart(startOffset, target: target))
     }
 
     /// How far behind the newest segment the player starts: everything the first playlist listed, the
@@ -754,6 +754,13 @@ extension RemuxSession {
             liveStartSeconds = segments.reduce(0) { $0 + (durations[$1] ?? config.liveSegmentSeconds) }
         }
         return liveStartSeconds
+    }
+
+    /// The start offset a live playlist publishes: none below 2.5 target durations, where AVPlayer rejects it (-16831,
+    /// measured: 8s refused and 10s taken at a 4s target, LiveAVPlayerTests).
+    static func publishedLiveStart(_ offset: Double?, target: Int) -> Double? {
+        guard let offset, offset >= Double(target) * 2.5 else { return nil }
+        return offset
     }
 
     /// A rendition's playlist may answer: once a segment exists, and the first answer of the session
@@ -797,7 +804,8 @@ extension RemuxSession {
         stateLock.unlock()
         return Self.renderLivePlaylist(
             target: target, firstRetained: first, segments: segments, durations: durations, generationStarts: starts, discontinuitiesRemoved: removed,
-            dates: dates, fallbackDuration: config.liveSegmentSeconds, startOffset: startOffset, initName: nil, segmentName: { "sub\(sub.index)-\($0).vtt" })
+            dates: dates, fallbackDuration: config.liveSegmentSeconds, startOffset: Self.publishedLiveStart(startOffset, target: target), initName: nil,
+            segmentName: { "sub\(sub.index)-\($0).vtt" })
     }
 
     /// The live playlist text from a snapshot of the session's live state (pure, host-testable).

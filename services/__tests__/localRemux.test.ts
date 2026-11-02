@@ -2706,8 +2706,8 @@ describe("startLocalRemux on a live channel", () => {
     expect(config.describesInput).toBe(true);
     expect(config.audioTracks).toEqual([]);
     expect(config.subtitles).toEqual([]);
-    expect(config.liveBufferSeconds).toBe(15);
-    expect(config.liveSegmentSeconds).toBe(2);
+    expect(config.liveBufferSeconds).toBe(2);
+    expect(config.liveSegmentSeconds).toBe(1);
     expect(config.inputUrl).toBe("http://server:8096/LiveTv/LiveStreamFiles/x/stream.ts?ApiKey=k");
     expect(config.durationSeconds).toBe(0);
     expect(config.startOffsetSeconds).toBe(0);

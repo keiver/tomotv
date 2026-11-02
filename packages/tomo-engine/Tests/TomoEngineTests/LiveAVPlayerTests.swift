@@ -24,7 +24,8 @@ final class LiveAVPlayerTests: XCTestCase {
 
     private func startedSession(source: String, subtitles: [RemuxSubtitle] = [], liveWindowSeconds: Double = 300, bufferSeconds: Double = 0) throws -> RemuxSession {
         var config = makeConfig(
-            durationSeconds: 0, inputUrl: source, subtitles: subtitles, width: 1280, height: 720, isLive: true, liveSegmentSeconds: 2, liveWindowSeconds: liveWindowSeconds)
+            durationSeconds: 0, inputUrl: source, subtitles: subtitles, width: 1280, height: 720, isLive: true,
+            liveSegmentSeconds: ProcessInfo.processInfo.environment["TOMO_LIVE_SEGMENT"].flatMap(Double.init) ?? 2, liveWindowSeconds: liveWindowSeconds)
         config.liveBufferSeconds = bufferSeconds
         let session = try RemuxSession(config: config)
         session.start()
@@ -92,6 +93,90 @@ final class LiveAVPlayerTests: XCTestCase {
         NSLog("[LiveAVPlayerTests] self-described live master: %@", master.split(separator: "\n").filter { $0.hasPrefix("#EXT-X-STREAM-INF") || $0.hasPrefix("#EXT-X-MEDIA") }.joined(separator: " | "))
         XCTAssertTrue(master.contains("RESOLUTION=320x180"), master)
         XCTAssertNil(player.currentItem?.error)
+    }
+
+    /// Where AVPlayer accepts the session's start point: per start buffer and source backlog, the published target, the
+    /// start offset, whether AVPlayer logged -16831 (START-TIME too close to live), the time to a moving clock, and how far
+    /// behind the newest output it then plays. Recorded, not asserted. Opt in with TOMO_START_BUFFERS=2,4,6 (seconds).
+    func testWhereAVPlayerAcceptsALiveStartPoint() throws {
+        guard let buffers = ProcessInfo.processInfo.environment["TOMO_START_BUFFERS"].map({ $0.split(separator: ",").compactMap { Double($0) } }) else {
+            throw XCTSkip("set TOMO_START_BUFFERS")
+        }
+        let backlogs = ProcessInfo.processInfo.environment["TOMO_START_BACKLOGS"].map { $0.split(separator: ",").compactMap { Int($0) } } ?? [1, 6]
+        for backlog in backlogs {
+            for buffer in buffers {
+                let root = FileManager.default.temporaryDirectory.appendingPathComponent("live-start-\(UUID().uuidString)")
+                defer { try? FileManager.default.removeItem(at: root) }
+                let env = ProcessInfo.processInfo.environment
+                let segment = env["TOMO_START_SEGMENT"].flatMap(Double.init) ?? 2
+                let feed = try startLiveFeed(in: root, segments: backlog, keyframes: env["TOMO_START_KEYFRAMES"])
+                defer { feed.terminate() }
+                let origin = try RecordingDirectoryServer(root: root)
+                defer { origin.stop() }
+                if backlog > 1 { spin(seconds: Double(backlog * 2 + 2)) { false } }
+                var config = makeConfig(durationSeconds: 0, inputUrl: "\(origin.base)/live.m3u8", videoRange: "", codecs: "",
+                                        width: 0, height: 0, frameRate: 0, bandwidth: 0, isLive: true, liveSegmentSeconds: segment)
+                config.describesInput = true
+                config.liveBufferSeconds = buffer
+                let session = try RemuxSession(config: config)
+                let opened = Date()
+                session.start()
+                defer { session.stop() }
+                let (server, url) = try serve(session)
+                defer { server.stop() }
+                awaitStartBuffer(session, seconds: buffer)
+                let buffered = Date().timeIntervalSince(opened)
+                let player = AVPlayer(url: url)
+                let bound = Date()
+                player.play()
+                let played = spin(seconds: 60) { player.currentItem?.status == .readyToPlay && player.currentTime().seconds > 0.5 }
+                let toPlay = Date().timeIntervalSince(bound)
+                let media = session.mediaPlaylist().split(separator: "\n")
+                let target = media.first { $0.hasPrefix("#EXT-X-TARGETDURATION:") } ?? ""
+                let start = media.first { $0.hasPrefix("#EXT-X-START:") } ?? "(none)"
+                let tooClose = player.currentItem?.errorLog()?.events.contains { $0.errorStatusCode == -16831 } ?? false
+                let edge = player.currentItem?.seekableTimeRanges.last?.timeRangeValue.end.seconds ?? 0
+                let behind = edge - player.currentTime().seconds
+                NSLog("[LiveAVPlayerTests] start point: backlog %d, buffer %.0fs, buffered after %.1fs, %@, %@, -16831 %@, playing after %.1fs, %.1fs behind the edge, played %@",
+                      backlog, buffer, buffered, String(target), String(start), tooClose ? "yes" : "no", toPlay, behind, played ? "yes" : "no")
+                player.pause()
+            }
+        }
+    }
+
+    /// A self-described live session bound at each start buffer plays with an enabled audio track, AAC and AC-3 alike.
+    func testAVPlayerPlaysALiveSessionWithItsAudioAtEachStartBuffer() throws {
+        for buffer in [2.0, 15.0] {
+            for codec in ["aac", "ac3"] {
+                let root = FileManager.default.temporaryDirectory.appendingPathComponent("live-audio-\(UUID().uuidString)")
+                defer { try? FileManager.default.removeItem(at: root) }
+                let feed = try startLiveFeed(in: root, segments: 1, audio: ["-c:a", codec])
+                defer { feed.terminate() }
+                let origin = try RecordingDirectoryServer(root: root)
+                defer { origin.stop() }
+                var config = makeConfig(durationSeconds: 0, inputUrl: "\(origin.base)/live.m3u8", videoRange: "", codecs: "",
+                                        width: 0, height: 0, frameRate: 0, bandwidth: 0, isLive: true, liveSegmentSeconds: 2)
+                config.describesInput = true
+                config.liveBufferSeconds = buffer
+                let session = try RemuxSession(config: config)
+                session.start()
+                defer { session.stop() }
+                let (server, url) = try serve(session)
+                defer { server.stop() }
+                awaitStartBuffer(session, seconds: buffer)
+
+                let player = AVPlayer(url: url)
+                player.play()
+                let played = spin(seconds: 60) { player.currentItem?.status == .readyToPlay && player.currentTime().seconds > 4 }
+                let audible = player.currentItem?.tracks.contains { $0.assetTrack?.mediaType == .audio && $0.isEnabled } ?? false
+                let master = session.masterPlaylist().split(separator: "\n").filter { $0.hasPrefix("#EXT-X-MEDIA") || $0.hasPrefix("#EXT-X-STREAM-INF") }.joined(separator: " | ")
+                NSLog("[LiveAVPlayerTests] %@ at a %.0fs start buffer: played %@, audio track %@, master %@, error %@",
+                      codec, buffer, played ? "yes" : "no", audible ? "yes" : "no", master, String(describing: player.currentItem?.error))
+                XCTAssertTrue(played, "\(codec) at \(buffer)s never played")
+                XCTAssertTrue(audible, "\(codec) at \(buffer)s played without an audio track")
+                player.pause()
+            }
+        }
     }
 
     /// The start buffer: AVPlayer bound once the session holds 15s, as the app binds it, starts with them ahead.

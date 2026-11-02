@@ -76,10 +76,12 @@ const masterUrl = await startSession(liveSessionConfig({ inputUrl, itemId, httpH
 - **Backlog at open.** A live HLS input opens 6 segments back from its edge (`live_start_index`),
   so a provider that keeps a window fills the buffer at link speed.
 - **Start buffer.** The first answer to the player's playlist waits until `bufferSeconds`
-  (`LIVE_BUFFER_SECONDS`, 15) of output are cut, up to 20 s past that, and carries
-  `EXT-X-START` at the oldest buffered segment, so the player starts that far behind the newest
-  output. A source that gives no backlog fills it in real time; a device slower than real time
-  waits here too.
+  (`LIVE_BUFFER_SECONDS`, 2) of output are cut, up to 20 s past that. When the oldest buffered
+  segment is at least 2.5 target durations behind the newest output, the playlist carries
+  `EXT-X-START` there and the player starts that far behind; a shorter offset is left out, since
+  AVPlayer refuses it (-16831), and the player picks its own start. A source that gives no backlog
+  fills the buffer in real time; a device slower than real time waits here too. Segments target
+  `LIVE_SEGMENT_SECONDS` (1); a copied segment runs to the next keyframe.
 - **In-session reopen.** A live read that brings nothing for twice its longest read so far (12 s at
   least), or ends, closes the input and opens it again in the same session, for as long as the
   session lives. The first try is at once; each further try, and each reopen within 60 s of the
