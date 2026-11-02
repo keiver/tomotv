@@ -1065,7 +1065,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         syncPlayManager.noteStreamRebuild();
         // The remembered language opens the item as a pick would; nothing matching leaves AVPlayer's own selection.
         if (viewerPickedAudioRef.current === null && audioStreamIndexForReportingRef.current === null && !isLiveRef.current && !isAudioOnly(details)) {
-          // Awaited: the Keychain read on a cold launch, and briefly the refresh fetchMetadata started.
+          // Awaited: the Keychain read on a cold launch.
           const language = await readAudioPreference();
           if (!isMountedRef.current || requestIdRef.current !== currentRequestId) return;
           const remembered = preferredAudioStreamIndex(getAudioTracks(details), language);

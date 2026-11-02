@@ -18,9 +18,9 @@ export function getAudioPreferenceSync(): string | null {
   return rememberedAudioLanguage(getTrackSettingsSync());
 }
 
-/** At item start: waits briefly for the refresh the item kicked off. */
+/** At item start: the stored settings, never a wait on the refresh the item kicked off. */
 export async function readAudioPreference(): Promise<string | null> {
-  return rememberedAudioLanguage(await readTrackSettings());
+  return rememberedAudioLanguage(await readTrackSettings(0));
 }
 
 /** `language` is Jellyfin's spelling of the stream's language, the one its settings expect. */
