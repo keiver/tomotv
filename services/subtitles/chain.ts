@@ -6,7 +6,6 @@
 import { logger } from "@/utils/logger";
 import { openSubtitlesSource } from "./sources/opensubtitles";
 import { serverSource } from "./sources/server";
-import { subsourceSource } from "./sources/subsource";
 import { SOURCE_ORDER, SourceRefusal, type SearchContext, type SearchSourceId, type SubtitleHit, type SubtitleQuery, type SubtitleSource, type SubtitleSourceId } from "./types";
 
 export interface Refusal {
@@ -25,7 +24,6 @@ export interface ChainAnswer {
 const SOURCES: Record<SearchSourceId, SubtitleSource> = {
   server: serverSource,
   opensubtitles: openSubtitlesSource,
-  subsource: subsourceSource,
 };
 
 const down = new Map<SubtitleSourceId, number>();

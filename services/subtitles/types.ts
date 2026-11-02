@@ -4,9 +4,9 @@ import type { JellyfinVideoItem } from "@/types/jellyfin";
 export type SubtitleSourceId = "server" | "opensubtitles" | "subdl" | "subsource" | "podnapisi" | "gestdown";
 
 /** The sources the chain asks. */
-export type SearchSourceId = "server" | "opensubtitles" | "subsource";
+export type SearchSourceId = "server" | "opensubtitles";
 
-export const SOURCE_ORDER: readonly SearchSourceId[] = ["server", "opensubtitles", "subsource"];
+export const SOURCE_ORDER: readonly SearchSourceId[] = ["server", "opensubtitles"];
 
 /** What a file is, as far as a subtitle provider needs to know. */
 export interface SubtitleQuery {
@@ -49,13 +49,12 @@ export interface SubtitleFile {
   format: string;
 }
 
-/** Accounts and keys the viewer pasted; a source with no key is skipped. */
+/** The viewer's own sign-in per provider, or null when none is kept. */
 export interface OwnKeys {
-  opensubtitles: { apiKey: string; username: string; password: string } | null;
-  subsource: string | null;
+  opensubtitles: { username: string; password: string } | null;
 }
 
-export const NO_KEYS: OwnKeys = { opensubtitles: null, subsource: null };
+export const NO_KEYS: OwnKeys = { opensubtitles: null };
 
 /** What the chain knows about the account and the item before asking anyone. */
 export interface SearchContext {
@@ -76,6 +75,17 @@ export class SourceRefusal extends Error {
     this.name = "SourceRefusal";
     this.source = source;
     this.status = status;
+  }
+}
+
+/** A provider's downloads for the day are used up; its search still answers. */
+export class DownloadLimit extends SourceRefusal {
+  /** The viewer's own account was signed in, so its allowance is the one used up. */
+  readonly signedIn: boolean;
+  constructor(source: SubtitleSourceId, status: number, signedIn: boolean) {
+    super(source, status, `${source} download limit reached`);
+    this.name = "DownloadLimit";
+    this.signedIn = signedIn;
   }
 }
 

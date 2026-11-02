@@ -62,6 +62,8 @@ export function jobNoteLine(job: SubtitleJob): string | null {
 export function jobErrorLine(job: SubtitleJob): string | null {
   if (!job.error || job.status === "applied") return null;
   if (job.status === "failed") return null;
+  if (job.error === "limit") return t("subtitles.downloadLimit");
+  if (job.error === "accountLimit") return t("subtitles.accountDownloadLimit");
   return (job.error === "unreadable" ? t("subtitles.unreadable") : t("subtitles.applyFailed")).replace("{name}", job.picked?.name ?? "");
 }
 

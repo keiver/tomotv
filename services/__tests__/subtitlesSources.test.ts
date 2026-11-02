@@ -13,7 +13,6 @@ import { zipSync, strToU8 } from "fflate";
 import { unpackSubtitle } from "@/services/subtitles/sources/http";
 import { openSubtitlesParams, openSubtitlesSource, resetOpenSubtitlesTokens } from "@/services/subtitles/sources/opensubtitles";
 import { serverSource } from "@/services/subtitles/sources/server";
-import { subsourceSearchParams, subsourceSource } from "@/services/subtitles/sources/subsource";
 import { SourceRefusal, type SearchContext, type SubtitleHit, type SubtitleQuery } from "@/services/subtitles/types";
 
 const movie: SubtitleQuery = { kind: "movie", keywords: "Some Film", year: 2020, fileName: "Some.Film.2020" };
@@ -22,8 +21,9 @@ const context: SearchContext = {
   itemId: "item1",
   serverAllowed: true,
   findSubtitles: true,
-  keys: { opensubtitles: { apiKey: "key", username: "me", password: "pw" }, subsource: "ssk" },
+  keys: { opensubtitles: { username: "me", password: "pw" } },
 };
+const anonymous: SearchContext = { ...context, keys: { opensubtitles: null } };
 
 function json(body: unknown, status = 200): Response {
   return { ok: status >= 200 && status < 300, status, json: async () => body, text: async () => JSON.stringify(body), arrayBuffer: async () => new ArrayBuffer(0) } as unknown as Response;
@@ -41,7 +41,12 @@ function bytes(data: Uint8Array, status = 200): Response {
 
 const SRT = "1\n00:00:01,000 --> 00:00:02,000\nHi\n";
 
+afterAll(() => {
+  delete process.env.EXPO_PUBLIC_OPENSUBTITLES_API_KEY;
+});
+
 beforeEach(() => {
+  process.env.EXPO_PUBLIC_OPENSUBTITLES_API_KEY = "key";
   mockFetch.mockReset();
   mockSearchRemote.mockReset();
   mockFetchRemoteFile.mockReset();
@@ -108,15 +113,23 @@ describe("server source", () => {
 });
 
 describe("opensubtitles source", () => {
-  it("is skipped without an account", () => {
-    expect(openSubtitlesSource.accepts(movie, { ...context, keys: { ...context.keys, opensubtitles: null } })).toBe(false);
+  it("is asked without a viewer account, and skipped in a build without the app key or with the search off", () => {
+    expect(openSubtitlesSource.accepts(movie, anonymous)).toBe(true);
+    expect(openSubtitlesSource.accepts(movie, { ...context, findSubtitles: false })).toBe(false);
+    delete process.env.EXPO_PUBLIC_OPENSUBTITLES_API_KEY;
+    expect(openSubtitlesSource.accepts(movie, context)).toBe(false);
   });
 
-  it("builds the search by ids when the item has them, by title otherwise", () => {
-    expect(openSubtitlesParams({ ...movie, imdbId: "tt0012345" }, "en").get("imdb_id")).toBe("0012345");
-    expect(openSubtitlesParams({ ...episode, imdbId: "tt0012345" }, "en").get("parent_imdb_id")).toBe("0012345");
+  it("asks by the item's own id alone, without tt or leading zeroes, for a film or an episode", () => {
+    expect(openSubtitlesParams({ ...movie, imdbId: "tt0012345" }, "en").toString()).toBe("imdb_id=12345&languages=en&order_by=download_count&order_direction=desc");
+    expect(openSubtitlesParams({ ...episode, imdbId: "tt18246720" }, "en").toString()).toBe("imdb_id=18246720&languages=en&order_by=download_count&order_direction=desc");
+    expect(openSubtitlesParams({ ...episode, tmdbId: "05051965" }, "en").toString()).toBe("languages=en&order_by=download_count&order_direction=desc&tmdb_id=5051965");
+  });
+
+  it("asks by the lowercased title in alphabetical parameter order when the item has no id", () => {
     const params = openSubtitlesParams(episode, "fr");
-    expect(params.get("query")).toBe("Some Show");
+    expect(params.toString()).toBe("episode_number=3&languages=fr&order_by=download_count&order_direction=desc&query=some+show&season_number=1&type=episode");
+    expect(params.get("query")).toBe("some show");
     expect(params.get("languages")).toBe("fr");
     expect(params.get("season_number")).toBe("1");
     expect(params.get("episode_number")).toBe("3");
@@ -143,12 +156,22 @@ describe("opensubtitles source", () => {
         ],
       }),
     );
-    const hits = await openSubtitlesSource.search(movie, "en", context);
+    const hits = await openSubtitlesSource.search(movie, "en", anonymous);
     expect((mockFetch.mock.calls[0][1] as RequestInit).headers).toMatchObject({ "Api-Key": "key", "User-Agent": "TomoTV v1.0.0" });
     expect(hits).toEqual([expect.objectContaining({ id: "123", source: "opensubtitles", name: "Some.Film.srt", hashMatch: true, rating: 7.5, downloads: 900, author: "up" })]);
   });
 
-  it("logs in once, asks for a link, and reads the file from it", async () => {
+  it("downloads with the app key alone when the viewer keeps no account", async () => {
+    mockFetch.mockResolvedValueOnce(json({ link: "https://dl.example/x.srt", file_name: "x.srt", remaining: 4 })).mockResolvedValueOnce(bytes(strToU8(SRT)));
+    const hit = { id: "123", name: "x", source: "opensubtitles" } as SubtitleHit;
+    expect(await openSubtitlesSource.fetch(hit, anonymous)).toEqual({ text: SRT, format: "srt" });
+    expect(mockFetch.mock.calls.map((call) => call[0])).toEqual(["https://api.opensubtitles.com/api/v1/download", "https://dl.example/x.srt"]);
+    const sent = (mockFetch.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
+    expect(sent["Api-Key"]).toBe("key");
+    expect(sent.Authorization).toBeUndefined();
+  });
+
+  it("logs in once with the viewer's account, asks for a link, and reads the file from it", async () => {
     mockFetch
       .mockResolvedValueOnce(json({ token: "tok", user: { allowed_downloads: 20, remaining_downloads: 19 } }))
       .mockResolvedValueOnce(json({ link: "https://dl.example/x.srt", file_name: "x.srt", remaining: 18 }))
@@ -170,39 +193,53 @@ describe("opensubtitles source", () => {
     expect(JSON.parse((mockFetch.mock.calls[1][1] as RequestInit).body as string)).toEqual({ file_id: 123, sub_format: "srt" });
   });
 
-  it("a 406 on download is a refusal", async () => {
-    mockFetch.mockResolvedValueOnce(json({ token: "tok" })).mockResolvedValueOnce(json({ message: "quota" }, 406));
-    await expect(openSubtitlesSource.fetch({ id: "1" } as SubtitleHit, context)).rejects.toMatchObject({ source: "opensubtitles", status: 406 });
-  });
-});
-
-describe("subsource source", () => {
-  it("searches titles by IMDb id when known, by text otherwise", () => {
-    expect(subsourceSearchParams({ ...movie, imdbId: "tt1" }).toString()).toBe("searchType=imdb&imdb=tt1&type=movie&year=2020");
-    expect(subsourceSearchParams(episode).toString()).toBe("searchType=text&q=Some+Show&type=series&season=1");
-  });
-
-  it("lists the title's subtitles in the language's English name, keeps the episode's releases and names each by the one for the episode", async () => {
+  it("downloads with the app key alone when the kept sign-in is refused", async () => {
     mockFetch
-      .mockResolvedValueOnce(
-        json({
-          data: [
-            { movieId: 5, title: "Some Show", type: "series", season: 2 },
-            { movieId: 7, title: "Some Show", type: "series", season: 1 },
-          ],
-        }),
-      )
-      .mockResolvedValueOnce(
-        json({
-          data: [
-            { subtitleId: 1, releaseInfo: ["Some.Show.S01.Season.Pack", "Some.Show.S01E03.720p"], hearingImpaired: false, downloads: 40, rating: { good: 8, bad: 2, total: 10 } },
-            { subtitleId: 2, releaseInfo: ["Some.Show.S01E04.720p"] },
-          ],
-        }),
-      );
-    const hits = await subsourceSource.search(episode, "en", context);
-    expect(mockFetch.mock.calls[1][0]).toBe("https://api.subsource.net/api/v1/subtitles?movieId=7&language=english&limit=50");
-    expect((mockFetch.mock.calls[0][1] as RequestInit).headers).toMatchObject({ "X-API-Key": "ssk" });
-    expect(hits).toEqual([expect.objectContaining({ id: "1", source: "subsource", name: "Some.Show.S01E03.720p", rating: 8, downloads: 40 })]);
+      .mockResolvedValueOnce(json({ message: "bad password" }, 401))
+      .mockResolvedValueOnce(json({ link: "https://dl.example/x.srt", file_name: "x.srt" }))
+      .mockResolvedValueOnce(bytes(strToU8(SRT)));
+    expect(await openSubtitlesSource.fetch({ id: "1", name: "x" } as SubtitleHit, context)).toEqual({ text: SRT, format: "srt" });
+    expect(((mockFetch.mock.calls[1][1] as RequestInit).headers as Record<string, string>).Authorization).toBeUndefined();
+  });
+
+  it("signs in again once when the download answers 401 for an expired token", async () => {
+    mockFetch
+      .mockResolvedValueOnce(json({ token: "old" }))
+      .mockResolvedValueOnce(json({ message: "invalid token" }, 401))
+      .mockResolvedValueOnce(json({ token: "new" }))
+      .mockResolvedValueOnce(json({ link: "https://dl.example/x.srt", file_name: "x.srt" }))
+      .mockResolvedValueOnce(bytes(strToU8(SRT)));
+    expect(await openSubtitlesSource.fetch({ id: "1", name: "x" } as SubtitleHit, context)).toEqual({ text: SRT, format: "srt" });
+    expect(mockFetch.mock.calls.map((call) => call[0])).toEqual([
+      "https://api.opensubtitles.com/api/v1/login",
+      "https://api.opensubtitles.com/api/v1/download",
+      "https://api.opensubtitles.com/api/v1/login",
+      "https://api.opensubtitles.com/api/v1/download",
+      "https://dl.example/x.srt",
+    ]);
+    expect((mockFetch.mock.calls[3][1] as RequestInit).headers).toMatchObject({ Authorization: "Bearer new" });
+  });
+
+  it("reads a 406 on download as the day's limit, the free one without a sign-in and the account's with one", async () => {
+    mockFetch.mockResolvedValueOnce(json({ message: "quota" }, 406));
+    await expect(openSubtitlesSource.fetch({ id: "1" } as SubtitleHit, anonymous)).rejects.toMatchObject({ name: "DownloadLimit", status: 406, signedIn: false });
+    mockFetch.mockResolvedValueOnce(json({ token: "tok" })).mockResolvedValueOnce(json({ message: "quota" }, 406));
+    await expect(openSubtitlesSource.fetch({ id: "1" } as SubtitleHit, context)).rejects.toMatchObject({ name: "DownloadLimit", status: 406, signedIn: true });
+  });
+
+  it("never sends a refused username and password again in the same session", async () => {
+    mockFetch.mockResolvedValue(json({ message: "bad password" }, 401));
+    await openSubtitlesSource.fetch({ id: "1" } as SubtitleHit, context).catch(() => undefined);
+    await openSubtitlesSource.fetch({ id: "1" } as SubtitleHit, context).catch(() => undefined);
+    expect(mockFetch.mock.calls.filter((call) => String(call[0]).endsWith("/login"))).toHaveLength(1);
+  });
+
+  it("downloads on the VIP host the login names", async () => {
+    mockFetch
+      .mockResolvedValueOnce(json({ token: "tok", base_url: "vip-api.opensubtitles.com" }))
+      .mockResolvedValueOnce(json({ link: "https://dl.example/x.srt", file_name: "x.srt" }))
+      .mockResolvedValueOnce(bytes(strToU8(SRT)));
+    await openSubtitlesSource.fetch({ id: "1", name: "x" } as SubtitleHit, context);
+    expect(mockFetch.mock.calls[1][0]).toBe("https://vip-api.opensubtitles.com/api/v1/download");
   });
 });

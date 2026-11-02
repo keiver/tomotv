@@ -17,7 +17,7 @@ import {
 } from "@/services/subtitles/types";
 
 const query: SubtitleQuery = { kind: "movie", keywords: "Film", fileName: "Film" };
-const context: SearchContext = { itemId: "i", serverAllowed: true, findSubtitles: true, keys: { opensubtitles: { apiKey: "k", username: "u", password: "p" }, subsource: "x" } };
+const context: SearchContext = { itemId: "i", serverAllowed: true, findSubtitles: true, keys: { opensubtitles: { username: "u", password: "p" } } };
 
 function hit(source: SubtitleSourceId): SubtitleHit {
   return { id: source, source, name: source, language: "en", format: "", hashMatch: false, forced: false, hearingImpaired: false, machineTranslated: false, rating: null, downloads: null, author: "" };
@@ -39,13 +39,12 @@ describe("runChain", () => {
   it("asks the sources in order and stops at the first that answers", async () => {
     const asked: SubtitleSourceId[] = [];
     const all = sources({
-      server: fake("server", async () => (asked.push("server"), [])),
+      server: fake("server", async () => (asked.push("server"), [hit("server")])),
       opensubtitles: fake("opensubtitles", async () => (asked.push("opensubtitles"), [hit("opensubtitles")])),
-      subsource: fake("subsource", async () => (asked.push("subsource"), [hit("subsource")])),
     });
     const answer = await runChain(query, "en", context, all);
-    expect(asked).toEqual(["server", "opensubtitles"]);
-    expect(answer.answeredBy).toBe("opensubtitles");
+    expect(asked).toEqual(["server"]);
+    expect(answer.answeredBy).toBe("server");
     expect(answer.hits).toHaveLength(1);
     expect(answer.refused).toEqual([]);
   });
@@ -54,9 +53,9 @@ describe("runChain", () => {
     const serverSearch = jest.fn(async () => {
       throw new SourceRefusal("server", 429, "quota");
     });
-    const all = sources({ server: fake("server", serverSearch), subsource: fake("subsource", async () => [hit("subsource")]) });
+    const all = sources({ server: fake("server", serverSearch), opensubtitles: fake("opensubtitles", async () => [hit("opensubtitles")]) });
     const first = await runChain(query, "en", context, all);
-    expect(first.answeredBy).toBe("subsource");
+    expect(first.answeredBy).toBe("opensubtitles");
     expect(first.refused).toEqual([{ source: "server", status: 429 }]);
     const second = await runChain(query, "en", context, all);
     expect(serverSearch).toHaveBeenCalledTimes(1);
@@ -67,16 +66,17 @@ describe("runChain", () => {
     const failing = jest.fn(async () => {
       throw new Error("network");
     });
-    const all = sources({ server: fake("server", failing), subsource: fake("subsource", async () => [hit("subsource")]) });
+    const all = sources({ server: fake("server", failing), opensubtitles: fake("opensubtitles", async () => [hit("opensubtitles")]) });
     await runChain(query, "en", context, all);
     await runChain(query, "en", context, all);
     expect(failing).toHaveBeenCalledTimes(2);
   });
 
   it("leaves out sources that do not take the query or were marked down by a failed save", () => {
+    const all = sources({ opensubtitles: fake("opensubtitles", async () => [], false) });
+    expect(sourcesFor(query, context, all).map((source) => source.id)).toEqual(["server"]);
     markSourceDown("server", 500);
-    const all = sources({ subsource: fake("subsource", async () => [], false) });
-    expect(sourcesFor(query, context, all).map((source) => source.id)).toEqual(["opensubtitles"]);
+    expect(sourcesFor(query, context, all)).toEqual([]);
   });
 
   it("answers empty when nothing is found anywhere", async () => {

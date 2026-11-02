@@ -1,7 +1,7 @@
 /**
  * The languages a subtitle can be searched in, in the spellings each provider takes: ISO 639-1
- * for OpenSubtitles, ISO 639-2/T for the Jellyfin server, the English name for SubSource. The
- * native name is what the chip row shows.
+ * for OpenSubtitles, ISO 639-2/T for the Jellyfin server. The native name is what the chip row
+ * shows.
  */
 import { canonicalLanguage, knownLanguage } from "@keiver/tomo-engine";
 import type { JellyfinVideoItem } from "@/types/jellyfin";

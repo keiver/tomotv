@@ -34,14 +34,12 @@ const SERVICES: { source: SubtitleSourceId; url: string; rows: KeyFieldSpec[][] 
     source: "opensubtitles",
     url: "opensubtitles.com",
     rows: [
-      [{ name: "OPENSUBTITLES_API_KEY", label: "subtitles.apiKey", secret: true }],
       [
         { name: "OPENSUBTITLES_USERNAME", label: "subtitles.username", secret: false },
         { name: "OPENSUBTITLES_PASSWORD", label: "subtitles.password", secret: true },
       ],
     ],
   },
-  { source: "subsource", url: "subsource.net", rows: [[{ name: "SUBSOURCE_API_KEY", label: "subtitles.apiKey", secret: true }]] },
 ];
 
 const rowKey = (row: SettingsRow) => (row.kind === "fields" ? `${row.source}/${row.fields[0].name}` : row.kind);

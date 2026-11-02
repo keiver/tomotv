@@ -14,7 +14,7 @@ import { languageFor } from "./languages";
 import { fileNameQuery } from "./query";
 import { rankHits } from "./rank";
 import { deviceSubtitleIndex, removeDeviceSubtitle, saveDeviceSubtitle, type DeviceSubtitle } from "./store";
-import { SourceRefusal, type DeviceReason, type SearchContext, type SubtitleFile, type SubtitleHit, type SubtitleQuery } from "./types";
+import { DownloadLimit, SourceRefusal, type DeviceReason, type SearchContext, type SubtitleFile, type SubtitleHit, type SubtitleQuery } from "./types";
 import { isRefusal } from "./sources/http";
 
 export async function searchContext(itemId: string): Promise<SearchContext> {
@@ -44,7 +44,7 @@ export async function searchSubtitles(itemId: string, query: SubtitleQuery, lang
 export type ApplyResult =
   | { ok: true; where: "server"; language: string; streamIndex: number | null }
   | { ok: true; where: "device"; language: string; saved: DeviceSubtitle; deviceReason?: DeviceReason }
-  | { ok: false; reason: "refused" | "unreadable" | "failed"; source: SubtitleHit["source"]; status?: number };
+  | { ok: false; reason: "refused" | "unreadable" | "failed" | "limit" | "accountLimit"; source: SubtitleHit["source"]; status?: number };
 
 /** The stream index a saved pick plays under, for the session to turn on; undefined when it is not known. */
 export function appliedStreamIndex(result: ApplyResult): number | undefined {
@@ -127,6 +127,8 @@ async function apply(item: JellyfinVideoItem, hit: SubtitleHit, context?: Search
     const deviceReason: DeviceReason = !resolved.serverAllowed ? "permission" : !getUiPreferences().saveSubtitles ? "savingOff" : "language";
     return await keepOnDevice(item, hit, file, replacing, deviceReason);
   } catch (error) {
+    // The day's downloads are used up, but the source still searches, so it stays in the chain.
+    if (error instanceof DownloadLimit) return { ok: false, reason: error.signedIn ? "accountLimit" : "limit", source: error.source, status: error.status };
     if (error instanceof SourceRefusal) {
       markSourceDown(error.source, error.status);
       return { ok: false, reason: "refused", source: error.source, status: error.status };

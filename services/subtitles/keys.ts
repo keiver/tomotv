@@ -1,15 +1,13 @@
 /**
- * The viewer's own subtitle provider accounts, kept in the keychain. Tomo holds no key of its own:
- * a source whose field is empty is never asked.
+ * The viewer's own OpenSubtitles sign-in, kept in the keychain. It is optional: the app's own key
+ * searches and downloads without it, and a download signs in with it when both fields are filled.
  */
 import * as SecureStore from "expo-secure-store";
 import { NO_KEYS, type OwnKeys } from "./types";
 
 export const SUBTITLE_KEY_STORAGE = {
-  OPENSUBTITLES_API_KEY: "subtitles_opensubtitles_api_key",
   OPENSUBTITLES_USERNAME: "subtitles_opensubtitles_username",
   OPENSUBTITLES_PASSWORD: "subtitles_opensubtitles_password",
-  SUBSOURCE_API_KEY: "subtitles_subsource_api_key",
 } as const;
 
 export type SubtitleKeyName = keyof typeof SUBTITLE_KEY_STORAGE;
@@ -22,13 +20,12 @@ async function read(name: SubtitleKeyName): Promise<string> {
   }
 }
 
-/** Every pasted key, with a provider left null while any of its fields is empty. */
+/** The kept sign-in, left null while either field is empty. */
 export async function readOwnKeys(): Promise<OwnKeys> {
-  const [osKey, osUser, osPassword, subsource] = await Promise.all([read("OPENSUBTITLES_API_KEY"), read("OPENSUBTITLES_USERNAME"), read("OPENSUBTITLES_PASSWORD"), read("SUBSOURCE_API_KEY")]);
+  const [username, password] = await Promise.all([read("OPENSUBTITLES_USERNAME"), read("OPENSUBTITLES_PASSWORD")]);
   return {
     ...NO_KEYS,
-    opensubtitles: osKey && osUser && osPassword ? { apiKey: osKey, username: osUser, password: osPassword } : null,
-    subsource: subsource || null,
+    opensubtitles: username && password ? { username, password } : null,
   };
 }
 

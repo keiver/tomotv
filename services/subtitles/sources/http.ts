@@ -1,5 +1,5 @@
 /**
- * What every outside provider needs from the network: a named client, a timeout, JSON or bytes,
+ * What every outside provider needs from the network: a named client, a timeout, bytes,
  * and a subtitle file read out of whatever wrapper the provider sends it in.
  */
 import { strFromU8, unzipSync } from "fflate";
@@ -21,12 +21,6 @@ export async function providerFetch(source: SubtitleSourceId, url: string, init:
   const response = await fetchWithTimeout(url, { ...init, headers }, PROVIDER_TIMEOUT_MS);
   if (isRefusal(response.status)) throw new SourceRefusal(source, response.status, `${source} answered ${response.status}`);
   return response;
-}
-
-export async function providerJson<T>(source: SubtitleSourceId, url: string, init: RequestInit = {}): Promise<T | null> {
-  const response = await providerFetch(source, url, init);
-  if (!response.ok) return null;
-  return (await response.json()) as T;
 }
 
 export async function providerBytes(source: SubtitleSourceId, url: string, init: RequestInit = {}): Promise<Uint8Array | null> {

@@ -5,7 +5,7 @@ jest.mock("@/services/jellyfin/http", () => ({ fetchWithTimeout: jest.fn() }));
 jest.mock("@/services/jellyfin/session", () => ({ getConfig: jest.fn(async () => ({ server: "http://server:8096", apiKey: "k", userId: "u", deviceId: "d" })) }));
 const mockPrefs = { findSubtitles: true, saveSubtitles: true };
 jest.mock("@/services/uiPreferences", () => ({ getUiPreferences: () => mockPrefs }));
-jest.mock("@/services/subtitles/keys", () => ({ readOwnKeys: jest.fn(async () => ({ opensubtitles: null, subsource: null })) }));
+jest.mock("@/services/subtitles/keys", () => ({ readOwnKeys: jest.fn(async () => ({ opensubtitles: null })) }));
 jest.mock("@/services/jellyfinApi", () => ({
   canManageSubtitles: jest.fn(async () => true),
   downloadRemoteSubtitle: jest.fn(async () => 204),
@@ -29,7 +29,7 @@ import { resetSourceChain, sourceDown } from "@/services/subtitles/chain";
 import { appliedStreamIndex, applyPick, searchSubtitles, type ApplyResult } from "@/services/subtitles/pipeline";
 import { subtitleQuery } from "@/services/subtitles/query";
 import { deviceSubtitles } from "@/services/subtitles/store";
-import type { SubtitleHit } from "@/services/subtitles/types";
+import { DownloadLimit, type SubtitleHit } from "@/services/subtitles/types";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 
 const api = jellyfinApi as jest.Mocked<typeof jellyfinApi>;
@@ -157,6 +157,14 @@ describe("applyPick", () => {
     api.downloadRemoteSubtitle.mockResolvedValue(500);
     expect(await applyPick(item, hit({ source: "server", id: "srv1" }))).toEqual({ ok: false, reason: "refused", source: "server", status: 500 });
     expect(sourceDown("server")).toBe(500);
+  });
+
+  it("a used-up download allowance is reported as the limit and leaves OpenSubtitles in the search", async () => {
+    mockFetchFile.mockRejectedValueOnce(new DownloadLimit("opensubtitles", 406, false));
+    expect(await applyPick(item, hit({ source: "opensubtitles" }))).toEqual({ ok: false, reason: "limit", source: "opensubtitles", status: 406 });
+    mockFetchFile.mockRejectedValueOnce(new DownloadLimit("opensubtitles", 406, true));
+    expect(await applyPick(item, hit({ source: "opensubtitles" }))).toEqual({ ok: false, reason: "accountLimit", source: "opensubtitles", status: 406 });
+    expect(sourceDown("opensubtitles")).toBeUndefined();
   });
 
   it("a file nothing can read is reported, not saved", async () => {
