@@ -5,6 +5,7 @@
 import type { OwnKeys, SubtitleFile, SubtitleHit, SubtitleQuery, SubtitleSource } from "../types";
 import { DownloadLimit, SourceRefusal } from "../types";
 import { logger } from "@/utils/logger";
+import { countDownload, downloadsLeft, recordDownloadsLeft, resetDownloadAccount, setDownloadAccount } from "../downloadAllowance";
 import { CLIENT_NAME, providerBytes, providerFetch, unpackSubtitle } from "./http";
 
 const DEFAULT_HOST = "api.opensubtitles.com";
@@ -59,12 +60,9 @@ type Account = NonNullable<OwnKeys["opensubtitles"]>;
 const sessions = new Map<string, Session>();
 /** Username and password pairs the login refused; the API asks never to send them again. */
 const refusedSignIns = new Set<string>();
-/** The downloads the API last said are left today, or null before it said. */
-let downloadsLeft: number | null = null;
-
-/** The downloads left today as the API last answered: a sign-in's count, or the last download's. Null until one answers. */
+/** The downloads left today, counted on the device across launches; null for a signed-in account not yet counted. */
 export function openSubtitlesDownloadsLeft(): number | null {
-  return downloadsLeft;
+  return downloadsLeft();
 }
 
 /** Tomo's consumer key, inlined at build time; empty in a build made without it. */
@@ -93,7 +91,8 @@ async function login(account: Account): Promise<Session> {
   if (!response.ok) throw new SourceRefusal("opensubtitles", response.status, `opensubtitles login answered ${response.status}`);
   const body = (await response.json()) as OsLogin;
   if (!body.token) throw new SourceRefusal("opensubtitles", 401, "opensubtitles login gave no token");
-  if (typeof body.user?.remaining_downloads === "number") downloadsLeft = body.user.remaining_downloads;
+  setDownloadAccount(account.username);
+  if (typeof body.user?.remaining_downloads === "number") recordDownloadsLeft(body.user.remaining_downloads, { daily: body.user.allowed_downloads });
   const session = { token: body.token, host: body.base_url === VIP_HOST ? VIP_HOST : DEFAULT_HOST };
   sessions.set(account.username, session);
   return session;
@@ -122,7 +121,10 @@ async function requestDownload(hit: SubtitleHit, session: Session | undefined): 
     });
   } catch (error) {
     // 406 is the day's downloads used up: the IP's free ones without a sign-in, the account's with one.
-    if (error instanceof SourceRefusal && error.status === 406) throw new DownloadLimit("opensubtitles", 406, session !== undefined);
+    if (error instanceof SourceRefusal && error.status === 406) {
+      recordDownloadsLeft(0);
+      throw new DownloadLimit("opensubtitles", 406, session !== undefined);
+    }
     throw error;
   }
 }
@@ -192,6 +194,7 @@ export const openSubtitlesSource: SubtitleSource = {
   async fetch(hit, context): Promise<SubtitleFile> {
     const account = context.keys.opensubtitles;
     const session = await signIn(account);
+    setDownloadAccount(session && account ? account.username : "");
     let response: Response;
     try {
       response = await requestDownload(hit, session);
@@ -203,7 +206,8 @@ export const openSubtitlesSource: SubtitleSource = {
     }
     if (!response.ok) throw new SourceRefusal("opensubtitles", response.status, `opensubtitles download answered ${response.status}`);
     const info = (await response.json()) as OsDownload;
-    if (typeof info.remaining === "number") downloadsLeft = info.remaining;
+    if (typeof info.remaining === "number") recordDownloadsLeft(info.remaining, { resetsAt: info.reset_time_utc ? Date.parse(info.reset_time_utc) : undefined });
+    else countDownload();
     if (!info.link) throw new Error("opensubtitles gave no download link");
     const bytes = await providerBytes("opensubtitles", info.link);
     const file = bytes ? unpackSubtitle(bytes, info.file_name ?? `${hit.name}.srt`) : null;
@@ -216,5 +220,5 @@ export const openSubtitlesSource: SubtitleSource = {
 export function resetOpenSubtitlesTokens(): void {
   sessions.clear();
   refusedSignIns.clear();
-  downloadsLeft = null;
+  resetDownloadAccount();
 }

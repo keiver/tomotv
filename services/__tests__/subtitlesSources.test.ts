@@ -169,7 +169,7 @@ describe("opensubtitles source", () => {
   it("downloads with the app key alone when the viewer keeps no account", async () => {
     mockFetch.mockResolvedValueOnce(json({ link: "https://dl.example/x.srt", file_name: "x.srt", remaining: 4 })).mockResolvedValueOnce(bytes(strToU8(SRT)));
     const hit = { id: "123", name: "x", source: "opensubtitles" } as SubtitleHit;
-    expect(openSubtitlesDownloadsLeft()).toBeNull();
+    expect(openSubtitlesDownloadsLeft()).toBe(5);
     expect(await openSubtitlesSource.fetch(hit, anonymous)).toEqual({ text: SRT, format: "srt" });
     expect(openSubtitlesDownloadsLeft()).toBe(4);
     expect(mockFetch.mock.calls.map((call) => call[0])).toEqual(["https://api.opensubtitles.com/api/v1/download", "https://dl.example/x.srt"]);
