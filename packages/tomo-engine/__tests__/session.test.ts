@@ -221,9 +221,18 @@ describe("liveSubtitleRenditions", () => {
 });
 
 describe("liveSessionConfig", () => {
-  it("names the channel's URL and nothing about its streams, with a 2s start buffer and 1s segments", () => {
+  it("names the channel's URL and nothing about its streams, with a 2s start buffer, 1s segments, a 0.4s copy cut and the nearest target", () => {
     const live = liveSessionConfig({ inputUrl: "https://origin/master.m3u8", itemId: "ch1" });
-    expect(live).toMatchObject({ inputUrl: "https://origin/master.m3u8", itemId: "ch1", isLive: true, describesInput: true, liveBufferSeconds: 2, liveSegmentSeconds: 1 });
+    expect(live).toMatchObject({
+      inputUrl: "https://origin/master.m3u8",
+      itemId: "ch1",
+      isLive: true,
+      describesInput: true,
+      liveBufferSeconds: 2,
+      liveSegmentSeconds: 1,
+      liveCopyCutSeconds: 0.4,
+      liveTargetNearest: true,
+    });
     expect(live.audioTracks).toEqual([]);
     expect(live.tiers).toEqual([]);
     for (const key of ["httpHeaders", "liveOriginKey", "livePriority", "liveAudioLanguage", "livePlaylist", "fallbackInputUrl", "liveWindowSeconds", "probeOrigin"]) {

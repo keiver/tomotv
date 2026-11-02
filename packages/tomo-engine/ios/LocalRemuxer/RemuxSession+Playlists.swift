@@ -731,17 +731,25 @@ extension RemuxSession {
         stateLock.lock()
         defer { stateLock.unlock() }
         let longest = liveDurations.values.max() ?? 0
-        let target = max(liveTargetDuration ?? 0, max(1, Int(ceil(max(liveCapSecondsLocked(), longest)))))
+        let bound = max(liveCapSecondsLocked(), longest)
+        let target = max(liveTargetDuration ?? 0, max(1, Int(config.liveTargetNearest ? bound.rounded() : ceil(bound))))
         liveTargetDuration = target
         return target
     }
 
-    /// TARGETDURATION headroom over the segment target: a full source keyframe interval on a copy
-    /// lane (segments run one GOP long when the interval exceeds the target), a fixed margin where
+    /// TARGETDURATION headroom over the cut threshold: a full source keyframe interval on a copy
+    /// lane (segments run one GOP long when the interval exceeds the threshold), a fixed margin where
     /// the encoder forces keyframes at the target. Under stateLock.
     func liveCapSecondsLocked() -> Double {
-        if renditions.first?.videoTranscoder != nil { return config.liveSegmentSeconds + 0.5 }
-        return config.liveSegmentSeconds + max(maxKeyframeGapSeconds, config.liveSegmentSeconds)
+        let transcoding = renditions.first?.videoTranscoder != nil
+        if transcoding { return config.liveSegmentSeconds + 0.5 }
+        let cut = liveCutSeconds(transcoding: false)
+        return cut + max(maxKeyframeGapSeconds, cut)
+    }
+
+    /// How far past a live segment's open keyframe the cut waits: `liveCopyCutSeconds` on the copy lane when set, else the segment target.
+    func liveCutSeconds(transcoding: Bool) -> Double {
+        !transcoding && config.liveCopyCutSeconds > 0 ? config.liveCopyCutSeconds : config.liveSegmentSeconds
     }
 
     static func liveInitName(prefix: String, generation: Int) -> String {

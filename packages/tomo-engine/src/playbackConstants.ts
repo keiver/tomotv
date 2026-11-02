@@ -22,6 +22,8 @@ export const SLIPSTREAM_FORWARD_BUFFER_SECONDS = 12;
 export const LIVE_BUFFER_SECONDS = 2;
 /** Live segment target; a copied segment runs to the next keyframe. Its TARGETDURATION sets how close to live AVPlayer starts (LiveAVPlayerTests). */
 export const LIVE_SEGMENT_SECONDS = 1;
+/** Live copy lane: a segment is cut at the first keyframe this far past its open one, so a segment is one keyframe gap and TARGETDURATION follows it. */
+export const LIVE_COPY_CUT_SECONDS = 0.4;
 /** Bytes AVPlayer may hold ahead once playing: automatic held 52s of a 110 Mb/s copy and the 3 GB TV killed the app. */
 export const FORWARD_BUFFER_BYTES = 200_000_000;
 /** AVPlayer's automatic depth (measured 50-55s on T105); a budget reaching it leaves automatic in place. */

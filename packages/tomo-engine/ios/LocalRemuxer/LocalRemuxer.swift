@@ -269,6 +269,8 @@ class LocalRemuxer: RCTEventEmitter {
     ///   liveAudioLanguage: String? : live: the audio track made the default, by language; the source's default when absent
     ///   livePlaylist: Bool?        : live: the input is an HLS playlist whatever its URL's extension
     ///   liveBufferSeconds: Double? : live: seconds of output the media playlists wait for, the player's start buffer
+    ///   liveCopyCutSeconds: Double? : live copy lane: the cut threshold past a segment's open keyframe (liveSegmentSeconds when absent)
+    ///   liveTargetNearest: Bool?   : live: TARGETDURATION is the nearest integer of the longest allowed segment, not its ceiling
     ///   describesInput: Bool?      : the open input names its own range, size, rate and bit rate, and the audio tracks,
     ///                                subtitles and durationSeconds the config leaves empty; the master waits for it
     ///
@@ -385,6 +387,8 @@ class LocalRemuxer: RCTEventEmitter {
                 liveAudioLanguage: (config["liveAudioLanguage"] as? String) ?? "",
                 livePlaylist: (config["livePlaylist"] as? Bool) ?? false,
                 liveBufferSeconds: (config["liveBufferSeconds"] as? Double) ?? 0,
+                liveCopyCutSeconds: (config["liveCopyCutSeconds"] as? Double) ?? 0,
+                liveTargetNearest: (config["liveTargetNearest"] as? Bool) ?? false,
                 primaryVideoCodecs: (config["primaryVideoCodecs"] as? String) ?? "",
                 primaryVideoBandwidth: (config["primaryVideoBandwidth"] as? Int) ?? 0,
                 sourceBandwidth: (config["sourceBandwidth"] as? Int) ?? 0,

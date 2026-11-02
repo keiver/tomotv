@@ -144,6 +144,76 @@ final class LiveAVPlayerTests: XCTestCase {
         }
     }
 
+    /// Open to moving picture on a continuous real-time TS source, timed from `session.start()` as the app opens a channel. Recorded, not asserted.
+    /// Opt in with TOMO_CONTINUOUS_START=25:1,30000/1001:2:mpeg2,25:2::20 (fps:keyframe s[:codec[:bind after s]]); TOMO_START_RUNS, _WATCH, _BUFFER, TOMO_LIVE_SEGMENT, TOMO_LIVE_COPY_CUT, TOMO_TARGET_NEAREST.
+    func testLiveStartOnAContinuousSource() throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let specs = env["TOMO_CONTINUOUS_START"]?.split(separator: ",").map({ $0.split(separator: ":", omittingEmptySubsequences: false).map(String.init) }) else {
+            throw XCTSkip("set TOMO_CONTINUOUS_START")
+        }
+        let runs = env["TOMO_START_RUNS"].flatMap(Int.init) ?? 5
+        let watch = env["TOMO_START_WATCH"].flatMap(Double.init) ?? 60
+        let segment = env["TOMO_LIVE_SEGMENT"].flatMap(Double.init) ?? 1
+        let buffer = env["TOMO_START_BUFFER"].flatMap(Double.init) ?? 2
+        for spec in specs {
+            let fps = spec[0]
+            let keyframes = spec.count > 1 ? Double(spec[1]) ?? 2 : 2
+            let codec = spec.count > 2 && !spec[2].isEmpty ? spec[2] : "h264"
+            let lead = spec.count > 3 ? Double(spec[3]) ?? 0 : 0
+            var starts: [Double] = []
+            for run in 1...runs {
+                let (feed, path) = try startContinuousFeed(fps: fps, keyframeSeconds: keyframes, codec: codec)
+                defer {
+                    feed.terminate()
+                    try? FileManager.default.removeItem(atPath: path)
+                }
+                var config = makeConfig(durationSeconds: 0, inputUrl: path, videoRange: "", codecs: "", width: 0, height: 0, frameRate: 0, bandwidth: 0,
+                                        isLive: true, liveSegmentSeconds: segment)
+                config.describesInput = true
+                config.liveBufferSeconds = buffer
+                config.liveCopyCutSeconds = env["TOMO_LIVE_COPY_CUT"].flatMap(Double.init) ?? 0
+                config.liveTargetNearest = env["TOMO_TARGET_NEAREST"] != nil
+                let session = try RemuxSession(config: config)
+                let opened = Date()
+                session.start()
+                defer { session.stop() }
+                let (server, url) = try serve(session)
+                defer { server.stop() }
+                if lead > 0 { spin(seconds: lead) { false } } else { awaitStartBuffer(session, seconds: buffer) }
+                let bound = Date().timeIntervalSince(opened)
+                let player = AVPlayer(url: url)
+                player.play()
+                var moving: Double?
+                var startPosition: Double?
+                var stalls = 0
+                var wasPlaying = false
+                let end = Date().addingTimeInterval(watch)
+                while Date() < end {
+                    RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+                    let position = player.currentTime().seconds
+                    let playing = player.timeControlStatus == .playing
+                    if playing, startPosition == nil, position.isFinite { startPosition = position }
+                    if moving == nil, let first = startPosition, position > first + 0.2 { moving = Date().timeIntervalSince(opened) - 0.2 }
+                    if moving != nil, wasPlaying, !playing { stalls += 1 }
+                    wasPlaying = playing
+                }
+                let behind = player.currentItem?.currentDate().map { Date().timeIntervalSince($0) } ?? .nan
+                let media = session.mediaPlaylist().split(separator: "\n")
+                let longest = media.compactMap { $0.hasPrefix("#EXTINF:") ? Double($0.dropFirst(8).split(separator: ",").first ?? "") : nil }.max() ?? 0
+                let target = (media.first { $0.hasPrefix("#EXT-X-TARGETDURATION:") }.map(String.init) ?? "(none)") + String(format: ", longest segment %.3fs", longest)
+                if let moving { starts.append(lead > 0 ? moving - bound : moving) }
+                NSLog("[LiveAVPlayerTests] continuous start: %@ fps, keyframe %.2fs, %@, segment %.2fs, buffer %.0fs, run %d: %@, bound at %.2fs, moving at %@, %d stalls in %.0fs, %.2fs behind the cut clock, error %@",
+                      fps, keyframes, codec, segment, buffer, run, target, bound, moving.map { String(format: "%.2fs", $0) } ?? "never", stalls, watch, behind,
+                      String(describing: player.currentItem?.error))
+                player.pause()
+            }
+            let sorted = starts.sorted()
+            NSLog("[LiveAVPlayerTests] continuous start median: %@ fps, keyframe %.2fs, %@, bind after %.0fs: %@ (%@) over %d of %d runs",
+                  fps, keyframes, codec, lead, sorted.isEmpty ? "never" : String(format: "%.2fs", sorted[sorted.count / 2]), lead > 0 ? "from the bind" : "from the open",
+                  sorted.count, runs)
+        }
+    }
+
     /// A self-described live session bound at each start buffer plays with an enabled audio track, AAC and AC-3 alike.
     func testAVPlayerPlaysALiveSessionWithItsAudioAtEachStartBuffer() throws {
         for buffer in [2.0, 15.0] {

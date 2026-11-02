@@ -171,6 +171,10 @@ struct RemuxConfig {
     var livePlaylist = false
     /// Live: seconds of output the media playlists wait for before they answer, the player's start buffer; 0 answers on the first segment.
     var liveBufferSeconds: Double = 0
+    /// Live copy lane: the cut threshold past a segment's open keyframe; 0 is `liveSegmentSeconds`. The transcode lane keeps the target.
+    var liveCopyCutSeconds: Double = 0
+    /// Live: TARGETDURATION is the nearest integer of the longest segment the cut allows, not its ceiling (RFC 8216 4.3.3.1).
+    var liveTargetNearest = false
     var primaryVideoCodecs = ""
     var primaryVideoBandwidth = 0
     var sourceBandwidth = 0

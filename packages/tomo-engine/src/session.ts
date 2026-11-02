@@ -1,7 +1,7 @@
 import { engineLog } from "./config";
 import { attributeSession, forgetSession, watchEngineFailure, watchEngineLink, watchEnginePlan, watchEngineStage, watchEngineTier } from "./events";
 import { engineModule, isLocalRemuxAvailable } from "./native";
-import { LIVE_BUFFER_SECONDS, LIVE_SEGMENT_SECONDS } from "./playbackConstants";
+import { LIVE_BUFFER_SECONDS, LIVE_COPY_CUT_SECONDS, LIVE_SEGMENT_SECONDS } from "./playbackConstants";
 import type { SourcePosition, SubtitleRendition } from "./subtitles";
 
 /** One audio track of a session, as the native side reads it (LocalRemuxer.startRemux). */
@@ -81,6 +81,10 @@ export interface EngineSessionConfig {
   livePlaylist?: boolean;
   /** Live: seconds of output the media playlists wait for before answering, the player's start buffer. */
   liveBufferSeconds?: number;
+  /** Live copy lane: the cut threshold past a segment's open keyframe; `liveSegmentSeconds` when absent. */
+  liveCopyCutSeconds?: number;
+  /** Live: TARGETDURATION is the nearest integer of the longest segment the cut allows, not its ceiling. */
+  liveTargetNearest?: boolean;
   stopRequests?: EngineStopRequest[];
   /**
    * The open input names its own range, size, rate and bit rate, and whichever of `audioTracks`,
@@ -143,6 +147,8 @@ export function liveSessionConfig(input: LiveSessionInput): EngineSessionConfig 
     tiers: [],
     isLive: true,
     liveSegmentSeconds: LIVE_SEGMENT_SECONDS,
+    liveCopyCutSeconds: LIVE_COPY_CUT_SECONDS,
+    liveTargetNearest: true,
     liveBufferSeconds: Number.isFinite(buffer) && buffer > 0 ? buffer : 0,
     ...(input.windowSeconds && input.windowSeconds > 0 ? { liveWindowSeconds: input.windowSeconds } : {}),
     ...(input.httpHeaders && Object.keys(input.httpHeaders).length > 0 ? { httpHeaders: input.httpHeaders } : {}),

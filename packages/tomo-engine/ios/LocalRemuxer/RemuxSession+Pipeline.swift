@@ -2515,7 +2515,8 @@ extension RemuxSession {
         /// Live: the cut boundary is relative to the open segment, so a keyframe-aligned
         /// cut overshoots by at most one keyframe interval and the grid never drifts.
         func nextBoundarySeconds() -> Double {
-            config.isLive ? segmentOpenSeconds + config.liveSegmentSeconds : segmentStartSeconds(currentSegment + 1)
+            guard config.isLive else { return segmentStartSeconds(currentSegment + 1) }
+            return segmentOpenSeconds + liveCutSeconds(transcoding: builtRenditions.first?.videoTranscoder != nil)
         }
 
         /// Live: record the closing segment's real length and the next one's start.

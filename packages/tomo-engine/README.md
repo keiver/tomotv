@@ -81,7 +81,9 @@ const masterUrl = await startSession(liveSessionConfig({ inputUrl, itemId, httpH
   `EXT-X-START` there and the player starts that far behind; a shorter offset is left out, since
   AVPlayer refuses it (-16831), and the player picks its own start. A source that gives no backlog
   fills the buffer in real time; a device slower than real time waits here too. Segments target
-  `LIVE_SEGMENT_SECONDS` (1); a copied segment runs to the next keyframe.
+  `LIVE_SEGMENT_SECONDS` (1). A copied segment is cut at the first keyframe `LIVE_COPY_CUT_SECONDS`
+  (0.4) past its open one, so it runs one keyframe gap, and TARGETDURATION is the nearest integer
+  of the longest segment that cut allows (`liveTargetNearest`).
 - **In-session reopen.** A live read that brings nothing for twice its longest read so far (12 s at
   least), or ends, closes the input and opens it again in the same session, for as long as the
   session lives. The first try is at once; each further try, and each reopen within 60 s of the
