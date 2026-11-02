@@ -84,3 +84,20 @@ func alignCues(
     let lagFrames = Int(peakIndex) - reach
     return SubtitleAlignment(offsetMs: -lagFrames * frameMs, confidence: confidence)
 }
+
+/// Several windows' answers taken together: one at `single` deviations or more stands alone; otherwise
+/// the most answers at `agree` or more that lie within `toleranceMs` of each other, at least two, give
+/// their middle offset. Nil when neither holds.
+func agreedAlignment(_ found: [SubtitleAlignment], single: Double = 6, agree: Double = 3, toleranceMs: Int = 300) -> SubtitleAlignment? {
+    if let strongest = found.max(by: { $0.confidence < $1.confidence }), strongest.confidence >= single { return strongest }
+    let candidates = found.filter { $0.confidence >= agree }
+    var best: [SubtitleAlignment] = []
+    for candidate in candidates {
+        let group = candidates.filter { abs($0.offsetMs - candidate.offsetMs) <= toleranceMs }
+        let weight = group.reduce(0) { $0 + $1.confidence }
+        if group.count > best.count || (group.count == best.count && weight > best.reduce(0) { $0 + $1.confidence }) { best = group }
+    }
+    guard best.count >= 2 else { return nil }
+    let offsets = best.map(\.offsetMs).sorted()
+    return SubtitleAlignment(offsetMs: offsets[offsets.count / 2], confidence: best.map(\.confidence).max() ?? 0)
+}

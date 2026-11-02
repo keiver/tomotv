@@ -17,9 +17,16 @@ func speechTimeline(samples: [Int16], sampleRate: Int, frameMs: Int = 10) -> [Bo
         }
         levels[frame] = Float(10 * log10(energy / Double(frameLength) + 1))
     }
-    let sorted = levels.sorted()
-    let floor = sorted[Int(Double(frames - 1) * 0.2)]
-    let loud = sorted[Int(Double(frames - 1) * 0.95)]
+    return speechTimeline(levels: levels, frameMs: frameMs)
+}
+
+/// The same judgement over levels already measured per `frameMs`; a NaN level (audio never decoded) is not speech.
+func speechTimeline(levels: [Float], frameMs: Int = 10) -> [Bool] {
+    let frames = levels.count
+    let sorted = levels.filter { !$0.isNaN }.sorted()
+    guard !sorted.isEmpty else { return [Bool](repeating: false, count: frames) }
+    let floor = sorted[Int(Double(sorted.count - 1) * 0.2)]
+    let loud = sorted[Int(Double(sorted.count - 1) * 0.95)]
     // Nothing stands out of the floor: silence, or a level that never changes.
     guard loud - floor >= 6 else { return [Bool](repeating: false, count: frames) }
     let threshold = floor + max(6, (loud - floor) * 0.35)

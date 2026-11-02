@@ -1725,6 +1725,9 @@ extension RemuxSession {
             }
             stateLock.unlock()
         }
+        let speechReader: SpeechLevelReader? = config.isLive || !hasVideo ? nil : audioIndices.first.flatMap { index in
+            input.pointee.streams[Int(index)].flatMap { SpeechLevelReader(stream: $0, index: index, into: speechLevels) }
+        }
         // Every stream but the video, the audio and the image subtitles is discarded; the engine reads live text tracks itself.
         let liveCarried: [Int32] = config.isLive
             ? Array(Set(audioIndices + (hasVideo ? [videoIn] : []) + subtitleTracks.filter { $0.isImage }.map { Int32($0.index) })).sorted() : []
@@ -3087,6 +3090,7 @@ extension RemuxSession {
                 }
                 stateLock.unlock()
             }
+            if let speechReader, pkt.pointee.stream_index == speechReader.streamIndex { speechReader.feed(pkt) }
 
             // Harvested where the image ones are: the guard below drops every
             // subtitle packet, and a cue's time is its own PTS.

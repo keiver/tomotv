@@ -1,3 +1,4 @@
+import Libavformat
 import XCTest
 
 @testable import TomoEngine
@@ -231,5 +232,54 @@ final class SubtitleAlignerTests: XCTestCase {
         XCTAssertEqual(offsetMs, -1700, accuracy: 100)
         XCTAssertGreaterThanOrEqual(confidence, 6)
         XCTAssertEqual(session.alignSubtitleTiming(streamIndex: 7, attempt: 0), .failed("noTrack"))
+    }
+
+    func testLevelsMeasuredAsTheFileIsReadLineTheCuesUpWithoutDecodingAgain() throws {
+        guard let file = Self.burstFile() else { throw XCTSkip("host ffmpeg not found") }
+        var format: UnsafeMutablePointer<AVFormatContext>? = nil
+        XCTAssertEqual(avformat_open_input(&format, file.path, nil, nil), 0)
+        defer { avformat_close_input(&format) }
+        let context = try XCTUnwrap(format)
+        XCTAssertGreaterThanOrEqual(avformat_find_stream_info(context, nil), 0)
+        let levels = SpeechLevels()
+        let reader = try XCTUnwrap(SpeechLevelReader(stream: try XCTUnwrap(context.pointee.streams[0]), index: 0, into: levels))
+        var packet = av_packet_alloc()
+        defer { av_packet_free(&packet) }
+        let pointer = try XCTUnwrap(packet)
+        while av_read_frame(context, pointer) >= 0 {
+            reader.feed(pointer)
+            av_packet_unref(pointer)
+            reader.drain()
+        }
+        let span = try XCTUnwrap(levels.span(containing: 90))
+        XCTAssertEqual(span.lowerBound, 0, accuracy: 0.05)
+        XCTAssertEqual(span.upperBound, Self.seconds, accuracy: 0.05)
+        let outcome = RemuxSession.alignFromLevels(levels, span: span, fileStart: 0, duration: Self.seconds, cues: { from, to in
+            Self.cues(late: 1.7, seconds: Self.seconds + 2).filter { $0.end > from && $0.start < to }
+        }, log: { _ in })
+        guard case let .aligned(offsetMs, _) = outcome else { return XCTFail("no alignment: \(String(describing: outcome))") }
+        XCTAssertEqual(offsetMs, -1700, accuracy: 100)
+    }
+
+    func testAStretchNeverDecodedIsNaNAndEndsTheSpan() throws {
+        let levels = SpeechLevels()
+        levels.record([Float](repeating: 40, count: 500), from: 0)
+        levels.record([Float](repeating: 40, count: 300), from: 1000)
+        XCTAssertEqual(try XCTUnwrap(levels.span(containing: 1)), 0...5)
+        XCTAssertEqual(try XCTUnwrap(levels.span(containing: 11)), 10...13)
+        XCTAssertNil(levels.span(containing: 7.5))
+        let read = levels.levels(from: 4.9, to: 10.1)
+        XCTAssertEqual(read.count, 520)
+        XCTAssertEqual(read.filter(\.isNaN).count, 500)
+        XCTAssertEqual(speechTimeline(levels: [Float](repeating: .nan, count: 100)), [Bool](repeating: false, count: 100))
+    }
+
+    func testWindowsTakenTogetherAgreeOrStayUnanswered() {
+        func answer(_ offsetMs: Int, _ confidence: Double) -> SubtitleAlignment { SubtitleAlignment(offsetMs: offsetMs, confidence: confidence) }
+        XCTAssertEqual(agreedAlignment([answer(-40_000, 2), answer(120, 6.3)]), answer(120, 6.3))
+        XCTAssertEqual(agreedAlignment([answer(100, 3.4), answer(-30_000, 2.4), answer(-80, 4.1), answer(20, 3.2)]), answer(20, 4.1))
+        XCTAssertNil(agreedAlignment([answer(100, 4), answer(-1500, 4.5)]))
+        XCTAssertNil(agreedAlignment([answer(100, 2.9), answer(110, 2.8), answer(90, 5)]))
+        XCTAssertNil(agreedAlignment([]))
     }
 }

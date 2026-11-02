@@ -43,12 +43,23 @@ func readAudioWindow(inputUrl: String, headers: [String: String], audioStreamInd
     if decoderContext.pointee.ch_layout.nb_channels <= 0 { av_channel_layout_default(&decoderContext.pointee.ch_layout, 2) }
     if decoderContext.pointee.sample_rate <= 0 { decoderContext.pointee.sample_rate = 48000 }
 
-    var mono = AVChannelLayout()
-    av_channel_layout_default(&mono, 1)
+    // A surround mix keeps dialogue in its centre channel, so only that channel is kept; music and
+    // effects in the other channels would read as speech to a level detector. Anything else is mixed to mono.
+    let channels = Int(decoderContext.pointee.ch_layout.nb_channels)
+    let centre = channels >= 3 ? Int(av_channel_layout_index_from_channel(&decoderContext.pointee.ch_layout, AV_CHAN_FRONT_CENTER)) : -1
+    var outLayout = AVChannelLayout()
+    if centre >= 0 {
+        guard av_channel_layout_copy(&outLayout, &decoderContext.pointee.ch_layout) >= 0 else { return nil }
+    } else {
+        av_channel_layout_default(&outLayout, 1)
+    }
+    defer { av_channel_layout_uninit(&outLayout) }
+    let outChannels = Int(outLayout.nb_channels)
+    let keep = max(centre, 0)
     var resampler: OpaquePointer? = nil
     guard swr_alloc_set_opts2(
         &resampler,
-        &mono, AV_SAMPLE_FMT_S16, Int32(sampleRate),
+        &outLayout, AV_SAMPLE_FMT_S16, Int32(sampleRate),
         &decoderContext.pointee.ch_layout, decoderContext.pointee.sample_fmt, decoderContext.pointee.sample_rate,
         0, nil
     ) >= 0, let swr = resampler else { return nil }
@@ -82,7 +93,7 @@ func readAudioWindow(inputUrl: String, headers: [String: String], audioStreamInd
                 break
             }
             if firstSeconds == nil { firstSeconds = seconds ?? from }
-            appendResampled(framePointer, swr: swr, into: &samples)
+            appendResampled(framePointer, swr: swr, channels: outChannels, keep: keep, into: &samples)
         }
     }
     guard let start = firstSeconds, !samples.isEmpty else { return nil }
@@ -98,15 +109,21 @@ func readAudioWindow(inputUrl: String, headers: [String: String], audioStreamInd
     return AudioWindow(samples: samples, startSeconds: from, sampleRate: sampleRate)
 }
 
-private func appendResampled(_ frame: UnsafeMutablePointer<AVFrame>, swr: OpaquePointer, into samples: inout [Int16]) {
+/// Resamples a frame to interleaved 16-bit `channels` and appends channel `keep` of it.
+private func appendResampled(_ frame: UnsafeMutablePointer<AVFrame>, swr: OpaquePointer, channels: Int, keep: Int, into samples: inout [Int16]) {
     let maxOut = swr_get_out_samples(swr, frame.pointee.nb_samples)
     guard maxOut > 0 else { return }
-    var out = [Int16](repeating: 0, count: Int(maxOut))
+    var out = [Int16](repeating: 0, count: Int(maxOut) * channels)
     let produced = out.withUnsafeMutableBufferPointer { buffer -> Int32 in
         var outPointer: UnsafeMutablePointer<UInt8>? = UnsafeMutableRawPointer(buffer.baseAddress!).assumingMemoryBound(to: UInt8.self)
         return withUnsafePointer(to: &frame.pointee.data.0) { inData in
             swr_convert(swr, &outPointer, maxOut, UnsafeRawPointer(inData).assumingMemoryBound(to: UnsafePointer<UInt8>?.self), frame.pointee.nb_samples)
         }
     }
-    if produced > 0 { samples.append(contentsOf: out[0..<Int(produced)]) }
+    guard produced > 0 else { return }
+    if channels == 1 {
+        samples.append(contentsOf: out[0..<Int(produced)])
+    } else {
+        samples.append(contentsOf: stride(from: keep, to: Int(produced) * channels, by: channels).map { out[$0] })
+    }
 }

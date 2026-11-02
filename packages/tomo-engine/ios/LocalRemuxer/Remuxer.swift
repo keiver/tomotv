@@ -496,6 +496,8 @@ final class RemuxSession {
     var readSpans: [(from: Double, upTo: Double)] = []
     var readSpanFrom: Double?
     var readSpanUpTo: Double = 0
+    /// The loudness of the first audio track for every stretch the read loop has passed.
+    let speechLevels = SpeechLevels()
 
     /// Floor, not ceil: the remainder folds into the FINAL segment (which then
     /// runs 6..<12s) instead of becoming a sub-second segment of its own. A
