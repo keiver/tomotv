@@ -157,8 +157,8 @@ private final class TrackRowView: UIStackView {
         trackButton.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         trackButton.heightAnchor.constraint(equalToConstant: Metrics.controlHeight).isActive = true
 
-        earlierButton.configuration?.image = UIImage(systemName: "backward.fill")
-        laterButton.configuration?.image = UIImage(systemName: "forward.fill")
+        earlierButton.configuration?.image = UIImage(systemName: "arrow.backward.to.line")
+        laterButton.configuration?.image = UIImage(systemName: "arrow.forward.to.line")
         resetButton.configuration?.image = UIImage(systemName: "arrow.counterclockwise")
         syncButton.configuration?.image = UIImage(systemName: "waveform.and.magnifyingglass")
         replaceButton.configuration?.image = UIImage(systemName: "arrow.left.arrow.right")
