@@ -39,7 +39,7 @@ interface ListRowProps {
   titlePill?: { icon?: IoniconName; label: string };
   /** A red dot in the gutter before the leading mark: the SyncPlay row while in a group. */
   unread?: boolean;
-  /** Second line — a URL, a preset description, or the value an informational row states. */
+  /** Second line: a URL, a preset description, or the value an informational row states. */
   subtitle?: string;
   /** Lines the subtitle may take before it truncates; 0 wraps it whole (a full URL). */
   subtitleLines?: number;
@@ -52,8 +52,10 @@ interface ListRowProps {
   /** Trailing mark, inked to match the fill, or a function drawing one (a green tick). Omit
    *  for a row that only states a value. */
   trailingIcon?: IoniconName | LeadingMark;
-  /** A second press target before the trailing mark. Phone and iPad only: on tvOS it would be a focusable of its own. */
-  trailingAction?: { icon: IoniconName; label: string; hint?: string; onPress: () => void };
+  /** A second press target before the trailing mark, a glyph or a short thin-lettered word. Phone and iPad only: on tvOS it would be a focusable of its own. */
+  trailingAction?: ({ icon: IoniconName; text?: undefined } | { text: string; icon?: undefined }) & { label: string; hint?: string; onPress: () => void };
+  /** A short thin-lettered word before the trailing mark that only states something (a licence name on tvOS). Ignored when trailingAction is set. */
+  trailingText?: string;
   /** A folder member: stepped in from the rows around it (Downloads). */
   nested?: boolean;
   /** Trailing mark in the row's accent ink rather than grey: a play or pause that acts, not a chevron that points. */
@@ -74,7 +76,7 @@ interface ListRowProps {
   onAccessibilityAction?: (event: { nativeEvent: { actionName: string } }) => void;
   /**
    * tvOS focus arrival. Only used by rows at the ends of a capped, internally-scrolling list,
-   * which pin the scroll offset so focus can leave it — see NotConnectedSection and the
+   * which pin the scroll offset so focus can leave it, see NotConnectedSection and the
    * quality list in app/(tabs)/settings.tsx.
    */
   onFocus?: () => void;
@@ -85,7 +87,7 @@ interface ListRowProps {
   isLast?: boolean;
   /** The row's right edge meets the people panel, not the card wall: no right rim on the gold fill. */
   flushRight?: boolean;
-  /** Per-surface metrics — the quality list pins its line heights for the section's height cap. */
+  /** Per-surface metrics: the quality list pins its line heights for the section's height cap. */
   titleStyle?: StyleProp<TextStyle>;
   subtitleStyle?: StyleProp<TextStyle>;
   accessibilityRole?: AccessibilityRole;
@@ -95,19 +97,19 @@ interface ListRowProps {
 }
 
 /**
- * ListRow — the one row for a grouped, sunken settings-style section: leading
+ * ListRow: the one row for a grouped, sunken settings-style section: leading
  * glyph, flexible label column, trailing mark. Focus (and `selected`) fills
  * the row with the action gold, a press deepens it; the state machine lives
  * here and nowhere else.
  *
  * It sits inside `settingsStyles.section`, which paints the sunken surface;
  * the row stays transparent at rest so the card's inset shadow shows through,
- * and nothing is ever layered above it — on tvOS a view covering a focusable
+ * and nothing is ever layered above it: on tvOS a view covering a focusable
  * occludes it and the focus engine refuses to enter.
  *
  * Rows with no `onPress` are still focusable, with a neutral wash instead of
  * gold. Deliberate on tvOS: a column of unfocusable text is a column the
- * remote skips over and cannot scroll — and the gold fill is the app's "this
+ * remote skips over and cannot scroll, and the gold fill is the app's "this
  * acts" mark, so a row that only takes focus to be readable must not wear it.
  *
  * No magnification: a scaled row drifts its glyph and trailing mark out of
@@ -134,6 +136,7 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
     unread = false,
     trailingIcon,
     trailingAction,
+    trailingText,
     nested = false,
     trailingAccent = false,
     moreBelow,
@@ -253,12 +256,24 @@ export const ListRow = forwardRef<View, ListRowProps>(function ListRow(
             {trailingAction ? (
               <Pressable
                 onPress={trailingAction.onPress}
-                style={[styles.action, !trailingIcon && !isLoading && styles.actionAlone]}
+                style={[trailingAction.text ? styles.actionText : styles.action, !trailingIcon && !isLoading && styles.actionAlone]}
                 accessibilityRole="button"
                 accessibilityLabel={trailingAction.label}
                 accessibilityHint={trailingAction.hint}>
-                <Ionicons name={trailingAction.icon} size={TRAILING_SIZE} color={accentInk} />
+                {trailingAction.text ? (
+                  <Text style={[styles.actionWord, { color: accentInk }]} numberOfLines={1}>
+                    {trailingAction.text}
+                  </Text>
+                ) : (
+                  <Ionicons name={trailingAction.icon} size={TRAILING_SIZE} color={accentInk} />
+                )}
               </Pressable>
+            ) : trailingText ? (
+              <View style={styles.trailingWord} collapsable={false}>
+                <Text style={[styles.actionWord, { color: accentInk }]} numberOfLines={1}>
+                  {trailingText}
+                </Text>
+              </View>
             ) : null}
             {isLoading || trailingIcon ? (
               <View style={styles.trailing} collapsable={false}>
@@ -349,6 +364,21 @@ const styles = StyleSheet.create({
     alignSelf: "stretch",
     alignItems: "center",
     justifyContent: "center",
+  },
+  actionText: {
+    alignSelf: "stretch",
+    justifyContent: "center",
+    paddingHorizontal: (ACTION_WIDTH - TRAILING_SIZE) / 2,
+  },
+  actionWord: {
+    fontSize: IS_TV ? 22 : IS_PAD ? 14 : 13,
+    fontWeight: "300",
+    letterSpacing: 0.4,
+  },
+  trailingWord: {
+    alignSelf: "stretch",
+    justifyContent: "center",
+    marginLeft: LEFT_GAP,
   },
   // Alone at the trailing edge, its glyph centres on the trailing mark's column: the target
   // box overhangs into the row's padding by the difference.

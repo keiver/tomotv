@@ -1,5 +1,6 @@
 import { useLibrary } from "@/contexts/LibraryContext";
 import { clearFolderContentsCache } from "@/services/folderContentsCache";
+import { unwindToLibrary } from "@/utils/rootRoutes";
 import { useRouter } from "expo-router";
 import { useCallback } from "react";
 
@@ -18,19 +19,7 @@ export function useFinishLogin() {
   return useCallback(async () => {
     await refreshLibrary();
     clearFolderContentsCache();
-    // dismissTo, NOT navigate. This has to UNWIND to the tabs, and navigate stopped doing that:
-    // its NAVIGATE action only reuses a route already on the stack when that route is the one
-    // currently on top, or when the payload carries `pop` — neither is true here, so the router
-    // fell through to its push branch (StackRouter.js:188-197, 244) and stacked a SECOND (tabs)
-    // route ON TOP of the connect stack. The login looked finished, and one Menu press from the
-    // Library walked straight back into a freshly-mounted, empty Quick Connect screen.
-    //
-    // dismissTo dispatches POP_TO instead, which walks back to the existing (tabs) route and
-    // truncates everything above it (StackRouter.js:336-400). The tab still changes to Library:
-    // POP_TO hands the route a new params object carrying `screen: "(library)"`, and an unconsumed
-    // nested-params object makes the mounted tab navigator navigate there
-    // (useNavigationBuilder.js:415-434). Popping to a route that is already current is a no-op, so
-    // the demo login — which never pushes a step — is unaffected.
-    router.dismissTo("/");
+    // Pops, never a navigate: navigate pushed a second (tabs) over the connect steps.
+    unwindToLibrary(router);
   }, [refreshLibrary, router]);
 }

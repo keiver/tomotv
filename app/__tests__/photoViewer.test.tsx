@@ -22,7 +22,9 @@ jest.mock("@/components/glass-surface", () => ({ GlassSurface: ({ children }: { 
 jest.mock("@/services/macKeyCommands", () => ({ claimMacContextKeys: () => () => {}, subscribeMacKeyCommand: () => () => {} }));
 jest.mock("@/services/folderContentsCache", () => ({ getFolderCache: () => null }));
 jest.mock("@/contexts/LibraryFiltersContext", () => ({
-  useLibraryFilters: () => ({ getFilters: () => ({ genres: [], artistIds: [], years: [], favorite: false, played: false, unplayed: false, shuffle: false }) }),
+  useLibraryFilters: () => ({
+    getFilters: () => ({ genres: [], artistIds: [], years: [], favorite: false, played: false, unplayed: false, shuffle: false, sortBy: "SortName", sortOrder: "Ascending" }),
+  }),
 }));
 
 const mockPhotos = [

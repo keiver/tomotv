@@ -85,7 +85,6 @@ extension FrameGrabber {
         queue.sync {
             guard !isCancelled, let track = iframeTrackOnQueue(transcode: transcode), let input,
                   let stream = input.pointee.streams[Int(videoIndex)] else { return nil }
-            let started = Date()
             let target = Int64((sourceSeconds / av_q2d(stream.pointee.time_base)).rounded())
             let found: UnsafeMutablePointer<AVPacket>?
             if !exact, let byteMap {
@@ -98,17 +97,8 @@ extension FrameGrabber {
             guard let packet = found else { return nil }
             var owned: UnsafeMutablePointer<AVPacket>? = packet
             defer { av_packet_free(&owned) }
-            let read = Date().timeIntervalSince(started)
-            let made = iframeFragment(packet, stream: stream, track: track, stampSeconds: stampSeconds, sampleSeconds: sampleSeconds,
-                                      sequence: sequence, capBytes: capBytes)
-            #if DEBUG
-            NSLog("[IFrames] kf%ld %@ %ld bytes%@ in %.0f ms, read %.0f ms%@", sequence - 1, track.transcoded ? "encoded" : "copied",
-                  made?.data.count ?? 0, track.transcoded ? " (cap \(capBytes))" : "", Date().timeIntervalSince(started) * 1000, read * 1000,
-                  made?.note ?? " failed")
-            #else
-            _ = read
-            #endif
-            return made?.data
+            return iframeFragment(packet, stream: stream, track: track, stampSeconds: stampSeconds, sampleSeconds: sampleSeconds,
+                                  sequence: sequence, capBytes: capBytes)?.data
         }
     }
 

@@ -1,5 +1,6 @@
 import { ArtworkSlotShape, gridEdgePadding, shelfSpacing, slotCardPadding, slotRowHeights, slotShapeRatio, STAND_HEIGHT, STAND_ROW_ROOM } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
+import { useCardZoom } from "@/hooks/useCardZoom";
 import { useScrollToTop } from "expo-router";
 import React, { ReactElement, useCallback, useMemo, useRef, useState } from "react";
 import { findNodeHandle, FlatList, Platform, StyleSheet, Text, TVFocusGuideView, useWindowDimensions, View } from "react-native";
@@ -49,7 +50,8 @@ export function MediaShelf<T>({ title, dot, data, slotShapeFor, renderItem, keyE
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
-  const heights = useMemo(() => slotRowHeights(windowWidth, windowHeight, insets.left, insets.right, IS_TV), [windowWidth, windowHeight, insets.left, insets.right]);
+  const zoom = useCardZoom();
+  const heights = useMemo(() => slotRowHeights(windowWidth, windowHeight, insets.left, insets.right, IS_TV, "shelf", zoom), [windowWidth, windowHeight, insets.left, insets.right, zoom]);
 
   // The tallest shape actually present rules the row; every card matches it.
   const rowHeight = useMemo(() => data.reduce((max, item) => Math.max(max, heights[slotShapeFor(item)]), 0), [data, heights, slotShapeFor]);
@@ -98,8 +100,8 @@ export function MediaShelf<T>({ title, dot, data, slotShapeFor, renderItem, keyE
   const edgeLeft = gridEdgePadding(insets.left, IS_TV);
   const edgeRight = gridEdgePadding(insets.right, IS_TV);
   const rowAreaStyle = useMemo(
-    () => ({ height: rowHeight + 2 * GLOW_PAD + STAND_ROW_ROOM + STAND_OVERHANG, marginVertical: -GLOW_PAD, marginLeft: -edgeLeft, marginRight: -edgeRight }),
-    [rowHeight, edgeLeft, edgeRight],
+    () => ({ height: rowHeight + 2 * GLOW_PAD + STAND_ROW_ROOM * zoom + STAND_OVERHANG, marginVertical: -GLOW_PAD, marginLeft: -edgeLeft, marginRight: -edgeRight }),
+    [rowHeight, edgeLeft, edgeRight, zoom],
   );
   // A tablet gets a bigger heading and more air around the row; slotRowHeights sizes the cards
   // against this same block, so the shelf still lands where the fill maths put it.

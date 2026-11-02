@@ -3,7 +3,7 @@
  * module here can fire a change and every subscribed screen repaints, without the
  * emitters needing to know who is listening.
  *
- * Leaf module: depends on nothing else under services/jellyfin/. Keep it that way —
+ * Leaf module: depends on nothing else under services/jellyfin/. Keep it that way:
  * session, userData and playback all import it, so a dependency here would cycle.
  */
 
@@ -31,7 +31,7 @@ export function notifyServerRecovered(): void {
 }
 
 // Favorite-change pub/sub. Carries the toggled item id and its new state so subscribers can repaint
-// that exact card in place — the browse's per-item UserData.IsFavorite is unreliable and the heart
+// that exact card in place: the browse's per-item UserData.IsFavorite is unreliable and the heart
 // cache is add-only, so a removal has no other way to clear the heart without a full (racy) refetch.
 const favoriteListeners = new Set<(itemId: string, favorite: boolean) => void>();
 
@@ -117,4 +117,19 @@ export function subscribeResumeChange(cb: ResumeListener): () => void {
 
 export function notifyResumeChange(itemId?: string, positionTicks?: number): void {
   resumeListeners.forEach((cb) => cb(itemId, positionTicks));
+}
+
+// Subtitles-changed pub/sub: fired after a pick landed, as a server sidecar or a device copy,
+// so an open surface showing the item's tracks can read them back.
+type SubtitlesListener = (itemId: string) => void;
+const subtitlesListeners = new Set<SubtitlesListener>();
+
+/** Subscribe to an item gaining or replacing a subtitle. Returns unsubscribe. */
+export function subscribeSubtitlesChanged(cb: SubtitlesListener): () => void {
+  subtitlesListeners.add(cb);
+  return () => subtitlesListeners.delete(cb);
+}
+
+export function notifySubtitlesChanged(itemId: string): void {
+  subtitlesListeners.forEach((cb) => cb(itemId));
 }

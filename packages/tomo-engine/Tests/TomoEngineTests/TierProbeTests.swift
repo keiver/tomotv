@@ -412,6 +412,47 @@ final class TierProbeTests: XCTestCase {
         XCTAssertEqual(s.supplierRecovery[.rung(0)]?.failure, .transport)
     }
 
+    /// Issue 109: a host that advertises transcoding but has nothing behind the rung URLs. Its
+    /// playlist adopts and its segment answers 404, so the copy leads the master alone.
+    func testOpeningSegment404GivesTheMasterToTheCopyAlone() throws {
+        try assertOpeningSegmentStatusGivesTheMasterToTheCopy(404)
+    }
+
+    func testOpeningSegment403GivesTheMasterToTheCopyAlone() throws {
+        try assertOpeningSegmentStatusGivesTheMasterToTheCopy(403)
+    }
+
+    /// A 429 is the server asking for a retry, not a missing endpoint: the rung leads as on a 500.
+    func testOpeningSegment429KeepsTheRungLeading() throws {
+        TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
+        TierServerStub.routes["/Videos/x/seg0.ts"] = (429, Data())
+        let (s, reports) = try session()
+        defer { s.stop() }
+        waitForProbe(s)
+        let master = s.masterPlaylist()
+        XCTAssertTrue(master.contains("t0.m3u8"))
+        XCTAssertTrue(master.contains("media.m3u8"))
+        XCTAssertFalse(s.copyOnlyMaster)
+        XCTAssertEqual(states(reports()), ["listed"])
+        XCTAssertEqual(s.supplierRecovery[.rung(0)]?.failure, .http(429))
+    }
+
+    private func assertOpeningSegmentStatusGivesTheMasterToTheCopy(_ status: Int, file: StaticString = #filePath, line: UInt = #line) throws {
+        TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)
+        TierServerStub.routes["/Videos/x/seg0.ts"] = (status, Data())
+        let (s, reports) = try session()
+        defer { s.stop() }
+        waitForProbe(s)
+        XCTAssertTrue(TierServerStub.hits.contains("/Videos/x/seg0.ts"), file: file, line: line)
+        let master = s.masterPlaylist()
+        XCTAssertTrue(master.contains("media.m3u8"), "the copy is offered", file: file, line: line)
+        XCTAssertFalse(master.contains("t0.m3u8"), "a rung whose segment answered \(status) never leads", file: file, line: line)
+        XCTAssertTrue(s.copyOnlyMaster, "the engine records that no rung is listed", file: file, line: line)
+        XCTAssertFalse(s.hasLiveRungAlternativeLocked(), "the copy is not deferred toward the failed rung", file: file, line: line)
+        XCTAssertEqual(states(reports()), ["declined"], file: file, line: line)
+        XCTAssertEqual(s.supplierRecovery[.rung(0)]?.failure, .http(status), file: file, line: line)
+    }
+
     /// A server that answers with something that is not a transport stream (an error page).
     func testUnrewrappableOpeningSegmentDoesNotDisableOtherSuppliers() throws {
         TierServerStub.routes["/Videos/x/main.m3u8"] = (200, playlist)

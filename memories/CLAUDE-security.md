@@ -61,9 +61,24 @@ This document describes the security architecture, known limitations, and mitiga
 **Verified:**
 
 - ✅ Zero hardcoded credentials in source code
-- ✅ `.env.local` is git-ignored (development only)
+- ✅ `.env.local` is git-ignored; it holds only Tomo's OpenSubtitles consumer key
 - ✅ Production builds require user configuration via Settings
-- ✅ Demo server credentials fetched dynamically from API
+- ✅ The demo server's account is shared and passwordless, so its constants hold no secret
+
+### OpenSubtitles Consumer Key
+
+The key is inlined into the release bundle, so anyone can read it from the app or from
+their own network traffic. That is accepted on a free key: OpenSubtitles requires one key
+per application, and free-key limits are per IP (5 downloads a day without sign-in) and
+per viewer account (20, or 1000 for VIP), not per key. Jellyfin's Open Subtitles plugin,
+Bazarr and OpenSubtitles' own Kodi addon all ship their key in public source the same way.
+
+- Keep it out of git: the repo is public, and a fork must not ship Tomo's key.
+- If OpenSubtitles blocks it, create a new consumer key, put it in `.env.local` and ship a build.
+- Never ship a paid-plan key this way: a paid key downloads on the plan's quota, so a copied
+  key spends the plan. A paid key needs a server that holds it, with App Attest in front.
+- Free keys must show "Subtitles provided by OpenSubtitles.com" where subtitles are searched;
+  the subtitle panel's title carries it.
 
 ---
 
@@ -609,15 +624,14 @@ Add to CLAUDE.md Known Issues:
 #### 5. Demo Server Credentials (IMPORTANT - Already Mitigated)
 
 **Status:** SECURE ✅
-**Current Implementation:** Credentials fetched dynamically from Jellyfin API
+**Current Implementation:** A shared account on Tomo TV's own demo server
 **No Action Required**
 
 The demo server credentials are:
 
-- Fetched from public API endpoint (Jellyfin's official demo)
-- Reset hourly by Jellyfin
-- Clearly documented as demo-only
-- Never hardcoded in source
+- `DEMO_USERNAME` ("demo") and `DEMO_PASSWORD` (empty) in `services/jellyfin/constants.ts`
+- A shared, passwordless demo account, so there is no secret to leak
+- Never saved as an account (`services/jellyfin/demo.ts` never calls `saveAuthResult`)
 
 ---
 
@@ -781,7 +795,7 @@ export async function fetchLibraryVideos(startIndex = 0, limit = 60) {
 
 - API keys in URLs (architectural constraint, documented)
 - Self-signed cert support (needed for home servers)
-- Demo credentials (already dynamic and secure)
+- Demo credentials (a shared, passwordless account)
 
 ---
 

@@ -1,5 +1,7 @@
+import { CardZoomPinch } from "@/components/card-zoom-pinch";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { gridEdgePadding, itemSlotRatio, itemSlotShape, slotCardPadding, slotRowHeights } from "@/constants/app";
+import { useCardZoom } from "@/hooks/useCardZoom";
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { isStrandedAboveLastRow, packArtworkRows, PackedRow } from "@/utils/artworkRows";
 import { cardResumeProgress } from "@/utils/resumeProgress";
@@ -100,7 +102,8 @@ export const SearchResultsGrid = React.forwardRef<SearchResultsGridHandle, Searc
   const edgeRight = edgePadding ?? gridEdgePadding(insets.right, Platform.isTV);
   const contentWidth = availableWidth ?? windowWidth - edgeLeft - edgeRight;
 
-  const rowHeights = useMemo(() => slotRowHeights(windowWidth, windowHeight, insets.left, insets.right, Platform.isTV, "grid"), [windowWidth, windowHeight, insets.left, insets.right]);
+  const zoom = useCardZoom();
+  const rowHeights = useMemo(() => slotRowHeights(windowWidth, windowHeight, insets.left, insets.right, Platform.isTV, "grid", zoom), [windowWidth, windowHeight, insets.left, insets.right, zoom]);
   // First render covers the window: a fixed first chunk painted a tall Mac window in visible
   // top-to-bottom batches. Counted against the shortest row shape so it never undershoots.
   const viewportRows = useMemo(() => {
@@ -163,26 +166,28 @@ export const SearchResultsGrid = React.forwardRef<SearchResultsGridHandle, Searc
   );
 
   return (
-    <FlatList
-      data={packedRows}
-      renderItem={renderRow}
-      keyExtractor={(row) => row.cards[0].item.Id}
-      style={styles.list}
-      contentContainerStyle={[styles.gridContent, { paddingLeft: edgeLeft + GLOW_PAD, paddingRight: edgeRight + GLOW_PAD }]}
-      // A merge the viewer asked for (pill, keyboard flush) can land while they sit mid-list;
-      // the anchor keeps the rows still under the card in hand, and near the top it scrolls up
-      // so the merged live cards are seen.
-      maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 120 }}
-      showsVerticalScrollIndicator={false}
-      // List items are packed ROWS of ~3-4 cards, so the render counts are rows.
-      initialNumToRender={viewportRows}
-      maxToRenderPerBatch={viewportRows}
-      windowSize={5}
-      removeClippedSubviews={!Platform.isTV}
-      onEndReached={onEndReached}
-      onEndReachedThreshold={0.5}
-      ListFooterComponent={ListFooterComponent}
-    />
+    <CardZoomPinch>
+      <FlatList
+        data={packedRows}
+        renderItem={renderRow}
+        keyExtractor={(row) => row.cards[0].item.Id}
+        style={styles.list}
+        contentContainerStyle={[styles.gridContent, { paddingLeft: edgeLeft + GLOW_PAD, paddingRight: edgeRight + GLOW_PAD }]}
+        // A merge the viewer asked for (pill, keyboard flush) can land while they sit mid-list;
+        // the anchor keeps the rows still under the card in hand, and near the top it scrolls up
+        // so the merged live cards are seen.
+        maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 120 }}
+        showsVerticalScrollIndicator={false}
+        // List items are packed ROWS of ~3-4 cards, so the render counts are rows.
+        initialNumToRender={viewportRows}
+        maxToRenderPerBatch={viewportRows}
+        windowSize={5}
+        removeClippedSubviews={!Platform.isTV}
+        onEndReached={onEndReached}
+        onEndReachedThreshold={0.5}
+        ListFooterComponent={ListFooterComponent}
+      />
+    </CardZoomPinch>
   );
 });
 

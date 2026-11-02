@@ -6,7 +6,7 @@
  * can reach it without cycling through the jellyfinApi barrel.
  */
 
-import { NativeModules, Platform } from "react-native";
+import { NativeEventEmitter, NativeModules, Platform } from "react-native";
 import { logger } from "@/utils/logger";
 
 const { NetworkInfo } = NativeModules;
@@ -37,6 +37,13 @@ export async function getLocalNetworkInfo(): Promise<LocalNetworkInfo | null> {
     logger.warn("Failed to read local network info", error, { service: "LocalNetworkIdentity" });
     return null;
   }
+}
+
+/** Whether the device has a usable network path: the current answer first, then each change. A no-op off iOS. */
+export function subscribeNetworkPath(listener: (available: boolean) => void): () => void {
+  if (Platform.OS !== "ios" || !NetworkInfo) return () => {};
+  const subscription = new NativeEventEmitter(NetworkInfo).addListener("onNetworkPath", (event: { available?: boolean }) => listener(event?.available === true));
+  return () => subscription.remove();
 }
 
 /** Parse dotted-quad IPv4 text into a number. Returns null for anything malformed. */

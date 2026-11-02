@@ -38,6 +38,7 @@ jest.mock("@/hooks/useFolderPlay", () => ({ useFolderPlay: () => jest.fn() }));
 jest.mock("@/hooks/useShowInFolder", () => ({ useShowInFolder: () => jest.fn() }));
 jest.mock("@/hooks/useOpenShelfItem", () => ({ useOpenShelfItem: () => jest.fn() }));
 jest.mock("@/hooks/useLiveTvManagement", () => ({ useLiveTvManagement: () => false }));
+jest.mock("@/hooks/useSubtitlePanel", () => ({ useSubtitlePanel: () => ({ available: true, open: jest.fn(), offsetMs: 0 }) }));
 jest.mock("@/hooks/useLiveFrame", () => ({
   useLiveFrame: (id: string) => (id ? mockFrame : undefined),
   useLiveClip: (id: string) => (id ? mockClip : undefined),
@@ -59,6 +60,7 @@ jest.mock("expo-image", () => ({ Image: Object.assign(() => null, { loadAsync: a
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 jest.mock("@/services/jellyfinApi", () => ({
   subscribeAuthChange: jest.fn(() => () => {}),
+  subscribeSubtitlesChanged: jest.fn(() => () => {}),
   clearResumePosition: jest.fn(async () => {}),
   deleteItem: jest.fn(async () => {}),
   fetchIsAdministrator: jest.fn(async () => false),

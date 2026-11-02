@@ -5,8 +5,8 @@ import { DownloadRow, removeActions } from "@/components/settings/DownloadRow";
 import { DownloadSpeedHeading } from "@/components/settings/DownloadSpeedHeading";
 import { ListRow } from "@/components/settings/ListRow";
 import { PosterMark } from "@/components/settings/PosterMark";
-import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
 import { SwipeToRemove } from "@/components/settings/SwipeToRemove";
+import { WhoIsWatchingScreen } from "@/components/settings/WhoIsWatchingScreen";
 import { StorageBar } from "@/components/storage-bar";
 import { downloadRowHeight, downloadsListHeight, DOWNLOAD_SUBTITLE_LINE_HEIGHT, DOWNLOAD_TITLE_LINE_HEIGHT, IS_PAD, settingsStyles as styles, sideInsets } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
@@ -303,7 +303,7 @@ function DownloadsScreen() {
   // would, which is the view the Home and Search tabs show while logged out. Gated on hydration,
   // or the manifest read would flash this over a device that has downloads.
   if (state.hydrated && !isConnected && listed.length === 0) {
-    return <ServerConnectScreen title={t("tab.downloads")} />;
+    return <WhoIsWatchingScreen title={t("tab.downloads")} />;
   }
 
   return (

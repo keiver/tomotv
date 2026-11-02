@@ -7,6 +7,7 @@ import { downloadManager, type DownloadProgress } from "@/services/downloads/man
 import type { DownloadEntry, DownloadState } from "@/services/downloads/manifest";
 import { cleanLabel } from "@/utils/cleanLabel";
 import { formatFileSize } from "@/utils/mediaInfo";
+import { formatSeasonEpisode } from "@/utils/seasonEpisode";
 import { t } from "@/services/i18n";
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
@@ -99,7 +100,7 @@ export function DownloadRow({ entry, selected, onPress, onRemove, onFocus, neste
   }, [entry.itemId, entry.state]);
 
   const { subtitle, trailing } = stateCopy(entry);
-  const line = entry.state === "downloading" ? (live ?? subtitle) : subtitle;
+  const line = [formatSeasonEpisode(entry.item), entry.state === "downloading" ? (live ?? subtitle) : subtitle].filter(Boolean).join(" · ");
   // A ready row's line is its size, which the trailing play mark already implies.
   const hint = [entry.state === "ready" ? null : `${line}.`, pressCopy(entry.state, !!entry.converted), t("downloads.swipeRemove")].filter(Boolean).join(" ");
   const onAction = (event: { nativeEvent: { actionName: string } }) => {

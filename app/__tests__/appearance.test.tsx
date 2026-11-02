@@ -3,6 +3,7 @@
  * a long press asks before removing it, and removing the chosen one returns the cards to gold.
  */
 import AppearanceScreen from "@/app/appearance";
+import { CardSizeSection } from "@/components/settings/CardSizeSection";
 import { DEFAULT_CARD_THEME } from "@/services/cardTheme";
 import { deleteTheme } from "@/services/themeLibrary";
 import { getUiPreferences, updateUiPreferences } from "@/services/uiPreferences";
@@ -18,6 +19,7 @@ let mockInsets = { top: 0, bottom: 0, left: 0, right: 0 };
 jest.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => mockInsets }));
 jest.mock("@/components/ambient-background", () => ({ AmbientBackground: () => null }));
 jest.mock("@/components/settings/SectionFooter", () => ({ SectionFooter: ({ children }: { children: React.ReactNode }) => children }));
+jest.mock("@/components/settings/CardSizeSection", () => ({ CardSizeSection: () => null }));
 jest.mock("@/hooks/useSavedThemes", () => ({ useSavedThemes: () => ({ themes: [{ id: "t1", name: "Sea", accent: "#12CBC4" }], pending: [], status: "ready" }) }));
 jest.mock("@/services/themeLibrary", () => ({ deleteTheme: jest.fn(async () => undefined), themeSaveInFlight: () => false }));
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
@@ -65,6 +67,12 @@ describe("Appearance", () => {
     expect(getUiPreferences().background).toBe("accent");
     act(() => row("Folder artwork").props.onPress());
     expect(getUiPreferences().background).toBe("artwork");
+    act(() => tree.unmount());
+  });
+
+  it("ends with the card size section", () => {
+    const tree = render();
+    expect(tree.root.findAllByType(CardSizeSection)).toHaveLength(1);
     act(() => tree.unmount());
   });
 

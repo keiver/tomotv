@@ -28,6 +28,27 @@ RCT_EXTERN_METHOD(setLiveWindow
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(setSubtitleTimeOffset
+                  : (nonnull NSString *)token streamIndex
+                  : (nonnull NSNumber *)streamIndex offsetMs
+                  : (nonnull NSNumber *)offsetMs resolver
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(alignSubtitleTiming
+                  : (nonnull NSString *)token streamIndex
+                  : (nonnull NSNumber *)streamIndex attempt
+                  : (nonnull NSNumber *)attempt resolver
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(updateSubtitles
+                  : (nonnull NSString *)token subtitles
+                  : (nonnull NSArray *)subtitles resumeAt
+                  : (nonnull NSNumber *)resumeAt resolver
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(startPlaylistShim
                   : (NSDictionary *)config resolver
                   : (RCTPromiseResolveBlock)resolve rejecter

@@ -28,6 +28,14 @@ describe("videoPlayerReducer", () => {
     expect(videoPlayerReducer(idle, { type: "LIVE_STREAM", streamUrl: url })).toBe(idle);
   });
 
+  it("binds a running session's fresh master after a subtitle swap, with no metadata reload", () => {
+    const url = "http://127.0.0.1/t3/master1.m3u8";
+    const playing: VideoPlayerState = { type: "PLAYING", mode: "localRemux" };
+    expect(videoPlayerReducer(playing, { type: "STREAM_REPLACED", streamUrl: url })).toEqual({ type: "INITIALIZING_PLAYER", mode: "localRemux", streamUrl: url });
+    const idle: VideoPlayerState = { type: "IDLE" };
+    expect(videoPlayerReducer(idle, { type: "STREAM_REPLACED", streamUrl: url })).toBe(idle);
+  });
+
   it("changes processing without replacing the URL or resetting playback state", () => {
     const initial: VideoPlayerState = { type: "INITIALIZING_PLAYER", mode: "localRemux", streamUrl: "http://127.0.0.1/session/master.m3u8" };
     expect(videoPlayerReducer(initial, { type: "PROCESSING_CHANGED", mode: "transcode" })).toEqual({ ...initial, mode: "transcode" });

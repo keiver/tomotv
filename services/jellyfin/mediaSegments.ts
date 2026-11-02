@@ -1,10 +1,10 @@
 /**
  * Media Segments (server 10.10+): typed timeline markers (Intro/Outro/Recap/
  * Preview/Commercial) that server-side plugins attach to items. There is no
- * "Credits" type — Outro is the credits marker.
+ * "Credits" type: Outro is the credits marker.
  *
  * Consumers: the tvOS Up Next content proposal (Outro start = when the
- * proposal appears), the tvOS skip pills, and the phone's commercial auto-skip.
+ * proposal appears), the tvOS skip pills, and the automatic skips.
  * Markers only exist on 10.10+ servers running a segments provider plugin. A
  * missing marker only changes timing/affordances, never playback, so every
  * failure path returns empty markers rather than throwing.
@@ -30,14 +30,18 @@ export interface MediaSegmentWindow {
 export interface ItemMediaSegments {
   intro: MediaSegmentWindow | null;
   outro: MediaSegmentWindow | null;
+  /** Every Recap segment, in time order. */
+  recaps: MediaSegmentWindow[];
+  /** Every Preview segment, in time order. */
+  previews: MediaSegmentWindow[];
   /** Every Commercial break, in time order. */
   commercials: MediaSegmentWindow[];
 }
 
-const NO_SEGMENTS: ItemMediaSegments = { intro: null, outro: null, commercials: [] };
+const NO_SEGMENTS: ItemMediaSegments = { intro: null, outro: null, recaps: [], previews: [], commercials: [] };
 
 /**
- * The item's first Intro and Outro segments and its Commercial breaks, in seconds.
+ * The item's Intro and Outro windows and its Recap, Preview and Commercial windows, in seconds.
  * Empty when the server has no markers (no segments plugin, pre-10.10 → 404, network failure).
  */
 export async function fetchMediaSegments(itemId: string): Promise<ItemMediaSegments> {
@@ -50,7 +54,7 @@ export async function fetchMediaSegments(itemId: string): Promise<ItemMediaSegme
   try {
     const response = await fetchWithTimeout(
       // Repeated keys: ASP.NET binds them to the IEnumerable includeSegmentTypes param.
-      `${config.server}/MediaSegments/${itemId}?includeSegmentTypes=Intro&includeSegmentTypes=Outro&includeSegmentTypes=Commercial`,
+      `${config.server}/MediaSegments/${itemId}?includeSegmentTypes=Intro&includeSegmentTypes=Outro&includeSegmentTypes=Recap&includeSegmentTypes=Preview&includeSegmentTypes=Commercial`,
       {
         method: "GET",
         headers: {
@@ -76,15 +80,28 @@ export async function fetchMediaSegments(itemId: string): Promise<ItemMediaSegme
         endSeconds: segment.EndTicks / JELLYFIN_TIME.TICKS_PER_SECOND,
       };
     };
-
-    return {
-      intro: toWindow(segments.find((segment) => segment.Type === "Intro")),
-      outro: toWindow(segments.find((segment) => segment.Type === "Outro")),
-      commercials: segments
-        .filter((segment) => segment.Type === "Commercial")
+    const windowsOf = (type: string): MediaSegmentWindow[] => {
+      const windows = segments
+        .filter((segment) => segment.Type === type)
         .map(toWindow)
         .filter((window): window is MediaSegmentWindow => window !== null)
-        .sort((a, b) => a.startSeconds - b.startSeconds),
+        .sort((a, b) => a.startSeconds - b.startSeconds);
+      // Several server plugins can mark the same span; overlapping windows of a type collapse to their union.
+      const merged: MediaSegmentWindow[] = [];
+      for (const window of windows) {
+        const last = merged[merged.length - 1];
+        if (last && window.startSeconds <= last.endSeconds) last.endSeconds = Math.max(last.endSeconds, window.endSeconds);
+        else merged.push({ ...window });
+      }
+      return merged;
+    };
+
+    return {
+      intro: windowsOf("Intro")[0] ?? null,
+      outro: windowsOf("Outro")[0] ?? null,
+      recaps: windowsOf("Recap"),
+      previews: windowsOf("Preview"),
+      commercials: windowsOf("Commercial"),
     };
   } catch (error) {
     logger.debug("Media segments fetch failed; skip/proposal features degrade", { service: "JellyfinAPI", itemId, error: String(error) });

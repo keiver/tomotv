@@ -26,7 +26,7 @@ Reference for the Jellyfin API surface: server connection, video streaming, libr
 ## Module Map
 
 `services/jellyfinApi.ts` is a barrel with no logic. The implementation lives in
-`services/jellyfin/`. **Always import from `@/services/jellyfinApi`** — a dozen test files
+`services/jellyfin/`. **Always import from `@/services/jellyfinApi`**: a dozen test files
 mock that specifier, so bypassing it silently defeats their mocks.
 
 | Module                  | Owns                                                                                                                                                                        |
@@ -78,10 +78,9 @@ This document provides a reference for the `services/jellyfinApi.ts` public surf
 
 | Function                            | Purpose                          | Returns         |
 | ----------------------------------- | -------------------------------- | --------------- |
-| `connectToDemoServer(clearCaches?)` | Connect to Jellyfin demo server  | `Promise<void>` |
+| `connectToDemoServer(clearCaches?)` | Connect to the Tomo TV demo      | `Promise<void>` |
 | `disconnectFromDemo()`              | Disconnect and clear credentials | `Promise<void>` |
 | `isDemoMode()`                      | Check if using demo server       | `boolean`       |
-| `syncDevCredentials()`              | Sync .env.local to SecureStore   | `Promise<void>` |
 
 ## Library & Content
 
@@ -131,9 +130,11 @@ This document provides a reference for the `services/jellyfinApi.ts` public surf
 
 ### How subtitles reach the player
 
-A text sidecar rides as an HLS rendition whose playlist points at the plain
-`/Videos/{id}/{id}/Subtitles/{i}/Stream.vtt`, no `X-TIMESTAMP-MAP`, absolute
-source times; Jellyfin serves the sidecar file as it is. A track inside the file
+A text sidecar rides as an HLS rendition whose one segment the engine serves: it
+fetches the plain `/Videos/{id}/{id}/Subtitles/{i}/Stream.vtt` (no
+`X-TIMESTAMP-MAP`, absolute source times) and renders the ASS markup left in
+the cues (`cleanWebVttCues`), which Jellyfin 10.11.11's `VttWriter` writes as
+text. Jellyfin converts a sidecar file without extracting anything. A track inside the file
 is never requested from that endpoint: Jellyfin answers by extracting every
 subtitle track from the whole file, uncancellable (its issue #17499). The engine
 decodes such tracks from the bytes it already reads (text as its own WebVTT
@@ -172,4 +173,3 @@ renditions (`SubtitleMethod=Hls` is not sent).
 - **Retry Logic:** Exponential backoff (3 attempts max)
 - **Timeouts:** 10-30 seconds per request
 - **Configuration Caching:** Synchronous URL generation
-- **Development Fallback:** `.env.local` credentials

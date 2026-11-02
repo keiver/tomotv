@@ -79,6 +79,26 @@ describe("useChannels", () => {
     expect(mockPending.mock.calls[1][1].map((item: { Id: string }) => item.Id)).toEqual(["c0", "c1"]);
   });
 
+  it("shows no loading footer while it reads the tuner playlists after the server's last channel, whoever asks", async () => {
+    mockFetch.mockImplementation(async ({ startIndex }: { startIndex: number }) => ({ items: channels(startIndex, Math.max(0, 2 - startIndex)), total: 2 }));
+    let finishTail!: (value: typeof NOTHING_PENDING) => void;
+    mockPending.mockResolvedValueOnce({ pending: [], hasMore: true, waiting: true }).mockReturnValueOnce(new Promise((resolve) => (finishTail = resolve)));
+    const ref = React.createRef<HookRef>();
+    await act(async () => {
+      TestRenderer.create(<Harness ref={ref} sort="number" />);
+    });
+    await settle();
+    expect(mockPending).toHaveBeenCalledTimes(2);
+    expect(ref.current?.get()).toMatchObject({ isLoadingMore: false, hasMore: true });
+    // The grid reaching its end during the read asks again: still no footer.
+    act(() => ref.current?.get().loadMore());
+    expect(ref.current?.get().isLoadingMore).toBe(false);
+    await act(async () => finishTail(NOTHING_PENDING));
+    await settle();
+    expect(ref.current?.get()).toMatchObject({ isLoadingMore: false, hasMore: false });
+    expect(ref.current?.get().items.map((item) => item.Id)).toEqual(["c0", "c1"]);
+  });
+
   it("reloads the wall with the playlist-only channels after a tuner playlist held back by playback downloads", async () => {
     mockFetch.mockResolvedValue({ items: channels(0, 1), total: 1 });
     const ref = React.createRef<HookRef>();
@@ -107,6 +127,29 @@ describe("useChannels", () => {
     act(() => ref.current?.get().loadMore());
     await settle();
     expect(ref.current?.get().items.map((item) => item.Id)).toEqual(["c0", "p1", "c7"]);
+  });
+
+  it("reads the wall again when a channel is hidden or renamed", async () => {
+    const preferences = jest.requireActual("@/services/liveTvPreferences") as typeof import("@/services/liveTvPreferences");
+    mockFetch.mockResolvedValue({ items: channels(0, 2), total: 2 });
+    const ref = React.createRef<HookRef>();
+    let renderer: TestRenderer.ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = TestRenderer.create(<Harness ref={ref} sort="number" />);
+    });
+    await settle();
+    // Earlier tests leave their walls mounted, and they read again too: at least this wall does.
+    const reads = mockFetch.mock.calls.length;
+    await act(async () => preferences.hideChannel({ Id: "c1", Name: "Channel 1" }));
+    await settle();
+    expect(mockFetch.mock.calls.length).toBeGreaterThan(reads);
+    const afterHide = mockFetch.mock.calls.length;
+    await act(async () => preferences.renameChannel({ Id: "c0", Name: "Channel 0" }, "Zero"));
+    await settle();
+    expect(mockFetch.mock.calls.length).toBeGreaterThan(afterHide);
+    preferences.unhideChannel({ name: "Channel 1" });
+    preferences.renameChannel({ Id: "c0", Name: "Channel 0" }, "");
+    act(() => renderer?.unmount());
   });
 
   it("loads the first page in the sort's server order, then the next on loadMore until the total is reached", async () => {

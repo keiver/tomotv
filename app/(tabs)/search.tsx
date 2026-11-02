@@ -4,7 +4,7 @@ import { FolderLoadingBar } from "@/components/folder-loading-bar";
 import { LoadingRow } from "@/components/loading-row";
 import { localeScreen } from "@/components/locale-boundary";
 import { SearchLoadingBar } from "@/components/search-loading-bar";
-import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
+import { WhoIsWatchingScreen } from "@/components/settings/WhoIsWatchingScreen";
 import { SunkenTextInput } from "@/components/sunken-text-input";
 import { SearchResultsGrid, type SearchResultsGridHandle } from "@/components/search-results-grid";
 import { IS_PAD, settingsStyles, sideInsets } from "@/components/settings/styles";
@@ -554,12 +554,12 @@ function SearchScreen() {
   // Capture deep-links `?q=` so the screenshot tool never has to type into the simulator.
   const { q } = useLocalSearchParams<{ q?: string }>();
 
-  // Logged-out Search: the same full-screen connect widget the Library tab shows. The tab
+  // Logged-out Search: the same Who's watching screen the Library tab shows. The tab
   // trigger stays visible and selectable; hiding or disabling it at runtime restructures the
   // native tab navigator and breaks layout/focus on tvOS (see (tabs)/_layout.tsx).
   if (!isReady) return null;
   if (!isConnected) {
-    return <ServerConnectScreen title={t("tab.search")} />;
+    return <WhoIsWatchingScreen title={t("tab.search")} />;
   }
   if (isNativeSearchAvailable()) {
     return <NativeSearchScreenWithBackground initialQuery={q} />;

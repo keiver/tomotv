@@ -1,4 +1,5 @@
 import { AmbientBackground } from "@/components/ambient-background";
+import { CardZoomPinch } from "@/components/card-zoom-pinch";
 import { ContinueWatchingRow } from "@/components/continue-watching-row";
 import { FocusableButton } from "@/components/FocusableButton";
 import { LoadingRow } from "@/components/loading-row";
@@ -211,14 +212,16 @@ export function HomeShelves({ libraries, isLoading, error, onRetry, onLibraryPre
       {libraries.length === 0 ? (
         status
       ) : (
-        <ScrollView contentContainerStyle={scrollContentStyle} contentInsetAdjustmentBehavior="never" showsVerticalScrollIndicator={false}>
-          <View {...SHELF_SCROLL_CLAIM}>
-            <MediaShelf title={t("library.libraries")} dot={recordingShelf} data={libraries} slotShapeFor={slotShapeFor} renderItem={renderLibrary} keyExtractor={keyExtractor} />
-            <ContinueWatchingRow onItemFocus={handleItemFocus} />
-            <ItemShelf title={t("library.favorites")} fetch={fetchFavoriteItems} refreshOnFavoriteChange onItemFocus={handleItemFocus} />
-            <ItemShelf title={t("library.new")} fetch={fetchLatestItems} onItemFocus={handleItemFocus} />
-          </View>
-        </ScrollView>
+        <CardZoomPinch>
+          <ScrollView contentContainerStyle={scrollContentStyle} contentInsetAdjustmentBehavior="never" showsVerticalScrollIndicator={false}>
+            <View {...SHELF_SCROLL_CLAIM}>
+              <MediaShelf title={t("library.libraries")} dot={recordingShelf} data={libraries} slotShapeFor={slotShapeFor} renderItem={renderLibrary} keyExtractor={keyExtractor} />
+              <ContinueWatchingRow onItemFocus={handleItemFocus} />
+              <ItemShelf title={t("library.favorites")} fetch={fetchFavoriteItems} refreshOnFavoriteChange onItemFocus={handleItemFocus} />
+              <ItemShelf title={t("library.new")} fetch={fetchLatestItems} onItemFocus={handleItemFocus} />
+            </View>
+          </ScrollView>
+        </CardZoomPinch>
       )}
     </View>
   );

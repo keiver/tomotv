@@ -27,6 +27,7 @@ import {
   subscribeEngineTier,
   subtitleRenditions,
   tierStopRequests,
+  updateSessionSubtitles,
   videoCodecTag,
   type ImageSubtitleEvent,
   type ThroughputSample,
@@ -38,6 +39,7 @@ import { getCachedConfig } from "@/services/jellyfin/session";
 import { updateUiPreferences } from "@/services/uiPreferences";
 
 const mockStartRemux = jest.fn();
+const mockUpdateSubtitles = jest.fn();
 const mockStopRemux = jest.fn();
 const mockEngineProgress = jest.fn();
 const mockSetPosterQueuePaused = jest.fn();
@@ -55,6 +57,7 @@ jest.mock("react-native", () => ({
   NativeModules: {
     LocalRemuxer: {
       startRemux: (...args: unknown[]) => mockStartRemux(...args),
+      updateSubtitles: (...args: unknown[]) => mockUpdateSubtitles(...args),
       stopRemux: (...args: unknown[]) => mockStopRemux(...args),
       engineProgress: (...args: unknown[]) => mockEngineProgress(...args),
       setPosterQueuePaused: (...args: unknown[]) => mockSetPosterQueuePaused(...args),
@@ -86,6 +89,24 @@ jest.mock("@/services/jellyfin/session", () => ({
 // Nothing remembered unless a test says so: the lane predictor's verdict lookup answers null.
 const mockRememberedVerdict = jest.fn(async (): Promise<object | null> => null);
 jest.mock("@/services/engineVerdicts", () => ({ rememberedVerdict: () => mockRememberedVerdict() }));
+
+// Nothing on disk unless a test says so.
+const mockPlaysFromDisk = jest.fn(() => false);
+jest.mock("@/services/downloads/localSource", () => ({
+  playsFromDisk: () => mockPlaysFromDisk(),
+  localMediaUri: jest.fn(() => null),
+  localSubtitleUri: jest.fn(() => null),
+}));
+
+// Nothing kept on the device unless a test says so.
+const mockDeviceSubtitles = jest.fn((): { ordinal: number; language: string; name: string; forced: boolean; hearingImpaired: boolean; uri: string }[] => []);
+jest.mock("@/services/subtitles/store", () => ({
+  deviceSubtitles: () => mockDeviceSubtitles(),
+  deviceSubtitleIndex: (ordinal: number) => 100000 + ordinal,
+}));
+// No time correction unless a test stores one for a stream index.
+const mockOffsets = new Map<number, number>();
+jest.mock("@/services/subtitles/timing", () => ({ subtitleOffsetMs: (_server: string, _itemId: string, streamIndex: number) => mockOffsets.get(streamIndex) ?? 0 }));
 
 // Measured-slow link: the tier is declared only when measured < source.
 jest.mock("@/services/jellyfin/bitrateTest", () => ({
@@ -677,6 +698,22 @@ describe("startLocalRemux source positions (issue 84)", () => {
 });
 
 describe("startLocalRemux", () => {
+  it("leaves a sidecar that is not on disk out of a held file's session instead of pointing it at the server", async () => {
+    mockPlaysFromDisk.mockReturnValue(true);
+    const source = item({
+      streams: [
+        { Type: "Video", Codec: "h264", Index: 0 },
+        { Type: "Audio", Codec: "aac", Index: 1 },
+        { Type: "Subtitle", Codec: "subrip", Index: 2, Language: "eng", IsExternal: true, Path: "/media/movie.eng.srt" },
+        { Type: "Subtitle", Codec: "subrip", Index: 3, Language: "spa" },
+      ],
+    });
+    await startLocalRemux(source);
+    const config = mockStartRemux.mock.calls[0][0];
+    expect(config.subtitles.map((sub: { index: number }) => sub.index)).toEqual([3]);
+    mockPlaysFromDisk.mockReturnValue(false);
+  });
+
   it("marks the subtitle track the stored choice lands on, and no other, for decoding from the start", async () => {
     const source = item({
       streams: [
@@ -1466,6 +1503,54 @@ describe("subtitleRenditions", () => {
   function untaggedPgs(count: number, firstIndex = 6) {
     return REAL.t85Subtitles.slice(0, count).map((stream, n) => ({ ...stream, Index: firstIndex + n }));
   }
+
+  it("lists a subtitle kept on the device after the file's own, served from its file under its own stream index", () => {
+    mockDeviceSubtitles.mockReturnValueOnce([{ ordinal: 0, language: "es", name: "Movie.2024.1080p-GRP", forced: false, hearingImpaired: true, uri: "file:///doc/subtitles/s_i/sub.0.vtt" }]);
+    const renditions = subtitleRenditions(
+      item({
+        streams: [
+          { Type: "Video", Codec: "h264", Index: 0 },
+          { Type: "Subtitle", Codec: "subrip", Index: 2, Language: "eng" },
+        ],
+      }),
+    );
+    expect(renditions.map((rendition) => rendition.index)).toEqual([2, 100000]);
+    expect(renditions[1]).toMatchObject({
+      language: "es",
+      localVtt: "file:///doc/subtitles/s_i/sub.0.vtt",
+      vttUrl: "",
+      isExternal: true,
+      isEngineText: false,
+      isImage: false,
+      isHearingImpaired: true,
+      isDefault: false,
+    });
+    expect(renditions[1].name).toBe("Movie.2024.1080p-GRP");
+  });
+
+  it("carries the viewer's time correction on a text rendition and on a device copy, and nothing on the rest", () => {
+    mockDeviceSubtitles.mockReturnValueOnce([{ ordinal: 0, language: "es", name: "Kept", forced: false, hearingImpaired: false, uri: "file:///doc/subtitles/s_i/sub.0.vtt" }]);
+    mockOffsets.set(2, 1500);
+    mockOffsets.set(100000, -500);
+    try {
+      const renditions = subtitleRenditions(
+        item({
+          streams: [
+            { Type: "Video", Codec: "h264", Index: 0 },
+            { Type: "Subtitle", Codec: "subrip", Index: 2, Language: "eng" },
+            { Type: "Subtitle", Codec: "subrip", Index: 3, Language: "fra" },
+          ],
+        }),
+      );
+      expect(renditions.map((rendition) => [rendition.index, rendition.timeOffsetMs])).toEqual([
+        [2, 1500],
+        [3, undefined],
+        [100000, -500],
+      ]);
+    } finally {
+      mockOffsets.clear();
+    }
+  });
 
   // The bug this whole path was rewritten for. The app used to key the pick on
   // the advertised label and build a Map from it; Jellyfin gives every untagged
@@ -2688,6 +2773,46 @@ describe("startLocalRemux on a live channel", () => {
 
   it("predicts the engine lane for a live channel with no verdict lookup", async () => {
     await expect(predictPlaybackLane(live())).resolves.toEqual({ lane: "deviceTranscode", smallFeedFirst: false });
+  });
+});
+
+describe("updateSessionSubtitles", () => {
+  it("hands the running session the item's current rendition list and resolves the fresh master URL", async () => {
+    mockUpdateSubtitles.mockResolvedValueOnce("http://127.0.0.1:50000/tok1/master1.m3u8");
+    mockDeviceSubtitles.mockReturnValueOnce([{ ordinal: 0, language: "es", name: "Kept", forced: false, hearingImpaired: false, uri: "file:///doc/subtitles/s_i/sub.0.vtt" }]);
+    const video = item({
+      streams: [
+        { Type: "Video", Codec: "h264", Index: 0 },
+        { Type: "Subtitle", Codec: "subrip", Index: 2, Language: "eng" },
+      ],
+    });
+    const url = await updateSessionSubtitles(video, "tok1", 94.2);
+    expect(url).toBe("http://127.0.0.1:50000/tok1/master1.m3u8");
+    expect(mockUpdateSubtitles).toHaveBeenCalledTimes(1);
+    const [token, subtitles, resumeAt] = mockUpdateSubtitles.mock.calls[0];
+    expect(token).toBe("tok1");
+    expect(resumeAt).toBe(94.2);
+    expect((subtitles as { index: number }[]).map((sub) => sub.index)).toEqual([2, 100000]);
+  });
+
+  it("a server-video session gets no engine-decoded track, as its open did", async () => {
+    mockUpdateSubtitles.mockResolvedValueOnce("http://127.0.0.1:50000/tok1/master2.m3u8");
+    mockDeviceSubtitles.mockReturnValueOnce([{ ordinal: 0, language: "es", name: "Kept", forced: false, hearingImpaired: false, uri: "file:///doc/subtitles/s_i/sub.0.vtt" }]);
+    const video = item({
+      streams: [
+        { Type: "Video", Codec: "h264", Index: 0 },
+        { Type: "Subtitle", Codec: "subrip", Index: 2, Language: "eng" },
+      ],
+    });
+    await updateSessionSubtitles(video, "tok1", 10, { serverVideoOnly: true });
+    const [, subtitles] = mockUpdateSubtitles.mock.calls[0];
+    expect((subtitles as { index: number }[]).map((sub) => sub.index)).toEqual([100000]);
+  });
+
+  it("answers null for a live channel without asking the engine", async () => {
+    const live = item({ MediaSources: [{ Id: "item1", Container: "mpegts", IsInfiniteStream: true }] } as Partial<JellyfinVideoItem>);
+    expect(await updateSessionSubtitles(live, "tok1", 10)).toBeNull();
+    expect(mockUpdateSubtitles).not.toHaveBeenCalled();
   });
 });
 

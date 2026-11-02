@@ -25,11 +25,11 @@ Runtime configuration backed by SecureStore, with demo mode support. Users conne
 
 ### Demo Mode (Testing without setup)
 
-1. One-tap connection to Jellyfin's official demo server (`https://demo.jellyfin.org/stable`)
-2. Credentials fetched dynamically via API (demo server resets hourly)
-3. Stores demo credentials in SecureStore with `IS_DEMO_MODE` flag
+1. Tomo TV's own demo server (`https://tomotv.cubita.studio`): a shared `demo` account with no password, libraries of free-to-use content, its favorites and part-played items put back every night. The server is run from the private keiver/tomotv-ops repo
+2. Reached from the Demo face on the Who's watching screen (shown while no account is saved), the Add Server placeholder (Go on the empty field or the demo address typed) and "Try Demo Server" on the Search tab
+3. Stores demo credentials in SecureStore with the `IS_DEMO_MODE` flag; never saved as an account
 4. Users can disconnect from demo and configure their own server anytime
-5. Perfect for App Store reviewers or first-time users
+5. The link to the demo is measured like any server's (`bitrateTest.ts`); library views, themes and track settings stay on the device in demo mode
 
 ### Demo Server Advanced Features
 
@@ -66,7 +66,7 @@ connectToDemoServer(clearCaches: boolean = true)
 **Note:** All keys are stored in device Keychain via expo-secure-store. The first
 eight are the "active session slot" everything downstream reads; `services/jellyfin/accounts.ts`
 fills the slot from a saved account (`activateAccount`) or saves the slot's login
-(`saveAuthResult` → `upsertAccount`). Sign Out clears only the slot — saved accounts
+(`saveAuthResult` → `upsertAccount`). Sign Out clears only the slot: saved accounts
 survive for one-tap reconnect; removing a saved server deletes its accounts and tokens.
 Each account carries its own `deviceId` (Jellyfin keeps one token per DeviceId per server).
 
@@ -150,7 +150,15 @@ Uses refs (`currentServerUrl.current`) alongside state to maintain sync between 
 
 ### Demo Mode UI
 
-Demo server connection is NOT available from Settings screen (removed in commit 740d791). Demo mode is only accessible via:
+Demo mode is reached from:
 
-- "Try Demo Server" button on Library error screen
+- The Demo face on the Who's watching screen (`components/settings/WhoIsWatchingScreen.tsx`), shown while no account is saved
+- The Add Server field's placeholder: Go on the empty field, or the demo address typed out
+- "Try Demo Server" on the Search tab
 - Programmatic `connectToDemoServer()` calls
+
+Home carries nothing about the demo (decided 2026-10-23). The Settings connected card is named "Tomo TV Demo" and carries a row saying it is the demo and that its content is free to use; the card itself is the Switch Server route.
+
+### Who's watching (the logged-out root, decided 2026-10-23)
+
+Signed out with nothing downloaded, the tabs leave the root stack (`Stack.Protected` in `app/_layout.tsx`, guard `utils/rootRoutes.ts` `tabsAvailable`) and `app/who-is-watching.tsx` is the root: the saved accounts as `AccountAvatar` faces, most recently used first, a Demo face while none is saved, and Add Account (pushes `/connect/servers`, which carries the language, appearance and About rows while signed out). A signed-out phone with a finished download keeps the tabs, and each tab renders the same screen in its logged-out state. Logins end in `unwindToLibrary` (pop to the first route, then to the Library root); Sign Out lands on Who's watching.

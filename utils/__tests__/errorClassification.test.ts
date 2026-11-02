@@ -64,6 +64,10 @@ describe("errorClassification", () => {
     it("keeps the CoreMedia decode mapping", () => {
       expect(classifyPlaybackError({ code: -12971, domain: "CoreMediaErrorDomain" })).toBe(PlaybackErrorType.DECODE);
     });
+
+    it("names a channel whose provider a recording holds", () => {
+      expect(classifyPlaybackError(new Error("live origin is held by a recording"))).toBe(PlaybackErrorType.RECORDING_HOLD);
+    });
   });
 
   describe("getPlaybackErrorMessage", () => {

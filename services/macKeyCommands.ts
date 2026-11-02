@@ -24,6 +24,7 @@ export const MAC_KEYS = [
   "toggleVideoFill",
   "zoomIn",
   "zoomOut",
+  "zoomReset",
 ] as const;
 
 /** Which screen owns the contextual keys (bare arrows, Return). Nobody, by default. */
@@ -56,6 +57,14 @@ const keyClaims: { owner: string; context: MacKeyContext }[] = [];
 function applyKeyContext(): void {
   if (!isMacKeyCommandsAvailable()) return;
   MacKeyCommands.setKeyContext(keyClaims[keyClaims.length - 1]?.context ?? "");
+}
+
+// The native context is static and outlives a JS reload, which starts this stack empty.
+applyKeyContext();
+
+/** The context the newest claim holds, "" with none. */
+export function macKeyContext(): MacKeyContext {
+  return keyClaims[keyClaims.length - 1]?.context ?? "";
 }
 
 export function claimMacContextKeys(owner: string, context: MacKeyContext): () => void {

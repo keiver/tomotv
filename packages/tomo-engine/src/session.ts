@@ -344,6 +344,54 @@ export async function stopLocalRemux(token: string | null): Promise<void> {
   }
 }
 
+/**
+ * Moves a subtitle track's cues in the running session by `offsetMs` (positive delays them). The
+ * engine serves the shift from the next body the player asks for; false when the session is gone.
+ */
+export async function setSubtitleTimeOffset(token: string | null, streamIndex: number, offsetMs: number): Promise<boolean> {
+  if (!isLocalRemuxAvailable() || !token || typeof engineModule().setSubtitleTimeOffset !== "function") return false;
+  try {
+    return (await engineModule().setSubtitleTimeOffset(token, streamIndex, offsetMs)) === true;
+  } catch (error) {
+    engineLog().warn("Subtitle time offset not applied", error, { service: "LocalRemux", token, streamIndex });
+    return false;
+  }
+}
+
+/**
+ * Replaces the subtitle tracks the running session serves (a pick saved mid-play), re-anchored at
+ * `resumeAtSeconds`. Resolves the fresh master URL the player swaps to, or null when the session is
+ * gone, live, or the binary has no such method.
+ */
+export async function updateSubtitles(token: string | null, subtitles: SubtitleRendition[], resumeAtSeconds: number): Promise<string | null> {
+  if (!isLocalRemuxAvailable() || !token || typeof engineModule().updateSubtitles !== "function") return null;
+  try {
+    const url: unknown = await engineModule().updateSubtitles(token, subtitles, Math.max(0, resumeAtSeconds));
+    return typeof url === "string" && url.length > 0 ? url : null;
+  } catch (error) {
+    engineLog().warn("Subtitle list update failed", error, { service: "LocalRemux", token });
+    return null;
+  }
+}
+
+export type SubtitleAlignment = { ok: true; offsetMs: number; confidence: number } | { ok: false; reason: string };
+
+/**
+ * Lines a subtitle track up with the speech in the running session's audio: the whole correction
+ * for the track, measured against its cues as the file has them. `attempt` moves the window of up
+ * to three minutes elsewhere in the file. A failed answer names why: noSession, noTrack, noCues,
+ * noAudio, noSpeech, noMatch, notRead or window.
+ */
+export async function alignSubtitleTiming(token: string | null, streamIndex: number, attempt: number): Promise<SubtitleAlignment> {
+  if (!isLocalRemuxAvailable() || !token || typeof engineModule().alignSubtitleTiming !== "function") return { ok: false, reason: "noSession" };
+  try {
+    return (await engineModule().alignSubtitleTiming(token, streamIndex, attempt)) as SubtitleAlignment;
+  } catch (error) {
+    engineLog().warn("Subtitle alignment failed", error, { service: "LocalRemux", token, streamIndex, attempt });
+    return { ok: false, reason: "failed" };
+  }
+}
+
 /** Resizes a live session's window from here on: a hot ring neighbour starts short and widens once adopted. */
 export async function setLiveWindow(token: string | null, seconds: number): Promise<void> {
   if (!isLocalRemuxAvailable() || !token || typeof engineModule().setLiveWindow !== "function") return;

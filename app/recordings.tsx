@@ -11,6 +11,7 @@ import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { t } from "@/services/i18n";
 import { fetchFilteredVideos, fetchRecordingFolderIds, fetchRecordings, subscribeRecordingsChange } from "@/services/jellyfinApi";
 import { countActiveFilters, EMPTY_FILTERS, type FolderStackEntry, type JellyfinItem } from "@/types/jellyfin";
+import { compareItems } from "@/utils/librarySort";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useIsFocused, useLocalSearchParams, useRouter } from "expo-router";
@@ -63,9 +64,7 @@ export default function RecordingsScreen() {
     if (loadedFilterKey.current !== filterKey) setRecordings((current) => ({ ...current, isLoading: true }));
     loadedFilterKey.current = filterKey;
     const load =
-      filterKey && folderId
-        ? Promise.all(folderIds.map((id) => fetchFilteredVideos(id, filters))).then((pages) => ({ items: pages.flat().sort((a, b) => a.Name.localeCompare(b.Name)) }))
-        : fetchRecordings();
+      filterKey && folderId ? Promise.all(folderIds.map((id) => fetchFilteredVideos(id, filters))).then((pages) => ({ items: pages.flat().sort(compareItems(filters)) })) : fetchRecordings();
     load
       .then(({ items }) => !cancelled && setRecordings({ items, isLoading: false, error: null }))
       .catch((err) => {

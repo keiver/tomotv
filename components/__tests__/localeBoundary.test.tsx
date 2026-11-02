@@ -35,10 +35,10 @@ describe("LocaleBoundary", () => {
         </LocaleBoundary>,
       );
     });
-    expect(texts(renderer)).toEqual(["Filters"]);
+    expect(texts(renderer)).toEqual(["Sort & Filter"]);
 
     act(() => setLanguage("de"));
-    expect(texts(renderer)).toEqual(["Filter"]);
+    expect(texts(renderer)).toEqual(["Sortieren und Filtern"]);
     expect(mounts).toHaveBeenCalledTimes(2);
     act(() => renderer.unmount());
   });
@@ -50,7 +50,7 @@ describe("LocaleBoundary", () => {
       renderer = TestRenderer.create(<Screen />);
     });
     act(() => setLanguage("fr"));
-    expect(texts(renderer)).toEqual(["Filtres"]);
+    expect(texts(renderer)).toEqual(["Trier et filtrer"]);
     act(() => renderer.unmount());
   });
 

@@ -26,7 +26,7 @@ export const GlassButton = forwardRef<View, GlassButtonProps>(function GlassButt
   // Focus turns the glyph white; the icon carries its own resting color prop.
   const focusedIcon = focused && React.isValidElement(icon) ? React.cloneElement(icon as React.ReactElement<{ color?: string }>, { color: "#FFFFFF" }) : icon;
   const pillStyle: ViewStyle = StyleSheet.flatten([styles.pill, style]);
-  // Concentric rim: half the pill's fixed height (a circle passes its diameter) plus the padding.
+  // Concentric rim: half the pill's fixed height plus the padding.
   const pillHeight = typeof pillStyle.height === "number" ? pillStyle.height : typeof pillStyle.minHeight === "number" ? pillStyle.minHeight : PILL_HEIGHT;
   const handleFocus = (e: NativeSyntheticEvent<TargetedEvent>) => {
     setFocused(true);

@@ -14,7 +14,6 @@ const RING = IS_TV ? 4 : 2;
 /** Air between the ring and the disc. */
 const RING_GAP = IS_TV ? 4 : 2;
 const BADGE = IS_TV ? 30 : 20;
-const RING_RADIUS = (AVATAR_SIZE + 2 * (RING + RING_GAP)) / 2;
 const CELL_PAD = IS_TV ? 12 : 6;
 const CELL_RADIUS = IS_TV ? 28 : 16;
 
@@ -24,6 +23,10 @@ interface AccountAvatarProps {
   sublabel?: string;
   /** The picture Jellyfin holds for this user; until it loads, and if it never does, the generated face shows. */
   uri?: string;
+  /** A glyph in an outlined ring in place of a face: the Add Server cell. */
+  icon?: React.ComponentProps<typeof Ionicons>["name"];
+  /** The face's diameter when larger than the strip's; the cell and captions grow with it. */
+  size?: number;
   /** The account the app is signed in as: the green ring and badge, green being connected. */
   connected?: boolean;
   /** This account is connecting: an arc turns in the ring. */
@@ -47,7 +50,7 @@ interface AccountAvatarProps {
  * Forwards its ref to the Pressable, so a focus guide can name it.
  */
 export const AccountAvatar = forwardRef<View, AccountAvatarProps>(function AccountAvatar(
-  { label, sublabel, uri, connected = false, loading = false, onGold = false, onPress, onLongPress, disabled = false, onFocus, onBlur, nextFocusLeft }: AccountAvatarProps,
+  { label, sublabel, uri, icon, size, connected = false, loading = false, onGold = false, onPress, onLongPress, disabled = false, onFocus, onBlur, nextFocusLeft }: AccountAvatarProps,
   ref,
 ) {
   // Fabric resolves nextFocus* tags against the root view when the prop is applied, and a new
@@ -56,6 +59,10 @@ export const AccountAvatar = forwardRef<View, AccountAvatarProps>(function Accou
   useEffect(() => setLeftTarget(nextFocusLeft), [nextFocusLeft]);
   const palette = useCardPalette();
   const themed = useThemedStyles();
+  const large = size !== undefined;
+  const face = size ?? AVATAR_SIZE;
+  const cellWidth = large ? face + (IS_TV ? 72 : 32) : AVATAR_CELL_WIDTH;
+  const ringRadius = (face + 2 * (RING + RING_GAP)) / 2;
 
   return (
     <Pressable
@@ -68,29 +75,44 @@ export const AccountAvatar = forwardRef<View, AccountAvatarProps>(function Accou
       disabled={disabled}
       isTVSelectable={!disabled}
       tvParallaxProperties={{ enabled: false }}
-      style={({ pressed, focused }) => [styles.cell, onGold && styles.cellOnGold, onGold && focused && styles.cellFocusedOnGold, pressed && styles.cellPressed, disabled && styles.cellDisabled]}
+      style={({ pressed, focused }) => [
+        styles.cell,
+        { width: cellWidth },
+        onGold && styles.cellOnGold,
+        onGold && focused && styles.cellFocusedOnGold,
+        pressed && styles.cellPressed,
+        disabled && styles.cellDisabled,
+      ]}
       accessibilityRole="button"
-      accessibilityLabel={[t("settings.continueAs").replace("{label}", label), sublabel].filter(Boolean).join(", ")}
+      accessibilityLabel={icon ? label : [t("settings.continueAs").replace("{label}", label), sublabel].filter(Boolean).join(", ")}
       accessibilityState={{ selected: connected, disabled, busy: loading }}>
       {({ focused }) => {
         // Marks sit on gold only while the cell is at rest there; focus paints it dark again.
         const inkOnGold = onGold && !focused;
         return (
           <>
-            <View style={[styles.ring, connected && styles.ringConnected, focused && styles.ringFocused]} collapsable={false}>
-              <AvatarDisc seed={label} uri={uri} size={AVATAR_SIZE} />
-              {loading ? <AvatarLoadingRing width={RING} radius={RING_RADIUS} color={inkOnGold ? palette.ink : palette.accent} /> : null}
+            <View style={[styles.ring, { borderRadius: ringRadius }, connected && styles.ringConnected, focused && styles.ringFocused]} collapsable={false}>
+              {icon ? (
+                <View style={[styles.glyphRing, { width: face, height: face, borderRadius: face / 2 }]}>
+                  <Ionicons name={icon} size={face * 0.45} color={focused ? COLORS.TEXT_PRIMARY : COLORS.TEXT_SECONDARY} />
+                </View>
+              ) : (
+                <AvatarDisc seed={label} uri={uri} size={face} />
+              )}
+              {loading ? <AvatarLoadingRing width={RING} radius={ringRadius} color={inkOnGold ? palette.ink : palette.accent} /> : null}
               {connected ? (
                 <View style={[styles.badge, inkOnGold && themed.badgeOnGold]}>
                   <Ionicons name="checkmark" size={BADGE * 0.7} color={COLORS.TEXT_PRIMARY} />
                 </View>
               ) : null}
             </View>
-            <Text style={[styles.caption, (connected || focused) && styles.captionStrong, inkOnGold && themed.captionOnGold]} numberOfLines={1}>
+            <Text
+              style={[styles.caption, large && styles.captionLarge, large && !icon && styles.captionName, (connected || focused) && styles.captionStrong, inkOnGold && themed.captionOnGold]}
+              numberOfLines={1}>
               {label}
             </Text>
             {sublabel ? (
-              <Text style={[styles.subcaption, inkOnGold && themed.subcaptionOnGold]} numberOfLines={1}>
+              <Text style={[styles.subcaption, large && styles.subcaptionLarge, inkOnGold && themed.subcaptionOnGold]} numberOfLines={1}>
                 {sublabel}
               </Text>
             ) : null}
@@ -124,13 +146,18 @@ const styles = StyleSheet.create({
     padding: RING_GAP,
     borderWidth: RING,
     borderColor: "transparent",
-    borderRadius: RING_RADIUS,
   },
   ringConnected: {
     borderColor: COLORS.SUCCESS,
   },
   ringFocused: {
     borderColor: COLORS.BORDER_FOCUSED,
+  },
+  glyphRing: {
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: RING,
+    borderColor: COLORS.SURFACE_MUTED,
   },
   badge: {
     position: "absolute",
@@ -152,6 +179,15 @@ const styles = StyleSheet.create({
     color: COLORS.TEXT_SECONDARY,
     maxWidth: AVATAR_CELL_WIDTH,
   },
+  captionLarge: {
+    marginTop: IS_TV ? 20 : 10,
+    fontSize: IS_TV ? 28 : IS_PAD ? 17 : 15,
+    lineHeight: IS_TV ? 34 : IS_PAD ? 22 : 20,
+    maxWidth: undefined,
+  },
+  captionName: {
+    color: COLORS.TEXT_PRIMARY,
+  },
   captionStrong: {
     color: COLORS.TEXT_PRIMARY,
     fontWeight: "600",
@@ -161,6 +197,11 @@ const styles = StyleSheet.create({
     lineHeight: AVATAR_SUBCAPTION_LINE,
     color: COLORS.TEXT_TERTIARY,
     maxWidth: AVATAR_CELL_WIDTH,
+  },
+  subcaptionLarge: {
+    fontSize: IS_TV ? 22 : IS_PAD ? 14 : 13,
+    lineHeight: IS_TV ? 28 : IS_PAD ? 18 : 17,
+    maxWidth: undefined,
   },
 });
 

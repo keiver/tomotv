@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: 8d41ea6ddc33e48c
+ * fingerprint: abd190f93759bd0b
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -342,6 +342,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "fast-deep-equal", version: "3.1.3", license: "MIT", body: "L1", copyright: ["Copyright (c) 2017 Evgeny Poberezkin"] },
   { name: "fdir", version: "6.5.0", license: "MIT", body: "L2", copyright: ["Copyright 2023 Abdullah Atta"] },
   { name: "fetch-nodeshim", version: "0.4.10", license: "MIT", body: "L1", copyright: ["Copyright (c) Phil Pluckthun,","Copyright (c) 650 Industries, Inc. (aka Expo),","Copyright (c) 2016 - 2020 Node Fetch Team,","Copyright (c) Remix Software Inc. 2020-2021,","Copyright (c) Shopify Inc. 2022-2024"] },
+  { name: "fflate", version: "0.8.2", license: "MIT", body: "L1", copyright: ["Copyright (c) 2023 Arjun Barrett"] },
   { name: "fill-range", version: "7.1.1", license: "MIT", body: "L3", copyright: ["Copyright (c) 2014-present, Jon Schlinkert."] },
   { name: "filter-obj", version: "1.1.0", license: "MIT", body: "L3", copyright: ["Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)"] },
   { name: "finalhandler", version: "1.1.2", license: "MIT", body: "L8", copyright: ["Copyright (c) 2014-2017 Douglas Christopher Wilson <doug@somethingdoug.com>"] },
@@ -419,7 +420,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "negotiator", version: "0.6.3", license: "MIT", body: "L8", copyright: ["Copyright (c) 2012-2014 Federico Romero","Copyright (c) 2012-2014 Isaac Z. Schlueter","Copyright (c) 2014-2015 Douglas Christopher Wilson"] },
   { name: "negotiator", version: "0.6.4", license: "MIT", body: "L8", copyright: ["Copyright (c) 2012-2014 Federico Romero","Copyright (c) 2012-2014 Isaac Z. Schlueter","Copyright (c) 2014-2015 Douglas Christopher Wilson"] },
   { name: "negotiator", version: "1.1.0", license: "MIT", body: "L8", copyright: ["Copyright (c) 2012-2014 Federico Romero","Copyright (c) 2012-2014 Isaac Z. Schlueter","Copyright (c) 2014-2015 Douglas Christopher Wilson"] },
-  { name: "node-forge", version: "1.4.0", license: "(BSD-3-Clause OR GPL-2.0)", body: "L36", copyright: ["Copyright (c) 2010, Digital Bazaar, Inc.","Copyright (C) 1989, 1991 Free Software Foundation, Inc."] },
+  { name: "node-forge", version: "1.4.2", license: "(BSD-3-Clause OR GPL-2.0)", body: "L36", copyright: ["Copyright (c) 2010, Digital Bazaar, Inc.","Copyright (C) 1989, 1991 Free Software Foundation, Inc."] },
   { name: "node-int64", version: "0.4.0", license: "MIT", body: "L2", copyright: ["Copyright (c) 2014 Robert Kieffer"] },
   { name: "node-releases", version: "2.0.57", license: "MIT", body: "L37", copyright: ["Copyright (c) 2017 Sergey Rubanov (https://github.com/chicoxyzzy)"] },
   { name: "npm-package-arg", version: "11.0.3", license: "ISC", body: "L4", copyright: ["Copyright (c) npm, Inc."] },

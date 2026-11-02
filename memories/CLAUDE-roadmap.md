@@ -145,7 +145,7 @@ Version is the one whose changelog carries it.
 | Library  | Deep links (`tomotv:///player?videoId=`)                          | Shipped     | 2.0.0 Top Shelf; works from any caller, undocumented |
 | Library  | Live TV: guide, DVR, channels through the engine                  | Shipped     | 2.2.6                                                |
 | Library  | Trakt scrobbling                                                  | Open        | second ring                                          |
-| Library  | OpenSubtitles download                                            | Open        | second ring, built once and removed                  |
+| Library  | OpenSubtitles download                                            | Shipped     | 2.2.14, Tomo's own key, optional viewer sign-in      |
 | Accounts | Saved sign-ins, per-account DeviceId, Continue as, Switch Server  | Shipped     | 2.1.0                                                |
 | Accounts | In-app profiles picker, PIN                                       | Open        | 3.2.0                                                |
 | Accounts | tvOS system-user mapping                                          | Open        | 3.2.0 Phase B, blocked on Apple                      |
@@ -218,8 +218,7 @@ with per-account DeviceId already cover the storage half.
 
 ### Second ring (prioritise by demand)
 
-Jellyseerr (see field lesson 1), Trakt scrobbling, OpenSubtitles download,
-secondary subtitles, iCloud settings sync, Catalyst build.
+Jellyseerr (see field lesson 1), Trakt scrobbling, secondary subtitles, iCloud settings sync, Catalyst build.
 
 ## Deliberate non-goals
 

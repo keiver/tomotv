@@ -23,6 +23,7 @@ jest.mock("@/components/item-shelf", () => ({ ItemShelf: () => null }));
 jest.mock("@/components/media-shelf", () => ({ MediaShelf: () => null }));
 jest.mock("@/components/folder-grid-item", () => ({ FolderGridItem: () => null }));
 jest.mock("@/components/video-grid-item", () => ({ VideoGridItem: () => null }));
+jest.mock("@/components/card-zoom-pinch", () => ({ CardZoomPinch: ({ children }: { children: React.ReactNode }) => children }));
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 
 it("stops a shelf's scroll event before the page and claims nothing itself", () => {

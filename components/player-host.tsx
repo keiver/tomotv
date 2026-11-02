@@ -244,6 +244,9 @@ export function PlayerHost() {
     showLoadingOverlay,
     pause,
     retry,
+    reloadAtPlayhead,
+    applySubtitleTimeOffset,
+    alignSubtitleTiming,
     videoDetails,
     togglePlay,
     seekBy,
@@ -253,6 +256,7 @@ export function PlayerHost() {
     selectedTextTrack,
     selectedAudioTrack,
     chapterFrameBaseUrl,
+    activeTextSubtitle,
   } = useVideoPlayback({
     videoId: session?.videoId ?? "",
     skip: session === null || liveSettling,
@@ -511,8 +515,9 @@ export function PlayerHost() {
       playbackState: state,
       showLoadingOverlay,
       hasStream: shownUri !== null,
+      activeTextSubtitle,
     });
-  }, [publish, hostMode, session, state, showLoadingOverlay, shownUri]);
+  }, [publish, hostMode, session, state, showLoadingOverlay, shownUri, activeTextSubtitle]);
 
   // Playback owns the link and the JS thread while a session lives, so competing
   // background work stands down. Held through a detached PiP window too.
@@ -944,11 +949,30 @@ export function PlayerHost() {
         pause();
       },
       retry,
+      reloadSubtitles: reloadAtPlayhead,
+      applySubtitleTimeOffset,
+      alignSubtitleTiming,
       seekBy,
       togglePlay,
       toggleVideoFill,
     }),
-    [answerRestore, applyPending, applySession, clearPresentationWait, endSession, leaveRoute, pause, retry, seekBy, setPip, togglePlay, toggleVideoFill],
+    [
+      alignSubtitleTiming,
+      answerRestore,
+      applyPending,
+      applySession,
+      applySubtitleTimeOffset,
+      clearPresentationWait,
+      endSession,
+      leaveRoute,
+      pause,
+      reloadAtPlayhead,
+      retry,
+      seekBy,
+      setPip,
+      togglePlay,
+      toggleVideoFill,
+    ],
   );
 
   useEffect(() => {

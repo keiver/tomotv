@@ -3,10 +3,15 @@ import {
   activeCategory,
   activeChannelList,
   activePlaylistGroup,
+  channelDisplayName,
   channelFavorite,
   channelSortParam,
   channelsInList,
   createGroup,
+  hideChannel,
+  isHiddenChannel,
+  renameChannel,
+  unhideChannel,
   DEFAULT_LIVE_TV_PREFERENCES,
   deleteGroup,
   getLiveTvPreferences,
@@ -49,6 +54,8 @@ describe("live TV preferences", () => {
       sort: "name",
       favorites: [{ number: "9.1", name: "KQED" }, { name: "Al Jazeera English" }],
       groups: [],
+      hidden: [],
+      renames: [],
       playlistEdits: {},
       categoryEdits: {},
       guideUrls: [],
@@ -56,7 +63,6 @@ describe("live TV preferences", () => {
       recordingMinutes: 120,
       hideOffline: false,
       compactColumn: false,
-      skipCommercials: true,
       connectionLimits: {},
     });
     // A connection limit survives only as a listed number under a host; anything else is dropped.
@@ -89,9 +95,6 @@ describe("live TV preferences", () => {
     expect(parseLiveTvPreferences({ hideOffline: "yes" }).hideOffline).toBe(false);
     expect(parseLiveTvPreferences({ compactColumn: true }).compactColumn).toBe(true);
     expect(parseLiveTvPreferences({ compactColumn: 1 }).compactColumn).toBe(false);
-    // Commercial auto-skip defaults on; only a stored boolean turns it off.
-    expect(parseLiveTvPreferences({ skipCommercials: false }).skipCommercials).toBe(false);
-    expect(parseLiveTvPreferences({ skipCommercials: "no" }).skipCommercials).toBe(true);
   });
 
   it("reads a favorites-only document from the previous build as the Favorites filter", () => {
@@ -358,5 +361,65 @@ describe("favorites and groups per user", () => {
     const second = preferences.getLiveTvPreferences();
     expect(second).not.toBe(first);
     expect(preferences.getLiveTvPreferences()).toBe(second);
+  });
+
+  it("keeps each user's hidden channels and renames apart, and reads them back after a relaunch", () => {
+    const { preferences, signIn } = load();
+    signIn("a");
+    preferences.hideChannel({ Id: "x", ...kqed });
+    preferences.renameChannel(unnumbered, "AJE");
+    signIn("b");
+    expect(preferences.getLiveTvPreferences().hidden).toEqual([]);
+    expect(preferences.getLiveTvPreferences().renames).toEqual([]);
+    const again = load();
+    again.signIn("a");
+    expect(again.preferences.getLiveTvPreferences().hidden).toEqual([{ id: "x", number: "9.1", name: "KQED" }]);
+    expect(again.preferences.getLiveTvPreferences().renames).toEqual([{ name: "Al Jazeera English", displayName: "AJE" }]);
+  });
+});
+
+describe("hidden and renamed channels", () => {
+  beforeEach(() => Settings.set({ [LIVE_TV_PREFERENCES_KEY]: undefined }));
+
+  it("reads a hidden list and renames field by field, dropping a rename without a name", () => {
+    const parsed = parseLiveTvPreferences({
+      hidden: [{ number: "9.1", name: "KQED" }, { bogus: true }],
+      renames: [{ name: "Al Jazeera English", displayName: "AJE" }, { name: "KQED", displayName: " " }, { displayName: "No name" }],
+    });
+    expect(parsed.hidden).toEqual([{ number: "9.1", name: "KQED" }]);
+    expect(parsed.renames).toEqual([{ name: "Al Jazeera English", displayName: "AJE" }]);
+  });
+
+  it("hides a channel by number and name, and shows it again by its entry", () => {
+    hideChannel({ Id: "x", ...kqed });
+    hideChannel({ Id: "y", ...kqed });
+    expect(getLiveTvPreferences().hidden).toEqual([{ id: "x", number: "9.1", name: "KQED" }]);
+    expect(isHiddenChannel(getLiveTvPreferences(), { Id: "other-server", ...kqed })).toBe(true);
+    expect(isHiddenChannel(getLiveTvPreferences(), kqedPlus)).toBe(false);
+    unhideChannel({ number: "9.1", name: "KQED" });
+    expect(getLiveTvPreferences().hidden).toEqual([]);
+  });
+
+  it("renames a channel, keys the rename by the server's name, and removes it for an empty or unchanged name", () => {
+    renameChannel({ Id: "x", ...kqed }, " PBS ");
+    expect(getLiveTvPreferences().renames).toEqual([{ id: "x", number: "9.1", name: "KQED", displayName: "PBS" }]);
+    expect(channelDisplayName(getLiveTvPreferences(), kqed)).toBe("PBS");
+    // A channel already shown under its rename still names the same entry through SourceName.
+    const shown = { Id: "x", Name: "PBS", SourceName: "KQED", ChannelNumber: "9.1" };
+    expect(channelFavorite(shown)).toEqual({ id: "x", number: "9.1", name: "KQED" });
+    expect(channelDisplayName(getLiveTvPreferences(), shown)).toBe("PBS");
+    expect(isFavoriteChannel({ ...getLiveTvPreferences(), favorites: [{ number: "9.1", name: "KQED" }] }, shown)).toBe(true);
+    // A timer knows the channel by id and name alone.
+    expect(channelDisplayName(getLiveTvPreferences(), { Id: "x", Name: "KQED" })).toBe("PBS");
+    expect(channelDisplayName(getLiveTvPreferences(), { Id: "z", Name: "KQED" })).toBe("KQED");
+    renameChannel(kqed, "Sports");
+    expect(getLiveTvPreferences().renames).toHaveLength(1);
+    expect(channelDisplayName(getLiveTvPreferences(), kqed)).toBe("Sports");
+    renameChannel(kqed, "KQED");
+    expect(getLiveTvPreferences().renames).toEqual([]);
+    renameChannel(unnumbered, "AJE");
+    renameChannel(unnumbered, "");
+    expect(getLiveTvPreferences().renames).toEqual([]);
+    expect(channelDisplayName(getLiveTvPreferences(), shown)).toBe("KQED");
   });
 });

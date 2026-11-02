@@ -9,31 +9,6 @@ import XCTest
 final class LivePipelineTests: XCTestCase {
     private static let ffprobe = "/opt/homebrew/bin/ffprobe"
 
-    private struct Entry {
-        let name: String
-        let duration: Double
-        let map: String
-        let closedBySplice: Bool
-    }
-
-    /// Segments in playlist order with the MAP in force and whether a DISCONTINUITY follows.
-    private func entries(_ playlist: String) -> [Entry] {
-        let lines = playlist.split(separator: "\n").map(String.init)
-        var out: [Entry] = []
-        var map = ""
-        for (i, line) in lines.enumerated() where line.hasPrefix("#EXTINF:") || line.hasPrefix("#EXT-X-MAP:URI=") {
-            if line.hasPrefix("#EXT-X-MAP:URI=") {
-                map = String(line.dropFirst(16).dropLast())
-                continue
-            }
-            let duration = Double(line.dropFirst(8).dropLast()) ?? -1
-            let name = lines[i + 1]
-            let next = i + 2 < lines.count ? lines[i + 2] : ""
-            out.append(Entry(name: name, duration: duration, map: map, closedBySplice: next == "#EXT-X-DISCONTINUITY"))
-        }
-        return out
-    }
-
     private func firstVideoDts(dir: URL, map: String, segment: String) throws -> Double {
         let data = try Data(contentsOf: dir.appendingPathComponent(map)) + Data(contentsOf: dir.appendingPathComponent(segment))
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("live-\(segment).mp4")
@@ -48,27 +23,6 @@ final class LivePipelineTests: XCTestCase {
         p.waitUntilExit()
         let out = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         return try XCTUnwrap(Double(out.split(separator: "\n").first ?? ""), "no dts from \(segment): \(out)")
-    }
-
-    /// ffprobe fields of `init + segment` from the session directory: codec, dimension or rate, extradata size.
-    private func probeRendition(dir: URL, map: String, segment: String, entries: String) throws -> (fields: [String], context: String) {
-        let initData = try Data(contentsOf: dir.appendingPathComponent(map))
-        let segmentData = try Data(contentsOf: dir.appendingPathComponent(segment))
-        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("live-probe-\(segment).mp4")
-        try (initData + segmentData).write(to: tmp)
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: Self.ffprobe)
-        p.arguments = ["-v", "error", "-select_streams", "0", "-show_entries", entries, "-of", "csv=p=0", tmp.path]
-        let pipe = Pipe()
-        let errPipe = Pipe()
-        p.standardOutput = pipe
-        p.standardError = errPipe
-        try p.run()
-        p.waitUntilExit()
-        let out = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-        let err = String(decoding: errPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-        let context = "\(map)+\(segment): init \(initData.count) bytes, segment \(segmentData.count) bytes, ffprobe: \(out) / \(err)"
-        return (out.split(separator: ",").map(String.init), context)
     }
 
     /// Two ADTS AAC tracks from a TS source, each stream-copied into its own audio rendition:
@@ -94,7 +48,7 @@ final class LivePipelineTests: XCTestCase {
 
         var playlist = ""
         let formed = Date().addingTimeInterval(60)
-        while Date() < formed, entries(playlist).count < 2 {
+        while Date() < formed, playlistEntries(playlist).count < 2 {
             lock.lock()
             let f = failure
             lock.unlock()
@@ -109,7 +63,7 @@ final class LivePipelineTests: XCTestCase {
         let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("localremux").appendingPathComponent(session.token)
         for (prefix, rate, channels) in [("a0", "48000", "2"), ("a1", "22050", "1")] {
-            let list = entries(session.mediaPlaylist(prefix: prefix))
+            let list = playlistEntries(session.mediaPlaylist(prefix: prefix))
             XCTAssertGreaterThanOrEqual(list.count, 2, prefix)
             guard list.count >= 2 else { continue }
             let (fields, context) = try probeRendition(dir: dir, map: list[1].map, segment: list[1].name, entries: "stream=codec_name,sample_rate,channels,extradata_size")
@@ -118,7 +72,7 @@ final class LivePipelineTests: XCTestCase {
             XCTAssertEqual(fields.count > 2 ? fields[2] : nil, channels, context)
             XCTAssertEqual(fields.count > 3 ? fields[3] : nil, "2", "AudioSpecificConfig missing: \(context)")
         }
-        let video = entries(session.mediaPlaylist())
+        let video = playlistEntries(session.mediaPlaylist())
         XCTAssertGreaterThanOrEqual(video.count, 2)
         if video.count >= 2 {
             let (fields, context) = try probeRendition(dir: dir, map: video[1].map, segment: video[1].name, entries: "stream=codec_name,width")
@@ -139,13 +93,13 @@ final class LivePipelineTests: XCTestCase {
             rolled = session.mediaPlaylist()
         }
         XCTAssertTrue(rolled.contains("#EXT-X-DISCONTINUITY"), "no generation roll within 75s: \(rolled)")
-        let afterRoll = entries(rolled).count
+        let afterRoll = playlistEntries(rolled).count
         Thread.sleep(forTimeInterval: 8)
         lock.lock()
         let late = failure
         lock.unlock()
         XCTAssertNil(late, "session failed after the splice")
-        XCTAssertGreaterThan(entries(session.mediaPlaylist()).count, afterRoll, "no segments after the splice")
+        XCTAssertGreaterThan(playlistEntries(session.mediaPlaylist()).count, afterRoll, "no segments after the splice")
     }
 
     /// An Annex-B H.264 TS source stream-copied: this FFmpeg build has no extract_extradata bsf,
@@ -173,7 +127,7 @@ final class LivePipelineTests: XCTestCase {
 
         var playlist = ""
         let formed = Date().addingTimeInterval(60)
-        while Date() < formed, entries(playlist).count < 2 {
+        while Date() < formed, playlistEntries(playlist).count < 2 {
             lock.lock()
             let f = failure
             lock.unlock()
@@ -181,13 +135,13 @@ final class LivePipelineTests: XCTestCase {
             playlist = session.mediaPlaylist()
             Thread.sleep(forTimeInterval: 1)
         }
-        let list = entries(playlist)
+        let list = playlistEntries(playlist)
         XCTAssertGreaterThanOrEqual(list.count, 2, playlist)
         let announced = try XCTUnwrap(Int(try XCTUnwrap(playlist.split(separator: "\n").first { $0.hasPrefix("#EXT-X-TARGETDURATION:") }).dropFirst(22)))
         Thread.sleep(forTimeInterval: 30)
         let later = session.mediaPlaylist()
         XCTAssertTrue(later.contains("#EXT-X-TARGETDURATION:\(announced)\n"), "TARGETDURATION moved: \(later)")
-        for entry in entries(later) {
+        for entry in playlistEntries(later) {
             XCTAssertLessThanOrEqual(entry.duration.rounded(), Double(announced), "\(entry.name) is \(entry.duration)s against TARGETDURATION \(announced)")
             XCTAssertLessThanOrEqual(entry.duration, Double(announced) + 0.5, "\(entry.name) exceeds the target by more than 0.5s")
         }
@@ -262,7 +216,7 @@ final class LivePipelineTests: XCTestCase {
 
         var playlist = ""
         let deadline = Date().addingTimeInterval(30)
-        while Date() < deadline, entries(playlist).isEmpty {
+        while Date() < deadline, playlistEntries(playlist).isEmpty {
             lock.lock()
             let f = failure
             lock.unlock()
@@ -270,7 +224,7 @@ final class LivePipelineTests: XCTestCase {
             playlist = session.mediaPlaylist()
             Thread.sleep(forTimeInterval: 0.5)
         }
-        let first = try XCTUnwrap(entries(playlist).first, playlist)
+        let first = try XCTUnwrap(playlistEntries(playlist).first, playlist)
         let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("localremux").appendingPathComponent(session.token)
         let probe = try probeRendition(dir: dir, map: first.map, segment: first.name, entries: "stream=codec_name,extradata_size")
@@ -303,12 +257,12 @@ final class LivePipelineTests: XCTestCase {
         // Three segments: the window is forming.
         var playlist = ""
         let formed = Date().addingTimeInterval(90)
-        while Date() < formed, entries(playlist).count < 3 {
+        while Date() < formed, playlistEntries(playlist).count < 3 {
             if let f = failed() { return XCTFail("session failed: \(f)") }
             playlist = session.mediaPlaylist()
             Thread.sleep(forTimeInterval: 1)
         }
-        var list = entries(playlist)
+        var list = playlistEntries(playlist)
         XCTAssertGreaterThanOrEqual(list.count, 3, playlist)
         XCTAssertFalse(playlist.contains("#EXT-X-ENDLIST"))
         XCTAssertFalse(playlist.contains("#EXT-X-PLAYLIST-TYPE"))
@@ -332,7 +286,7 @@ final class LivePipelineTests: XCTestCase {
             Thread.sleep(forTimeInterval: 1)
         }
         XCTAssertTrue(playlist.contains("#EXT-X-DISCONTINUITY\n"), playlist)
-        list = entries(playlist)
+        list = playlistEntries(playlist)
         let splice = try XCTUnwrap(list.firstIndex { $0.closedBySplice }, playlist)
         XCTAssertLessThan(splice + 1, list.count, "no segment after the splice yet")
         XCTAssertNotEqual(list[splice].map, list[splice + 1].map, "the new generation must carry its own init")
@@ -341,7 +295,7 @@ final class LivePipelineTests: XCTestCase {
         let before = list.count
         Thread.sleep(forTimeInterval: 15)
         playlist = session.mediaPlaylist()
-        XCTAssertGreaterThan(entries(playlist).count, before, "production stopped after the splice")
+        XCTAssertGreaterThan(playlistEntries(playlist).count, before, "production stopped after the splice")
         XCTAssertNil(failed())
 
         // Output time keeps climbing across the splice: the first decode time after it is past
@@ -397,7 +351,7 @@ final class LivePipelineTests: XCTestCase {
 
         var playlist = ""
         let deadline = Date().addingTimeInterval(60)
-        while Date() < deadline, entries(playlist).count < 3 {
+        while Date() < deadline, playlistEntries(playlist).count < 3 {
             lock.lock()
             let f = failure
             lock.unlock()
@@ -405,7 +359,7 @@ final class LivePipelineTests: XCTestCase {
             playlist = session.mediaPlaylist()
             Thread.sleep(forTimeInterval: 1)
         }
-        let list = entries(playlist)
+        let list = playlistEntries(playlist)
         XCTAssertGreaterThanOrEqual(list.count, 3, playlist)
         guard FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/ffmpeg") else { return }
         let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
@@ -443,7 +397,7 @@ final class LivePipelineTests: XCTestCase {
 
         var playlist = ""
         let deadline = Date().addingTimeInterval(60)
-        while Date() < deadline, entries(playlist).count < 4 {
+        while Date() < deadline, playlistEntries(playlist).count < 4 {
             lock.lock()
             let f = failure
             lock.unlock()
@@ -451,7 +405,7 @@ final class LivePipelineTests: XCTestCase {
             playlist = session.mediaPlaylist()
             Thread.sleep(forTimeInterval: 1)
         }
-        let video = entries(playlist)
+        let video = playlistEntries(playlist)
         XCTAssertGreaterThanOrEqual(video.count, 4, playlist)
 
         // The subtitle playlist mirrors the video window: live form, same count, VTT names, no MAP.
@@ -552,7 +506,7 @@ final class LivePipelineTests: XCTestCase {
 
         var playlist = ""
         let deadline = Date().addingTimeInterval(90)
-        while Date() < deadline, entries(playlist).count < 3 {
+        while Date() < deadline, playlistEntries(playlist).count < 3 {
             lock.lock()
             let f = failure
             lock.unlock()
@@ -560,7 +514,7 @@ final class LivePipelineTests: XCTestCase {
             playlist = session.mediaPlaylist()
             Thread.sleep(forTimeInterval: 1)
         }
-        let list = entries(playlist)
+        let list = playlistEntries(playlist)
         XCTAssertGreaterThanOrEqual(list.count, 3, playlist)
         XCTAssertFalse(playlist.contains("#EXT-X-ENDLIST"), playlist)
         XCTAssertTrue(playlist.contains("#EXT-X-MEDIA-SEQUENCE:"), playlist)
@@ -663,12 +617,12 @@ final class LivePipelineTests: XCTestCase {
 
         var playlist = ""
         let deadline = Date().addingTimeInterval(90)
-        while Date() < deadline, entries(playlist).count < 3 {
+        while Date() < deadline, playlistEntries(playlist).count < 3 {
             if let f = failed() { return XCTFail("session failed: \(f)") }
             playlist = session.mediaPlaylist()
             Thread.sleep(forTimeInterval: 1)
         }
-        let list = entries(playlist)
+        let list = playlistEntries(playlist)
         XCTAssertGreaterThanOrEqual(list.count, 3, playlist)
 
         let targetLine = try XCTUnwrap(playlist.split(separator: "\n").first { $0.hasPrefix("#EXT-X-TARGETDURATION:") })

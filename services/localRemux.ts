@@ -38,6 +38,7 @@ import {
   requestPosterFrame as requestEnginePosterFrame,
   setPosterFramesPaused,
   startSession,
+  updateSubtitles,
   videoCodecTag as engineVideoCodecTag,
   videoDecodeSupport,
   type EngineStopRequest,
@@ -54,6 +55,8 @@ import { deviceDecodes, isLiveSource, sourceVideoRange } from "@/services/jellyf
 import { linkRungsAllowed, serverTranscodeAllowed } from "@/services/transcodePolicy";
 import { rememberedVerdict } from "@/services/engineVerdicts";
 import { localMediaUri, localSubtitleUri, playsFromDisk } from "@/services/downloads/localSource";
+import { deviceSubtitleIndex, deviceSubtitles } from "@/services/subtitles/store";
+import { subtitleOffsetMs } from "@/services/subtitles/timing";
 import { getAudioRenditionUrl, getRemoteVideoStreamUrl, getTierPlaylistUrl, getVideoStreamUrl } from "@/services/jellyfin/streamUrls";
 import { rememberedBitrate } from "@/services/jellyfin/bitrateTest";
 import type { JellyfinMediaStream, JellyfinVideoItem } from "@/types/jellyfin";
@@ -619,7 +622,8 @@ function buildSubtitleRenditions(videoItem: JellyfinVideoItem, imageOnly: boolea
       // follow, and handing it one loses the whole asset, not just the subtitle.
       const localVtt = isImage ? "" : (localSubtitleUri(videoItem.Id, index) ?? "");
       const isEngineText = !isImage && !localVtt && stream.IsExternal !== true;
-      const vttUrl = isImage || isEngineText || localVtt ? "" : getSubtitleUrl(videoItem.Id, index, "vtt");
+      // A held file's session carries no server URL: a sidecar missing from disk is dropped below.
+      const vttUrl = isImage || isEngineText || localVtt || playsFromDisk(videoItem.Id) ? "" : getSubtitleUrl(videoItem.Id, index, "vtt");
       const serverSupUrl = isImage && stream.IsExternal === true ? externalImageSubtitleUrl(videoItem, stream) : "";
       if (isImage && stream.IsExternal === true && !serverSupUrl) return dropped("no bitmap subtitle supplier", index);
       if (!isImage && !isEngineText && !localVtt && !isRemoteSubtitleUrl(vttUrl)) return dropped("no text subtitle supplier", index);
@@ -648,7 +652,7 @@ function buildSubtitleRenditions(videoItem: JellyfinVideoItem, imageOnly: boolea
   // because the invariant belongs to the playlist, not to this caller.
   const firstDefault = shipped.findIndex((entry) => entry.stream.IsDefault === true);
 
-  return shipped.map((entry, position) => ({
+  const renditions: SubtitleRendition[] = shipped.map((entry, position) => ({
     index: entry.index,
     name: labels[position],
     language: entry.stream.Language || "und",
@@ -666,6 +670,34 @@ function buildSubtitleRenditions(videoItem: JellyfinVideoItem, imageOnly: boolea
     isEngineText: entry.isEngineText,
     ...(entry.isImage && entry.stream.IsExternal === true ? { serverSupUrl: entry.serverSupUrl } : {}),
     ...(entry.source ? { source: entry.source } : {}),
+    ...(entry.isImage ? {} : timeOffset(videoItem.Id, entry.index)),
+  }));
+  return imageOnly ? renditions : [...renditions, ...deviceSubtitleRenditions(videoItem, renditions.length)];
+}
+
+/** The viewer's stored time correction for a text track, as the one rendition field it adds, or nothing. */
+function timeOffset(itemId: string, streamIndex: number): Pick<SubtitleRendition, "timeOffsetMs"> {
+  const offset = subtitleOffsetMs(getCachedConfig().server, itemId, streamIndex);
+  return offset === 0 ? {} : { timeOffsetMs: offset };
+}
+
+/** Subtitles found by this app and kept on the device, published after the file's own; the engine serves each file. */
+export function deviceSubtitleRenditions(videoItem: Pick<JellyfinVideoItem, "Id">, position: number): SubtitleRendition[] {
+  const kept = deviceSubtitles(getCachedConfig().server, videoItem.Id);
+  const names = publishedRenditionNames(kept.map((entry) => ({ name: manifestName(entry.name) || `Track ${position + entry.ordinal + 1}`, index: deviceSubtitleIndex(entry.ordinal) })));
+  return kept.map((entry, at) => ({
+    index: deviceSubtitleIndex(entry.ordinal),
+    name: names[at],
+    language: entry.language || "und",
+    vttUrl: "",
+    localVtt: entry.uri,
+    isDefault: false,
+    isForced: entry.forced,
+    isHearingImpaired: entry.hearingImpaired,
+    isImage: false,
+    isExternal: true,
+    isEngineText: false,
+    ...timeOffset(videoItem.Id, deviceSubtitleIndex(entry.ordinal)),
   }));
 }
 
@@ -902,6 +934,18 @@ export async function startLocalRemux(
   });
 
   return url;
+}
+
+/**
+ * Replaces the running session's subtitle tracks with the item's current list (the same shared
+ * builder the session opened with), re-anchored at `atSeconds`. Resolves the fresh master URL the
+ * player swaps to, or null when the session is gone, live, or the binary has no such method.
+ */
+export async function updateSessionSubtitles(videoItem: JellyfinVideoItem, token: string, atSeconds: number, options: { serverVideoOnly?: boolean } = {}): Promise<string | null> {
+  if (isLiveSource(videoItem)) return null;
+  const subtitles = sessionSubtitleRenditions(videoItem);
+  const served = options.serverVideoOnly === true ? subtitles.filter((sub) => !sub.isEngineText && (!sub.isImage || sub.isExternal === true)) : subtitles;
+  return updateSubtitles(token, served, atSeconds);
 }
 
 /** Where Jellyfin's own screen grabber takes a poster: a tenth of the way in, or 10 s when the runtime is unknown. */

@@ -12,7 +12,7 @@ jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn()
 jest.mock("@/components/ambient-background", () => ({ AmbientBackground: () => null }));
 jest.mock("@/components/brand-corners", () => ({ BrandCorners: () => null }));
 jest.mock("@/components/loading-row", () => ({ LoadingRow: () => null }));
-jest.mock("@/components/settings/ServerConnectScreen", () => ({ ServerConnectScreen: () => null }));
+jest.mock("@/components/settings/WhoIsWatchingScreen", () => ({ WhoIsWatchingScreen: () => null }));
 jest.mock("@/services/jellyfinApi", () => ({
   getStoredUserName: jest.fn(async () => ""),
   getUserImageUrl: jest.fn(),

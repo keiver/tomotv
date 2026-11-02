@@ -247,10 +247,10 @@ index 0000000..ceb1f75
 +#endif
 diff --git a/node_modules/react-native-video/ios/Video/Features/RCTContentProposalViewController.swift b/node_modules/react-native-video/ios/Video/Features/RCTContentProposalViewController.swift
 new file mode 100644
-index 0000000..6250731
+index 0000000..8a76a8b
 --- /dev/null
 +++ b/node_modules/react-native-video/ios/Video/Features/RCTContentProposalViewController.swift
-@@ -0,0 +1,279 @@
+@@ -0,0 +1,306 @@
 +//
 +//  RCTContentProposalViewController.swift
 +//
@@ -300,9 +300,17 @@ index 0000000..6250731
 +        // animation window before viewWillDisappear stops the timer.
 +        private var didFinish = false
 +
++        /// The app's primary image ratio (width over height): the card's shape until the picture lands.
++        private var imageAspectRatio: CGFloat?
++        private var posterWidth: NSLayoutConstraint?
++        private static let posterHeight: CGFloat = 300
++        private static let posterRatio: CGFloat = 2 / 3
++        private static let posterRatioRange: ClosedRange<CGFloat> = (2 / 3)...(16 / 9)
++
 +        /// Called when the player item or proposal config changes, before the card appears.
 +        /// Artwork/setting updates for the same item must preserve its end time and focus.
-+        func configure(for item: AVPlayerItem?, automaticAcceptanceInterval: TimeInterval?) {
++        func configure(for item: AVPlayerItem?, automaticAcceptanceInterval: TimeInterval?, imageAspectRatio: CGFloat? = nil) {
++            self.imageAspectRatio = imageAspectRatio
 +            if playbackItem !== item {
 +                if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
 +                endObserver = nil
@@ -327,7 +335,24 @@ index 0000000..6250731
 +            // when a late preference update switches automatic playback off.
 +            if isAppearing { dateOfAutomaticAcceptance = nil }
 +            updateEndAppearance()
++            updatePoster()
 +            updateCountdownTimer()
++        }
++
++        /// The picture's own ratio first, then the app's, then a poster's 2:3; clamped so a banner
++        /// cannot push the title and buttons off the card.
++        private func updatePoster() {
++            guard let posterWidth else { return }
++            let image = contentProposal?.previewImage
++            var ratio = Self.posterRatio
++            if let image, image.size.width > 0, image.size.height > 0 {
++                ratio = image.size.width / image.size.height
++            } else if let imageAspectRatio, imageAspectRatio.isFinite, imageAspectRatio > 0 {
++                ratio = imageAspectRatio
++            }
++            ratio = min(max(ratio, Self.posterRatioRange.lowerBound), Self.posterRatioRange.upperBound)
++            posterWidth.constant = (Self.posterHeight * ratio).rounded()
++            posterView.image = image
 +        }
 +
 +        deinit {
@@ -394,7 +419,10 @@ index 0000000..6250731
 +            closeButton.addTarget(self, action: #selector(rejectProposal), for: .primaryActionTriggered)
 +            view.addSubview(closeButton)
 +
++            let posterWidth = posterView.widthAnchor.constraint(equalToConstant: (Self.posterHeight * Self.posterRatio).rounded())
++            self.posterWidth = posterWidth
 +            NSLayoutConstraint.activate([
++                posterWidth,
 +                dimView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
 +                dimView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
 +                dimView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -402,8 +430,7 @@ index 0000000..6250731
 +
 +                posterView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 90),
 +                posterView.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -80),
-+                posterView.widthAnchor.constraint(equalToConstant: 200),
-+                posterView.heightAnchor.constraint(equalToConstant: 300),
++                posterView.heightAnchor.constraint(equalToConstant: Self.posterHeight),
 +
 +                upNextLabel.leadingAnchor.constraint(equalTo: posterView.trailingAnchor, constant: 40),
 +                upNextLabel.topAnchor.constraint(equalTo: posterView.topAnchor, constant: 8),
@@ -446,7 +473,7 @@ index 0000000..6250731
 +        override func viewWillAppear(_ animated: Bool) {
 +            super.viewWillAppear(animated)
 +            titleLabel.text = contentProposal?.title
-+            posterView.image = contentProposal?.previewImage
++            updatePoster()
 +            isAppearing = true
 +            didFinish = false
 +            dateOfAutomaticAcceptance = nil
@@ -1404,7 +1431,7 @@ index 7927c37..04d4e01 100644
          if let newPlayer = players.allObjects.first(where: {
              $0.rate != 0
 diff --git a/node_modules/react-native-video/ios/Video/RCTVideo.swift b/node_modules/react-native-video/ios/Video/RCTVideo.swift
-index 5f2f5f6..84b21d1 100644
+index 5f2f5f6..565f234 100644
 --- a/node_modules/react-native-video/ios/Video/RCTVideo.swift
 +++ b/node_modules/react-native-video/ios/Video/RCTVideo.swift
 @@ -16,6 +16,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
@@ -1418,7 +1445,7 @@ index 5f2f5f6..84b21d1 100644
      private var _videoURL: NSURL?
  
      /* Required to publish events */
-@@ -132,6 +136,407 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -132,6 +136,411 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
      @objc var onTextTracks: RCTDirectEventBlock?
      @objc var onAudioTracks: RCTDirectEventBlock?
      @objc var onTextTrackDataChanged: RCTDirectEventBlock?
@@ -1448,7 +1475,11 @@ index 5f2f5f6..84b21d1 100644
 +                return
 +            }
 +            let autoAccept = dict["autoAcceptSeconds"] as? Double
-+            panel?.configure(for: item, automaticAcceptanceInterval: autoAccept)
++            panel?.configure(
++                for: item,
++                automaticAcceptanceInterval: autoAccept,
++                imageAspectRatio: (dict["imageAspectRatio"] as? Double).map { CGFloat($0) }
++            )
 +            // No credits marker: a beat before the item's own end, a time playback passes. Not
 +            // .indefinite, which AVKit never reached on device: the card never came and the queue
 +            // stalled. The duration is known once the item is ready; handleReadyToPlay applies again.
@@ -1826,7 +1857,7 @@ index 5f2f5f6..84b21d1 100644
  
      @objc
      func _onPictureInPictureEnter() {
-@@ -334,6 +739,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -334,6 +743,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                  for subview in playerViewController.contentOverlayView?.subviews ?? [] {
                      subview.frame = UIScreen.main.bounds
                  }
@@ -1837,7 +1868,7 @@ index 5f2f5f6..84b21d1 100644
              }
          }
      }
-@@ -559,6 +968,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -559,6 +972,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          _player?.pause()
          _playerItem = playerItem
          _playerObserver.playerItem = _playerItem
@@ -1855,7 +1886,7 @@ index 5f2f5f6..84b21d1 100644
          setPreferredForwardBufferDuration(_preferredForwardBufferDuration)
          setPlaybackRange(playerItem, withCropStart: _source?.cropStart, withCropEnd: _source?.cropEnd)
          setFilter(_filterName)
-@@ -682,7 +1102,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -682,7 +1106,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                      DebugLog("An error occurred: \(error.localizedDescription)")
  
                      if let self {
@@ -1864,7 +1895,7 @@ index 5f2f5f6..84b21d1 100644
                          self.isSetSourceOngoing = false
                          self.applyNextSource()
  
-@@ -727,6 +1147,12 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -727,6 +1151,12 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
      }
  
      func playerItemPropegateMetadata(_ playerItem: AVPlayerItem!) async -> AVPlayerItem {
@@ -1877,7 +1908,7 @@ index 5f2f5f6..84b21d1 100644
          var mapping: [AVMetadataIdentifier: Any] = [:]
  
          if let title = _source?.customMetadata?.title {
-@@ -745,9 +1171,27 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -745,9 +1175,27 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
              mapping[.commonIdentifierDescription] = description
          }
  
@@ -1906,7 +1937,7 @@ index 5f2f5f6..84b21d1 100644
          }
  
          if #available(iOS 12.2, *), !mapping.isEmpty {
-@@ -756,7 +1200,11 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -756,7 +1204,11 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
  
          #if os(tvOS)
              if let chapters = _chapters {
@@ -1918,7 +1949,7 @@ index 5f2f5f6..84b21d1 100644
              }
          #endif
  
-@@ -834,6 +1282,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -834,6 +1286,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
              } else {
                  _playerObserver.setRestoreUserInterfaceForPIPStopCompletionHandler(restore)
              }
@@ -1934,7 +1965,7 @@ index 5f2f5f6..84b21d1 100644
          #endif
      }
  
-@@ -1080,6 +1537,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1080,6 +1541,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
  
      func setChapters(_ chapters: [Chapter]?) {
          _chapters = chapters
@@ -1949,7 +1980,7 @@ index 5f2f5f6..84b21d1 100644
      }
  
      @objc
-@@ -1112,6 +1577,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1112,6 +1581,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                          self._playerViewController?.removeFromParent()
                      }
  
@@ -1960,7 +1991,7 @@ index 5f2f5f6..84b21d1 100644
                      viewController.present(playerViewController, animated: true, completion: { [weak self] in
                          guard let self else { return }
                          // In fullscreen we must display controls
-@@ -1130,6 +1599,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1130,6 +1603,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                              for subview in self._playerViewController?.contentOverlayView?.subviews ?? [] {
                                  subview.frame = UIScreen.main.bounds
                              }
@@ -1971,7 +2002,7 @@ index 5f2f5f6..84b21d1 100644
                          }
  
                          self.onVideoFullscreenPlayerDidPresent?(["target": self.reactTag as Any])
-@@ -1193,6 +1666,21 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1193,6 +1670,21 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          }
  
          _playerObserver.playerViewController = _playerViewController
@@ -1993,7 +2024,7 @@ index 5f2f5f6..84b21d1 100644
      }
  
      func createPlayerViewController(player: AVPlayer) -> RCTVideoPlayerViewController {
-@@ -1200,6 +1688,23 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1200,6 +1692,24 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          viewController.showsPlaybackControls = self._controls
          #if !os(tvOS)
              viewController.updatesNowPlayingInfoCenter = false
@@ -2011,13 +2042,14 @@ index 5f2f5f6..84b21d1 100644
 +            let proposalController = RCTContentProposalViewController()
 +            proposalController.configure(
 +                for: _contentProposal == nil ? nil : player.currentItem,
-+                automaticAcceptanceInterval: _contentProposal?["autoAcceptSeconds"] as? Double
++                automaticAcceptanceInterval: _contentProposal?["autoAcceptSeconds"] as? Double,
++                imageAspectRatio: (_contentProposal?["imageAspectRatio"] as? Double).map { CGFloat($0) }
 +            )
 +            viewController.contentProposalViewController = proposalController
          #endif
          viewController.rctDelegate = self
          viewController.preferredOrientation = _fullscreenOrientation
-@@ -1382,23 +1887,60 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1382,23 +1892,60 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
  
      // MARK: - React View Management
  
@@ -2088,7 +2120,7 @@ index 5f2f5f6..84b21d1 100644
      }
  
      override func layoutSubviews() {
-@@ -1416,6 +1958,11 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1416,6 +1963,11 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                  subview.frame = bounds
              }
  
@@ -2100,7 +2132,7 @@ index 5f2f5f6..84b21d1 100644
              // ensure preferredContentSize is set when in fullscreen
              if _fullscreenPlayerPresented {
                  _playerViewController.preferredContentSize = CGSize(width: UIScreen.main.bounds.width, height: UIScreen.main.bounds.height)
-@@ -1431,6 +1978,20 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1431,6 +1983,20 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
      // MARK: - Lifecycle
  
      override func removeFromSuperview() {
@@ -2121,7 +2153,7 @@ index 5f2f5f6..84b21d1 100644
          self._player?.replaceCurrentItem(with: nil)
          if let player = _player {
              player.pause()
-@@ -1455,6 +2016,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1455,6 +2021,17 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.removePlayerLayer()
  
          if let _playerViewController {
@@ -2139,7 +2171,7 @@ index 5f2f5f6..84b21d1 100644
              _playerViewController.view.removeFromSuperview()
              _playerViewController.removeFromParent()
              _playerViewController.rctDelegate = nil
-@@ -1565,8 +2137,23 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1565,8 +2142,23 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                  self._startPosition = -1
              }
  
@@ -2164,7 +2196,7 @@ index 5f2f5f6..84b21d1 100644
  
                  if duration.isNaN || duration == 0 {
                      // This is a safety check for live video.
-@@ -1616,10 +2203,18 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1616,10 +2208,18 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
              self._videoLoadStarted = false
              self._playerObserver.attachPlayerEventListeners()
              self.applyModifiers()
@@ -2183,7 +2215,7 @@ index 5f2f5f6..84b21d1 100644
          if let player = _player {
              NowPlayingInfoCenterManager.shared.removePlayer(player: player)
          }
-@@ -1637,6 +2232,8 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1637,6 +2237,8 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                      "domain": (_playerItem.error as NSError?)?.domain ?? "",
                  ],
                  "target": reactTag as Any,
@@ -2192,7 +2224,7 @@ index 5f2f5f6..84b21d1 100644
              ]
          )
      }
-@@ -1742,6 +2339,39 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1742,6 +2344,39 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.onVideoFullscreenPlayerDidDismiss?(["target": self.reactTag as Any])
      }
  
@@ -2232,7 +2264,7 @@ index 5f2f5f6..84b21d1 100644
      @objc
      func handleDidFailToFinishPlaying(notification: NSNotification!) {
          guard onVideoError != nil else { return }
-@@ -2062,7 +2692,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -2062,7 +2697,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                      DebugLog("An error occurred: \(error.localizedDescription)")
  
                      if let self {
@@ -2506,7 +2538,7 @@ index 789d915..cd32524 100644
          />
          {_renderPoster()}
 diff --git a/node_modules/react-native-video/src/specs/VideoNativeComponent.ts b/node_modules/react-native-video/src/specs/VideoNativeComponent.ts
-index 3dcbe01..50f4b9e 100644
+index 3dcbe01..292ca9c 100644
 --- a/node_modules/react-native-video/src/specs/VideoNativeComponent.ts
 +++ b/node_modules/react-native-video/src/specs/VideoNativeComponent.ts
 @@ -24,6 +24,9 @@ type VideoMetadata = Readonly<{
@@ -2519,7 +2551,7 @@ index 3dcbe01..50f4b9e 100644
  }>;
  
  export type AdsConfig = Readonly<{
-@@ -333,6 +336,33 @@ type ControlsStyles = Readonly<{
+@@ -333,6 +336,34 @@ type ControlsStyles = Readonly<{
  
  export type OnControlsVisibilityChange = Readonly<{
    isVisible: boolean;
@@ -2548,12 +2580,13 @@ index 3dcbe01..50f4b9e 100644
 +export type NativeContentProposal = Readonly<{
 +  title: string;
 +  imageUri?: string;
++  imageAspectRatio?: Double;
 +  startTimeSeconds?: Double;
 +  autoAcceptSeconds?: Double;
  }>;
  
  export interface VideoNativeProps extends ViewProps {
-@@ -379,6 +409,21 @@ export interface VideoNativeProps extends ViewProps {
+@@ -379,6 +410,21 @@ export interface VideoNativeProps extends ViewProps {
    bufferingStrategy?: BufferingStrategyType; // Android
    controlsStyles?: ControlsStyles; // Android
    disableAudioSessionManagement?: boolean; // iOS
@@ -2594,7 +2627,7 @@ index 027fd5b..9d88303 100644
    onError?: (e: OnVideoErrorData) => void; //Android, iOS
    onExternalPlaybackChange?: (e: OnExternalPlaybackChangeData) => void; //iOS
 diff --git a/node_modules/react-native-video/src/types/video.ts b/node_modules/react-native-video/src/types/video.ts
-index 0482944..f2e8228 100644
+index 0482944..dcb26af 100644
 --- a/node_modules/react-native-video/src/types/video.ts
 +++ b/node_modules/react-native-video/src/types/video.ts
 @@ -63,6 +63,11 @@ export type VideoMetadata = Readonly<{
@@ -2609,7 +2642,7 @@ index 0482944..f2e8228 100644
  }>;
  
  export type DebugConfig = Readonly<{
-@@ -385,4 +390,48 @@ export interface ReactVideoProps extends ReactVideoEvents, ViewProps {
+@@ -385,4 +390,50 @@ export interface ReactVideoProps extends ReactVideoEvents, ViewProps {
    allowsExternalPlayback?: boolean; // iOS
    controlsStyles?: ControlsStyles; // Android
    disableAudioSessionManagement?: boolean; // iOS
@@ -2617,6 +2650,8 @@ index 0482944..f2e8228 100644
 +  contentProposal?: {
 +    title: string;
 +    imageUri?: string;
++    /** Primary image width over height; the card takes this shape before the image lands. */
++    imageAspectRatio?: number;
 +    startTimeSeconds?: number;
 +    autoAcceptSeconds?: number;
 +  }; // tvOS

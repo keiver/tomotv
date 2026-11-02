@@ -185,6 +185,8 @@ export function useGuide(): GuideState {
   const isFocused = useIsFocused();
   const preferences = useLiveTvPreferences();
   const { sort } = preferences;
+  // A channel hidden or renamed reads the pages again; the key, not the lists, so the deps stay by value.
+  const editsKey = JSON.stringify([preferences.hidden, preferences.renames]);
   // The list alone, not the preferences object: toggling Auto update must not reload the guide.
   const list = activeChannelList(preferences);
   const category = activeCategory(preferences.filter);
@@ -332,7 +334,8 @@ export function useGuide(): GuideState {
       await landPrograms(page);
       return { hasMore, pageLength: page.length, waiting };
     },
-    [sort, list, category, categoryEdit, playlistIds, fetchPrograms],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sort, list, category, categoryEdit, playlistIds, fetchPrograms, editsKey],
   );
 
   const sessionRef = useRef(session);

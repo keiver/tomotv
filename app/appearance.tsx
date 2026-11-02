@@ -1,4 +1,5 @@
 import { AmbientBackground } from "@/components/ambient-background";
+import { CardSizeSection } from "@/components/settings/CardSizeSection";
 import { ListRow } from "@/components/settings/ListRow";
 import { SectionFooter } from "@/components/settings/SectionFooter";
 import { settingsStyles, sideInsets } from "@/components/settings/styles";
@@ -118,6 +119,8 @@ export default function AppearanceScreen() {
               isLast
             />
           </View>
+
+          <CardSizeSection />
         </View>
       </ScrollView>
     </View>

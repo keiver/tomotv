@@ -76,8 +76,10 @@ class ContentProvider: TVTopShelfContentProvider {
 
     Self.fetchItems(request) { resume in
       Self.fetchItems(channelsRequest) { channels in
+        // The channels this account hid leave the shelf as they left the app's lists; a renamed one shows its name.
+        let edits = Self.channelEdits()
         // One list in last-played order, as the app's Continue Watching row reads; never-played channels sort last and drop out.
-        let picked = (resume + channels.filter { $0.UserData?.LastPlayedDate != nil })
+        let picked = (resume + channels.filter { $0.UserData?.LastPlayedDate != nil && !edits.isHidden(id: $0.Id, number: $0.ChannelNumber, name: $0.Name) })
           .enumerated()
           .sorted { ($0.element.playedKey, -$0.offset) > ($1.element.playedKey, -$1.offset) }
           .prefix(Self.limit)
@@ -89,7 +91,7 @@ class ContentProvider: TVTopShelfContentProvider {
         }
         Self.channelCards(for: picked, base: base, apiKey: apiKey) { cards in
           let frames = Self.keyframes()
-          let items = picked.map { Self.makeShelfItem($0, base: base, apiKey: apiKey, card: cards[$0.Id], frame: frames[$0.Id]) }
+          let items = picked.map { Self.makeShelfItem($0, base: base, apiKey: apiKey, card: cards[$0.Id], frame: frames[$0.Id], edits: edits) }
           Self.log.info("returning \(items.count, privacy: .public) items, \(cards.count, privacy: .public) channel cards, \(frames.count, privacy: .public) keyframes")
           completionHandler(TVTopShelfSectionedContent(sections: [TVTopShelfItemCollection(items: items)]))
         }
@@ -112,6 +114,13 @@ class ContentProvider: TVTopShelfContentProvider {
   private static var cardDirectory: URL? {
     FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.dev.keiver.tomotv")?
       .appendingPathComponent("Library/Caches/topshelf-cards", isDirectory: true)
+  }
+
+  /// The hidden and renamed channels the app wrote for the shelf (services/topShelfChannelEdits.ts).
+  private static func channelEdits() -> ShelfChannelEdits {
+    guard let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.dev.keiver.tomotv")?
+      .appendingPathComponent("Library/Caches/topshelf-channel-edits.json") else { return .empty }
+    return ShelfChannelEdits.load(from: url)
   }
 
   /// A keyframe file and its width over height. The engine keeps the source's display shape with the
@@ -239,10 +248,11 @@ class ContentProvider: TVTopShelfContentProvider {
     aspect < 0.85 ? .poster : (aspect <= 1.25 ? .square : .hdtv)
   }
 
-  private static func makeShelfItem(_ item: ShelfItemDTO, base: String, apiKey: String, card: URL?, frame: Keyframe?) -> TVTopShelfSectionedItem {
+  private static func makeShelfItem(_ item: ShelfItemDTO, base: String, apiKey: String, card: URL?, frame: Keyframe?, edits: ShelfChannelEdits) -> TVTopShelfSectionedItem {
     let shelfItem = TVTopShelfSectionedItem(identifier: item.Id)
 
-    let name = item.Name ?? "Untitled"
+    let renamed = item.itemType == "TvChannel" ? edits.displayName(id: item.Id, number: item.ChannelNumber, name: item.Name) : nil
+    let name = renamed ?? item.Name ?? "Untitled"
     if item.itemType == "Episode", let series = item.SeriesName, !series.isEmpty {
       shelfItem.title = "\(series) · \(name)"
     } else {
@@ -354,6 +364,7 @@ private struct ShelfItemDTO: Decodable {
   let Name: String?
   let itemType: String?
   let SeriesName: String?
+  let ChannelNumber: String?
   let RunTimeTicks: Double?
   let PrimaryImageAspectRatio: Double?
   let ImageTags: [String: String]?
@@ -361,7 +372,7 @@ private struct ShelfItemDTO: Decodable {
 
   // "Type" is the Jellyfin field name but is reserved as a Swift member name.
   private enum CodingKeys: String, CodingKey {
-    case Id, Name, SeriesName, RunTimeTicks, PrimaryImageAspectRatio, ImageTags, UserData
+    case Id, Name, SeriesName, ChannelNumber, RunTimeTicks, PrimaryImageAspectRatio, ImageTags, UserData
     case itemType = "Type"
   }
 

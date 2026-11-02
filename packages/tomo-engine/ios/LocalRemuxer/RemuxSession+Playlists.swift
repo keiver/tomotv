@@ -178,6 +178,31 @@ extension RemuxSession {
         return chosen
     }
 
+    /// Whether the opening rung cannot serve: retired, or its opening segment answered a 4xx other
+    /// than 408 or 429 (a host with no transcode endpoint). Waits within the master's budget for the
+    /// fetch started by `chooseOpeningRung` to deliver or fail. A fetch still running, a 5xx, a
+    /// transport error or an unreadable body is not a failure here: the rung leads and its retry runs
+    /// under AVPlayer's wait.
+    func openingRungFailed(_ rung: Int) -> Bool {
+        let target = segmentIndex(atSeconds: config.startOffsetSeconds)
+        _ = waitUntil(deadline: masterBudgetLeft()) { [weak self] in
+            guard let self else { return true }
+            self.stateLock.lock()
+            defer { self.stateLock.unlock() }
+            return self.failed || self.cancelled || self.rungsUnavailable.contains(rung)
+                || self.tierMaterialized[rung]?.contains(target) == true
+                || (self.supplierRecovery[.rung(rung)]?.failures ?? 0) > 0
+        }
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        if rungsUnavailable.contains(rung) { return true }
+        switch supplierRecovery[.rung(rung)]?.failure {
+        case .unsupported?: return true
+        case .http(let status)?: return (400..<500).contains(status) && status != 408 && status != 429
+        default: return false
+        }
+    }
+
     func masterPlaylist() -> String {
         awaitGrid()
         // Live and self-described: the tracks and the captions come off the open input, not from a probe.
@@ -479,7 +504,11 @@ extension RemuxSession {
         let linkBps = testLinkBps ?? wireLinkBps ?? playlistLinkBps ?? 0
         let rungs = (0..<config.tiers.count).filter { !rungsUnavailable.contains($0) }
         stateLock.unlock()
-        let startRung = chooseOpeningRung(linkBps: linkBps)
+        let chosenRung = chooseOpeningRung(linkBps: linkBps)
+        // A rung whose opening fetch failed never leads: AVPlayer opened on it fails the item on its
+        // 404s instead of falling to the copy. A rung still fetching leads as before, and AVPlayer
+        // waits on its segment.
+        let startRung = (copyFirst && chosenRung != nil && openingRungFailed(chosenRung!)) ? nil : chosenRung
         let listed = rungs
 
         func rungLine(_ index: Int) -> String {
@@ -505,7 +534,7 @@ extension RemuxSession {
                 line += String(format: ",FRAME-RATE=%g", frameRate)
             }
             if !tracks.isEmpty { line += ",AUDIO=\"\(group)\"" }
-            if !config.subtitles.isEmpty {
+            if !subtitles.isEmpty {
                 line += ",SUBTITLES=\"subs\""
             }
             // RFC 8216 4.3.4.2: CLOSED-CAPTIONS=NONE on one variant requires it on all of them.
@@ -539,12 +568,12 @@ extension RemuxSession {
         // The frames come off the source, so a ladder that lost it lists none.
         if copyFirst { out += iframeStreamInf(copyPeak: peaks.original) }
         stateLock.lock()
-        copyOnlyMaster = false
+        copyOnlyMaster = startRung == nil
         ladderListed = startRung != nil
         stateLock.unlock()
         NSLog("[LocalRemuxer] Slipstream: master starts on %@%@ (link %.1f Mb/s, %d rungs)",
               startRung == nil ? "the copy" : "rung \(startRung ?? 0)", copyFirst && startRung != nil ? " with the copy listed" : "", linkBps / 1_000_000, listed.count)
-        reportTier(listed: !rungs.isEmpty)
+        reportTier(listed: startRung != nil)
         return out
     }
 
@@ -555,10 +584,29 @@ extension RemuxSession {
         return inputSubtitles ?? config.subtitles
     }
 
+    /// Replaces the subtitle tracks the session serves and re-anchors EXT-X-START at `resumeAt`,
+    /// for the player item the app swaps in. Returns the master name serving the new list, or nil live.
+    func updateSubtitles(_ subtitles: [RemuxSubtitle], resumeAt: Double) -> String? {
+        guard !config.isLive else { return nil }
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        let servedIndexes = Set((inputSubtitles ?? config.subtitles).map(\.index))
+        // An engine-decoded track the session does not serve has no decoder to gain: one the
+        // pipeline dropped as undecodable stays dropped.
+        inputSubtitles = subtitles.filter { !$0.isEngineText || servedIndexes.contains($0.index) }
+        resumeOffsetSeconds = max(0, resumeAt)
+        masterGeneration += 1
+        return "master\(masterGeneration).m3u8"
+    }
+
     /// EXT-X-START line for resume sessions, or empty. Media playlists only:
     /// the proven placement (the master carries no per-timeline tags here).
     var startTag: String {
-        config.startOffsetSeconds > 0 ? String(format: "#EXT-X-START:TIME-OFFSET=%.3f,PRECISE=NO\n", config.startOffsetSeconds) : ""
+        stateLock.lock()
+        let resume = resumeOffsetSeconds
+        stateLock.unlock()
+        let offset = resume ?? config.startOffsetSeconds
+        return offset > 0 ? String(format: "#EXT-X-START:TIME-OFFSET=%.3f,PRECISE=NO\n", offset) : ""
     }
 
     /// One TARGETDURATION for every playlist of the session (Apple authoring
@@ -829,7 +877,7 @@ extension RemuxSession {
         out += "#EXT-X-TARGETDURATION:\(dur)\n"
         out += "#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-MEDIA-SEQUENCE:0\n"
         out += String(format: "#EXTINF:%.3f,\n", durationSeconds)
-        out += sub.isImage || !sub.localVtt.isEmpty ? "sub\(sub.index).vtt\n" : "\(sub.vttUrl)\n"
+        out += "sub\(sub.index).vtt\n"
         out += "#EXT-X-ENDLIST\n"
         return out
     }
@@ -952,8 +1000,11 @@ extension RemuxSession {
         guard let sub = sessionSubtitles().first(where: { $0.index == streamIndex && $0.isEngineText }) else { return nil }
 
         requestSubtitleActivation(sub, at: segment)
-        let start = segmentStartSeconds(segment)
-        let end = start + segmentDurationSeconds(segment)
+        // The cues this window shows come from the source `shift` seconds away from it: a delayed
+        // track draws earlier cues, a track brought forward draws later ones.
+        let shift = Double(timeOffsetMs(for: streamIndex)) / 1000
+        let start = max(0, segmentStartSeconds(segment) - shift)
+        let end = max(start, segmentStartSeconds(segment) + segmentDurationSeconds(segment) - shift)
         var window = textSubtitleWindow(streamIndex: streamIndex, from: start, to: end)
         // The source is let go or held under a rung: nothing reads toward this window until the
         // copy returns, and a window unanswered past AVPlayer's 6 s loses the whole item.
@@ -990,8 +1041,8 @@ extension RemuxSession {
         guard let decoder = window.decoder else { return nil }
 
         var out = "WEBVTT\nX-TIMESTAMP-MAP=MPEGTS:0,LOCAL:00:00:00.000\n"
-        for cue in decoder.cues(from: start + window.anchor, to: end + window.anchor) {
-            out += "\n" + webVTTTimestamp(cue.start - window.anchor) + " --> " + webVTTTimestamp(cue.end - window.anchor) + "\n"
+        for cue in decoder.cues(from: start + window.anchor, to: end + window.anchor) where cue.end - window.anchor + shift > 0 {
+            out += "\n" + webVTTTimestamp(cue.start - window.anchor + shift) + " --> " + webVTTTimestamp(cue.end - window.anchor + shift) + "\n"
             out += cue.text + "\n"
         }
         return out
@@ -1042,12 +1093,64 @@ extension RemuxSession {
     /// timeline starts at zero, unlike Jellyfin's WebVTT, which stamps
     /// MPEGTS:900000 and displaced every cue by 10 seconds when a file went
     /// through the server's HLS subtitle path.
-    /// The bytes of a text track saved with a download, or nil when it has none on disk.
+    /// The bytes of a text track saved with a download, its ASS markup rendered and its cues shifted by the
+    /// track's time offset, or nil when it has none on disk.
     func localSubtitleBody(streamIndex: Int) -> Data? {
-        guard let sub = config.subtitles.first(where: { $0.index == streamIndex }), !sub.localVtt.isEmpty else { return nil }
+        guard let data = rawLocalSubtitleBody(streamIndex: streamIndex) else { return nil }
+        return servedSubtitleBody(data, shiftedBy: timeOffsetMs(for: streamIndex))
+    }
+
+    /// A sidecar's WebVTT fetched from the server once for the session and served with its ASS markup
+    /// rendered and its cues shifted by the track's time offset; nil when the track is not a sidecar or the fetch failed.
+    func remoteSubtitleBody(streamIndex: Int) -> Data? {
+        guard let body = rawRemoteSubtitleBody(streamIndex: streamIndex) else { return nil }
+        return servedSubtitleBody(body, shiftedBy: timeOffsetMs(for: streamIndex))
+    }
+
+    /// A device copy's or a sidecar's WebVTT as the file has it, no offset applied.
+    func rawSubtitleBody(streamIndex: Int) -> Data? {
+        rawLocalSubtitleBody(streamIndex: streamIndex) ?? rawRemoteSubtitleBody(streamIndex: streamIndex)
+    }
+
+    private func rawLocalSubtitleBody(streamIndex: Int) -> Data? {
+        guard let sub = sessionSubtitles().first(where: { $0.index == streamIndex }), !sub.localVtt.isEmpty else { return nil }
         // JS hands over a file:// URI, which contents(atPath:) does not take.
         let path = sub.localVtt.hasPrefix("file://") ? (URL(string: sub.localVtt)?.path ?? sub.localVtt) : sub.localVtt
         return FileManager.default.contents(atPath: path)
+    }
+
+    private func rawRemoteSubtitleBody(streamIndex: Int) -> Data? {
+        guard let sub = sessionSubtitles().first(where: { $0.index == streamIndex }), !sub.vttUrl.isEmpty, let url = URL(string: sub.vttUrl) else { return nil }
+        stateLock.lock()
+        let cached = remoteSubtitleBodies[streamIndex]
+        stateLock.unlock()
+        if let cached { return cached }
+        guard let fetched = fetchTier(url).data else { return nil }
+        stateLock.lock()
+        remoteSubtitleBodies[streamIndex] = fetched
+        stateLock.unlock()
+        return fetched
+    }
+
+    /// The track's time offset as served now: the one set while the session runs, else the track's own.
+    func timeOffsetMs(for streamIndex: Int) -> Int {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return subtitleTimeOffsets[streamIndex] ?? (inputSubtitles ?? config.subtitles).first(where: { $0.index == streamIndex })?.timeOffsetMs ?? 0
+    }
+
+    /// Moves a track's cues from the next body served on.
+    func setSubtitleTimeOffset(streamIndex: Int, offsetMs: Int) {
+        stateLock.lock()
+        subtitleTimeOffsets[streamIndex] = offsetMs
+        stateLock.unlock()
+    }
+
+    private func servedSubtitleBody(_ data: Data, shiftedBy offsetMs: Int) -> Data {
+        let text = String(decoding: data, as: UTF8.self)
+        let cleaned = cleanWebVttCues(text)
+        if offsetMs == 0, cleaned == text { return data }
+        return Data(shiftWebVtt(cleaned, byMs: offsetMs).utf8)
     }
 
     func emptySubtitleBody() -> String {

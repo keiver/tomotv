@@ -57,27 +57,9 @@ struct AssToWebVTT {
     private func render(_ text: String, style base: AssStyle) -> String {
         var style = base
         var out = ""
-        // Open tags, innermost last, so they close in reverse.
-        var open: [Character] = []
+        var tags = WebVttTagStack()
 
-        func openTag(_ tag: Character) {
-            guard !open.contains(tag) else { return }
-            out += "<\(tag)>"
-            open.append(tag)
-        }
-        func closeTag(_ tag: Character) {
-            guard let at = open.lastIndex(of: tag) else { return }
-            // Close everything nested inside it, then reopen those.
-            let reopen = Array(open[(at + 1)...])
-            for inner in reopen.reversed() { out += "</\(inner)>" }
-            out += "</\(tag)>"
-            open.removeSubrange(at...)
-            for inner in reopen {
-                out += "<\(inner)>"
-                open.append(inner)
-            }
-        }
-        func setTag(_ tag: Character, _ on: Bool) { on ? openTag(tag) : closeTag(tag) }
+        func setTag(_ tag: Character, _ on: Bool) { tags.set(tag, on, into: &out) }
         func applyStyle() {
             setTag("b", style.bold)
             setTag("i", style.italic)
@@ -98,15 +80,14 @@ struct AssToWebVTT {
                     continue
                 }
                 var resetTo = ""
-                for code in overrides(String(characters[(index + 1) ..< close]), resetTo: &resetTo) {
+                for code in Self.overrides(String(characters[(index + 1) ..< close]), resetTo: &resetTo) {
                     switch code.tag {
                     case "b": setTag("b", code.on ?? style.bold)
                     case "i": setTag("i", code.on ?? style.italic)
                     case "u": setTag("u", code.on ?? style.underline)
                     case "p": drawing = code.on ?? false
                     case "r":
-                        for tag in open.reversed() { out += "</\(tag)>" }
-                        open.removeAll()
+                        tags.closeAll(into: &out)
                         style = resetTo.isEmpty ? base : (styles[resetTo] ?? base)
                         applyStyle()
                     default: break
@@ -133,7 +114,7 @@ struct AssToWebVTT {
             index += 1
         }
 
-        for tag in open.reversed() { out += "</\(tag)>" }
+        tags.closeAll(into: &out)
         // A style opens its tags before the first character, and an override can
         // close them before one arrives: "<b></b>plain" is what that leaves.
         while let empty = out.range(of: "<([biu])></\\1>", options: .regularExpression) {
@@ -165,7 +146,7 @@ struct AssToWebVTT {
     /// The digits identify the tag, not just its value: `\pos(960,200)` read as
     /// `\p` put this into drawing mode and swallowed the sign it was
     /// positioning. `\bord`, `\blur`, `\be` and `\iclip` are the same trap.
-    private func overrides(_ block: String, resetTo: inout String) -> [(tag: Character, on: Bool?)] {
+    static func overrides(_ block: String, resetTo: inout String) -> [(tag: Character, on: Bool?)] {
         var found: [(tag: Character, on: Bool?)] = []
         let characters = Array(block)
         var index = 0

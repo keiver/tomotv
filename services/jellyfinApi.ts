@@ -32,13 +32,23 @@ export {
   waitForConfig,
 } from "./jellyfin/session";
 
-export { activateAccount, getAccountsForServer, getSavedAccounts, relocateAccounts, removeAccount, removeSavedServerAndAccounts, upsertAccount } from "./jellyfin/accounts";
+export {
+  activateAccount,
+  getAccountsForServer,
+  getSavedAccounts,
+  getSavedServersWithAccounts,
+  relocateAccounts,
+  removeAccount,
+  removeSavedServerAndAccounts,
+  upsertAccount,
+} from "./jellyfin/accounts";
 export type { ActivateAccountResult } from "./jellyfin/accounts";
 
-export { DEMO_ADDRESS, DEMO_SERVER_STABLE, DEMO_USERNAME, JELLYFIN_TIME } from "./jellyfin/constants";
+export { DEMO_ADDRESS, DEMO_SERVER_URL, DEMO_USERNAME, JELLYFIN_TIME } from "./jellyfin/constants";
 export {
   notifyResumeChange,
   notifyServerRecovered,
+  notifySubtitlesChanged,
   subscribeAuthChange,
   subscribeFavoriteChange,
   subscribeItemRemoved,
@@ -46,6 +56,7 @@ export {
   subscribePlayedChange,
   subscribeRecordingsChange,
   subscribeResumeChange,
+  subscribeSubtitlesChanged,
 } from "./jellyfin/events";
 export { audioNeedsRewrap, isAudioItem, isAudioOnly, isCodecSupported, isLiveChannel, isLiveSource, needsTranscoding } from "./jellyfin/media";
 export {
@@ -90,6 +101,17 @@ export { fetchMediaSegments } from "./jellyfin/mediaSegments";
 export type { ItemMediaSegments, MediaSegmentWindow } from "./jellyfin/mediaSegments";
 export { fetchLyrics, parseLyrics } from "./jellyfin/lyrics";
 export type { ItemLyrics, LyricCue, LyricLine } from "./jellyfin/lyrics";
+export {
+  canManageSubtitles,
+  downloadRemoteSubtitle,
+  externalTextStreams,
+  fetchRemoteSubtitleFile,
+  resetSubtitlePermission,
+  searchRemoteSubtitles,
+  uploadSubtitle,
+  waitForSubtitleStream,
+} from "./jellyfin/subtitleSearch";
+export type { RemoteSubtitleInfo, SubtitleUpload } from "./jellyfin/subtitleSearch";
 export { fetchNextEpisodeAutoPlay } from "./jellyfin/nextEpisodeAutoPlay";
 export {
   createSyncPlayGroup,

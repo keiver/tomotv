@@ -37,6 +37,8 @@ export type SubtitleRendition = {
   isSelected?: boolean;
   /** Where an embedded track sits in the container; absent for a sidecar and on a live source. */
   source?: SourcePosition;
+  /** The viewer's correction, added to every cue time when the track is served: positive delays the cues. */
+  timeOffsetMs?: number;
 };
 
 /** A subtitle track as react-native-video reports it through onTextTracks. */

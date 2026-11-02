@@ -1,6 +1,10 @@
+import { pulseCardZoomLimit } from "@/components/card-zoom-pinch";
 import { usePlayerSession, usePlayerSessionHost, type HostMode } from "@/contexts/PlayerSessionContext";
+import { useCardZoomCeiling } from "@/hooks/useCardZoom";
 import { audioPlayerManager } from "@/services/audioPlayerManager";
-import { claimMacContextKeys, consumeMacEscape, MAC_SEEK_SECONDS, subscribeMacKeyCommand, type MacKey } from "@/services/macKeyCommands";
+import { claimMacContextKeys, consumeMacEscape, MAC_SEEK_SECONDS, macKeyContext, subscribeMacKeyCommand, type MacKey, type MacKeyContext } from "@/services/macKeyCommands";
+import { getCardZoom, setCardZoom } from "@/services/cardZoom";
+import { clampCardZoom, steppedCardZoom } from "@/utils/cardZoom";
 import { IS_MAC } from "@/utils/hostEnvironment";
 import { logger } from "@/utils/logger";
 import { router } from "expo-router";
@@ -10,14 +14,16 @@ import { useEffect, useRef } from "react";
 export type EscapeAction = "leavePlayer" | "endSession" | "goBack" | "ignore";
 
 /** What any press means. Escape keeps its own rule; the rest fold into this one. */
-export type MacKeyAction = EscapeAction | "openSearch" | "openSettings" | "togglePlay" | "previousTrack" | "nextTrack" | "seekBackward" | "seekForward" | "toggleVideoFill";
+export type MacKeyAction =
+  EscapeAction | "openSearch" | "openSettings" | "togglePlay" | "previousTrack" | "nextTrack" | "seekBackward" | "seekForward" | "toggleVideoFill" | "zoomCardsIn" | "zoomCardsOut" | "zoomCardsReset";
 
-/** What the rule reads: the session, the navigator, and whether a queue is running. */
+/** What the rule reads: the session, the navigator, whether a queue is running, and who holds the contextual keys. */
 export interface MacKeyState {
   hostMode: HostMode;
   hasRouteHandlers: boolean;
   canGoBack: boolean;
   audioActive: boolean;
+  keyContext: MacKeyContext;
 }
 
 /**
@@ -64,10 +70,15 @@ export function macKeyAction(key: MacKey, state: MacKeyState): MacKeyAction {
     // contextual keys. A running audio queue holds them too, and has no letterbox.
     case "toggleVideoFill":
       return state.hostMode !== "idle" ? "toggleVideoFill" : "ignore";
+    // The photo and book viewer zooms its own page while it holds the keys.
+    case "zoomIn":
+      return state.hostMode === "idle" && state.keyContext !== "photo" ? "zoomCardsIn" : "ignore";
+    case "zoomOut":
+      return state.hostMode === "idle" && state.keyContext !== "photo" ? "zoomCardsOut" : "ignore";
+    case "zoomReset":
+      return state.hostMode === "idle" && state.keyContext !== "photo" ? "zoomCardsReset" : "ignore";
     case "previousPhoto":
     case "nextPhoto":
-    case "zoomIn":
-    case "zoomOut":
       return "ignore";
   }
 }
@@ -97,6 +108,11 @@ function MacKeyCommandsListener() {
   useEffect(() => {
     hostModeRef.current = hostMode;
   }, [hostMode]);
+  const zoomCeiling = useCardZoomCeiling();
+  const zoomCeilingRef = useRef(zoomCeiling);
+  useEffect(() => {
+    zoomCeilingRef.current = zoomCeiling;
+  }, [zoomCeiling]);
 
   // The contextual keys only exist natively while something wants them, so a grid keeps its
   // arrow scrolling and its focused control keeps Return everywhere else. A live video session
@@ -133,6 +149,7 @@ function MacKeyCommandsListener() {
         hasRouteHandlers: handlersRef.current !== null,
         canGoBack: router.canGoBack(),
         audioActive: audio.active,
+        keyContext: macKeyContext(),
       });
       logger.info("Mac keyboard", { service: "MacKeyCommands", key, action });
       switch (action) {
@@ -184,6 +201,19 @@ function MacKeyCommandsListener() {
           return;
         case "toggleVideoFill":
           toggleVideoFill();
+          return;
+        case "zoomCardsIn":
+        case "zoomCardsOut": {
+          const ceiling = zoomCeilingRef.current;
+          const current = clampCardZoom(getCardZoom(), ceiling);
+          const side = action === "zoomCardsIn" ? 1 : -1;
+          const next = steppedCardZoom(current, side, ceiling);
+          if (next === current) pulseCardZoomLimit(side);
+          else setCardZoom(next);
+          return;
+        }
+        case "zoomCardsReset":
+          setCardZoom(1);
           return;
         case "ignore":
           return;

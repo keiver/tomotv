@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { Platform } from "react-native";
 import { t } from "@/services/i18n";
 import { useLocale } from "@/hooks/useLocale";
+import { useOfflineOpensDownloads } from "@/hooks/useOfflineOpensDownloads";
 import { useIsRecording } from "@/hooks/useRecordingStatus";
 import { shouldUnwindToTabs } from "@/utils/tabUnwind";
 
@@ -105,6 +106,7 @@ export default function TabLayout() {
   const showLiveTvTab = Platform.isTV && hasLiveTv;
   // Labels follow a picked language as a title prop change; the triggers themselves stay static.
   useLocale();
+  useOfflineOpensDownloads();
 
   // The root stack's navigation: a tab press, the selected tab's included, closes what covers the tabs.
   const rootNavigation = useNavigation();

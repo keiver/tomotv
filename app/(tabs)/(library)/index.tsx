@@ -1,5 +1,5 @@
 import { HomeShelves } from "@/components/home-shelves";
-import { ServerConnectScreen } from "@/components/settings/ServerConnectScreen";
+import { WhoIsWatchingScreen } from "@/components/settings/WhoIsWatchingScreen";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useFolderContents } from "@/hooks/useFolderContents";
@@ -56,7 +56,7 @@ export default function LibraryIndexScreen() {
 
   if (!isReady) return null;
   if (!isConnected) {
-    return <ServerConnectScreen title={t("tab.home")} />;
+    return <WhoIsWatchingScreen title={t("tab.home")} />;
   }
   return <LibrariesRootScreen />;
 }

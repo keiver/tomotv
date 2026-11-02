@@ -111,6 +111,7 @@ Location: `contexts/`
 
 ## Other State
 
+- **Library views:** `services/libraryViews.ts` keeps each library's sort and filters per account: a copy in `Settings` (`app_library_views`) read at once, the account's DisplayPreferences record on the server (id = library id, client "Tomo TV", key `view`) behind it. `contexts/LibraryFiltersContext.tsx` is its React binding. The demo and an account the server refused (403) stay on the device.
 - **SecureStore:** Persistent storage for credentials (device Keychain / Android Keystore)
 - **Component State:** React hooks (`useState`, `useReducer`) for local state
 - **Configuration:** Three-tier fallback (user settings → dev credentials → defaults)

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""MPEG-TS relay for the demo channels: one ffmpeg pushes each channel over TCP, every HTTP reader joins at the live position.
+"""MPEG-TS relay for the channels in lineup.json: one ffmpeg pushes each channel over TCP, every HTTP reader joins at the live position.
 
   relay.py <dir>   per channel in lineup.json: feed on tcp 127.0.0.1:<port+100>, readers on http://127.0.0.1:<port>/live.ts
-Test knobs (the demo leaves them unset): RELAY_HOST, RELAY_MAX_READERS with RELAY_CAP_MODE refuse|kick (a provider's
+Test knobs (the rig sets them, nothing else does): RELAY_HOST, RELAY_MAX_READERS with RELAY_CAP_MODE refuse|kick (a provider's
 connection cap across every channel), RELAY_CAP_STATUS (the refusal's status line, "403 Forbidden" unless set),
 RELAY_RELEASE_LAG_MS (a closed reader keeps counting this long), RELAY_HOLD_MS (an admitted reader is sent nothing
 this long, then closed: a provider whose channel never starts; RELAY_HOLD_HEADERS=1 sends the 200 first), and GET

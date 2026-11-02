@@ -167,7 +167,7 @@ are left entirely enabled: that is the point of owning the build.
 **DASH and teletext are in the build since ffmpeg-n8.1.2-tomo.5.** The `dash` demuxer needs
 libxml2 (`build.sh` writes a pc for the SDK's `libxml2.tbd`, podspec links `xml2`); teletext
 decodes through `libzvbi_teletextdec`. The release also adds the protocols `crypto` (AES-128
-HLS, the reason the Pluto channel failed on the engine), `udp`, `rtp`, `rtmp`, `rtmps`, `data`,
+HLS), `udp`, `rtp`, `rtmp`, `rtmps`, `data`,
 `mmsh`, `mmst`, each checked by name in `scripts/ffmpeg/linktest.c`. `ImageSubtitleDecoder`
 opens teletext with `txt_page=subtitle` on the page's own 492x250 canvas, measured from the
 first rect. `isManifestSource` takes `.mpd`/`dash`; `originVariantUrl` hands an MPD over whole

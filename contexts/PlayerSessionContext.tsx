@@ -1,7 +1,8 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ReactVideoProps } from "react-native-video";
 
-import type { VideoPlayerState } from "@/hooks/useVideoPlayback";
+import type { SubtitleAlignment } from "@keiver/tomo-engine";
+import type { ActiveTextSubtitle, VideoPlayerState } from "@/hooks/useVideoPlayback";
 import type { MediaSegmentWindow } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
 
@@ -16,7 +17,7 @@ export type HostMode =
   | "video" // playing (or buffering over) video, host owns the screen
   | "error" // playback failed; the route's error UI owns the screen
   | "pip-active" // PiP window up, route still mounted
-  | "pip-detached"; // PiP window up, route popped — the reason this host exists
+  | "pip-detached"; // PiP window up, route popped: the reason this host exists
 
 /** The AVKit surfaces and segment skips the route computes and the host applies. */
 export interface PlayerTvConfig {
@@ -83,7 +84,11 @@ export interface PlayerSessionSnapshot {
   showLoadingOverlay: boolean;
   /** True once a stream URL exists, i.e. AVKit has chrome of its own on screen. */
   hasStream: boolean;
+  /** The text rendition of ours the viewer has on, or null. */
+  activeTextSubtitle: ActiveTextSubtitle | null;
 }
+
+export type { ActiveTextSubtitle };
 
 /** The imperative surface PlayerHost registers on mount. */
 export interface PlayerHostBridge {
@@ -98,6 +103,12 @@ export interface PlayerHostBridge {
   setTvConfig: (config: PlayerTvConfig) => void;
   pause: () => void;
   retry: () => void;
+  /** Rebuilds the running session at the playhead, so a subtitle just saved or kept is listed; `selectSubtitleStream` turns that rendition on. */
+  reloadSubtitles: (selectSubtitleStream?: number) => void;
+  /** Moves a text track's cues in the running session by `offsetMs`. */
+  applySubtitleTimeOffset: (streamIndex: number, offsetMs: number) => void;
+  /** Lines a text track up with the speech in the running session; `attempt` moves the window along the file. */
+  alignSubtitleTiming: (streamIndex: number, attempt: number) => Promise<SubtitleAlignment>;
   /** Relative seek, for the hardware keyboard. The AVKit chrome owns every other scrub. */
   seekBy: (offsetSeconds: number) => void;
   /** Play or pause, for the hardware keyboard. */
@@ -116,6 +127,7 @@ const IDLE_SNAPSHOT: PlayerSessionSnapshot = {
   playbackState: { type: "IDLE" },
   showLoadingOverlay: false,
   hasStream: false,
+  activeTextSubtitle: null,
 };
 
 const PlayerSessionContext = createContext<PlayerSessionContextValue | undefined>(undefined);
@@ -140,9 +152,9 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
    * The route can command the host before the host exists.
    *
    * PlayerHost is rendered after the navigator (app/_layout.tsx) because a view above a
-   * focusable occludes it on tvOS, so on the one commit that mounts both — a launch whose
+   * focusable occludes it on tvOS, so on the one commit that mounts both (a launch whose
    * initial route is already /player, i.e. every deep link and every Top Shelf selection
-   * into a cold app — the route's effects run first and find a null bridge. The commands
+   * into a cold app) the route's effects run first and find a null bridge. The commands
    * that describe INTENT are held here and replayed at registration; the rest need a live
    * host by definition. Nothing in this file may depend on mount order.
    */
@@ -220,6 +232,15 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
   const switchLiveChannel = useCallback((target: { videoId: string; videoName?: string; picked?: boolean }) => withHost("switchLiveChannel", (bridge) => bridge.switchLiveChannel(target)), [withHost]);
   const pause = useCallback(() => withHost("pause", (bridge) => bridge.pause()), [withHost]);
   const retry = useCallback(() => withHost("retry", (bridge) => bridge.retry()), [withHost]);
+  const reloadSubtitles = useCallback((selectSubtitleStream?: number) => withHost("reloadSubtitles", (bridge) => bridge.reloadSubtitles(selectSubtitleStream)), [withHost]);
+  const alignSubtitleTiming = useCallback(
+    (streamIndex: number, attempt: number): Promise<SubtitleAlignment> => bridgeRef.current?.alignSubtitleTiming(streamIndex, attempt) ?? Promise.resolve({ ok: false, reason: "noSession" }),
+    [],
+  );
+  const applySubtitleTimeOffset = useCallback(
+    (streamIndex: number, offsetMs: number) => withHost("applySubtitleTimeOffset", (bridge) => bridge.applySubtitleTimeOffset(streamIndex, offsetMs)),
+    [withHost],
+  );
   const seekBy = useCallback((offsetSeconds: number) => withHost("seekBy", (bridge) => bridge.seekBy(offsetSeconds)), [withHost]);
   const togglePlay = useCallback(() => withHost("togglePlay", (bridge) => bridge.togglePlay()), [withHost]);
   const toggleVideoFill = useCallback(() => withHost("toggleVideoFill", (bridge) => bridge.toggleVideoFill()), [withHost]);
@@ -235,12 +256,32 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
       setTvConfig,
       pause,
       retry,
+      reloadSubtitles,
+      applySubtitleTimeOffset,
+      alignSubtitleTiming,
       seekBy,
       togglePlay,
       toggleVideoFill,
       setHandlers,
     }),
-    [snapshot, requestSession, switchLiveChannel, releaseRoute, stopSession, signalRoutePresented, setTvConfig, pause, retry, seekBy, togglePlay, toggleVideoFill, setHandlers],
+    [
+      snapshot,
+      requestSession,
+      switchLiveChannel,
+      releaseRoute,
+      stopSession,
+      signalRoutePresented,
+      setTvConfig,
+      pause,
+      retry,
+      reloadSubtitles,
+      applySubtitleTimeOffset,
+      alignSubtitleTiming,
+      seekBy,
+      togglePlay,
+      toggleVideoFill,
+      setHandlers,
+    ],
   );
 
   const hostValue = useMemo(() => ({ registerHost, publish: setSnapshot, handlersRef }), [registerHost]);

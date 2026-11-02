@@ -16,6 +16,7 @@ import { requestLibraryItems } from "./items";
 import { fetchLibraryArtists, fetchLibraryGenres } from "./facets";
 import { fetchTunerData, guideChannelRequests, type TunerData } from "./tunerGroups";
 import { fetchChannelOrder } from "./liveTv";
+import { applyChannelEdits, isHiddenChannelId } from "./channelEdits";
 import { activeGuideUrls, searchExternalPrograms } from "@/services/externalGuide";
 import { getLiveTvPreferences } from "@/services/liveTvPreferences";
 import { EXTERNAL_GUIDE_PREFIX } from "@/utils/guide";
@@ -709,22 +710,25 @@ export async function searchLiveTv(searchTerm: string, onUpdate?: (items: Jellyf
       logger.warn("Live TV search failed", { service: "JellyfinAPI", source, error: error instanceof Error ? error.message : "unknown" });
       return [];
     });
+  // A hidden channel's programmes name it by id alone: the lineup read marks the hidden ids first.
+  if (getLiveTvPreferences().hidden.length > 0) await cachedRequest(`liveChannelNames:${config.server}:${config.userId}`, () => fetchChannelOrder(), CACHE.LIVE_AIRING_TTL_MS).catch(() => []);
   const namesWork = quiet("names", fetchLiveTvNameMatches(config, text));
   const programWork = [quiet("airing", fetchAiringPrograms(config)), quiet("guide sources", searchGuideSources(config, text))];
 
+  const onShownChannel = (item: Pick<JellyfinVideoItem, "ChannelId">) => !item.ChannelId || !isHiddenChannelId(item.ChannelId);
   const assemble = (names: JellyfinVideoItem[], programTiers: readonly JellyfinVideoItem[][]): JellyfinVideoItem[] => {
-    const items = [...names];
+    const items = applyChannelEdits(names).filter(onShownChannel);
     const seen = new Set(items.map((item) => item.Id));
     for (const tier of programTiers) {
       for (const program of tier) {
-        if (program.Type === "Program" && program.ChannelId && !seen.has(program.Id) && matchesProgramText(program, text)) {
+        if (program.Type === "Program" && program.ChannelId && !seen.has(program.Id) && onShownChannel(program) && matchesProgramText(program, text)) {
           seen.add(program.Id);
           items.push(program);
         }
       }
     }
     for (const program of indexedMatches(config, text)) {
-      if (seen.has(program.Id)) continue;
+      if (seen.has(program.Id) || !onShownChannel(program)) continue;
       seen.add(program.Id);
       items.push(program);
     }

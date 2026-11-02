@@ -96,6 +96,26 @@ describe("refresh", () => {
     signIn(BOB);
     expect(getTrackSettingsSync()).toEqual(JELLYFIN_DEFAULTS);
   });
+
+  it("uses the device's last subtitle pick for an account whose server settings hold none", async () => {
+    server(serverConfiguration());
+    recordSubtitlePick({ kind: "language", tag: "eng" });
+    await settle();
+    signIn(BOB);
+    server(serverConfiguration({ AudioLanguagePreference: "jpn" }));
+    await refreshTrackSettings();
+    expect(getTrackSettingsSync()).toMatchObject({ subtitleMode: "Always", subtitleLanguage: "eng", audioLanguage: "jpn" });
+  });
+
+  it("keeps an account's own subtitle setting over the device's last pick", async () => {
+    server(serverConfiguration());
+    recordSubtitlePick({ kind: "language", tag: "eng" });
+    await settle();
+    signIn(BOB);
+    server(serverConfiguration({ SubtitleMode: "None" }));
+    await refreshTrackSettings();
+    expect(getTrackSettingsSync().subtitleMode).toBe("None");
+  });
 });
 
 describe("writing a pick", () => {
@@ -129,6 +149,52 @@ describe("writing a pick", () => {
     expect(posts).toHaveLength(1);
     expect(posts[0]).toMatchObject({ AudioLanguagePreference: "jpn", PlayDefaultAudioTrack: false });
     expect(getTrackSettingsSync().audioLanguage).toBe("jpn");
+  });
+
+  it("answers an offline pick on every later item and after a relaunch, with the server never reached", async () => {
+    fetchMock.mockRejectedValue(new Error("offline"));
+    recordSubtitlePick({ kind: "language", tag: "eng" });
+    recordAudioPick("jpn");
+    await settle();
+    await refreshTrackSettings();
+    expect(getTrackSettingsSync()).toMatchObject({ subtitleMode: "Always", subtitleLanguage: "eng", audioLanguage: "jpn", playDefaultAudio: false });
+    const onDisk = (SecureStore.setItemAsync as jest.Mock).mock.calls.filter(([key]) => key === STORAGE_KEYS.TRACK_SETTINGS).at(-1)?.[1];
+    resetTrackSettingsForTests(true);
+    (SecureStore.getItemAsync as jest.Mock).mockImplementation((key: string) => Promise.resolve(key === STORAGE_KEYS.TRACK_SETTINGS ? onDisk : null));
+    expect(await readTrackSettings()).toMatchObject({ subtitleMode: "Always", subtitleLanguage: "eng", audioLanguage: "jpn" });
+  });
+
+  it("keeps a signed-out pick on this device, through a relaunch, and never sends it", async () => {
+    const SIGNED_OUT = { server: "", userId: "", deviceId: "dev", apiKey: "" };
+    signIn(SIGNED_OUT);
+    recordSubtitlePick({ kind: "language", tag: "eng" });
+    recordAudioPick("jpn");
+    await settle();
+    await refreshTrackSettings();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(getTrackSettingsSync()).toMatchObject({ subtitleMode: "Always", subtitleLanguage: "eng", audioLanguage: "jpn", playDefaultAudio: false });
+    const onDisk = (SecureStore.setItemAsync as jest.Mock).mock.calls.filter(([key]) => key === STORAGE_KEYS.TRACK_SETTINGS).at(-1)?.[1];
+    resetTrackSettingsForTests(true);
+    (SecureStore.getItemAsync as jest.Mock).mockImplementation((key: string) => Promise.resolve(key === STORAGE_KEYS.TRACK_SETTINGS ? onDisk : null));
+    expect(await readTrackSettings()).toMatchObject({ subtitleMode: "Always", subtitleLanguage: "eng", audioLanguage: "jpn" });
+    // A signed-in account with no state of its own falls back to the latest selection on this device.
+    signIn(ALICE);
+    expect(getTrackSettingsSync()).toMatchObject({ subtitleMode: "Always", subtitleLanguage: "eng", audioLanguage: "jpn" });
+  });
+
+  it("answers an account's own unknown state with the latest device selection, offline and through a relaunch", async () => {
+    fetchMock.mockRejectedValue(new Error("offline"));
+    recordSubtitlePick({ kind: "language", tag: "eng" });
+    recordAudioPick("jpn");
+    await settle();
+    // Another account, never synced on this device: its own state is unknown, so the latest selection answers.
+    signIn(BOB);
+    expect(getTrackSettingsSync()).toMatchObject({ subtitleMode: "Always", subtitleLanguage: "eng", audioLanguage: "jpn" });
+    const onDisk = (SecureStore.setItemAsync as jest.Mock).mock.calls.filter(([key]) => key === STORAGE_KEYS.TRACK_SETTINGS).at(-1)?.[1];
+    resetTrackSettingsForTests(true);
+    (SecureStore.getItemAsync as jest.Mock).mockImplementation((key: string) => Promise.resolve(key === STORAGE_KEYS.TRACK_SETTINGS ? onDisk : null));
+    signIn(BOB);
+    expect(await readTrackSettings()).toMatchObject({ subtitleMode: "Always", subtitleLanguage: "eng", audioLanguage: "jpn" });
   });
 
   it("keeps the pick on this device when the server refuses the user settings", async () => {

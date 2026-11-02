@@ -57,15 +57,14 @@ export const OLD_STORAGE_KEYS = {
   SERVER_PROTOCOL: "jellyfin_server_protocol",
 } as const;
 
-// Demo server credentials (Jellyfin's official public demo server)
-// Credentials are fetched dynamically as the demo server resets hourly
-export const DEMO_SERVER_STABLE = "https://demo.jellyfin.org/stable";
+// Tomo TV's demo server: one shared account with no password.
+export const DEMO_SERVER_URL = "https://tomotv.cubita.studio";
 /** The demo address as the Add Server field shows it: no scheme, the resolver adds one. */
-export const DEMO_ADDRESS = DEMO_SERVER_STABLE.replace(/^https?:\/\//, "");
+export const DEMO_ADDRESS = DEMO_SERVER_URL.replace(/^https?:\/\//, "");
 export const DEMO_USERNAME = "demo";
-export const DEMO_PASSWORD = ""; // Empty password
-// Display name for the connected card: the server self-reports "Stable Demo"
-export const DEMO_SERVER_NAME = "Jellyfin Demo Server";
+export const DEMO_PASSWORD = "";
+/** The connected card's name for the demo. */
+export const DEMO_SERVER_NAME = "Tomo TV Demo";
 
 // Video quality presets (matches settings page)
 export interface QualityPreset {
@@ -91,13 +90,13 @@ export const QUALITY_PRESETS: QualityPreset[] = [
   { label: "Original", bitrate: 120000000 },
 ];
 
-export const DEFAULT_QUALITY = 5; // Original — surfaced in Settings as "Auto"
+export const DEFAULT_QUALITY = 5; // Original, surfaced in Settings as "Auto"
 
 /**
  * The stored default (index 5, "Auto" in Settings) is ADAPTIVE on the server
  * lane: the transcode entry preset comes from a bandwidth measurement and the
  * session steps down/up with the link, ceiling Original. Explicit picks (0-4)
- * are pinned. Direct play and the on-device engine ignore quality mode — they
+ * are pinned. Direct play and the on-device engine ignore quality mode: they
  * always carry the original bits.
  */
 export type QualityMode = "auto" | "fixed";

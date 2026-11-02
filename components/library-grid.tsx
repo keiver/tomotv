@@ -2,6 +2,7 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { FolderBackdrop } from "@/components/folder-backdrop";
 import type { FolderBackdropSource } from "@/hooks/useFolderBackdrop";
 import { FocusableButton } from "@/components/FocusableButton";
+import { CardZoomPinch } from "@/components/card-zoom-pinch";
 import { FolderGridItem } from "@/components/folder-grid-item";
 import { LoadingRow } from "@/components/loading-row";
 // import { FiltersGhostTitle } from "@/components/filters-ghost-title";
@@ -10,8 +11,9 @@ import { LibraryHeader, type HeaderAction } from "@/components/library-header";
 import { sideInsets } from "@/components/settings/styles";
 import { GuideChannelCard } from "@/components/live-tv/guide-channel-card";
 import { VideoGridItem } from "@/components/video-grid-item";
-import { GRID, gridEdgePadding, itemSlotRatio, itemSlotShape, liveRowHeight, slotCardPadding, slotRatio, slotRowHeights, STAND_HEIGHT, STAND_ROW_ROOM } from "@/constants/app";
+import { GRID, gridEdgePadding, itemSlotRatio, itemSlotShape, liveRowHeight, slotCardPadding, slotRatio, slotRowHeights, STAND_HEIGHT, STAND_ROW_ROOM, tvGridColumns } from "@/constants/app";
 import { useCardPalette } from "@/hooks/useCardPalette";
+import { useCardZoom } from "@/hooks/useCardZoom";
 import { useLiveFrameViewport } from "@/hooks/useLiveFrameViewport";
 import { clearLiveFrameFocus, setLiveFrameFocus } from "@/services/liveFrames";
 import { COLORS } from "@/constants/colors";
@@ -101,16 +103,10 @@ interface LibraryGridProps {
   headerSecondaryAction?: HeaderAction;
   /** TV: a control leading the bar's right cluster (the wall's Live TV search reveal). */
   headerTrailing?: React.ReactNode;
-  /** TV: headerTrailing's focusable view, where Up from the band's right half lands. */
-  headerTrailingTarget?: View | null;
   /** The host screen paints the ambient canvas itself (the wall's phone search head sits on it). */
   noAmbient?: boolean;
   /** The loaded-empty body in place of the folder's own, under the same bar (the wall's no-channels state). */
   emptyContent?: React.ReactNode;
-  /** A band heading the rows, under the TV bar (the wall's groups); scrolls with them and stays through loads. */
-  listBand?: React.ReactNode;
-  /** What the loading bar names in place of the folder (the wall's picked group). */
-  loadingTitle?: string;
 }
 
 /**
@@ -144,11 +140,8 @@ export function LibraryGrid({
   headerAction,
   headerSecondaryAction,
   headerTrailing,
-  headerTrailingTarget,
   noAmbient = false,
   emptyContent,
-  listBand,
-  loadingTitle,
 }: LibraryGridProps) {
   const router = useRouter();
   const palette = useCardPalette();
@@ -297,7 +290,8 @@ export function LibraryGrid({
   // artwork's snapped shape (posters taller than wide thumbs), each full row scaled uniformly
   // to exactly fill the width (no trailing gap). The FlatList virtualizes ROWS — its index
   // space is rows from here on.
-  const rowHeights = useMemo(() => slotRowHeights(windowWidth, windowHeight, insets.left, insets.right, IS_TV, "grid"), [windowWidth, windowHeight, insets.left, insets.right]);
+  const zoom = useCardZoom();
+  const rowHeights = useMemo(() => slotRowHeights(windowWidth, windowHeight, insets.left, insets.right, IS_TV, "grid", zoom), [windowWidth, windowHeight, insets.left, insets.right, zoom]);
   // TV folders mixing posters with wide cards sit on fixed columns: a wide card spans two, its art cropped to fill.
   const columnGrid = useMemo(() => {
     if (!IS_TV || liveChannels) return false;
@@ -310,7 +304,7 @@ export function LibraryGrid({
         ? packColumnRows(
             items,
             windowWidth - edgeLeft - edgeRight,
-            GRID.TV_GRID_PER_ROW.portrait,
+            tvGridColumns(zoom),
             (item) => (item.Type === "Episode" || itemSlotShape(item.PrimaryImageAspectRatio) === "landscape" ? 2 : 1),
             GRID.PORTRAIT_RATIO,
             CARD_PADDING,
@@ -331,7 +325,7 @@ export function LibraryGrid({
             },
             CARD_PADDING,
           ),
-    [items, windowWidth, edgeLeft, edgeRight, rowHeights, liveChannels, columnGrid],
+    [items, windowWidth, edgeLeft, edgeRight, rowHeights, liveChannels, columnGrid, zoom],
   );
   const { viewabilityPairs, visibleChannelIds } = useLiveFrameViewport("wall", liveChannels && liveFramesEnabled, packedRows, rowChannelIds);
   const lastRowWidth = packedRows.length > 0 ? packedRows[packedRows.length - 1].width : 0;
@@ -359,39 +353,11 @@ export function LibraryGrid({
 
   const isFolderLoading = isLoading && items.length === 0;
   // TV renders the breadcrumb bar as the list's own header, ahead of row 0. The list takes
-  // getItemLayout offsets as given, so the bar's measured height has to ride in them. A list band joins it on every
-  // platform and keeps it, and the list, through every load, so a focused band cell survives the reload it starts.
-  const hasFolderHeader = (IS_TV && !isFolderLoading) || !!listBand;
+  // getItemLayout offsets as given, so the bar's measured height has to ride in them.
+  const hasFolderHeader = IS_TV && !isFolderLoading;
   const [headerHeight, setHeaderHeight] = useState<number | null>(null);
-  // A band host's screen space under the band, read off the native frames: where the band ends and the screen does.
-  const containerRef = useRef<View>(null);
-  const headerRef = useRef<View>(null);
-  const [underBand, setUnderBand] = useState<{ top: number; height: number } | null>(null);
-  const measureUnderBand = useCallback(() => {
-    const container = containerRef.current;
-    headerRef.current?.measureInWindow((_x, y, _width, height) =>
-      container?.measureInWindow((_cx, cy, _cwidth, cheight) => setUnderBand({ top: y + height - cy, height: cy + cheight - (y + height) })),
-    );
-  }, []);
-  const handleHeaderLayout = useCallback(
-    (event: LayoutChangeEvent) => {
-      setHeaderHeight(event.nativeEvent.layout.height);
-      if (listBand) measureUnderBand();
-    },
-    [listBand, measureUnderBand],
-  );
-  // Measured again as each load starts: the band sits where the viewer left it.
-  useEffect(() => {
-    if (listBand && isFolderLoading) measureUnderBand();
-  }, [listBand, isFolderLoading, measureUnderBand]);
+  const handleHeaderLayout = useCallback((event: LayoutChangeEvent) => setHeaderHeight(event.nativeEvent.layout.height), []);
   const headerLength = hasFolderHeader ? (headerHeight ?? 0) : 0;
-  // Loads finished so far. Only the first one's empty result lets the bar claim focus: later ones start in the band.
-  const [loadsSettled, setLoadsSettled] = useState(isLoading ? 0 : 1);
-  const [wasLoading, setWasLoading] = useState(isLoading);
-  if (wasLoading !== isLoading) {
-    setWasLoading(isLoading);
-    if (!isLoading) setLoadsSettled((count) => count + 1);
-  }
 
   // Exact row geometry, off the same pack math the cards render with: cardHeight is the row's
   // unified OUTER card height (container padding included) and every label rides an absolutely
@@ -401,7 +367,7 @@ export function LibraryGrid({
   // TV channel wall: shorter 16:9 rows, so three rows sit with room under them and the fourth stays off screen.
   const rowPadding = IS_TV && liveChannels ? 16 : ROW_VERTICAL_PADDING;
   // Every card's base sits under it inside the card's own frame; a media card's overhangs on TV, so its row keeps STAND_ROW_ROOM.
-  const standHeight = liveChannels ? STAND_HEIGHT : STAND_ROW_ROOM;
+  const standHeight = (liveChannels ? STAND_HEIGHT : STAND_ROW_ROOM) * zoom;
   const rowLayout = useMemo(() => {
     const lengths: number[] = [];
     const offsets: number[] = [];
@@ -871,70 +837,67 @@ export function LibraryGrid({
   // navigation bar instead (app/(tabs)/(library)/[folderId].tsx). Rendered in the loaded-empty
   // branch too: a filter selection that matches nothing must still leave a way back into the panel.
   // The bar waits for the folder content (hidden while isFolderLoading) because rendering it early
-  // would flicker when the CTA lands and let Filters claim focus before the first card exists. A band host shows both throughout.
+  // would flicker when the CTA lands and let Filters claim focus before the first card exists.
   const folderHeader = hasFolderHeader ? (
-    <View ref={headerRef} onLayout={handleHeaderLayout} testID="library-grid-header">
-      {IS_TV ? (
-        <LibraryHeader
-          stack={crumbs ?? []}
-          onGoHome={handleGoHome}
-          homeAsBack={homeAsBack}
-          onOpenFilters={onOpenFilters}
-          action={headerAction}
-          secondaryAction={headerSecondaryAction}
-          trailing={headerTrailing}
-          trailingTarget={headerTrailingTarget}
-          upGuides={!!listBand}
-          activeFilterCount={activeFilterCount}
-          onFiltersButtonRef={handleFiltersButtonRef}
-          onFiltersFocusChange={handleFiltersFocusChange}
-          // Loaded-empty only: keeps focus on a visible control when there is no card to take it.
-          // Never from a covered screen: that claim is app-wide, not screen-local (see isScreenFocused).
-          filtersButtonHasPreferredFocus={items.length === 0 && !isLoading && isScreenFocused && (!listBand || loadsSettled <= 1)}
-        />
-      ) : null}
-      {listBand ? <View style={styles.bandInset}>{listBand}</View> : null}
+    <View onLayout={handleHeaderLayout}>
+      <LibraryHeader
+        stack={crumbs ?? []}
+        onGoHome={handleGoHome}
+        homeAsBack={homeAsBack}
+        onOpenFilters={onOpenFilters}
+        action={headerAction}
+        secondaryAction={headerSecondaryAction}
+        trailing={headerTrailing}
+        activeFilterCount={activeFilterCount}
+        onFiltersButtonRef={handleFiltersButtonRef}
+        onFiltersFocusChange={handleFiltersFocusChange}
+        // Loaded-empty only (the bar doesn't render while loading): keeps focus on a visible
+        // control when there is no card to take it. Never from a covered screen: that claim is
+        // app-wide, not screen-local (see isScreenFocused).
+        filtersButtonHasPreferredFocus={items.length === 0 && isScreenFocused}
+      />
     </View>
   ) : null;
 
   const grid = (
-    <FlatList
-      ref={listRef}
-      testID="library-list"
-      data={packedRows}
-      renderItem={renderRow}
-      keyExtractor={(row) => row.cards[0].item.Id}
-      contentContainerStyle={listBand && items.length === 0 ? [folderGridContentStyle, styles.noBottomPad] : folderGridContentStyle}
-      ListHeaderComponent={folderHeader}
-      ListEmptyComponent={listBand && items.length === 0 && !isLoading && underBand ? <View style={{ height: underBand.height }}>{renderEmpty()}</View> : undefined}
-      showsVerticalScrollIndicator={false}
-      updateCellsBatchingPeriod={50}
-      // List items are packed ROWS of ~3-4 cards, so the render counts are rows.
-      initialNumToRender={Platform.isTV ? 8 : 6}
-      maxToRenderPerBatch={Platform.isTV ? 8 : 6}
-      windowSize={5}
-      // Phone: UIKit owns the vertical insets, because the transparent native header means the
-      // screen extends under it. TV pads by hand, its bar is this list's own header.
-      contentInsetAdjustmentBehavior={IS_TV ? "never" : "automatic"}
-      // Phone: detach off-screen cells so a long-scrolled grid doesn't unmount hundreds of
-      // native views in one commit on pop (same setting as the search results list).
-      // TV must keep everything mounted — the focus engine needs live cells to traverse.
-      removeClippedSubviews={!IS_TV}
-      onEndReached={handleLoadMore}
-      onEndReachedThreshold={0.5}
-      getItemLayout={getItemLayout}
-      // Known at mount whenever the target's page is already in hand (a cached folder, or a
-      // remount): the list opens ON the card instead of painting the top and scrolling off it.
-      initialScrollIndex={targetRowIndex >= 0 ? targetRowIndex : undefined}
-      onScrollToIndexFailed={handleScrollToIndexFailed}
-      onScrollBeginDrag={handleScrollBeginDrag}
-      ListFooterComponent={renderFooter}
-      viewabilityConfigCallbackPairs={liveChannels ? viewabilityPairs : undefined}
-    />
+    <CardZoomPinch>
+      <FlatList
+        ref={listRef}
+        testID="library-list"
+        data={packedRows}
+        renderItem={renderRow}
+        keyExtractor={(row) => row.cards[0].item.Id}
+        contentContainerStyle={folderGridContentStyle}
+        ListHeaderComponent={folderHeader}
+        showsVerticalScrollIndicator={false}
+        updateCellsBatchingPeriod={50}
+        // List items are packed ROWS of ~3-4 cards, so the render counts are rows.
+        initialNumToRender={Platform.isTV ? 8 : 6}
+        maxToRenderPerBatch={Platform.isTV ? 8 : 6}
+        windowSize={5}
+        // Phone: UIKit owns the vertical insets, because the transparent native header means the
+        // screen extends under it. TV pads by hand, its bar is this list's own header.
+        contentInsetAdjustmentBehavior={IS_TV ? "never" : "automatic"}
+        // Phone: detach off-screen cells so a long-scrolled grid doesn't unmount hundreds of
+        // native views in one commit on pop (same setting as the search results list).
+        // TV must keep everything mounted: the focus engine needs live cells to traverse.
+        removeClippedSubviews={!IS_TV}
+        onEndReached={handleLoadMore}
+        onEndReachedThreshold={0.5}
+        getItemLayout={getItemLayout}
+        // Known at mount whenever the target's page is already in hand (a cached folder, or a
+        // remount): the list opens ON the card instead of painting the top and scrolling off it.
+        initialScrollIndex={targetRowIndex >= 0 ? targetRowIndex : undefined}
+        onScrollToIndexFailed={handleScrollToIndexFailed}
+        onScrollBeginDrag={handleScrollBeginDrag}
+        ListFooterComponent={renderFooter}
+        viewabilityConfigCallbackPairs={liveChannels ? viewabilityPairs : undefined}
+      />
+    </CardZoomPinch>
   );
 
   const inner =
-    items.length === 0 && !listBand ? (
+    items.length === 0 ? (
       // An empty folder renders no list, so the bar it would have headed goes in flow here — it is
       // the only control on the screen, and the one the focus claim above expects to find. Padded
       // to the list's own content insets so it does not move when the folder fills.
@@ -947,7 +910,7 @@ export function LibraryGrid({
     );
 
   return (
-    <View ref={containerRef} style={styles.container} testID="library-grid">
+    <View style={styles.container}>
       {noAmbient ? null : <AmbientBackground />}
       {backdropSource !== undefined ? <FolderBackdrop source={backdropSource} /> : null}
       {/* The brand mark, in the bottom-right corner on every platform and orientation. Screen-level
@@ -960,16 +923,10 @@ export function LibraryGrid({
           Filters bar (via nextFocusUp) → tab bar, and a scrolled grid keeps Up inside itself
           via the native scroll-view containment check. */}
       {inner}
-      {/* A band host's load: the hourglass dead centre in the screen under the band, where no card is mounted yet. */}
-      {listBand && isFolderLoading && underBand ? (
-        <View style={[styles.underBand, { top: underBand.top }]} pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" testID="library-grid-loading">
-          <Ionicons name="hourglass-outline" size={64} color={COLORS.TEXT_SECONDARY} style={styles.loadingGlyph} />
-        </View>
-      ) : null}
       {focusHolder}
       {/* Bottom loading bar: mounted for the whole folder lifetime (outside the empty/grid branch
           switch) so its complete-then-fade handoff plays over the arriving grid. */}
-      <FolderLoadingBar active={isFolderLoading} title={loadingTitle ?? cleanLabel(crumbs?.[crumbs.length - 1]?.name)} />
+      <FolderLoadingBar active={isFolderLoading} title={cleanLabel(crumbs?.[crumbs.length - 1]?.name)} />
     </View>
   );
 }
@@ -980,22 +937,6 @@ const styles = StyleSheet.create({
   },
   // Horizontal padding is applied in the content-style memos (side padding + safe-area insets).
   gridContent: {},
-  // The band's edges on the cards' visible edges: the rows' padding plus each card's own.
-  bandInset: {
-    marginHorizontal: CARD_PADDING,
-  },
-  // An empty band host's block runs to the list's bottom edge, so nothing pads past it.
-  noBottomPad: {
-    paddingBottom: 0,
-  },
-  underBand: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   // One justified row of mixed-shape cards, all at the row's unified height.
   rowWrapper: {
     flexDirection: "row",

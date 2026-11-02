@@ -1,8 +1,9 @@
-import { EMPTY_FILTERS, LibraryFilters } from "@/types/jellyfin";
-import React, { createContext, ReactNode, useCallback, useContext, useMemo, useState } from "react";
+import { clearLibraryView, getLibraryView, loadLibraryView, setLibraryView, subscribeLibraryViews } from "@/services/libraryViews";
+import { LibraryFilters } from "@/types/jellyfin";
+import React, { createContext, ReactNode, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 
 interface LibraryFiltersContextType {
-  /** Filters for a library, or EMPTY_FILTERS when none set. */
+  /** The saved sort and filters for a library, or EMPTY_FILTERS when none set. */
   getFilters: (folderId: string) => LibraryFilters;
   setFilters: (folderId: string, next: LibraryFilters) => void;
   clearFilters: (folderId: string) => void;
@@ -10,31 +11,33 @@ interface LibraryFiltersContextType {
 
 const LibraryFiltersContext = createContext<LibraryFiltersContextType | undefined>(undefined);
 
+let version = 0;
+const subscribe = (listener: () => void) =>
+  subscribeLibraryViews(() => {
+    version += 1;
+    listener();
+  });
+const snapshot = () => version;
+
 /**
- * Per-library filter selections, keyed by folder id. Lives in the (library) stack layout so
- * the folder route and the filters route share state. Session-only, nothing persisted.
+ * Per-library sort and filter selections, keyed by library id and kept by services/libraryViews
+ * (the device's copy at once, the account's display preferences on the server behind it). Lives at
+ * the app root so the folder route and the Sort & Filter route share one state.
  */
 export function LibraryFiltersProvider({ children }: { children: ReactNode }) {
-  const [filtersByFolder, setFiltersByFolder] = useState<Map<string, LibraryFilters>>(new Map());
+  const seen = useSyncExternalStore(subscribe, snapshot, snapshot);
 
-  const getFilters = useCallback((folderId: string) => filtersByFolder.get(folderId) ?? EMPTY_FILTERS, [filtersByFolder]);
-
-  const setFilters = useCallback((folderId: string, next: LibraryFilters) => {
-    setFiltersByFolder((prev) => {
-      const map = new Map(prev);
-      map.set(folderId, next);
-      return map;
-    });
-  }, []);
-
-  const clearFilters = useCallback((folderId: string) => {
-    setFiltersByFolder((prev) => {
-      if (!prev.has(folderId)) return prev;
-      const map = new Map(prev);
-      map.delete(folderId);
-      return map;
-    });
-  }, []);
+  // The first read of a library starts its server read; a changed server copy re-renders through the store.
+  const getFilters = useCallback(
+    (folderId: string) => {
+      void loadLibraryView(folderId);
+      return getLibraryView(folderId);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [seen],
+  );
+  const setFilters = useCallback((folderId: string, next: LibraryFilters) => setLibraryView(folderId, next), []);
+  const clearFilters = useCallback((folderId: string) => clearLibraryView(folderId), []);
 
   const value = useMemo(() => ({ getFilters, setFilters, clearFilters }), [getFilters, setFilters, clearFilters]);
 

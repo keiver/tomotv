@@ -321,33 +321,7 @@ class LocalRemuxer: RCTEventEmitter {
             return
         }
         let rawSubtitles = (config["subtitles"] as? [[String: Any]]) ?? []
-        let subtitles: [RemuxSubtitle] = rawSubtitles.compactMap { raw in
-            guard let index = raw["index"] as? Int, index >= 0, index <= Int(Int32.max) else { return nil }
-            let isImage = raw["isImage"] as? Bool ?? false
-            let isEngineText = raw["isEngineText"] as? Bool ?? false
-            // A track with nowhere to read from has nothing to serve. An image
-            // or engine-decoded one comes out of the source file, so needs no URL.
-            let localVtt = raw["localVtt"] as? String ?? ""
-            guard let vttUrl = raw["vttUrl"] as? String, isImage || isEngineText || !vttUrl.isEmpty || !localVtt.isEmpty else { return nil }
-            var subtitle = RemuxSubtitle(
-                index: index,
-                name: raw["name"] as? String ?? "Subtitle \(index)",
-                language: raw["language"] as? String ?? "",
-                vttUrl: vttUrl,
-                localVtt: localVtt,
-                isDefault: raw["isDefault"] as? Bool ?? false,
-                isForced: raw["isForced"] as? Bool ?? false,
-                isImage: isImage,
-                isEngineText: isEngineText
-            )
-            subtitle.serverSupUrl = raw["serverSupUrl"] as? String ?? ""
-            subtitle.isExternal = raw["isExternal"] as? Bool ?? false
-            subtitle.isSelected = raw["isSelected"] as? Bool ?? false
-            subtitle.isHearingImpaired = raw["isHearingImpaired"] as? Bool ?? false
-            subtitle.source = SourcePosition(raw["source"])
-            guard raw["source"] == nil || subtitle.source != nil else { return nil }
-            return subtitle
-        }
+        let subtitles = Self.parsedSubtitles(rawSubtitles)
         guard subtitles.count == rawSubtitles.count,
               Set(subtitles.map(\.index)).count == subtitles.count else {
             reject("invalid_subtitle_tracks", "Every subtitle track needs its own stream index and a configured producer", nil)
@@ -439,6 +413,60 @@ class LocalRemuxer: RCTEventEmitter {
         } catch {
             reject("start_failed", "Failed to start remux session: \(error.localizedDescription)", error)
         }
+    }
+
+    /// The subtitle tracks a JS dictionary list describes; an entry with no index or nothing to serve is left out.
+    static func parsedSubtitles(_ rawSubtitles: [[String: Any]]) -> [RemuxSubtitle] {
+        rawSubtitles.compactMap { raw in
+            guard let index = raw["index"] as? Int, index >= 0, index <= Int(Int32.max) else { return nil }
+            let isImage = raw["isImage"] as? Bool ?? false
+            let isEngineText = raw["isEngineText"] as? Bool ?? false
+            // A track with nowhere to read from has nothing to serve. An image
+            // or engine-decoded one comes out of the source file, so needs no URL.
+            let localVtt = raw["localVtt"] as? String ?? ""
+            guard let vttUrl = raw["vttUrl"] as? String, isImage || isEngineText || !vttUrl.isEmpty || !localVtt.isEmpty else { return nil }
+            var subtitle = RemuxSubtitle(
+                index: index,
+                name: raw["name"] as? String ?? "Subtitle \(index)",
+                language: raw["language"] as? String ?? "",
+                vttUrl: vttUrl,
+                localVtt: localVtt,
+                isDefault: raw["isDefault"] as? Bool ?? false,
+                isForced: raw["isForced"] as? Bool ?? false,
+                isImage: isImage,
+                isEngineText: isEngineText
+            )
+            subtitle.serverSupUrl = raw["serverSupUrl"] as? String ?? ""
+            subtitle.isExternal = raw["isExternal"] as? Bool ?? false
+            subtitle.isSelected = raw["isSelected"] as? Bool ?? false
+            subtitle.isHearingImpaired = raw["isHearingImpaired"] as? Bool ?? false
+            subtitle.timeOffsetMs = raw["timeOffsetMs"] as? Int ?? 0
+            subtitle.source = SourcePosition(raw["source"])
+            guard raw["source"] == nil || subtitle.source != nil else { return nil }
+            return subtitle
+        }
+    }
+
+    /// Replaces the subtitle tracks the session behind `token` serves, re-anchored at `resumeAt`.
+    /// Resolves the fresh master URL the player swaps to, or null without a session to update.
+    @objc func updateSubtitles(
+        _ token: NSString,
+        subtitles: NSArray,
+        resumeAt: NSNumber,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter _: @escaping RCTPromiseRejectBlock
+    ) {
+        Self.lock.lock()
+        let session = Self.sessions[token as String]
+        Self.lock.unlock()
+        let parsed = Self.parsedSubtitles((subtitles as? [[String: Any]]) ?? [])
+        guard let session, let base = session.loopbackBase,
+              let name = session.updateSubtitles(parsed, resumeAt: resumeAt.doubleValue) else {
+            resolve(NSNull())
+            return
+        }
+        NSLog("[LocalRemuxer] session %@ swaps to %d subtitle tracks, resuming at %.1fs", session.token, parsed.count, resumeAt.doubleValue)
+        resolve("\(base)/\(name)")
     }
 
     enum ServerError: Error { case noPort }
@@ -851,6 +879,47 @@ class LocalRemuxer: RCTEventEmitter {
         Self.lock.unlock()
         session?.setLiveWindow(seconds: seconds.doubleValue)
         resolve(session != nil)
+    }
+
+    /// Moves a subtitle track's cues in the running session: the next body served carries the offset.
+    @objc func setSubtitleTimeOffset(
+        _ token: NSString,
+        streamIndex: NSNumber,
+        offsetMs: NSNumber,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter _: @escaping RCTPromiseRejectBlock
+    ) {
+        Self.lock.lock()
+        let session = Self.sessions[token as String]
+        Self.lock.unlock()
+        session?.setSubtitleTimeOffset(streamIndex: streamIndex.intValue, offsetMs: offsetMs.intValue)
+        resolve(session != nil)
+    }
+
+    /// Lines a subtitle track up with the speech in the audio; `attempt` moves the window along the file.
+    /// Answers `{ ok: true, offsetMs, confidence }` or `{ ok: false, reason }`.
+    @objc func alignSubtitleTiming(
+        _ token: NSString,
+        streamIndex: NSNumber,
+        attempt: NSNumber,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter _: @escaping RCTPromiseRejectBlock
+    ) {
+        Self.lock.lock()
+        let session = Self.sessions[token as String]
+        Self.lock.unlock()
+        guard let session else {
+            resolve(["ok": false, "reason": "noSession"])
+            return
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            switch session.alignSubtitleTiming(streamIndex: streamIndex.intValue, attempt: attempt.intValue) {
+            case let .aligned(offsetMs, confidence):
+                resolve(["ok": true, "offsetMs": offsetMs, "confidence": confidence])
+            case let .failed(reason):
+                resolve(["ok": false, "reason": reason])
+            }
+        }
     }
 
     /// A session changing hands (a ring neighbour or a preview adopted by the player) takes the new owner's rank.

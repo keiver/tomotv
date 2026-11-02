@@ -96,6 +96,28 @@ describe("live TV client", () => {
     expect(url).not.toContain("startIndex=");
   });
 
+  it("leaves out the channels the viewer hid and shows a renamed one under its name, on the list, the lineup and an ids read alike", async () => {
+    const preferences = jest.requireActual("@/services/liveTvPreferences") as typeof import("@/services/liveTvPreferences");
+    preferences.hideChannel({ Id: "c2", Name: "Two" });
+    preferences.renameChannel({ Id: "c1", Name: "One" }, "First");
+    try {
+      const items = [
+        { Id: "c1", Name: "One", Type: "TvChannel", CurrentProgram: null },
+        { Id: "c2", Name: "Two", Type: "TvChannel", CurrentProgram: null },
+      ];
+      (global.fetch as jest.Mock).mockResolvedValue({ ok: true, json: async () => ({ Items: items, TotalRecordCount: 2 }) });
+      const page = await fetchChannels();
+      expect(page.items).toEqual([{ Id: "c1", Name: "First", SourceName: "One", Type: "TvChannel", CurrentProgram: null }]);
+      // The total still counts the hidden channel: the next page is asked for by the server's count.
+      expect(page.total).toBe(2);
+      expect((await fetchChannelOrder()).map((channel) => [channel.Id, channel.Name])).toEqual([["c1", "First"]]);
+      expect((await fetchChannelsByIds(["c2", "c1"])).map((channel) => channel.Name)).toEqual(["First"]);
+    } finally {
+      preferences.unhideChannel({ name: "Two" });
+      preferences.renameChannel({ Id: "c1", Name: "One" }, "");
+    }
+  });
+
   it("fills a channel's missing current programme from the device guide sources", async () => {
     const external = jest.requireMock("@/services/externalGuide") as { activeGuideUrls: jest.Mock; fetchExternalAiringPrograms: jest.Mock };
     external.activeGuideUrls.mockReturnValueOnce(["http://g/guide.xml"]);
@@ -457,36 +479,34 @@ describe("live TV client", () => {
     expect(remuxOf(SERVER, undefined)).toBeNull();
   });
 
-  describe("Pluto channels", () => {
-    const PLUTO = "5f4d878d3d19b30007d2e782";
-    const SESSION = `https://ipv4.pluto.tv/api/tn/video/playout/v2/stitch/hls/channel/${PLUTO}/master.m3u8?jwt=tok&masterJWTPassthrough=true`;
+  describe("a channel whose playlist link points at Pluto TV", () => {
+    const LINK = "https://jmp2.uk/plu-5f4d878d3d19b30007d2e782.m3u8";
     const respond = async (url: string) => {
       if (url.includes("/PlaybackInfo")) {
-        return { ok: true, json: async () => ({ MediaSources: [{ Id: "ms-p", Protocol: "Http", Container: "hls", Path: `https://jmp2.uk/plu-${PLUTO}.m3u8`, MediaStreams: [] }] }) };
-      }
-      if (url === "https://pluto.tv/api/tn/app-shell/graphql/") {
-        return { ok: true, headers: { get: () => "CBS_COM=c1; Path=/" }, json: async () => ({ data: { ptvStart: { deviceId: "d1", session: { id: "s1", jwt: "tok" }, refreshInSec: 28800 } } }) };
-      }
-      if (url === "https://pluto.tv/api/tn/video/graphql/") {
-        return {
-          ok: true,
-          headers: { get: () => null },
-          json: async () => ({ data: { streamingUrl: { success: true, stitcherPaths: [{ type: "hls", path: `/v2/stitch/hls/channel/${PLUTO}/master.m3u8` }] } } }),
-        };
+        return { ok: true, json: async () => ({ MediaSources: [{ Id: "ms-p", Protocol: "Http", Container: "hls", Path: LINK, IsInfiniteStream: true, LiveStreamId: "ls-p", MediaStreams: [] }] }) };
       }
       return { ok: true, url, text: async () => "#EXTM3U\n#EXTINF:6,\nseg1.ts\n" };
     };
+    const askedPluto = () => (global.fetch as jest.Mock).mock.calls.some(([url]) => /pluto\.tv/i.test(String(url)));
 
-    it("grabs a Pluto channel's frames on this device's session", async () => {
+    it("grabs frames from the link exactly as given and never calls Pluto", async () => {
       (global.fetch as jest.Mock).mockImplementation(respond);
-      expect(await resolveChannelOrigin("cp")).toEqual({ url: SESSION });
+      expect(await resolveChannelOrigin("cp")).toEqual({ url: LINK });
+      expect(askedPluto()).toBe(false);
     });
 
-    it("plays a Pluto channel on this device's session", async () => {
+    it("plays the link exactly as given and never calls Pluto", async () => {
       (global.fetch as jest.Mock).mockImplementation(respond);
       const channel = await resolveChannel("cp", { Id: "cp", Name: "Pluto", Type: "TvChannel", Path: "" });
-      expect(channel.liveStreamUrl).toBe(SESSION);
-      expect((global.fetch as jest.Mock).mock.calls.map(([url]) => String(url))).not.toContain(`https://jmp2.uk/plu-${PLUTO}.m3u8`);
+      expect(channel.liveStreamUrl).toBe(LINK);
+      expect(askedPluto()).toBe(false);
+    });
+
+    it("opens the link exactly as given and never calls Pluto", async () => {
+      (global.fetch as jest.Mock).mockImplementation(respond);
+      const channel = await openChannel("cp", { Id: "cp", Name: "Pluto", Type: "TvChannel", Path: "" });
+      expect(channel.liveStreamUrl).toBe(LINK);
+      expect(askedPluto()).toBe(false);
     });
   });
 

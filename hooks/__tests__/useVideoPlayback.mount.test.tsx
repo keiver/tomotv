@@ -594,6 +594,26 @@ describe("useVideoPlayback (mounted)", () => {
         jest.useRealTimers();
       });
 
+      it("asks the server for no settings sync at open when the item plays from disk", async () => {
+        const { refreshTrackSettings } = jest.requireMock("@/services/jellyfin/trackSettings") as { refreshTrackSettings: jest.Mock };
+        mockPlaysFromDisk.mockReturnValue(true);
+        const { renderer } = await mount({ videoId: "video-1" });
+        expect(refreshTrackSettings).not.toHaveBeenCalled();
+        mockPlaysFromDisk.mockReturnValue(false);
+        await act(async () => renderer.unmount());
+      });
+
+      it("stores a choice the viewer made when the item changes before the settle", async () => {
+        const { ref, renderer, request } = await playing(false);
+        await request(6);
+        expect(saveSubtitlePreference).not.toHaveBeenCalled();
+        await act(async () => {
+          renderer.update(<Harness ref={ref} videoId="video-2" />);
+        });
+        expect(saveSubtitlePreference).toHaveBeenCalledWith({ kind: "language", tag: "eng" });
+        await act(async () => renderer.unmount());
+      });
+
       it("holds and remembers it once it settles, and ignores the opening track's repeat requests", async () => {
         const { ref, renderer, request } = await playing(true);
         await request(4);
@@ -1273,6 +1293,39 @@ describe("useVideoPlayback (mounted)", () => {
       expect(ref.current!.get().state).toMatchObject({ type: "INITIALIZING_PLAYER", mode: "direct" });
       expect(mockStartLocalRemux).not.toHaveBeenCalled();
       expect(mockTranscodeUrl).not.toHaveBeenCalled();
+    });
+
+    it("leaves AVKit's own subtitle choice alone on a held file playing direct", async () => {
+      mockPlaysFromDisk.mockReturnValue(true);
+      mockCanRemux.mockResolvedValue(true);
+      (getTextSubtitleStreams as jest.Mock).mockReturnValue([{ Type: "Subtitle", Index: 2, Codec: "mov_text", IsExternal: false }]);
+      const { getSubtitlePreferenceSync, selectedTextTrackFor } = jest.requireMock("@/services/subtitlePreference") as { getSubtitlePreferenceSync: jest.Mock; selectedTextTrackFor: jest.Mock };
+      getSubtitlePreferenceSync.mockReturnValue({ kind: "off" });
+      selectedTextTrackFor.mockImplementation((preference: { kind: string }) => (preference.kind === "off" ? { type: "disabled" } : { type: "system" }));
+
+      const { ref, renderer } = await mount({ videoId: "video-1" });
+      await act(async () => {
+        ref.current!.get().videoCallbacks.onTextTracks({ textTracks: [{ index: 0, title: "", language: "en", type: "text/vtt", selected: true }] } as never);
+      });
+      jest.useFakeTimers();
+      await act(async () => {
+        ref.current!.get().videoCallbacks.onLoad({ duration: 120 } as never);
+        jest.advanceTimersByTime(101);
+      });
+      await act(async () => {
+        ref.current!.get().play();
+      });
+      await act(async () => {
+        ref.current!.get().videoCallbacks.onProgress({ currentTime: 1, playableDuration: 60, seekableDuration: 120 } as never);
+        ref.current!.get().videoCallbacks.onProgress({ currentTime: 2, playableDuration: 60, seekableDuration: 120 } as never);
+        jest.advanceTimersByTime(501);
+      });
+      expect(ref.current!.get().selectedTextTrack).toEqual({ type: "system" });
+      jest.useRealTimers();
+      getSubtitlePreferenceSync.mockImplementation(() => ({ kind: "system" }));
+      selectedTextTrackFor.mockImplementation(() => ({ type: "system" }));
+      mockPlaysFromDisk.mockReturnValue(false);
+      await act(async () => renderer.unmount());
     });
 
     // A sidecar cannot be attached to a progressive file, so this one still wants the engine.
@@ -2324,9 +2377,9 @@ describe("useVideoPlayback (mounted)", () => {
 
     it.each([
       ["audio", "en", { type: "system" }],
-      ["audio", "ja", { type: "language", value: "en" }],
+      ["audio", "ja", { type: "system" }],
       ["text", "ja", { type: "system" }],
-    ])("weighs Smart subtitles against the reported audio on direct play when the %s report lands first (%s audio)", async (first, audioLanguage, expected) => {
+    ])("applies no Smart subtitle on a held file playing direct when the %s report lands first (%s audio)", async (first, audioLanguage, expected) => {
       jest.useFakeTimers();
       try {
         (selectedTextTrackFor as jest.Mock).mockImplementation(jest.requireActual("@/services/subtitlePreference").selectedTextTrackFor);
@@ -2398,11 +2451,11 @@ describe("useVideoPlayback (mounted)", () => {
       }
     });
 
-    // Mac log: a stored "eng" drew its track while AVKit's menu stayed on Off. Always-on is written first, for a standing language only.
+    // A held file playing direct keeps AVKit's own selection: no pin, no application, whatever the account holds.
     it.each([
-      ["Always", 1],
+      ["Always", 0],
       ["Smart", 0],
-    ])("pins captions on before applying a %s language", async (subtitleMode, calls) => {
+    ])("pins and applies nothing on a held direct file for a standing %s language", async (subtitleMode, calls) => {
       jest.useFakeTimers();
       const showCaptionsAlways = jest.fn();
       const modules = NativeModules as Record<string, unknown>;
@@ -2439,7 +2492,7 @@ describe("useVideoPlayback (mounted)", () => {
         });
         await act(async () => ref.current!.get().videoCallbacks.onAudioTracks({ audioTracks: [{ index: 0, language: "ja", selected: true }] } as never));
         await act(async () => ref.current!.get().videoCallbacks.onTextTracks({ textTracks: [{ index: 0, language: "en", selected: false }] } as never));
-        expect(ref.current!.get().selectedTextTrack).toEqual({ type: "language", value: "en" });
+        expect(ref.current!.get().selectedTextTrack).toEqual({ type: "system" });
         expect(showCaptionsAlways).toHaveBeenCalledTimes(calls);
         await act(async () => renderer.unmount());
       } finally {

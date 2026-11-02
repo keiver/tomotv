@@ -14,7 +14,9 @@ jest.mock("@/components/settings/SectionFooter", () => ({ SectionFooter: ({ chil
 jest.mock("@/hooks/useItemLongPress", () => ({ useItemLongPress: () => () => {} }));
 jest.mock("@/hooks/useOpenShelfItem", () => ({ useOpenShelfItem: () => () => {} }));
 jest.mock("@/contexts/LibraryFiltersContext", () => ({
-  useLibraryFilters: () => ({ getFilters: () => ({ genres: [], artistIds: [], years: [], favorite: false, played: false, unplayed: false, shuffle: false }) }),
+  useLibraryFilters: () => ({
+    getFilters: () => ({ genres: [], artistIds: [], years: [], favorite: false, played: false, unplayed: false, shuffle: false, sortBy: "SortName", sortOrder: "Ascending" }),
+  }),
 }));
 jest.mock("expo-router", () => ({
   Stack: { Screen: () => null },

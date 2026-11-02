@@ -6,8 +6,9 @@ import { LoadingRow } from "@/components/loading-row";
 import { COLORS } from "@/constants/colors";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { useCardPalette } from "@/hooks/useCardPalette";
-import { fetchLibraryArtists, fetchLibraryGenres, fetchLibraryYears } from "@/services/jellyfinApi";
-import { JellyfinNamedItem, LibraryFilters } from "@/types/jellyfin";
+import { fetchLibraryArtists, fetchLibraryGenres, fetchLibraryYears, fetchUserViews } from "@/services/jellyfinApi";
+import { JellyfinNamedItem, LibraryFilters, LibrarySortBy } from "@/types/jellyfin";
+import { SORT_LABEL_KEYS, sortChoicesWith } from "@/utils/librarySort";
 import { logger } from "@/utils/logger";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
@@ -47,30 +48,35 @@ function FiltersScreen() {
   const [genres, setGenres] = useState<string[]>([]);
   const [artists, setArtists] = useState<JellyfinNamedItem[]>([]);
   const [years, setYears] = useState<number[]>([]);
+  // The library's CollectionType picks its sort list; a folder that is no library gets the default list.
+  const [collectionType, setCollectionType] = useState<string>();
   const [isLoadingOptions, setIsLoadingOptions] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     // Load each list independently: a failed call must not blank the others.
-    Promise.allSettled([fetchLibraryGenres(filterKey), fetchLibraryArtists(filterKey), fetchLibraryYears(filterKey)]).then(([genresResult, artistsResult, yearsResult]) => {
-      if (cancelled) return;
-      if (genresResult.status === "fulfilled") {
-        setGenres(genresResult.value);
-      } else {
-        logger.warn("Failed to load genres for filters panel", genresResult.reason, { service: "FiltersScreen", filterKey });
-      }
-      if (artistsResult.status === "fulfilled") {
-        setArtists(artistsResult.value);
-      } else {
-        logger.warn("Failed to load artists for filters panel", artistsResult.reason, { service: "FiltersScreen", filterKey });
-      }
-      if (yearsResult.status === "fulfilled") {
-        setYears(yearsResult.value);
-      } else {
-        logger.warn("Failed to load years for filters panel", yearsResult.reason, { service: "FiltersScreen", filterKey });
-      }
-      setIsLoadingOptions(false);
-    });
+    Promise.allSettled([fetchLibraryGenres(filterKey), fetchLibraryArtists(filterKey), fetchLibraryYears(filterKey), fetchUserViews()]).then(
+      ([genresResult, artistsResult, yearsResult, viewsResult]) => {
+        if (cancelled) return;
+        if (viewsResult.status === "fulfilled") setCollectionType(viewsResult.value.items.find((view) => view.Id === filterKey)?.CollectionType);
+        if (genresResult.status === "fulfilled") {
+          setGenres(genresResult.value);
+        } else {
+          logger.warn("Failed to load genres for filters panel", genresResult.reason, { service: "FiltersScreen", filterKey });
+        }
+        if (artistsResult.status === "fulfilled") {
+          setArtists(artistsResult.value);
+        } else {
+          logger.warn("Failed to load artists for filters panel", artistsResult.reason, { service: "FiltersScreen", filterKey });
+        }
+        if (yearsResult.status === "fulfilled") {
+          setYears(yearsResult.value);
+        } else {
+          logger.warn("Failed to load years for filters panel", yearsResult.reason, { service: "FiltersScreen", filterKey });
+        }
+        setIsLoadingOptions(false);
+      },
+    );
     return () => {
       cancelled = true;
     };
@@ -91,6 +97,10 @@ function FiltersScreen() {
     },
     [update, filters.artistIds],
   );
+
+  // One sort at a time; picking one ends a shuffle, and Shuffle leaves the sort as it was for later.
+  const pickSort = useCallback((sortBy: LibrarySortBy) => update({ sortBy, shuffle: false }), [update]);
+  const sortChoices = sortChoicesWith(collectionType, filters.sortBy);
 
   const toggleYear = useCallback(
     (year: number) => {
@@ -161,8 +171,17 @@ function FiltersScreen() {
 
         <Text style={styles.sectionHeading}>{t("filters.sort")}</Text>
         <View style={styles.chipWrap}>
+          {sortChoices.map((sortBy) => (
+            <FilterChip key={sortBy} label={t(SORT_LABEL_KEYS[sortBy])} selected={!filters.shuffle && filters.sortBy === sortBy} onToggle={() => pickSort(sortBy)} />
+          ))}
           <FilterChip label={t("filters.shuffle")} selected={filters.shuffle} onToggle={() => update({ shuffle: !filters.shuffle })} />
         </View>
+        {!filters.shuffle && (
+          <View style={[styles.chipWrap, styles.orderRow]}>
+            <FilterChip label={t("sort.ascending")} selected={filters.sortOrder === "Ascending"} onToggle={() => update({ sortOrder: "Ascending" })} />
+            <FilterChip label={t("sort.descending")} selected={filters.sortOrder === "Descending"} onToggle={() => update({ sortOrder: "Descending" })} />
+          </View>
+        )}
 
         {genres.length > 0 && (
           <>
@@ -293,6 +312,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: IS_TV ? 14 : 8,
+  },
+  orderRow: {
+    marginTop: IS_TV ? 16 : 10,
   },
 });
 

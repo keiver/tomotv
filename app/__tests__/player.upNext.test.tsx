@@ -68,8 +68,8 @@ const mockSession = {
 };
 jest.mock("@/contexts/PlayerSessionContext", () => ({ usePlayerSession: () => mockSession }));
 
-const markers = (startSeconds: number): ItemMediaSegments => ({ intro: null, outro: { startSeconds, endSeconds: 60 }, commercials: [] });
-const noMarkers: ItemMediaSegments = { intro: null, outro: null, commercials: [] };
+const markers = (startSeconds: number): ItemMediaSegments => ({ intro: null, outro: { startSeconds, endSeconds: 60 }, recaps: [], previews: [], commercials: [] });
+const noMarkers: ItemMediaSegments = { intro: null, outro: null, recaps: [], previews: [], commercials: [] };
 const lastConfig = (): PlayerTvConfig => mockSession.setTvConfig.mock.calls.at(-1)![0];
 
 describe("tvOS Up Next timing", () => {
@@ -99,6 +99,17 @@ describe("tvOS Up Next timing", () => {
   it("keeps a proposal at playback end without guessing credits from runtime", async () => {
     await mount();
     expect(lastConfig().contentProposal).toEqual({ title: "Second", autoAcceptSeconds: 5 });
+  });
+
+  it("passes the next item's primary image ratio so the card takes the poster's shape", async () => {
+    const nextVideo = mockQueue.nextVideo;
+    mockQueue.nextVideo = { ...nextVideo, PrimaryImageAspectRatio: 16 / 9 } as typeof nextVideo;
+    try {
+      await mount();
+      expect(lastConfig().contentProposal).toEqual({ title: "Second", imageAspectRatio: 16 / 9, autoAcceptSeconds: 5 });
+    } finally {
+      mockQueue.nextVideo = nextVideo;
+    }
   });
 
   it.each([0, -1, NaN, Infinity])("uses playback end for an unusable Outro start (%s)", async (start) => {

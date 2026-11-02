@@ -43,7 +43,7 @@ describe("fetchMediaSegments", () => {
     jest.restoreAllMocks();
   });
 
-  it("requests Intro+Outro with auth and returns both windows in seconds", async () => {
+  it("requests every kind with auth and returns the Intro and Outro windows in seconds", async () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,
       json: async () => ({
@@ -59,10 +59,14 @@ describe("fetchMediaSegments", () => {
     expect(segments).toEqual({
       intro: { startSeconds: 5, endSeconds: 95 },
       outro: { startSeconds: 2500, endSeconds: 2600 },
+      recaps: [],
+      previews: [],
       commercials: [],
     });
     const [url, init] = (global.fetch as jest.Mock).mock.calls[0];
-    expect(url).toBe("http://192.168.1.100:8096/MediaSegments/item-1?includeSegmentTypes=Intro&includeSegmentTypes=Outro&includeSegmentTypes=Commercial");
+    expect(url).toBe(
+      "http://192.168.1.100:8096/MediaSegments/item-1?includeSegmentTypes=Intro&includeSegmentTypes=Outro&includeSegmentTypes=Recap&includeSegmentTypes=Preview&includeSegmentTypes=Commercial",
+    );
     expect((init.headers as Record<string, string>).Authorization).toContain("test-api-key");
   });
 
@@ -81,8 +85,31 @@ describe("fetchMediaSegments", () => {
     expect(await fetchMediaSegments("item-1")).toEqual({
       intro: { startSeconds: 10, endSeconds: 90 },
       outro: null,
+      recaps: [],
+      previews: [],
       commercials: [],
     });
+  });
+
+  it("returns every Recap and Preview window in time order, empty ones dropped", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        Items: [
+          { Id: "p1", ItemId: "item-1", Type: "Preview", StartTicks: 2550 * TICKS, EndTicks: 2580 * TICKS },
+          { Id: "r2", ItemId: "item-1", Type: "Recap", StartTicks: 60 * TICKS, EndTicks: 120 * TICKS },
+          { Id: "r1", ItemId: "item-1", Type: "Recap", StartTicks: 0, EndTicks: 45 * TICKS },
+          { Id: "r3", ItemId: "item-1", Type: "Recap", StartTicks: 200 * TICKS, EndTicks: 200 * TICKS },
+        ],
+      }),
+    });
+
+    const segments = await fetchMediaSegments("item-1");
+    expect(segments.recaps).toEqual([
+      { startSeconds: 0, endSeconds: 45 },
+      { startSeconds: 60, endSeconds: 120 },
+    ]);
+    expect(segments.previews).toEqual([{ startSeconds: 2550, endSeconds: 2580 }]);
   });
 
   it("returns every Commercial window in time order, empty ones dropped", async () => {
@@ -103,15 +130,39 @@ describe("fetchMediaSegments", () => {
     ]);
   });
 
+  it("merges overlapping windows of the same type into one, so two segment plugins never make two pills", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        Items: [
+          // Two providers marking the same recap and the same credits, slightly offset.
+          { Id: "r1", ItemId: "item-1", Type: "Recap", StartTicks: 0, EndTicks: 108 * TICKS },
+          { Id: "r2", ItemId: "item-1", Type: "Recap", StartTicks: 0, EndTicks: 106 * TICKS },
+          { Id: "o1", ItemId: "item-1", Type: "Outro", StartTicks: 1279 * TICKS, EndTicks: 1312 * TICKS },
+          { Id: "o2", ItemId: "item-1", Type: "Outro", StartTicks: 1282 * TICKS, EndTicks: 1317 * TICKS },
+          // A separate later recap stays its own window.
+          { Id: "r3", ItemId: "item-1", Type: "Recap", StartTicks: 300 * TICKS, EndTicks: 360 * TICKS },
+        ],
+      }),
+    });
+
+    const segments = await fetchMediaSegments("item-1");
+    expect(segments.recaps).toEqual([
+      { startSeconds: 0, endSeconds: 108 },
+      { startSeconds: 300, endSeconds: 360 },
+    ]);
+    expect(segments.outro).toEqual({ startSeconds: 1279, endSeconds: 1317 });
+  });
+
   it("returns nulls on 404 (pre-10.10 server)", async () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: false, status: 404 });
 
-    expect(await fetchMediaSegments("item-1")).toEqual({ intro: null, outro: null, commercials: [] });
+    expect(await fetchMediaSegments("item-1")).toEqual({ intro: null, outro: null, recaps: [], previews: [], commercials: [] });
   });
 
   it("returns nulls on network failure without throwing", async () => {
     (global.fetch as jest.Mock).mockRejectedValueOnce(new Error("network down"));
 
-    await expect(fetchMediaSegments("item-1")).resolves.toEqual({ intro: null, outro: null, commercials: [] });
+    await expect(fetchMediaSegments("item-1")).resolves.toEqual({ intro: null, outro: null, recaps: [], previews: [], commercials: [] });
   });
 });

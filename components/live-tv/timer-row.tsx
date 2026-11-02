@@ -1,5 +1,7 @@
 import { ListRow } from "@/components/settings/ListRow";
+import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { t } from "@/services/i18n";
+import { channelDisplayName } from "@/services/liveTvPreferences";
 import type { JellyfinTimer } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
 import { formatClockRange, formatDayLabel } from "@/utils/guide";
@@ -28,7 +30,9 @@ function TimerRowComponent({ timer, nowMs, series = false, onPress, isLast = fal
   const endMs = Date.parse(timer.EndDate);
   const slot = formatClockRange(startMs, endMs);
   const when = `${formatDayLabel(startMs, nowMs, { today: t("liveTv.today"), tomorrow: t("liveTv.tomorrow") })} ${t("liveTv.timeRange").replace("{start}", slot.start).replace("{end}", slot.end)}`;
-  const subtitle = [when, cleanLabel(timer.EpisodeTitle), cleanLabel(timer.ChannelName)].filter(Boolean).join("  ·  ");
+  const preferences = useLiveTvPreferences();
+  const channelName = timer.ChannelName ? channelDisplayName(preferences, { Id: timer.ChannelId, Name: timer.ChannelName }) : undefined;
+  const subtitle = [when, cleanLabel(timer.EpisodeTitle), cleanLabel(channelName)].filter(Boolean).join("  ·  ");
   // A timer with no program and no channel has no panel to open: it takes focus to be readable, nothing more.
   const opens = timerPanelTarget(timer, series) !== null;
   const open = opens ? () => onPress(timer, series) : undefined;

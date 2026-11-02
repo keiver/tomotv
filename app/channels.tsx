@@ -1,7 +1,6 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { LibraryGrid } from "@/components/library-grid";
 import { ShowAllChannels } from "@/components/live-tv/show-all-channels";
-import { WallGroupsBand } from "@/components/live-tv/wall-groups-band";
 import { SfSymbolIcon } from "@/components/sf-symbol-icon";
 import { HeaderSearchReveal } from "@/components/header-search-reveal";
 import { COLORS } from "@/constants/colors";
@@ -11,7 +10,6 @@ import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { useLiveTvSearchRefresh } from "@/hooks/useLiveTvSearchRefresh";
 import { useChannelFavoritesSync } from "@/hooks/useChannelFavoritesSync";
 import { useChannels } from "@/hooks/useChannels";
-import { useChannelFilterChoices } from "@/hooks/useChannelFilterChoices";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { usePlaylistChannelIds } from "@/hooks/useTunerGroups";
@@ -21,7 +19,7 @@ import { t } from "@/services/i18n";
 import { fetchTimers, searchLiveTv, warmLiveTvSearch } from "@/services/jellyfinApi";
 import { reportRecordingTimers } from "@/services/recordingStatus";
 import { requestSearchFocus } from "@/services/searchFocus";
-import { activeCategory, activeChannelList, isFavoriteChannel, updateLiveTvPreferences } from "@/services/liveTvPreferences";
+import { activeCategory, activeChannelList, isFavoriteChannel } from "@/services/liveTvPreferences";
 import type { FolderStackEntry, JellyfinItem, JellyfinTimer, JellyfinVideoItem } from "@/types/jellyfin";
 import { activeRecordTimer, programRecording } from "@/utils/guide";
 import { logger } from "@/utils/logger";
@@ -36,7 +34,7 @@ const SEARCH_DEBOUNCE_MS = 300;
 const MIN_QUERY = 2;
 
 /** The channel wall: every channel as the guide's card, tuning on select, a held card a favorite. A root route beside Recordings.
- *  Its head is the Live TV HUD: a search over channels and programmes, the group pills, and the guide's status. */
+ *  Its bar holds a search over channels and programmes, the Groups picker and Settings. */
 export default function ChannelsScreen() {
   const router = useRouter();
   const { accent } = useCardPalette();
@@ -136,18 +134,17 @@ export default function ChannelsScreen() {
   );
   const favoriteMark = useCallback((item: JellyfinItem) => (item.Type === "TvChannel" && isFavoriteChannel(preferences, item) ? ("heart" as const) : undefined), [preferences]);
   const crumbs = useMemo<FolderStackEntry[]>(() => [{ id: "channels", name: t("liveTv.channels"), type: "livetv" }], []);
-  // A group pick's load names the group it is reading.
-  const filterChoices = useChannelFilterChoices();
-  const pickedGroup = filtered ? filterChoices.find((choice) => choice.filter === preferences.filter)?.label : undefined;
-  const showAll = useCallback(() => updateLiveTvPreferences({ filter: "all" }), []);
-  // TV: the search capsule, where Up from the groups band's right half lands.
-  const [searchButton, setSearchButton] = useState<View | null>(null);
+  const openFilterPicker = useCallback(() => router.push("/channel-groups"), [router]);
   // Icon-only: the cog carries it.
   const headerAction = useMemo(() => ({ icon: "settings-outline" as const, accessibilityLabel: t("settings.title"), onPress: openSettings }), [openSettings]);
-  // Left of Settings while a group holds the list: the filled filter symbol, a press shows every channel. The band picks.
-  const clearAction = useMemo(
-    () => (filtered ? { accessibilityLabel: t("liveTv.showAll"), icon: <SfSymbolIcon name="line.3.horizontal.decrease.circle.fill" size={26} color={accent} />, onPress: showAll } : undefined),
-    [filtered, showAll, accent],
+  // Left of Settings, the platform's filter button: the symbol fills while a group holds the list.
+  const filterAction = useMemo(
+    () => ({
+      accessibilityLabel: t("liveTv.groups"),
+      icon: <SfSymbolIcon name={filtered ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle"} size={26} color={accent} />,
+      onPress: openFilterPicker,
+    }),
+    [filtered, openFilterPicker, accent],
   );
 
   // Phone: search, the filter and Settings ride the native bar, as Filters does on a folder level. TV draws them in the grid's bar.
@@ -163,24 +160,20 @@ export default function ChannelsScreen() {
         : {
             unstable_headerRightItems: () => [
               { type: "button", label: t("tab.search"), icon: { type: "sfSymbol", name: "magnifyingglass" }, tintColor: accent, onPress: openSearch },
-              ...(filtered
-                ? [
-                    {
-                      type: "button" as const,
-                      label: t("liveTv.showAll"),
-                      icon: { type: "sfSymbol" as const, name: "line.3.horizontal.decrease.circle.fill" as const },
-                      tintColor: accent,
-                      onPress: showAll,
-                    },
-                  ]
-                : []),
+              {
+                type: "button",
+                label: filterAction.accessibilityLabel,
+                icon: { type: "sfSymbol", name: filtered ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle" },
+                tintColor: accent,
+                onPress: filterAction.onPress,
+              },
               { type: "button", label: t("settings.title"), icon: { type: "sfSymbol", name: "gearshape" }, tintColor: accent, onPress: openSettings },
             ],
           },
-    [openSettings, openSearch, showAll, filtered, accent],
+    [openSettings, openSearch, filterAction, filtered, accent],
   );
 
-  // An empty wall keeps the bar: back, search, groups and settings stay in reach.
+  // An empty wall keeps the bar: back, search, the filter and settings stay in reach.
   const favoritesEmpty = preferences.filter === "favorites";
   const emptyWall =
     !searching && !hasMore ? (
@@ -203,11 +196,8 @@ export default function ChannelsScreen() {
           titleIconFor={favoriteMark}
           recordingFor={recordingFor}
           headerAction={headerAction}
-          headerSecondaryAction={clearAction}
-          listBand={<WallGroupsBand />}
-          loadingTitle={pickedGroup}
-          headerTrailing={IS_TV ? <HeaderSearchReveal key={preferences.filter} value={query} onChangeText={setQuery} placeholder={t("liveTv.searchLive")} buttonRef={setSearchButton} /> : undefined}
-          headerTrailingTarget={searchButton}
+          headerSecondaryAction={filterAction}
+          headerTrailing={IS_TV ? <HeaderSearchReveal key={preferences.filter} value={query} onChangeText={setQuery} placeholder={t("liveTv.searchLive")} /> : undefined}
           isLoading={searching ? isSearching : isLoading}
           isLoadingMore={!searching && isLoadingMore}
           hasMoreResults={!searching && hasMore}

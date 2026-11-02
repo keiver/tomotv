@@ -103,6 +103,18 @@ describe("user-data filters at a library view root", () => {
     expect(result.total).toBe(2);
   });
 
+  it("applies the chosen sort to the matched set, for the grid and for Play All", async () => {
+    const byName = filters({ favorite: true, sortBy: "SortName", sortOrder: "Descending" });
+    const page = await fetchFolderContents(VIEW_ROOT, { filters: byName });
+    expect(page.items.map((item) => item.Id)).toEqual(["video-1", "photo-2"]);
+    const queue = await fetchFilteredVideos(VIEW_ROOT, byName);
+    expect(queue.map((item) => item.Id)).toEqual(["video-1", "photo-2"]);
+    // The leaves are read once by name whatever the sort: the order is applied on the complete set.
+    const leafReads = requestedUrls().filter((url) => url.searchParams.get("ParentId") === VIEW_ROOT);
+    leafReads.forEach((url) => expect(url.searchParams.get("SortBy")).toBe("SortName"));
+    expect(leafReads).toHaveLength(1);
+  });
+
   it("never sends the user-data filter to the view root — that query is the bug", async () => {
     await fetchFolderContents(VIEW_ROOT, { filters: filters({ favorite: true }) });
 

@@ -70,6 +70,9 @@ export class File {
   async text() {
     return fakeFs.get(this.uri)?.content ?? "";
   }
+  textSync() {
+    return fakeFs.get(this.uri)?.content ?? "";
+  }
   delete() {
     fakeFs.delete(this.uri);
   }

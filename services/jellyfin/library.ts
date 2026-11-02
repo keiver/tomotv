@@ -7,7 +7,8 @@
  * concerns are a genuine strongly-connected component. Splitting them would need either
  * an import cycle or a signature change.
  */
-import { EMPTY_FILTERS, JellyfinFolderResponse, JellyfinItem, JellyfinVideoItem, JellyfinVideosResponse, LibraryFilters } from "@/types/jellyfin";
+import { EMPTY_FILTERS, hasContentFilters, JellyfinFolderResponse, JellyfinItem, JellyfinVideoItem, JellyfinVideosResponse, LibraryFilters } from "@/types/jellyfin";
+import { sortItems } from "@/utils/librarySort";
 import { addFavoriteIds, getFavoriteIds, isFavoritesLoaded } from "@/services/favoritesCache";
 import { updateLiveTvAvailability } from "@/services/liveTvAvailability";
 import { playedOverride } from "@/services/playedCache";
@@ -358,7 +359,7 @@ export function appendFlattenFilterParams(query: URLSearchParams, filters: Libra
  * Fetch the COMPLETE filtered leaf-item set under a folder (all pages), for building a play
  * queue that covers the whole filtered library rather than only the loaded grid pages.
  *
- * Always fetched with a stable SortName order so pagination is consistent (SortBy=Random would
+ * Always fetched in the selection's own stable order so pagination is consistent (SortBy=Random would
  * reshuffle per request and duplicate/miss items across pages). Shuffle is applied client-side
  * by the caller, giving a fresh random order on every play without a coverage gap.
  */
@@ -392,8 +393,8 @@ export async function fetchFilteredVideos(parentId: string, filters: LibraryFilt
           EnableUserData: "true",
           StartIndex: String(startIndex),
           Limit: String(PAGE_SIZE),
-          SortBy: "SortName",
-          SortOrder: "Ascending",
+          SortBy: filters.sortBy,
+          SortOrder: filters.sortOrder,
           // This set becomes a play queue, and a missing episode is "unplayed" to
           // every user-data filter (INCLUDED_LOCATION_TYPES).
           LocationTypes: INCLUDED_LOCATION_TYPES,
@@ -439,7 +440,7 @@ export async function fetchFilteredVideos(parentId: string, filters: LibraryFilt
       if (filters.favorite) addFavoriteIds(allItems.map((item) => item.Id));
 
       logger.info("Fetched full filtered set for queue", { service: "JellyfinAPI", parentId, totalVideos: allItems.length });
-      return orderSortNameTies(allItems);
+      return filters.sortBy === "SortName" ? orderSortNameTies(allItems) : allItems;
     },
     CACHE.DEFAULT_TTL_MS,
   );
@@ -618,8 +619,8 @@ function withoutUserDataFilters(filters: LibraryFilters): LibraryFilters {
  */
 async function fetchViewRootLeaves(config: JellyfinConfig, parentId: string, filters: LibraryFilters): Promise<JellyfinItem[]> {
   const base = withoutUserDataFilters(filters);
-  // Shuffle is applied after matching, never in this query — it must not fork the cache key.
-  const cacheKey = `viewLeaves:${config.userId}:${parentId}:${filtersCacheKey({ ...base, shuffle: false })}`;
+  // Shuffle and the sort are applied after matching, never in this query: they must not fork the cache key.
+  const cacheKey = `viewLeaves:${config.userId}:${parentId}:${filtersCacheKey({ ...base, shuffle: false, sortBy: EMPTY_FILTERS.sortBy, sortOrder: EMPTY_FILTERS.sortOrder })}`;
   return cachedRequest(
     cacheKey,
     () =>
@@ -628,7 +629,8 @@ async function fetchViewRootLeaves(config: JellyfinConfig, parentId: string, fil
         (startIndex, limit) => {
           const query = new URLSearchParams({
             ParentId: parentId,
-            Fields: "Path,MediaStreams,Genres,ChildCount,RecursiveItemCount,ParentId,ImageTags,PrimaryImageAspectRatio",
+            Fields:
+              "Path,MediaStreams,Genres,ChildCount,RecursiveItemCount,ParentId,ImageTags,PrimaryImageAspectRatio,DateCreated,DateLastMediaAdded,PremiereDate,ProductionYear,CommunityRating,CriticRating,OfficialRating",
             EnableUserData: "true",
             StartIndex: String(startIndex),
             Limit: String(limit),
@@ -718,10 +720,11 @@ async function resolveViewRootMatches(config: JellyfinConfig, parentId: string, 
     parentId,
     leaves: leaves.length,
     matched: matched.length,
-    filters: { favorite: filters.favorite, played: filters.played, unplayed: filters.unplayed },
+    filters: { favorite: filters.favorite, played: filters.played, unplayed: filters.unplayed, sortBy: filters.sortBy, sortOrder: filters.sortOrder },
   });
 
-  return matched;
+  // The leaves arrive by name; the chosen order is applied here, on the complete set.
+  return filters.sortBy === "SortName" && filters.sortOrder === "Ascending" ? matched : sortItems(matched, filters);
 }
 
 /** True when this selection asks for state the server won't report at a library root. */
@@ -778,10 +781,10 @@ export async function fetchFolderContents(
     throw new Error("Jellyfin server not configured.");
   }
 
-  // Shuffle is a sort, not a content filter: it must not flip the browse to a recursive flatten on
-  // its own (that would flatten a nested library just by randomizing it). Only real content filters
-  // trigger the flatten; shuffle only swaps SortBy on whichever path we take.
-  const hasContentFilters = !!filters && (filters.favorite || filters.played || filters.unplayed || filters.genres.length > 0 || filters.artistIds.length > 0 || filters.years.length > 0);
+  // Shuffle and the sort are not content filters: they must not flip the browse to a recursive flatten
+  // on their own (that would flatten a nested library just by reordering it). Only real content filters
+  // trigger the flatten; the sort only sets SortBy on whichever path we take.
+  const flatten = !!filters && hasContentFilters(filters);
   const shuffle = !!filters && filters.shuffle;
 
   // A library root can't answer user-data filters — it returns items with no user data at all, so
@@ -803,14 +806,14 @@ export async function fetchFolderContents(
             EnableUserData: "true",
             StartIndex: String(startIndex),
             Limit: String(limit),
-            SortBy: shuffle ? "Random" : "SortName",
-            SortOrder: "Ascending",
+            SortBy: shuffle ? "Random" : (filters?.sortBy ?? EMPTY_FILTERS.sortBy),
+            SortOrder: shuffle ? "Ascending" : (filters?.sortOrder ?? EMPTY_FILTERS.sortOrder),
             // The browse the user actually looks at. Without this a four-season show
             // lists eight folders, four of them empty (INCLUDED_LOCATION_TYPES).
             LocationTypes: INCLUDED_LOCATION_TYPES,
           });
 
-          if (hasContentFilters) {
+          if (flatten) {
             appendFlattenFilterParams(query, filters!);
           } else {
             // Non-recursive browse keeps the strict kind allowlist (the issue #46 fix). Jellyfin 12

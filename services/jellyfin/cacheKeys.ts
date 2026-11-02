@@ -23,6 +23,7 @@ export function filtersCacheKey(filters?: LibraryFilters): string {
     filters.played ? "played" : "",
     filters.unplayed ? "unplayed" : "",
     filters.shuffle ? "shuffle" : "",
+    filters.sortBy !== "SortName" || filters.sortOrder !== "Ascending" ? `s=${filters.sortBy}:${filters.sortOrder}` : "",
     filters.genres.length ? `g=${[...filters.genres].sort().join("|")}` : "",
     filters.artistIds.length ? `a=${[...filters.artistIds].sort().join(",")}` : "",
     filters.years.length ? `y=${[...filters.years].sort((a, b) => a - b).join(",")}` : "",

@@ -150,25 +150,23 @@ describe("tuning fallbacks", () => {
     await expect(resolveChannelOrigin("nope")).rejects.toThrow("404");
   });
 
-  it("plays and grabs a pending Pluto channel on this device's session", async () => {
-    const id = "5f4d878d3d19b30007d2e782";
-    const session = `https://ipv4.pluto.tv/api/tn/video/playout/v2/stitch/hls/channel/${id}/master.m3u8?jwt=tok&masterJWTPassthrough=true`;
-    await seed([row("p1", { streamUrl: `https://jmp2.uk/plu-${id}.m3u8`, originKey: "jmp2.uk" })]);
-    serve(OPEN_POLICY, (url) => {
-      if (url === "https://pluto.tv/api/tn/app-shell/graphql/") {
-        return { ok: true, headers: { get: () => "CBS_COM=c1; Path=/" }, json: async () => ({ data: { ptvStart: { deviceId: "d1", session: { id: "s1", jwt: "tok" }, refreshInSec: 28800 } } }) };
-      }
-      if (url === "https://pluto.tv/api/tn/video/graphql/") {
-        return {
-          ok: true,
-          headers: { get: () => null },
-          json: async () => ({ data: { streamingUrl: { success: true, stitcherPaths: [{ type: "hls", path: `/v2/stitch/hls/channel/${id}/master.m3u8` }] } } }),
-        };
-      }
-      return NOT_FOUND;
+  describe("a pending channel whose link points at Pluto TV", () => {
+    const LINK = "https://jmp2.uk/plu-5f4d878d3d19b30007d2e782.m3u8";
+    const askedPluto = (fetchMock: jest.Mock) => fetchMock.mock.calls.some(([url]) => /pluto\.tv/i.test(String(url)));
+
+    it("plays the link exactly as given and never calls Pluto", async () => {
+      await seed([row("p1", { streamUrl: LINK, originKey: "jmp2.uk" })]);
+      const fetchMock = serve(OPEN_POLICY);
+      await expect(playlistPlayable("p1")).resolves.toMatchObject({ liveStreamUrl: LINK, liveOriginKey: "jmp2.uk" });
+      expect(askedPluto(fetchMock)).toBe(false);
     });
-    await expect(playlistPlayable("p1")).resolves.toMatchObject({ liveStreamUrl: session, liveOriginKey: "ipv4.pluto.tv" });
-    await expect(resolveChannelOrigin("p1")).resolves.toEqual({ url: session, originKey: "ipv4.pluto.tv" });
+
+    it("grabs frames from the link exactly as given and never calls Pluto", async () => {
+      await seed([row("p1", { streamUrl: LINK, originKey: "jmp2.uk" })]);
+      const fetchMock = serve(OPEN_POLICY);
+      await expect(resolveChannelOrigin("p1")).resolves.toEqual({ url: LINK, originKey: "jmp2.uk" });
+      expect(askedPluto(fetchMock)).toBe(false);
+    });
   });
 
   it("opens a pending channel by id, and its info panel shows it without caching the stand-in", async () => {
