@@ -281,7 +281,7 @@
   "lyrics.save": "Save lyrics to my server",
   "subtitles.title": "Find Subtitles",
   "subtitles.credit": "Subtitles provided by OpenSubtitles.com",
-  "subtitles.downloadsLeft": "{count} free downloads left today",
+  "subtitles.downloadsLeft": "About {count} free downloads left today",
   "subtitles.confirmDownload": "Download this subtitle?",
   "subtitles.download": "Download",
   "subtitles.settingsTitle": "Subtitles",

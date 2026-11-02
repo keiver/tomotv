@@ -281,7 +281,7 @@
   "lyrics.save": "Liedtexte auf meinem Server speichern",
   "subtitles.title": "Untertitel suchen",
   "subtitles.credit": "Untertitel bereitgestellt von OpenSubtitles.com",
-  "subtitles.downloadsLeft": "Heute noch {count} kostenlose Downloads",
+  "subtitles.downloadsLeft": "Heute noch etwa {count} kostenlose Downloads",
   "subtitles.confirmDownload": "Diesen Untertitel herunterladen?",
   "subtitles.download": "Herunterladen",
   "subtitles.settingsTitle": "Untertitel",
