@@ -19,6 +19,7 @@ import {
   fetchItemDetails,
   fetchItemFolderPath,
   fetchLibraryRootCount,
+  fetchVideoDetails,
   getBackdropUrl,
   getLogoUrl,
   getPersonImageUrl,
@@ -69,6 +70,7 @@ import { recordingInProgress } from "@/services/recordingHold";
 import { EXTERNAL_GUIDE_PREFIX, formatClock, formatClockRange, formatDayLabel, isAiring, programCategory, programTimes } from "@/utils/guide";
 import { readGuideProgram } from "@/utils/programInfo";
 import { PlaybackLane, predictPlaybackLane } from "@/services/localRemux";
+import { prewarmItemPage } from "@/services/vodPrewarm";
 import { JellyfinItem, JellyfinMediaStream, JellyfinProgram } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
 import { formatDuration } from "@/utils/formatDuration";
@@ -164,6 +166,14 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   const heroRise = IS_TV ? TV_CONTENT_RISE : 0;
 
   const [details, setDetails] = useState<JellyfinItem | null>(null);
+  // The shown page warms the player's own read and its engine session; a channel's read opens a tuner, so never one.
+  const warmId = active && details && !guideProgram && !isFolder(details) && !isLiveChannel(details) && !isBook(details) && !isPhoto(details) ? details.Id : null;
+  useEffect(() => {
+    if (!warmId) return;
+    void fetchVideoDetails(warmId).catch(() => null);
+    prewarmItemPage(warmId);
+    return () => prewarmItemPage(null);
+  }, [warmId]);
   // The clock at the moment details landed; render stays pure and the elapsed line is a snapshot.
   const [detailsAtMs, setDetailsAtMs] = useState(0);
   const [failed, setFailed] = useState(false);

@@ -1,7 +1,7 @@
 /** A channel's info panel offers Rename and Hide beside its other actions; a film's panel does not. Rename saves the typed name, Hide confirms, hides and closes the panel. */
 import { VideoInfoPanel } from "@/components/video-info-panel";
 import { InfoActionRow, type InfoExtraAction } from "@/components/info-action-row";
-import { fetchItemDetails } from "@/services/jellyfinApi";
+import { fetchItemDetails, fetchVideoDetails } from "@/services/jellyfinApi";
 import { invalidateChannelListReads } from "@/services/jellyfin/channelEdits";
 import { hideChannel, renameChannel } from "@/services/liveTvPreferences";
 import type { JellyfinItem } from "@/types/jellyfin";
@@ -57,6 +57,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   fetchIsAdministrator: jest.fn(async () => false),
   isLiveChannel: (item: { Type?: string }) => item.Type === "TvChannel",
   fetchItemDetails: jest.fn(),
+  fetchVideoDetails: jest.fn(async () => null),
   fetchFolderMediaKinds: jest.fn(async () => null),
   fetchItemFolderPath: jest.fn(async () => []),
   getBackdropUrl: () => null,
@@ -93,6 +94,13 @@ describe("Video info panel: hide and rename a channel", () => {
   it("offers Rename and Hide on a channel and neither on a film, which gets Find Subtitles instead", async () => {
     expect((await extrasFor(channel)).map((action) => action.key)).toEqual(["rename", "hide"]);
     expect((await extrasFor(film)).map((action) => action.key)).toEqual(["subtitles"]);
+  });
+
+  it("fetches a film's playback details before Play, and never a channel's, whose fetch opens a tuner", async () => {
+    await extrasFor(channel);
+    expect(fetchVideoDetails).not.toHaveBeenCalled();
+    await extrasFor(film);
+    expect(fetchVideoDetails).toHaveBeenCalledWith(film.Id);
   });
 
   it("saves the typed name and drops the cached lists", async () => {

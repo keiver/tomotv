@@ -156,6 +156,8 @@ queueMicrotask(syncPosterQueuePause);
  * this knob rides the session config, so tuning is a reload, not a rebuild.
  */
 const REMUX_READ_AHEAD_SEGMENTS = 20;
+/** Segments a prewarm cuts before the player asks: the open done, about 12 s of source read. */
+const PREWARM_IDLE_SEGMENTS = 2;
 
 // Slipstream (memories/CLAUDE-slipstream.md): one loopback master carrying the
 // device's stream copy and this server-fed ladder, AVPlayer switching natively
@@ -912,6 +914,7 @@ export async function startLocalRemux(
       frameRate,
       bandwidth,
       readAheadSegments: REMUX_READ_AHEAD_SEGMENTS,
+      ...(options.prewarm ? { idleReadAheadSegments: PREWARM_IDLE_SEGMENTS } : {}),
       // EXT-X-START resume: AVPlayer opens at the offset; its first segment
       // request drives the producer's seek-restart there (no position-zero
       // production, no post-load auto-seek).

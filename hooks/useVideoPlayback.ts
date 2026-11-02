@@ -113,6 +113,7 @@ import {
 } from "./videoPlayback/errorRecovery";
 import { planLaneGates, selectLane } from "./videoPlayback/laneDecision";
 import { resolveResume } from "./videoPlayback/resume";
+import { stopVodPrewarm, takeVodPrewarm } from "@/services/vodPrewarm";
 import { openSkipTarget, segmentSkipTarget } from "./videoPlayback/segmentSkip";
 import { chosenAudioLanguage, isFreshManifestReport, orderAudioTracks, planAudioReport, serverLaneCarriesEveryTrack } from "./videoPlayback/audioTracks";
 import {
@@ -1413,6 +1414,11 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           const audioStreams = (item.MediaStreams ?? []).filter((stream) => stream.Type === "Audio");
           const playingAudio = audioStreams.find((stream) => stream.Index === audioStreamIndexForReportingRef.current) ?? audioStreams.find((stream) => stream.IsDefault === true) ?? audioStreams[0];
           const selectedSubtitleIndex = startingSubtitleRendition(getSubtitlePreferenceSync(playingAudio?.Language), subtitleRenditionsRef.current);
+          if (serverVideoOnly || isLiveRef.current) stopVodPrewarm();
+          else {
+            const warm = takeVodPrewarm(item.Id, { audioIndex: audioStreamIndexForReportingRef.current ?? undefined, offsetSeconds: offset, subtitleIndex: selectedSubtitleIndex });
+            if (warm) return Promise.resolve(warm);
+          }
           // A channel opened again keeps the language AVPlayer was playing.
           const liveAudioLanguage = isLiveRef.current ? reportedAudioLanguageRef.current : undefined;
           return startLocalRemux(item, audioStreamIndexForReportingRef.current ?? undefined, offset, {
