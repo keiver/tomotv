@@ -65,6 +65,10 @@ export interface PanelJob {
 
 export interface PanelState {
   title: string;
+  /** The provider credit beside the title. */
+  credit: string;
+  /** The viewer's theme colour, "#RRGGBB". */
+  accent: string;
   /** The video's own text subtitles, led by their timing controls; the playing one alone in-player. */
   tracks: PanelTrack[];
   /** Every language, the likely ones first; the panel shows the selected one on its pill and the rest in a menu. */

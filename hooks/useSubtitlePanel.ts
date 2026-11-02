@@ -17,6 +17,7 @@ import { ALL_LANGUAGES, languageCode, languageFor } from "@/services/subtitles/l
 import { queryText } from "@/services/subtitles/query";
 import { SUBTITLE_OFFSET_STEP_MS, type SubtitleSyncState } from "@/services/subtitles/timing";
 import type { SubtitleJob } from "@/services/subtitles/types";
+import { getUiPreferences } from "@/services/uiPreferences";
 import { dismissSubtitlePanel, listenToSubtitlePanel, presentSubtitlePanel, subtitlePanelAvailable, type PanelJob, type PanelState, type PanelTrack } from "@/services/subtitleSearchPanel";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
@@ -93,6 +94,7 @@ export function panelStateFor(
   tracks: PanelTrackInput[],
   videoCount: number,
   title: string,
+  accent: string,
 ): PanelState {
   const rest = ALL_LANGUAGES.filter((row) => !search.choices.some((choice) => choice.code === row.code));
   const alone = search.jobs.length === 1;
@@ -101,6 +103,8 @@ export function panelStateFor(
   const currents = tracks.map((track) => track.subtitle);
   return {
     title,
+    credit: t("subtitles.credit"),
+    accent,
     tracks: tracks.map(panelTrackFor),
     languages: [...search.choices, ...rest].map((row) => ({ code: row.code, name: row.native })),
     selectedLanguage: search.language,
@@ -223,7 +227,7 @@ export function useSubtitlePanel(itemId: string, active: ActiveTextSubtitle | nu
   useEffect(() => {
     if (!shown || !items) return;
     const title = inPlayer && tracks.length > 0 ? t("subtitles.timingTitle") : t("subtitles.title");
-    const state = panelStateFor(search, tracks, items.length, title);
+    const state = panelStateFor(search, tracks, items.length, title, getUiPreferences().cardTheme.accent);
     const sent = JSON.stringify(state);
     if (presented.current && sent === lastSent.current) return;
     lastSent.current = sent;

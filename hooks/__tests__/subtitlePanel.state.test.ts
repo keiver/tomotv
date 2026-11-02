@@ -74,7 +74,7 @@ describe("the panel's state", () => {
 
   it("leads with the video's tracks and shows its own copy in place as applied", () => {
     const job = { ...makeJob(item, "en"), status: "found" as const, results: [hit("a"), hit("b")] };
-    const state = panelStateFor(search([job]), [keptTrack], 1, "subtitles.title");
+    const state = panelStateFor(search([job]), [keptTrack], 1, "subtitles.title", "#4F99FF");
     expect(state.tracks).toEqual([
       {
         id: 100000,
@@ -101,7 +101,8 @@ describe("the panel's state", () => {
   });
 
   it("gives a lone job no heading and every language behind the likely ones", () => {
-    const state = panelStateFor(search([makeJob(item, "en")]), [], 1, "subtitles.title");
+    const state = panelStateFor(search([makeJob(item, "en")]), [], 1, "subtitles.title", "#4F99FF");
+    expect(state.accent).toBe("#4F99FF");
     expect(state.jobs[0].heading).toBe("");
     expect(state.jobs[0].busy).toBe(true);
     expect(state.languages[0]).toEqual({ code: "en", name: "English" });
@@ -111,16 +112,22 @@ describe("the panel's state", () => {
   it("names every job of a folder's search and counts the matches on the take-all button", () => {
     const one = { ...makeJob(item, "en"), status: "found" as const, results: [hit("a", { hashMatch: true })] };
     const two = makeJob(second, "en");
-    const state = panelStateFor(search([one, two], { skipped: 2, matches: [{ index: 0, hit: one.results[0] }] }), [], 4, "subtitles.title");
+    const state = panelStateFor(search([one, two], { skipped: 2, matches: [{ index: 0, hit: one.results[0] }] }), [], 4, "subtitles.title", "#4F99FF");
     expect(state.jobs.map((job) => job.heading)).toEqual(["Clip", "Clip Two"]);
     expect(state.takeAll).toEqual({ label: "subtitles.takeMatches", busy: false });
     expect(state.skippedLine).toBe("subtitles.filesSkipped");
   });
 
   it("says every file is subtitled, or that a folder holds no videos, only when no job exists", () => {
-    expect(panelStateFor(search([]), [], 3, "subtitles.title").emptyLine).toBe("subtitles.allSubtitled");
-    expect(panelStateFor(search([]), [], 0, "subtitles.title").emptyLine).toBe("subtitles.noVideos");
-    expect(panelStateFor(search([makeJob(item, "en")]), [], 1, "subtitles.title").emptyLine).toBe("");
+    expect(panelStateFor(search([]), [], 3, "subtitles.title", "#4F99FF").emptyLine).toBe("subtitles.allSubtitled");
+    expect(panelStateFor(search([]), [], 0, "subtitles.title", "#4F99FF").emptyLine).toBe("subtitles.noVideos");
+    expect(panelStateFor(search([makeJob(item, "en")]), [], 1, "subtitles.title", "#4F99FF").emptyLine).toBe("");
+  });
+
+  it("asks the viewer to sign in when the free downloads run out, and says when a signed-in account's run out", () => {
+    const job = { ...makeJob(item, "en"), status: "found" as const, results: [hit("a")], picked: hit("a") };
+    expect(panelStateFor(search([{ ...job, error: "limit" }]), [], 1, "subtitles.title", "#4F99FF").jobs[0].note).toBe("subtitles.downloadLimit");
+    expect(panelStateFor(search([{ ...job, error: "accountLimit" }]), [], 1, "subtitles.title", "#4F99FF").jobs[0].note).toBe("subtitles.accountDownloadLimit");
   });
 
   it("names a file track by its language alone", () => {

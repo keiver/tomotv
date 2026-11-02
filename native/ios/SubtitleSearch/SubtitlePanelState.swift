@@ -129,6 +129,10 @@ public struct SubtitlePanelJob: Codable, Equatable {
 
 public struct SubtitlePanelState: Codable, Equatable {
     public let title: String
+    /// The provider credit beside the title.
+    public let credit: String
+    /// The viewer's theme colour, "#RRGGBB".
+    public let accent: String
     /// The video's own text subtitles, led by their timing controls; the playing one alone in-player.
     public let tracks: [SubtitlePanelTrack]
     public let languages: [SubtitlePanelLanguage]
@@ -145,10 +149,12 @@ public struct SubtitlePanelState: Codable, Equatable {
     public let jobs: [SubtitlePanelJob]
 
     public init(
-        title: String, tracks: [SubtitlePanelTrack] = [], languages: [SubtitlePanelLanguage], selectedLanguage: String, takeAll: SubtitlePanelTakeAll? = nil,
+        title: String, credit: String = "", accent: String = "", tracks: [SubtitlePanelTrack] = [], languages: [SubtitlePanelLanguage], selectedLanguage: String, takeAll: SubtitlePanelTakeAll? = nil,
         skippedLine: String = "", emptyLine: String = "", queryPlaceholder: String, searchLabel: String, jobs: [SubtitlePanelJob]
     ) {
         self.title = title
+        self.credit = credit
+        self.accent = accent
         self.tracks = tracks
         self.languages = languages
         self.selectedLanguage = selectedLanguage
@@ -169,5 +175,17 @@ public struct SubtitlePanelState: Codable, Equatable {
     /// The language the chip row should show selected: the selected code's position, else the first.
     public var selectedLanguageIndex: Int {
         languages.firstIndex(where: { $0.code == selectedLanguage }) ?? 0
+    }
+
+    /// The theme colour as red, green and blue from 0 to 1, or nil when `accent` is not "#RRGGBB".
+    public var accentComponents: (red: Double, green: Double, blue: Double)? {
+        let hex = accent.hasPrefix("#") ? String(accent.dropFirst()) : accent
+        guard hex.count == 6, let value = UInt32(hex, radix: 16) else { return nil }
+        return (Double((value >> 16) & 0xFF) / 255, Double((value >> 8) & 0xFF) / 255, Double(value & 0xFF) / 255)
+    }
+
+    /// The track the timing row shows: the one the viewer chose while it is listed, else the first.
+    public func shownTrack(choosing id: Int?) -> SubtitlePanelTrack? {
+        tracks.first(where: { $0.id == id }) ?? tracks.first
     }
 }

@@ -3,9 +3,9 @@
 //  TomoTV
 //
 //  The subtitle panel: on tvOS a glass card over the playing video, on iPhone, iPad and the Mac a
-//  sheet. The video's own text tracks lead it as rows with round symbol buttons for their timing,
-//  then the language pill and the take-all button, then one search section per video: its query
-//  field, a state line and the results as rows. Every string arrives from JS. Below OS 26 the same
+//  sheet. One of the video's own text tracks leads it, on a pill listing the others, with round
+//  symbol buttons for its timing, then the language pill and the take-all button, then one search
+//  section per video: its query field, a state line and the results as rows. Every string arrives from JS. Below OS 26 the same
 //  layout draws on dark blur with filled buttons.
 //
 
@@ -20,7 +20,6 @@ private enum Metrics {
         static let controlHeight: CGFloat = 72
         static let margin: CGFloat = 56
         static let titleFont: CGFloat = 40
-        static let trackNameFont: CGFloat = 30
         static let metaFont: CGFloat = 22
         static let stateFont: CGFloat = 24
         static let fieldFont: CGFloat = 28
@@ -40,7 +39,6 @@ private enum Metrics {
         static let controlHeight: CGFloat = 48
         static let margin: CGFloat = 20
         static let titleFont: CGFloat = 28
-        static let trackNameFont: CGFloat = 17
         static let metaFont: CGFloat = 13
         static let stateFont: CGFloat = 14
         static let fieldFont: CGFloat = 16
@@ -136,16 +134,14 @@ private func monogramImage(_ monogram: String) -> UIImage? {
 
 // MARK: - Track row
 
-/// One text subtitle the video has: mark, name and meta, then earlier, the offset, later, reset,
-/// sync while the video plays, and Replace outside the player.
+/// The shown text subtitle: its name on a pill that lists the video's other tracks, then earlier,
+/// the offset, later, reset, sync while the video plays, and Replace outside the player.
 private final class TrackRowView: UIStackView {
     var onShift: ((Int?) -> Void)?
     var onSync: (() -> Void)?
     var onReplace: (() -> Void)?
 
-    private let icon = UIImageView()
-    private let name = UILabel()
-    private let meta = UILabel()
+    let trackButton = UIButton(configuration: pillConfiguration())
     private let earlierButton = UIButton(configuration: roundIconConfiguration())
     private let offsetLabel = UILabel()
     private let laterButton = UIButton(configuration: roundIconConfiguration())
@@ -159,21 +155,12 @@ private final class TrackRowView: UIStackView {
 
     init() {
         super.init(frame: .zero)
-        icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: Metrics.rowSymbol, weight: .medium)
-        icon.tintColor = Metrics.accent
-        icon.contentMode = .center
-        icon.setContentHuggingPriority(.required, for: .horizontal)
-        icon.setContentCompressionResistancePriority(.required, for: .horizontal)
-
-        name.font = UIFont.systemFont(ofSize: Metrics.trackNameFont, weight: .semibold)
-        name.textColor = .white
-        meta.font = UIFont.systemFont(ofSize: Metrics.metaFont, weight: .regular)
-        meta.textColor = Metrics.dim
-        let text = UIStackView(arrangedSubviews: [name, meta])
-        text.axis = .vertical
-        text.spacing = 4
-        text.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        text.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        trackButton.configuration?.image = UIImage(systemName: "chevron.down")
+        trackButton.configuration?.imagePlacement = .trailing
+        trackButton.configuration?.titleLineBreakMode = .byTruncatingTail
+        trackButton.setContentHuggingPriority(.required, for: .horizontal)
+        trackButton.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        trackButton.heightAnchor.constraint(equalToConstant: Metrics.controlHeight).isActive = true
 
         earlierButton.configuration?.image = UIImage(systemName: "backward.fill")
         laterButton.configuration?.image = UIImage(systemName: "forward.fill")
@@ -207,18 +194,20 @@ private final class TrackRowView: UIStackView {
         controls.spacing = Metrics.controlSpacing
         controls.alignment = .center
 
-        let head = UIStackView(arrangedSubviews: [icon, text])
+        let head = UIStackView(arrangedSubviews: [trackButton, UIView()])
         head.axis = .horizontal
-        head.spacing = Metrics.isTV ? 22 : 12
+        head.spacing = Metrics.controlSpacing
         head.alignment = .center
 
-        // The TV's width takes the whole row on one line; a phone stacks the controls under the name.
+        // The TV's width takes the whole row on one line; a phone stacks the controls under the pill.
         if Metrics.isTV {
             head.addArrangedSubview(controls)
             addArrangedSubview(head)
         } else {
+            let line = UIStackView(arrangedSubviews: [controls, UIView()])
+            line.axis = .horizontal
             addArrangedSubview(head)
-            addArrangedSubview(controls)
+            addArrangedSubview(line)
         }
         addArrangedSubview(note)
         axis = .vertical
@@ -228,10 +217,9 @@ private final class TrackRowView: UIStackView {
     @available(*, unavailable)
     required init(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    func configure(_ track: SubtitlePanelTrack) {
-        icon.image = monogramImage(track.monogram)
-        name.text = track.name
-        meta.text = track.meta
+    func configure(_ track: SubtitlePanelTrack, accent: UIColor) {
+        trackButton.configuration?.title = track.name
+        offsetLabel.textColor = accent
         offsetLabel.text = track.offsetLabel
         earlierButton.accessibilityLabel = track.earlierLabel
         laterButton.accessibilityLabel = track.laterLabel
@@ -266,7 +254,7 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
     private let body = UIStackView()
     private let fieldWell = surface(cornerRadius: Metrics.controlHeight / 2)
     private let field = UITextField()
-    private let searchButton = UIButton(configuration: roundIconConfiguration(prominent: true))
+    private let searchButton = UIButton(type: .custom)
     private let controls = UIStackView()
     private let stateRow = UIStackView()
     private let spinner = UIActivityIndicatorView(style: .medium)
@@ -315,17 +303,13 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
         ])
         fieldWell.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
-        searchButton.configuration?.image = UIImage(systemName: "magnifyingglass")
+        let glass = UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: Metrics.iconSymbol, weight: .bold))?.withRenderingMode(.alwaysTemplate)
+        searchButton.setImage(glass, for: .normal)
+        searchButton.tintColor = Metrics.accent
         searchButton.widthAnchor.constraint(equalToConstant: Metrics.controlHeight).isActive = true
         searchButton.setContentHuggingPriority(.required, for: .horizontal)
         searchButton.setContentCompressionResistancePriority(.required, for: .horizontal)
         searchButton.addAction(UIAction { [weak self] _ in self?.searchPressed() }, for: .primaryActionTriggered)
-        searchButton.configurationUpdateHandler = { button in
-            var configuration = button.configuration
-            configuration?.baseForegroundColor = .white
-            configuration?.background.backgroundColor = button.isFocused ? .tintColor : nil
-            button.configuration = configuration
-        }
 
         controls.addArrangedSubview(fieldWell)
         controls.addArrangedSubview(searchButton)
@@ -346,7 +330,7 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
 
         noteLabel.font = UIFont.systemFont(ofSize: Metrics.metaFont, weight: .regular)
         noteLabel.textColor = Metrics.dim
-        noteLabel.numberOfLines = 2
+        noteLabel.numberOfLines = 0
 
         resultsStack.axis = .vertical
         resultsStack.spacing = Metrics.isTV ? 10 : 6
@@ -362,6 +346,15 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
 
     @available(*, unavailable)
     required init(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    #if os(tvOS)
+        override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
+            super.didUpdateFocus(in: context, with: coordinator)
+            coordinator.addCoordinatedAnimations { [searchButton] in
+                searchButton.transform = context.nextFocusedView === searchButton ? CGAffineTransform(scaleX: 1.2, y: 1.2) : .identity
+            }
+        }
+    #endif
 
     private func toggle() {
         expanded.toggle()
@@ -416,9 +409,10 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
         controls.insertArrangedSubview(view, at: 0)
     }
 
-    func applyShared(placeholder: String, searchLabel: String) {
+    func applyShared(placeholder: String, searchLabel: String, accent: UIColor) {
         field.attributedPlaceholder = NSAttributedString(string: placeholder, attributes: [.foregroundColor: UIColor(white: 0.5, alpha: 1)])
         searchButton.accessibilityLabel = searchLabel
+        searchButton.tintColor = accent
     }
 
     private static func headerTitle(label: String, heading: String) -> AttributedString {
@@ -494,8 +488,10 @@ final class SubtitleSearchPanelViewController: UIViewController {
     private let scroll = UIScrollView()
     private let contentStack = UIStackView()
     private let titleLabel = UILabel()
-    private let tracksStack = UIStackView()
-    private var trackRows: [TrackRowView] = []
+    private let creditLabel = UILabel()
+    private let trackRow = TrackRowView()
+    /// The track the viewer chose on the pill; the row falls to the first when it leaves the list.
+    private var selectedTrackId: Int?
     private let languageButton = UIButton(configuration: pillConfiguration())
     private let takeAllButton = UIButton(configuration: pillConfiguration(prominent: true))
     private let skippedLabel = UILabel()
@@ -543,7 +539,7 @@ final class SubtitleSearchPanelViewController: UIViewController {
 
     #if os(tvOS)
         override var preferredFocusEnvironments: [UIFocusEnvironment] {
-            if let lead = trackRows.first?.leadButton { return [lead] }
+            if !trackRow.isHidden { return [trackRow.leadButton] }
             if let lead = jobSections.first?.leadView { return [lead] }
             return []
         }
@@ -591,9 +587,33 @@ final class SubtitleSearchPanelViewController: UIViewController {
 
         titleLabel.font = UIFont.systemFont(ofSize: Metrics.titleFont, weight: .bold)
         titleLabel.textColor = .white
+        titleLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        creditLabel.font = UIFont.systemFont(ofSize: Metrics.metaFont, weight: .regular)
+        creditLabel.textColor = Metrics.dim
+        creditLabel.numberOfLines = 2
+        // The TV's width keeps the credit beside the title; a phone puts it under the title.
+        let titleRow = UIStackView(arrangedSubviews: [titleLabel, creditLabel])
+        titleRow.axis = Metrics.isTV ? .horizontal : .vertical
+        titleRow.spacing = Metrics.isTV ? Metrics.controlSpacing : 2
+        titleRow.alignment = Metrics.isTV ? .firstBaseline : .leading
 
-        tracksStack.axis = .vertical
-        tracksStack.spacing = Metrics.isTV ? 18 : 14
+        trackRow.onShift = { [weak self] delta in
+            guard let self, let id = self.selectedTrackId else { return }
+            self.onShift?(id, delta)
+        }
+        trackRow.onSync = { [weak self] in
+            guard let self, let id = self.selectedTrackId else { return }
+            self.onSync?(id)
+        }
+        trackRow.onReplace = { [weak self] in
+            guard let self, let id = self.selectedTrackId else { return }
+            self.onReplace?(id)
+        }
+        if #available(tvOS 17.0, iOS 14.0, *) {
+            trackRow.trackButton.showsMenuAsPrimaryAction = true
+        } else {
+            trackRow.trackButton.addTarget(self, action: #selector(nextTrack), for: .primaryActionTriggered)
+        }
 
         languageButton.configuration?.image = UIImage(systemName: "chevron.down")
         languageButton.configuration?.imagePlacement = .trailing
@@ -627,10 +647,10 @@ final class SubtitleSearchPanelViewController: UIViewController {
         jobsStack.axis = .vertical
         jobsStack.spacing = Metrics.sectionSpacing
 
-        for view in [titleLabel, tracksStack, pills, skippedLabel, emptyLabel, jobsStack] { contentStack.addArrangedSubview(view) }
+        for view in [titleRow, trackRow, pills, skippedLabel, emptyLabel, jobsStack] { contentStack.addArrangedSubview(view) }
         contentStack.axis = .vertical
         contentStack.spacing = Metrics.sectionSpacing
-        contentStack.setCustomSpacing(Metrics.isTV ? 28 : 18, after: titleLabel)
+        contentStack.setCustomSpacing(Metrics.isTV ? 28 : 18, after: titleRow)
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         scroll.addSubview(contentStack)
         let top: CGFloat = Metrics.isTV ? 48 : 24
@@ -679,6 +699,29 @@ final class SubtitleSearchPanelViewController: UIViewController {
         onLanguageChanged?(next.code)
     }
 
+    /// Before tvOS 17 a button has no menu: a press moves to the next track in the list.
+    @objc private func nextTrack() {
+        guard let position = state.tracks.firstIndex(where: { $0.id == selectedTrackId }) else { return }
+        chooseTrack(state.tracks[(position + 1) % state.tracks.count].id)
+    }
+
+    private func chooseTrack(_ id: Int) {
+        guard id != selectedTrackId else { return }
+        selectedTrackId = id
+        applyTrack()
+    }
+
+    private func trackMenu() -> UIMenu {
+        UIMenu(
+            options: [.singleSelection],
+            children: state.tracks.map { track in
+                UIAction(title: track.name, subtitle: track.meta, state: track.id == selectedTrackId ? .on : .off) { [weak self] _ in
+                    self?.chooseTrack(track.id)
+                }
+            }
+        )
+    }
+
     private func languageMenu() -> UIMenu {
         UIMenu(
             options: [.singleSelection],
@@ -702,10 +745,9 @@ final class SubtitleSearchPanelViewController: UIViewController {
         state = next
         guard isViewLoaded else { return }
         titleLabel.text = next.title
+        creditLabel.text = next.credit
 
-        if force || previous.tracks.count != next.tracks.count { rebuildTrackRows() }
-        for (index, track) in next.tracks.enumerated() where index < trackRows.count { trackRows[index].configure(track) }
-        tracksStack.isHidden = next.tracks.isEmpty
+        applyTrack()
 
         languageButton.configuration?.title = next.languages.indices.contains(next.selectedLanguageIndex) ? next.languages[next.selectedLanguageIndex].name : next.selectedLanguage
         if #available(tvOS 17.0, iOS 14.0, *) {
@@ -727,7 +769,7 @@ final class SubtitleSearchPanelViewController: UIViewController {
         } else {
             for (index, job) in next.jobs.enumerated() where index < jobSections.count { jobSections[index].apply(job) }
         }
-        for section in jobSections { section.applyShared(placeholder: next.queryPlaceholder, searchLabel: next.searchLabel) }
+        for section in jobSections { section.applyShared(placeholder: next.queryPlaceholder, searchLabel: next.searchLabel, accent: accentColor) }
         let loneSection = next.jobs.count == 1 && next.jobs[0].heading.isEmpty ? jobSections.first : nil
         if let loneSection {
             loneSection.lead(with: languageButton)
@@ -742,16 +784,21 @@ final class SubtitleSearchPanelViewController: UIViewController {
         restoreFocusIfLost()
     }
 
-    private func rebuildTrackRows() {
-        trackRows.forEach { $0.removeFromSuperview() }
-        trackRows = state.tracks.map { track in
-            let row = TrackRowView()
-            row.onShift = { [weak self] delta in self?.onShift?(track.id, delta) }
-            row.onSync = { [weak self] in self?.onSync?(track.id) }
-            row.onReplace = { [weak self] in self?.onReplace?(track.id) }
-            return row
+    /// The viewer's theme colour, the gold when the state carries none.
+    private var accentColor: UIColor {
+        guard let rgb = state.accentComponents else { return Metrics.accent }
+        return UIColor(red: rgb.red, green: rgb.green, blue: rgb.blue, alpha: 1)
+    }
+
+    private func applyTrack() {
+        let track = state.shownTrack(choosing: selectedTrackId)
+        selectedTrackId = track?.id
+        trackRow.isHidden = track == nil
+        guard let track else { return }
+        trackRow.configure(track, accent: accentColor)
+        if #available(tvOS 17.0, iOS 14.0, *) {
+            trackRow.trackButton.menu = trackMenu()
         }
-        trackRows.forEach(tracksStack.addArrangedSubview)
     }
 
     private func rebuildJobSections() {
