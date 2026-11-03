@@ -1,4 +1,5 @@
 import { BUTTON_BORDER_WIDTH, FocusableButton } from "@/components/FocusableButton";
+import { SfSymbolIcon } from "@/components/sf-symbol-icon";
 import { COLORS } from "@/constants/colors";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { t } from "@/services/i18n";
@@ -62,8 +63,9 @@ export type DownloadCircleState = "none" | "queued" | "downloading" | "paused" |
 
 interface ToggleCircle {
   key: "favorite" | "watched" | "progress";
-  icon: keyof typeof Ionicons.glyphMap;
-  offIcon: keyof typeof Ionicons.glyphMap;
+  /** SF Symbol names: Ionicons has no slashed bookmark, so both states of every toggle come from one family. */
+  icon: string;
+  offIcon: string;
   selected: boolean;
   word: string;
   accessibilityLabel: string;
@@ -168,6 +170,7 @@ export function InfoActionRow({
   const glyph = (key: ActionKey, name: keyof typeof Ionicons.glyphMap, ink: string, alarm = false) => (
     <Ionicons name={name} size={ICON} color={focused === key ? (alarm ? COLORS.TEXT_PRIMARY : onAccent) : ink} />
   );
+  const symbol = (key: ActionKey, name: string) => <SfSymbolIcon name={name} size={ICON} color={focused === key ? onAccent : accent} />;
   const circleFor = (key: ActionKey, alarm = false) => ({ ...circleStyle, backgroundColor: focused === key ? (alarm ? COLORS.DESTRUCTIVE : accent) : REST_FILL });
   // Actions carry the pill CTA's border; toggles never do.
   const actionFor = (key: ActionKey, alarm = false) => ({ ...circleFor(key, alarm), borderWidth: BUTTON_BORDER_WIDTH, borderColor: alarm ? COLORS.DESTRUCTIVE : accent });
@@ -182,8 +185,8 @@ export function InfoActionRow({
       ? [
           {
             key: "favorite" as const,
-            icon: "heart" as const,
-            offIcon: "heart-outline" as const,
+            icon: "heart.fill",
+            offIcon: "heart.slash",
             selected: isFavorite,
             word: t("info.word.favorite"),
             accessibilityLabel: favoriteLabel,
@@ -196,8 +199,8 @@ export function InfoActionRow({
       ? [
           {
             key: "watched" as const,
-            icon: "eye" as const,
-            offIcon: "eye-off" as const,
+            icon: "eye.fill",
+            offIcon: "eye.slash",
             selected: isPlayed,
             word: t("info.word.watched"),
             accessibilityLabel: watchedLabel,
@@ -211,8 +214,8 @@ export function InfoActionRow({
       ? [
           {
             key: "progress" as const,
-            icon: "bookmark" as const,
-            offIcon: "bookmark-outline" as const,
+            icon: "bookmark.fill",
+            offIcon: "bookmark.slash",
             selected: !cleared,
             word: t("info.word.progress"),
             accessibilityLabel: progressLabel,
@@ -240,7 +243,7 @@ export function InfoActionRow({
             <FocusableButton
               variant="secondary"
               style={circleFor(toggle.key)}
-              icon={glyph(toggle.key, toggle.selected ? toggle.icon : toggle.offIcon, accent)}
+              icon={symbol(toggle.key, toggle.selected ? toggle.icon : toggle.offIcon)}
               accessibilityLabel={toggle.accessibilityLabel}
               accessibilityState={{ selected: toggle.selected }}
               onFocus={() => setFocused(toggle.key)}

@@ -88,12 +88,13 @@ describe("InfoActionRow toggles and actions", () => {
   type Circle = { style: { backgroundColor: string }; icon: React.ReactElement<{ name: string; color: string }>; onFocus: () => void };
   const circles = (renderer: TestRenderer.ReactTestRenderer) => renderer.root.findAllByType(FocusableButton).map((node) => node.props as Circle);
 
-  it("gives a toggle that is on and one that is off the same circle and tells them apart by a filled or outline icon", async () => {
-    const renderer = await mountRow({ isFavorite: true, isPlayed: false, onToggleFavorite: jest.fn(async () => true), onToggleWatched: jest.fn(async () => true) });
-    const [favorite, watched] = circles(renderer);
-    expect(favorite.style.backgroundColor).toBe(watched.style.backgroundColor);
-    expect(favorite.icon.props.name).toBe("heart");
-    expect(watched.icon.props.name).toBe("eye-off");
+  it("gives a toggle that is on and one that is off the same circle, fills the icon of a toggle that is on and strikes a line through the outline icon of one that is off", async () => {
+    const both = { onToggleFavorite: jest.fn(async () => true), onToggleWatched: jest.fn(async () => true), onToggleProgress: jest.fn(() => true) };
+    const on = circles(await mountRow({ ...both, isFavorite: true, isPlayed: true, cleared: false }));
+    const off = circles(await mountRow({ ...both, isFavorite: false, isPlayed: false, cleared: true }));
+    expect(on[0].style.backgroundColor).toBe(off[0].style.backgroundColor);
+    expect(on.map((circle) => circle.icon.props.name)).toEqual(["heart.fill", "eye.fill", "bookmark.fill"]);
+    expect(off.map((circle) => circle.icon.props.name)).toEqual(["heart.slash", "eye.slash", "bookmark.slash"]);
   });
 
   it("draws a toggle that is off in the same accent as the download circle", async () => {
