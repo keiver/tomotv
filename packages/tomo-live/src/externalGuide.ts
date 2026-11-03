@@ -7,6 +7,7 @@
  * guide covered is not asked again. Every guide reports its own status and what it matched.
  */
 import { closeGuide, engineLog, guideChannels, guideProgrammes, isLiveSourcesAvailable, loadGuide, searchGuide, type GuideProgramme } from "@keiver/tomo-engine";
+import { originKeyOf } from "./channelOrigin";
 import { liveGuideChannels, type GuideChannelCandidate } from "./config";
 import { cachedGuideFile, clearGuideFileCache, guideFileInfo, onGuideFileRefreshed, PlaybackHoldError } from "./guideFileCache";
 import { buildGuideIndex, matchChannels, type GuideChannelRequest, type GuideIndex, type MatchVia } from "./guideMatch";
@@ -234,7 +235,7 @@ async function openFromUrl(source: Source, target: { from: number; to: number },
     // so this guide's own share is the difference.
     engineLog().info("External guide loaded", {
       service: "ExternalGuide",
-      url: source.url,
+      host: originKeyOf(source.url),
       channels: stats?.channels ?? channels.length,
       programmes: stats?.programmes ?? null,
       workMs: stats?.workMs ?? null,
@@ -344,7 +345,7 @@ export async function preloadGuide(url: string): Promise<void> {
   if (!isLiveSourcesAvailable()) return;
   const from = guideWindowStart(Date.now());
   await ensureOpen(sourceFor(url), { from, to: from + GUIDE_SPAN_MINUTES * MINUTE_MS }, []).catch((error) => {
-    if (!(error instanceof PlaybackHoldError)) engineLog().warn("Guide preload failed", error, { service: "ExternalGuide", url });
+    if (!(error instanceof PlaybackHoldError)) engineLog().warn("Guide preload failed", error, { service: "ExternalGuide", host: originKeyOf(url) });
   });
 }
 
@@ -504,7 +505,7 @@ export async function fetchExternalListingWindow(
       for (const channelId of attempted) failed.add(channelId);
       // A read of an open guide failed (the native store lost it): the next fetch reopens it.
       if (guide && source.open === guide) close(source);
-      if (!(error instanceof PlaybackHoldError)) engineLog().warn("External guide load failed", error, { service: "ExternalGuide", url });
+      if (!(error instanceof PlaybackHoldError)) engineLog().warn("External guide load failed", error, { service: "ExternalGuide", host: originKeyOf(url) });
     }
   }
   // A later guide with listings answers for a failed source. An empty fallback cannot tell us
@@ -559,7 +560,7 @@ export async function searchExternalListings(
       remaining = remaining.filter((channel) => !matches.has(channel.channelId));
     } catch (error) {
       if (guide && source.open === guide) close(source);
-      if (!(error instanceof PlaybackHoldError)) engineLog().warn("External guide search failed", error, { service: "ExternalGuide", url });
+      if (!(error instanceof PlaybackHoldError)) engineLog().warn("External guide search failed", error, { service: "ExternalGuide", host: originKeyOf(url) });
     }
   }
   return result.sort((a, b) => a.programme.start - b.programme.start).slice(0, limit);
