@@ -21,6 +21,7 @@
     "audio": [
       {
         "action": "copy",
+        "active": true,
         "rendition": "a0",
         "source": {
           "bitDepth": 24,
@@ -50,7 +51,7 @@
     "lastPtsSec": 30
   },
   "audio": {
-    "frames": 351,
-    "lastPtsSec": 29.87
+    "frames": 352,
+    "lastPtsSec": 29.95
   }
 }

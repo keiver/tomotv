@@ -32,6 +32,7 @@
     "audio": [
       {
         "action": "copy",
+        "active": true,
         "rendition": "a0",
         "source": {
           "bitRate": 640000,

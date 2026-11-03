@@ -21,9 +21,10 @@
     "audio": [
       {
         "action": "copy",
+        "active": true,
         "rendition": "a0",
         "source": {
-          "bitRate": 116673,
+          "bitRate": 121708,
           "channels": 1,
           "codec": "aac",
           "layout": "mono",
