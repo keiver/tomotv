@@ -15,7 +15,6 @@ import { playQueueManager } from "@/services/playQueueManager";
 import { isJoined as syncPlayIsJoined } from "@/services/syncPlayManager";
 import { cleanLabel } from "@/utils/cleanLabel";
 import { playerInfoTags, playerTitleLines } from "@/utils/seasonEpisode";
-import { IS_MAC } from "@/utils/hostEnvironment";
 import { logger } from "@/utils/logger";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -39,14 +38,8 @@ const ONE_CONNECTION_FLIP_SETTLE_MS = 3000;
 
 const ignore = () => {};
 
-/**
- * Phone playback runs inside AVKit's presented player. tvOS never presents, and
- * neither does a Mac: presenting hands the player's geometry to
- * UIScreen.main.bounds (RCTVideo.setFullscreen), which on a desktop is the
- * display rather than the window, and the video output lands in a coordinate
- * space the window does not share. Inline, React Native owns the size.
- */
-const PRESENTS_NATIVE_FULLSCREEN = Platform.OS === "ios" && !Platform.isTV && !IS_MAC;
+/** iPhone, iPad and Mac playback runs inside AVKit's presented player; tvOS never presents. */
+const PRESENTS_NATIVE_FULLSCREEN = Platform.OS === "ios" && !Platform.isTV;
 /** How long a requested presentation has to confirm before a waiting teardown stops waiting, in ms. */
 const PRESENT_CONFIRM_TIMEOUT_MS = 1500;
 /** Same, for a requested dismissal. The native backstop covers the teardown that goes ahead anyway. */
@@ -561,9 +554,8 @@ export function PlayerHost() {
   );
   const presentedCallbacks = useMemo(() => {
     if (!PRESENTS_NATIVE_FULLSCREEN) {
-      // tvOS draws its Up Next INSIDE AVKit and needs the host on screen for it.
-      // A Mac has no presentation to slide away, so nothing else would park the
-      // stage and the route's card would be announced behind opaque black.
+      // tvOS draws its Up Next INSIDE AVKit and needs the host on screen for it. Elsewhere
+      // nothing slides a presentation away, so the stage parks itself or the route's card is behind black.
       if (Platform.isTV) return attemptCallbacks;
       return {
         ...attemptCallbacks,
@@ -608,8 +600,7 @@ export function PlayerHost() {
   // Double click toggles the letterbox away, which is what a double click on a video surface
   // means. Held against the item, not as a plain boolean, so the next one opens letterboxed
   // again without an effect to reset it. The click is read natively (MacKeyCommands) and
-  // arrives through the session bridge; Mac only, since nowhere else has a pointer over an
-  // inline player.
+  // arrives through the session bridge; Mac only, the one host with a pointer.
   const sessionVideoId = session?.videoId ?? null;
   const [fillVideoId, setFillVideoId] = useState<string | null>(null);
   const fills = fillVideoId !== null && fillVideoId === sessionVideoId;
@@ -721,8 +712,8 @@ export function PlayerHost() {
       if (isActive) {
         setPip("active");
         setPinnedKey((pinned) => pinned ?? shownUriRef.current);
-        // tvOS and the Mac present nothing, so the window starting is the moment the route leaves.
-        if (Platform.isTV || IS_MAC) handlersRef.current?.onPipStarted?.();
+        // tvOS presents nothing, so the window starting is the moment the route leaves.
+        if (Platform.isTV) handlersRef.current?.onPipStarted?.();
         return;
       }
       // The window closed on its own (the viewer pressed its ✕) with no route

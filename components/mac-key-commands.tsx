@@ -84,8 +84,7 @@ export function macKeyAction(key: MacKey, state: MacKeyState): MacKeyAction {
 }
 
 /**
- * Hardware keys on the Mac, where the player is inline and carries no ✕ and no
- * Menu button.
+ * Hardware keys on the Mac, which has no Menu button.
  *
  * The single subscriber on purpose: two of them would let one press both pop the
  * player and pop the route behind it. Mounted beside PlayerHost, above the

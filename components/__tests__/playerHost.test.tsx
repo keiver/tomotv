@@ -825,10 +825,11 @@ describe("PlayerHost", () => {
       }
     });
 
-    it("on a Mac, sends the route back as soon as the window starts", async () => {
+    it("on a Mac, sends the route back once AVKit's dismissal for the window lands", async () => {
       const MacHost = loadMacHost();
       const onPipStarted = jest.fn();
-      handlersRef.current = { onPlaybackEnd: jest.fn(), onPipStarted };
+      const onRequestBack = jest.fn();
+      handlersRef.current = { onPlaybackEnd: jest.fn(), onPipStarted, onRequestBack };
       let macRenderer!: TestRenderer.ReactTestRenderer;
       await act(async () => {
         macRenderer = TestRenderer.create(<MacHost />);
@@ -840,12 +841,18 @@ describe("PlayerHost", () => {
       await act(async () => {
         macRenderer.update(<MacHost />);
       });
+      await act(async () => {
+        macRenderer.root.findByType(Video).props.onFullscreenPlayerDidPresent();
+        macRenderer.root.findByType(Video).props.onPictureInPictureStatusChanged({ isActive: true });
+      });
+      expect(onPipStarted).not.toHaveBeenCalled();
 
       await act(async () => {
-        macRenderer.root.findByType(Video).props.onPictureInPictureStatusChanged({ isActive: true });
+        macRenderer.root.findByType(Video).props.onFullscreenPlayerDidDismiss();
       });
 
       expect(onPipStarted).toHaveBeenCalledTimes(1);
+      expect(onRequestBack).not.toHaveBeenCalled();
       await act(async () => macRenderer.unmount());
     });
 
@@ -1009,8 +1016,13 @@ describe("PlayerHost", () => {
       expect(covered(renderer)).toBe(true);
     });
 
-    it("on a Mac, never covers the inline player", async () => {
+    it("on a Mac, presents the player on load and covers the inline player", async () => {
       const MacHost = loadMacHost();
+      const videoRef = { current: { setFullScreen: jest.fn(), restoreUserInterfaceForPictureInPictureStopCompleted: jest.fn() } };
+      mockUseVideoPlayback.mockImplementation((config: { videoId: string; skip?: boolean }) => {
+        hookCalls.push({ videoId: config.videoId, skip: config.skip });
+        return { ...hookResult(), videoRef };
+      });
       let macRenderer!: TestRenderer.ReactTestRenderer;
       await act(async () => {
         macRenderer = TestRenderer.create(<MacHost />);
@@ -1026,7 +1038,8 @@ describe("PlayerHost", () => {
         macRenderer.root.findByType(Video).props.onLoad({ naturalSize: { width: 1920, height: 1080 } });
       });
 
-      expect(covered(macRenderer)).toBe(false);
+      expect(videoRef.current.setFullScreen).toHaveBeenCalledWith(true);
+      expect(covered(macRenderer)).toBe(true);
       await act(async () => macRenderer.unmount());
     });
   });
