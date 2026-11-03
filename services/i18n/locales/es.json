@@ -442,7 +442,7 @@
   "connect.useUsernamePassword": "Usar usuario y contraseña",
   "player.unableToPlay": "No se puede reproducir",
   "player.limitedConnections": "Conexiones limitadas",
-  "player.error.recordingHold": "Ya hay una grabación en curso en {channel} hasta las {time}.",
+  "player.error.recordingHold": "Tu proveedor solo permite una transmisión a la vez, y la grabación en {channel} la está usando hasta las {time}.",
   "player.upNext": "A CONTINUACIÓN",
   "player.playNow": "Reproducir ahora",
   "player.openPlayer": "Abrir el reproductor",

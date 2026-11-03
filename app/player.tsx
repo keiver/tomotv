@@ -25,12 +25,12 @@ import {
   type MediaSegmentWindow,
 } from "@/services/jellyfinApi";
 import { toggleFavoriteChannel } from "@/services/channelFavorites";
-import { channelDisplayName, getLiveTvPreferences, isFavoriteChannel, subscribeLiveTvPreferences } from "@/services/liveTvPreferences";
+import { getLiveTvPreferences, isFavoriteChannel, subscribeLiveTvPreferences } from "@/services/liveTvPreferences";
 import { recenterLiveRing, releaseLiveRing } from "@/services/liveRing";
 import { probeEmit } from "@/services/playbackProbe";
 import { showToast } from "@/services/toast";
 import { cleanLabel } from "@/utils/cleanLabel";
-import { activeRecordTimer, channelWindow, durationLabel, formatClock, programTimes, ringWithCenter } from "@/utils/guide";
+import { activeRecordTimer, channelWindow, durationLabel, programTimes, ringWithCenter } from "@/utils/guide";
 import { cancelPosterFrame, requestPosterFrame } from "@/services/localRemux";
 import { playsFromDisk } from "@/services/downloads/localSource";
 import { serverOffText, stageStopped } from "@/hooks/usePlaybackStage";
@@ -39,11 +39,12 @@ import { isJoined as syncPlayIsJoined, requestNextItem } from "@/services/syncPl
 import { JellyfinItem, JellyfinTimer, JellyfinVideoItem } from "@/types/jellyfin";
 import { libraryManager } from "@/services/libraryManager";
 import { logger } from "@/utils/logger";
-import { formatErrorRef, PLAYBACK_ERROR_IDS } from "@/utils/errorIds";
-import { adjacentPlayableChannelId, admitUntilPlaying, recordingWhenReady, stopRecordingAndPlay, stopRecordingCheck, watchRecordingsWhilePlaying } from "@/services/recordingHold";
+import { formatErrorRef } from "@/utils/errorIds";
+import { adjacentPlayableChannelId, stopRecordingCheck, watchRecordingsWhilePlaying } from "@/services/recordingHold";
 import { writeAfterReserve } from "@/hooks/useRecordActions";
-import { useChannelHeld, useHeldRecording } from "@/hooks/useRecordingStatus";
-import { getRecordingStatus, recordingWindow, subscribeRecordingStatus } from "@/services/recordingStatus";
+import { useRecordingHoldChoices } from "@/hooks/useRecordingHoldChoices";
+import { useChannelHeld } from "@/hooks/useRecordingStatus";
+import { getRecordingStatus, subscribeRecordingStatus } from "@/services/recordingStatus";
 import { formatEpisodeNumber } from "@/utils/seasonEpisode";
 import { APP_BUILD_LABEL } from "@/constants/app";
 import { Ionicons } from "@expo/vector-icons";
@@ -942,50 +943,22 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
   const onBackBlur = useCallback(() => {
     if (errorButtonFocusedRef.current === "back") errorButtonFocusedRef.current = null;
   }, []);
-  const recordingHold = playbackState.type === "ERROR" && playbackState.ref?.id === PLAYBACK_ERROR_IDS.LIVE_RECORDING;
-  const holdingTimer = useHeldRecording(videoId, recordingHold);
-  const [stoppingRecording, setStoppingRecording] = useState(false);
-  const stopRecordingThenPlay = useCallback(() => {
-    if (!holdingTimer) return;
-    Alert.alert(holdingTimer.Name, undefined, [
-      { text: t("common.cancel"), style: "cancel" },
-      {
-        text: t("liveTv.stopRecording"),
-        style: "destructive",
-        onPress: () => {
-          setStoppingRecording(true);
-          stopRecordingAndPlay(holdingTimer, videoId)
-            .then(() => retry())
-            .catch((err) => {
-              logger.warn("Stop recording failed", err, { service: "VideoPlayer" });
-              showToast(t("liveTv.recordingFailed"), "error");
-            })
-            .finally(() => setStoppingRecording(false));
-        },
-      },
-    ]);
-  }, [holdingTimer, videoId, retry]);
-  const [openingRecording, setOpeningRecording] = useState(false);
-  const leftRef = useRef(false);
-  useEffect(
-    () => () => {
-      leftRef.current = true;
-      admitUntilPlaying(null);
+  const replaceWithRecording = useCallback(
+    (item: JellyfinItem) => {
+      showGlobalLoader();
+      router.replace({ pathname: "/player" as const, params: { videoId: item.Id, videoName: item.Name } });
     },
-    [],
+    [router, showGlobalLoader],
   );
-  const watchRecording = useCallback(() => {
-    if (!holdingTimer) return;
-    setOpeningRecording(true);
-    recordingWhenReady(videoId)
-      .then((item) => {
-        if (!item || leftRef.current) return;
-        showGlobalLoader();
-        router.replace({ pathname: "/player" as const, params: { videoId: item.Id, videoName: item.Name } });
-      })
-      .catch((err) => logger.warn("Recording read failed", err, { service: "VideoPlayer" }))
-      .finally(() => setOpeningRecording(false));
-  }, [holdingTimer, videoId, router, showGlobalLoader]);
+  const {
+    held: recordingHold,
+    holdingTimer,
+    reason: holdText,
+    stopping: stoppingRecording,
+    opening: openingRecording,
+    stopAndPlay: stopRecordingThenPlay,
+    watch: watchRecording,
+  } = useRecordingHoldChoices(videoId, playbackState, retry, replaceWithRecording);
   const showErrorButtons = playbackState.type === "ERROR" && !liveOnStage && !playbackState.canRetryWithTranscode;
   useEffect(() => {
     if (!Platform.isTV || !showErrorButtons) return;
@@ -1015,11 +988,6 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
     }
 
     if (recordingHold) {
-      const holdText = holdingTimer
-        ? t("player.error.recordingHold")
-            .replace("{channel}", cleanLabel(channelDisplayName(getLiveTvPreferences(), { Id: holdingTimer.ChannelId, Name: holdingTimer.ChannelName ?? holdingTimer.Name })))
-            .replace("{time}", formatClock(recordingWindow(holdingTimer).endMs))
-        : playbackState.error;
       return (
         <View style={styles.errorContainer}>
           <Ionicons name="alert-circle-outline" size={64} color={COLORS.DESTRUCTIVE} />

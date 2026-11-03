@@ -442,7 +442,7 @@
   "connect.useUsernamePassword": "Utiliser un nom d'utilisateur et un mot de passe",
   "player.unableToPlay": "Lecture impossible",
   "player.limitedConnections": "Connexions limitées",
-  "player.error.recordingHold": "Un enregistrement est déjà en cours sur {channel} jusqu'à {time}.",
+  "player.error.recordingHold": "Ton fournisseur n'autorise qu'un flux à la fois, et l'enregistrement sur {channel} l'utilise jusqu'à {time}.",
   "player.upNext": "À SUIVRE",
   "player.playNow": "Lire maintenant",
   "player.openPlayer": "Ouvrir le lecteur",

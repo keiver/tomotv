@@ -442,7 +442,7 @@
   "connect.useUsernamePassword": "Benutzername und Passwort verwenden",
   "player.unableToPlay": "Wiedergabe nicht möglich",
   "player.limitedConnections": "Begrenzte Verbindungen",
-  "player.error.recordingHold": "Auf {channel} läuft bereits eine Aufnahme bis {time}.",
+  "player.error.recordingHold": "Dein Anbieter erlaubt nur einen Stream gleichzeitig, und die Aufnahme auf {channel} nutzt ihn bis {time}.",
   "player.upNext": "ALS NÄCHSTES",
   "player.playNow": "Jetzt abspielen",
   "player.openPlayer": "Player öffnen",
