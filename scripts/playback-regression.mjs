@@ -23,6 +23,7 @@
  *   npm run test:playback -- --update-baselines  record baselines (known-good build)
  *   npm run test:playback -- --udid <UDID>       target (and boot) a specific simulator
  *   npm run test:playback -- --device "Main Bedroom"  a paired device, by devicectl name
+ *   npm run test:playback -- --release           build Release for the simulator's platform, install it, run
  *   npm run test:playback -- --app <path.app>    install a simulator build first (npm run build:sim-release)
  *   npm run test:playback -- --list              print manifest and exit
  *   npm run test:playback -- --preflight         check prerequisites only, play nothing
@@ -454,6 +455,15 @@ async function assertInstalled(env, target) {
   }
   const { stdout } = await devicectl(["device", "info", "apps", "--device", target.name, "--bundle-id", env.BUNDLE_ID]);
   if (!stdout.includes(env.BUNDLE_ID)) throw new Error(`${env.BUNDLE_ID} is not installed on ${target.name}`);
+}
+
+/** Builds the Release configuration for the simulator's platform with scripts/build-sim-release.sh and answers the .app path. */
+async function buildReleaseApp(target) {
+  if (target.kind !== "sim") throw new Error("--release builds for a simulator; a device runs the build installed on it");
+  const platform = target.deviceTypeIdentifier?.includes("Apple-TV") ? "tvos" : "ios";
+  console.log(`Building Release for the ${platform} simulator (scripts/build-sim-release.sh ${platform})...`);
+  const { stdout } = await exec("bash", [path.join(ROOT, "scripts", "build-sim-release.sh"), platform], { cwd: ROOT, timeout: 3600000, maxBuffer: 1e7 });
+  return stdout.trim().split("\n").at(-1);
 }
 
 /** Installs a simulator build over the one the simulator has; the app's data, sign-in included, stays. */
@@ -1390,7 +1400,7 @@ async function main() {
   const env = loadEnv();
   await exec("ffprobe", ["-version"]).catch(() => fail("ffprobe not on PATH (brew install ffmpeg)"));
   const target = await pickTarget().catch((e) => fail(e.message));
-  const appPath = opt("--app");
+  const appPath = opt("--app") ?? (flag("--release") ? await buildReleaseApp(target).catch((e) => fail(`--release: ${e.stderr || e.message}`)) : null);
   if (appPath) await installApp(target, appPath).catch((e) => fail(`--app ${appPath}: ${e.stderr || e.message}`));
   await assertInstalled(env, target).catch(() =>
     fail(`${env.BUNDLE_ID} is not installed on ${target.name}. Build it first (npm run ios / npm run both), or pass --app from npm run build:sim-release.`),
