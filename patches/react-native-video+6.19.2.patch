@@ -558,10 +558,18 @@ index 0000000..8a76a8b
 +
 +#endif
 diff --git a/node_modules/react-native-video/ios/Video/Features/RCTPlayerObserver.swift b/node_modules/react-native-video/ios/Video/Features/RCTPlayerObserver.swift
-index 339932f..89d81b6 100644
+index 339932f..bae8a1c 100644
 --- a/node_modules/react-native-video/ios/Video/Features/RCTPlayerObserver.swift
 +++ b/node_modules/react-native-video/ios/Video/Features/RCTPlayerObserver.swift
-@@ -35,6 +35,14 @@ protocol RCTPlayerObserverHandler: RCTPlayerObserverHandlerObjc {
+@@ -24,6 +24,7 @@ protocol RCTPlayerObserverHandler: RCTPlayerObserverHandlerObjc {
+     func handlePlaybackRateChange(player: AVPlayer, change: NSKeyValueObservedChange<Float>)
+     func handleTimeControlStatusChange(player: AVPlayer, change: NSKeyValueObservedChange<AVPlayer.TimeControlStatus>)
+     func handleVolumeChange(player: AVPlayer, change: NSKeyValueObservedChange<Float>)
++    func handleMutedChange(player: AVPlayer, change: NSKeyValueObservedChange<Bool>)
+     func handleExternalPlaybackActiveChange(player: AVPlayer, change: NSKeyValueObservedChange<Bool>)
+     func handleViewControllerOverlayViewFrameChange(overlayView: UIView, change: NSKeyValueObservedChange<CGRect>)
+     func handleTracksChange(playerItem: AVPlayerItem, change: NSKeyValueObservedChange<[AVPlayerItemTrack]>)
+@@ -35,6 +36,14 @@ protocol RCTPlayerObserverHandler: RCTPlayerObserverHandlerObjc {
      func handleDidEnterFullScreen()
      func handleWillExitFullScreen()
      func handleDidExitFullScreen()
@@ -576,7 +584,7 @@ index 339932f..89d81b6 100644
  }
  
  // MARK: - RCTPlayerObserver
-@@ -42,6 +50,30 @@ protocol RCTPlayerObserverHandler: RCTPlayerObserverHandlerObjc {
+@@ -42,6 +51,30 @@ protocol RCTPlayerObserverHandler: RCTPlayerObserverHandlerObjc {
  class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPlayerItemLegibleOutputPushDelegate, AVPlayerViewControllerDelegate {
      weak var _handlers: RCTPlayerObserverHandler?
  
@@ -607,7 +615,16 @@ index 339932f..89d81b6 100644
      var player: AVPlayer? {
          willSet {
              removePlayerObservers()
-@@ -115,6 +147,9 @@ class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPla
+@@ -104,6 +137,8 @@ class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPla
+ 
+     private var _playerRateChangeObserver: NSKeyValueObservation?
+     private var _playerVolumeChangeObserver: NSKeyValueObservation?
++    // TomoTV patch: the player's mute, whoever sets it.
++    private var _playerMutedChangeObserver: NSKeyValueObservation?
+     private var _playerTimeControlStatusChangeObserver: NSKeyValueObservation?
+     private var _playerExternalPlaybackActiveObserver: NSKeyValueObservation?
+     private var _playerItemStatusObserver: NSKeyValueObservation?
+@@ -115,6 +150,9 @@ class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPla
      private var _playerViewControllerOverlayFrameObserver: NSKeyValueObservation?
      private var _playerTracksObserver: NSKeyValueObservation?
      private var _restoreUserInterfaceForPIPStopCompletionHandler: ((Bool) -> Void)?
@@ -617,7 +634,23 @@ index 339932f..89d81b6 100644
  
      deinit {
          if let _handlers {
-@@ -211,7 +246,16 @@ class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPla
+@@ -145,6 +183,7 @@ class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPla
+ 
+         _playerRateChangeObserver = player.observe(\.rate, options: [.old], changeHandler: _handlers.handlePlaybackRateChange)
+         _playerVolumeChangeObserver = player.observe(\.volume, options: [.old], changeHandler: _handlers.handleVolumeChange)
++        _playerMutedChangeObserver = player.observe(\.isMuted, options: [.new], changeHandler: _handlers.handleMutedChange)
+         _playerTimeControlStatusChangeObserver = player.observe(\.timeControlStatus, options: [.old], changeHandler: _handlers.handleTimeControlStatusChange)
+         #if !os(visionOS)
+             _playerExternalPlaybackActiveObserver = player.observe(\.isExternalPlaybackActive, changeHandler: _handlers.handleExternalPlaybackActiveChange)
+@@ -155,6 +194,7 @@ class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPla
+         _playerRateChangeObserver?.invalidate()
+         _playerExternalPlaybackActiveObserver?.invalidate()
+         _playerVolumeChangeObserver?.invalidate()
++        _playerMutedChangeObserver?.invalidate()
+         _playerTimeControlStatusChangeObserver?.invalidate()
+     }
+ 
+@@ -211,7 +251,16 @@ class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPla
      func removePlayerViewControllerObservers() {
          _playerViewControllerReadyForDisplayObserver?.invalidate()
          _playerViewControllerOverlayFrameObserver?.invalidate()
@@ -635,7 +668,7 @@ index 339932f..89d81b6 100644
      }
  
      func addPlayerLayerObserver() {
-@@ -303,6 +347,14 @@ class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPla
+@@ -303,6 +352,14 @@ class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPla
          }
      }
  
@@ -650,7 +683,7 @@ index 339932f..89d81b6 100644
      func playerViewControllerDidStartPictureInPicture(_: AVPlayerViewController) {
          guard let _handlers else { return }
  
-@@ -310,6 +362,7 @@ class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPla
+@@ -310,6 +367,7 @@ class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPla
      }
  
      func playerViewControllerDidStopPictureInPicture(_: AVPlayerViewController) {
@@ -658,7 +691,7 @@ index 339932f..89d81b6 100644
          guard let _handlers else { return }
  
          _handlers.handlePictureInPictureExit()
-@@ -357,6 +410,64 @@ class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPla
+@@ -357,6 +415,64 @@ class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPla
          }
      #endif
  
@@ -1431,7 +1464,7 @@ index 7927c37..04d4e01 100644
          if let newPlayer = players.allObjects.first(where: {
              $0.rate != 0
 diff --git a/node_modules/react-native-video/ios/Video/RCTVideo.swift b/node_modules/react-native-video/ios/Video/RCTVideo.swift
-index 5f2f5f6..56774c3 100644
+index 5f2f5f6..2f59ee5 100644
 --- a/node_modules/react-native-video/ios/Video/RCTVideo.swift
 +++ b/node_modules/react-native-video/ios/Video/RCTVideo.swift
 @@ -16,6 +16,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
@@ -2256,7 +2289,20 @@ index 5f2f5f6..56774c3 100644
              ]
          )
      }
-@@ -1742,6 +2348,39 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -1688,6 +2294,12 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+         }
+     }
+ 
++    // TomoTV patch: a mute set on the player outside the prop is kept, so applyModifiers on the next item
++    // restores the viewer's last choice instead of the last value React sent.
++    func handleMutedChange(player: AVPlayer, change _: NSKeyValueObservedChange<Bool>) {
++        _muted = player.isMuted
++    }
++
+     func handleVolumeChange(player: AVPlayer, change: NSKeyValueObservedChange<Float>) {
+         guard let _player, onVolumeChange != nil else { return }
+ 
+@@ -1742,6 +2354,39 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
          self.onVideoFullscreenPlayerDidDismiss?(["target": self.reactTag as Any])
      }
  
@@ -2296,7 +2342,7 @@ index 5f2f5f6..56774c3 100644
      @objc
      func handleDidFailToFinishPlaying(notification: NSNotification!) {
          guard onVideoError != nil else { return }
-@@ -2062,7 +2701,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
+@@ -2062,7 +2707,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                      DebugLog("An error occurred: \(error.localizedDescription)")
  
                      if let self {

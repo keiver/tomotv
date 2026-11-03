@@ -896,8 +896,6 @@ export function PlayerHost() {
             !target.picked && channelOnOneConnection(target.videoId) ? ONE_CONNECTION_FLIP_SETTLE_MS : LIVE_FLIP_SETTLE_MS,
           );
         }
-        // Each channel picked into the frame starts muted, as the first one did.
-        if (current.inline && presentationRef.current === "none") setMuted(true);
         applySession({ ...current, videoId: target.videoId, videoName: target.videoName ?? current.videoName, startPositionTicks: undefined, playedAtStart: undefined });
       },
       releaseRoute: (owner) => {

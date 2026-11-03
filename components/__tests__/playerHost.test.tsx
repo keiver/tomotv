@@ -1134,8 +1134,13 @@ describe("PlayerHost", () => {
       expect(videoRef.current.setFullScreen).not.toHaveBeenCalled();
     });
 
-    it("starts each channel switched into the frame muted", async () => {
+    it("keeps the mute it has when another channel is switched into the frame", async () => {
       await playInline();
+      await act(async () => {
+        bridge().switchLiveChannel({ videoId: "channel-2", videoName: "Two", picked: true });
+      });
+      expect(video().props.muted).toBe(true);
+
       await act(async () => {
         bridge().presentFullscreen();
       });
@@ -1143,13 +1148,11 @@ describe("PlayerHost", () => {
         video().props.onFullscreenPlayerDidPresent();
         video().props.onFullscreenPlayerDidDismiss();
       });
-      expect(video().props.muted).toBe(false);
-
       await act(async () => {
-        bridge().switchLiveChannel({ videoId: "channel-2", videoName: "Two", picked: true });
+        bridge().switchLiveChannel({ videoId: "channel-3", videoName: "Three", picked: true });
       });
 
-      expect(video().props.muted).toBe(true);
+      expect(video().props.muted).toBe(false);
       expect(videoRef.current.setFullScreen).toHaveBeenCalledTimes(1);
     });
 
