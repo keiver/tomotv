@@ -476,13 +476,6 @@ export async function requestLibraryItems(
 
   const url = `${config.server}/Items?userId=${config.userId}&${query.toString()}`;
 
-  logger.debug("Requesting library items", {
-    service: "JellyfinAPI",
-    url,
-    server: config.server,
-    userId: config.userId,
-  });
-
   try {
     const response = await fetchWithTimeout(
       url,

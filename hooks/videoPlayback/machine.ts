@@ -51,13 +51,7 @@ export type VideoPlayerAction =
 
 export function videoPlayerReducer(state: VideoPlayerState, action: VideoPlayerAction): VideoPlayerState {
   const next = reduce(state, action);
-  // `to` is the state the action produced: the guards below reject several actions.
-  logger.debug("State machine transition", {
-    service: "VideoStateMachine",
-    on: action.type,
-    from: state.type,
-    to: next.type,
-  });
+  if (next.type !== state.type) logger.debug("State machine transition", { service: "VideoStateMachine", on: action.type, from: state.type, to: next.type });
   return next;
 }
 

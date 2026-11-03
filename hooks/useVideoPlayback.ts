@@ -3377,7 +3377,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
   }, []);
 
   useEffect(() => {
-    logger.info("Forward buffer", { service: "useVideoPlayback", seconds: forwardBufferSeconds });
+    if (forwardBufferSeconds !== null) logger.info("Forward buffer", { service: "useVideoPlayback", seconds: forwardBufferSeconds });
   }, [forwardBufferSeconds]);
 
   const onReadyForDisplay = useCallback(() => {

@@ -52,13 +52,6 @@ class LibraryManager {
     logger.debug("New subscriber added", {
       service: "LibraryManager",
       totalSubscribers: this.listeners.size,
-      currentState: {
-        videoCount: this.videos.length,
-        isLoading: this.isLoading,
-        isLoadingMore: this.isLoadingMore,
-        hasMoreResults: this.hasMoreResults,
-        hasError: !!this.error,
-      },
     });
 
     // Immediately notify with current state
@@ -96,13 +89,9 @@ class LibraryManager {
 
     logger.debug("Notifying listeners", {
       service: "LibraryManager",
-      listenerCount: this.listeners.size,
       videoCount: state.videos.length,
       isLoading: state.isLoading,
-      isLoadingMore: state.isLoadingMore,
-      hasMoreResults: state.hasMoreResults,
       hasError: !!state.error,
-      libraryName: state.libraryName,
     });
 
     this.listeners.forEach((listener) => listener(state));

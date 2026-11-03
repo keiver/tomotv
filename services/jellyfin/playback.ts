@@ -86,7 +86,7 @@ async function postPlaybackReport(path: "/Sessions/Playing" | "/Sessions/Playing
 
     if (!response.ok) {
       logger.warn(`Playback report failed: ${response.status}`, { service: "JellyfinAPI", path, itemId: body.ItemId });
-    } else {
+    } else if (path !== "/Sessions/Playing/Progress") {
       logger.debug("Playback report sent", {
         service: "JellyfinAPI",
         path,
@@ -101,7 +101,7 @@ async function postPlaybackReport(path: "/Sessions/Playing" | "/Sessions/Playing
       reportQuietUntil = Date.now() + REPORT_QUIET_MS;
       logger.info("Playback reporting paused, the server is unreachable", { service: "JellyfinAPI", quietMs: REPORT_QUIET_MS });
     }
-    logger.warn("Playback report error", error, { service: "JellyfinAPI", path, itemId: body.ItemId });
+    logger.warn("Playback report error", { service: "JellyfinAPI", path, itemId: body.ItemId, error: error instanceof Error ? error.name : String(error) });
   }
 }
 
