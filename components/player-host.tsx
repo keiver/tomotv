@@ -193,16 +193,6 @@ export function PlayerHost() {
   // shares its AVPlayer. Pinned to the key it had, since any change to the key remounts.
   const [pinnedKey, setPinnedKey] = useState<string | null>(null);
 
-  // Closing curtain: opaque black over the inline video. A user ✕/swipe dismissal only
-  // reaches native code AFTER the slide-down finished (viewDidDisappear), and the lib
-  // re-embeds the same player inline on the next runloop tick, faster than any JS
-  // reaction to the dismiss event, so a reactive cover would leak frames of chromeless
-  // video. Instead the curtain goes up invisibly BEHIND the presentation as soon as it's
-  // confirmed on screen (DidPresent), so the re-embed lands under it and every close pops
-  // over black. It comes down only when a dismissal turns out to be the PiP hand-off,
-  // where the route leaves and the window plays on.
-  const [curtainUp, setCurtainUp] = useState(false);
-
   // The presented player's life, and a teardown that arrived before it could be presented or
   // dismissed. Both waits exist for the same reason: unmounting <Video> while AVKit still has a
   // presentation on screen strands it (see endSession).
@@ -295,9 +285,6 @@ export function PlayerHost() {
     if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
     settleTimerRef.current = null;
     setLiveSettling(false);
-    // Never outlives the session it was covering: an opaque curtain over a dead stage is
-    // a black screen with nothing left to dismiss it.
-    setCurtainUp(false);
   }, [applySession, clearPresentationWait, setPip]);
 
   /**
@@ -590,7 +577,6 @@ export function PlayerHost() {
       ...attemptCallbacks,
       onFullscreenPlayerDidPresent: () => {
         presentationRef.current = "up";
-        setCurtainUp(true);
         // A teardown that arrived while this was still arriving: there is finally
         // something for setFullscreen(false) to act on, so it can run now.
         if (endWhenPresentedRef.current) {
@@ -705,12 +691,10 @@ export function PlayerHost() {
     if (pipHandoffArmedRef.current) {
       pipHandoffUntilRef.current = Date.now() + PIP_HANDOFF_BURST_MS;
       pipHandoffArmedRef.current = false;
-      setCurtainUp(false);
       handlersRef.current?.onPipStarted?.();
       return;
     }
-    // With no route listening this used to drop the event, leaving a live session behind
-    // an opaque curtain: the black screen with nothing left to dismiss it.
+    // No route listening: the session ends itself, or it would sit behind the curtain with nothing left to dismiss it.
     if (!handlersRef.current) {
       endSession();
       return;
@@ -815,7 +799,6 @@ export function PlayerHost() {
   const beginSession = useCallback(
     (next: HostSession) => {
       logger.info("Player host: starting session", { service: "PlayerHost", videoName: next.videoName, presented: PRESENTS_NATIVE_FULLSCREEN });
-      setCurtainUp(false);
       setEnded(false);
       setPip("none");
       setPinnedKey(null);
@@ -1078,9 +1061,8 @@ export function PlayerHost() {
         </Video>
       )}
 
-      {/* Closing curtain (phone): pre-mounted behind the presentation so the lib's
-          post-dismissal inline re-embed can never flash video during the route pop. */}
-      {curtainUp && <View style={styles.closingCurtain} pointerEvents="none" />}
+      {/* Phone: the inline player (the one the lib re-embeds after every dismissal) is never shown; the presented player is the only picture. */}
+      {PRESENTS_NATIVE_FULLSCREEN && session !== null && <View style={styles.closingCurtain} pointerEvents="none" testID="player-curtain" />}
     </DismissPan>
   );
 }

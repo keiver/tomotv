@@ -9,6 +9,7 @@
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import Video from "react-native-video";
+import { DismissPan } from "@/components/dismiss-pan";
 import { PlayerHost } from "@/components/player-host";
 import type { PlayerHostBridge } from "@/contexts/PlayerSessionContext";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
@@ -145,6 +146,24 @@ async function playWithPipUp() {
 }
 
 let renderer: TestRenderer.ReactTestRenderer;
+
+/** IS_MAC is read once at load, so a Mac host is a fresh module graph. */
+function loadMacHost(): typeof PlayerHost {
+  let MacHost!: typeof PlayerHost;
+  const shared = { react: React, rn: require("react-native"), video: Video, hook: require("@/hooks/useVideoPlayback") };
+  jest.isolateModules(() => {
+    jest.doMock("react", () => shared.react);
+    jest.doMock("react-native", () => shared.rn);
+    jest.doMock("react-native-video", () => shared.video);
+    jest.doMock("@/hooks/useVideoPlayback", () => shared.hook);
+    jest.doMock("@/utils/hostEnvironment", () => ({ ...jest.requireActual("@/utils/hostEnvironment"), IS_MAC: true }));
+    MacHost = require("@/components/player-host").PlayerHost;
+  });
+  return MacHost;
+}
+
+/** Whether the opaque cover over the inline player is rendered. */
+const covered = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAll((node) => node.props.testID === "player-curtain").length > 0;
 
 /** The videoId the host last asked the hook for, or null while it is idle. */
 const requestedVideoId = () => {
@@ -807,17 +826,7 @@ describe("PlayerHost", () => {
     });
 
     it("on a Mac, sends the route back as soon as the window starts", async () => {
-      // IS_MAC is read once at load, so the Mac host is a fresh module graph.
-      let MacHost!: typeof PlayerHost;
-      const shared = { react: React, rn: require("react-native"), video: Video, hook: require("@/hooks/useVideoPlayback") };
-      jest.isolateModules(() => {
-        jest.doMock("react", () => shared.react);
-        jest.doMock("react-native", () => shared.rn);
-        jest.doMock("react-native-video", () => shared.video);
-        jest.doMock("@/hooks/useVideoPlayback", () => shared.hook);
-        jest.doMock("@/utils/hostEnvironment", () => ({ ...jest.requireActual("@/utils/hostEnvironment"), IS_MAC: true }));
-        MacHost = require("@/components/player-host").PlayerHost;
-      });
+      const MacHost = loadMacHost();
       const onPipStarted = jest.fn();
       handlersRef.current = { onPlaybackEnd: jest.fn(), onPipStarted };
       let macRenderer!: TestRenderer.ReactTestRenderer;
@@ -933,6 +942,92 @@ describe("PlayerHost", () => {
 
       expect(videoRef.current.setFullScreen).toHaveBeenCalledWith(true);
       expect(requestedVideoId()).toBe("ep-1");
+    });
+  });
+
+  describe("the inline player under AVKit's presentation", () => {
+    const video = () => renderer.root.findByType(Video);
+    const stageOnScreen = () => renderer.root.findByType(DismissPan).props.pointerEvents === "auto";
+
+    async function playOnPhone(videoRef: { current: { setFullScreen: jest.Mock; restoreUserInterfaceForPictureInPictureStopCompleted: jest.Mock } }) {
+      mockUseVideoPlayback.mockImplementation((config: { videoId: string; skip?: boolean }) => {
+        hookCalls.push({ videoId: config.videoId, skip: config.skip });
+        return { ...hookResult(), videoRef };
+      });
+      await act(async () => {
+        bridge().requestSession({ videoId: "movie-1", sessionKey: "key-1" });
+      });
+      sourceUri = "http://stream/1";
+      await act(async () => {
+        renderer.update(<PlayerHost />);
+      });
+      await act(async () => {
+        video().props.onLoad({ naturalSize: { width: 1920, height: 1080 } });
+      });
+    }
+
+    it("on the phone, covers the inline player on the stage before AVKit's presentation lands", async () => {
+      const videoRef = { current: { setFullScreen: jest.fn(), restoreUserInterfaceForPictureInPictureStopCompleted: jest.fn() } };
+      await playOnPhone(videoRef);
+
+      expect(videoRef.current.setFullScreen).toHaveBeenCalledWith(true);
+      expect(stageOnScreen()).toBe(true);
+      expect(covered(renderer)).toBe(true);
+    });
+
+    it("on the phone, covers the inline player on the stage from a PiP restore until AVKit presents it again", async () => {
+      const videoRef = { current: { setFullScreen: jest.fn(), restoreUserInterfaceForPictureInPictureStopCompleted: jest.fn() } };
+      handlersRef.current = { onPlaybackEnd: jest.fn(), onPipStarted: () => bridge().stopSession() };
+      await playOnPhone(videoRef);
+      await act(async () => {
+        video().props.onFullscreenPlayerDidPresent();
+        video().props.onPictureInPictureStatusChanged({ isActive: true });
+      });
+      await act(async () => {
+        video().props.onFullscreenPlayerDidDismiss();
+      });
+      await act(async () => {
+        bridge().releaseRoute({ videoId: "movie-1", sessionKey: "key-1" });
+      });
+      handlersRef.current = null;
+      await act(async () => {
+        video().props.onRestoreUserInterfaceForPictureInPictureStop();
+      });
+
+      handlersRef.current = { onPlaybackEnd: jest.fn() };
+      await act(async () => {
+        bridge().requestSession({ videoId: "movie-1", sessionKey: "key-2", adopt: true });
+      });
+      expect(stageOnScreen()).toBe(true);
+      expect(covered(renderer)).toBe(true);
+
+      videoRef.current.setFullScreen.mockClear();
+      await act(async () => {
+        video().props.onPictureInPictureStatusChanged({ isActive: false });
+      });
+      expect(videoRef.current.setFullScreen).toHaveBeenCalledWith(true);
+      expect(covered(renderer)).toBe(true);
+    });
+
+    it("on a Mac, never covers the inline player", async () => {
+      const MacHost = loadMacHost();
+      let macRenderer!: TestRenderer.ReactTestRenderer;
+      await act(async () => {
+        macRenderer = TestRenderer.create(<MacHost />);
+      });
+      await act(async () => {
+        bridge().requestSession({ videoId: "movie-1", sessionKey: "key-1" });
+      });
+      sourceUri = "http://stream/1";
+      await act(async () => {
+        macRenderer.update(<MacHost />);
+      });
+      await act(async () => {
+        macRenderer.root.findByType(Video).props.onLoad({ naturalSize: { width: 1920, height: 1080 } });
+      });
+
+      expect(covered(macRenderer)).toBe(false);
+      await act(async () => macRenderer.unmount());
     });
   });
 
