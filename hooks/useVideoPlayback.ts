@@ -19,7 +19,7 @@ import {
   isLiveSource,
   type MediaSegmentWindow,
 } from "@/services/jellyfinApi";
-import { alignSubtitleTiming as engineAlignSubtitleTiming, setSubtitleTimeOffset, type SubtitleAlignment } from "@keiver/tomo-engine";
+import { alignSubtitleTiming as engineAlignSubtitleTiming, playerSourceUrl, setSubtitleTimeOffset, type SubtitleAlignment } from "@keiver/tomo-engine";
 import { LIVE_POOR_START_WINDOW_MS, LivePlayback, noteLiveCleanStart, noteLiveStall } from "@keiver/tomo-live";
 import { linkRungsAllowed, serverTranscodeAllowed, serverTranscodeBlock, type ServerTranscodeBlock } from "@/services/transcodePolicy";
 import { heldImageSubtitleForOrdinal, playsConverted, playsFromDisk, playsRepackaged } from "@/services/downloads/localSource";
@@ -2263,7 +2263,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       if (!isMountedRef.current) return;
       // A source this player moved on from (a held or replaced stream) is not the item on screen failing.
       const failedUri = (error as OnVideoErrorData & { uri?: string }).uri;
-      if (failedUri && failedUri !== streamUrlRef.current) {
+      if (failedUri && playerSourceUrl(failedUri) !== streamUrlRef.current) {
         logger.debug("Ignoring a failure from a source this player moved on from", { service: "useVideoPlayback" });
         return;
       }
@@ -2456,7 +2456,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     (error: OnVideoErrorData) => {
       if (!isMountedRef.current) return;
       const failedUri = (error as OnVideoErrorData & { uri?: string }).uri;
-      if (failedUri && failedUri !== streamUrlRef.current) return;
+      if (failedUri && playerSourceUrl(failedUri) !== streamUrlRef.current) return;
       const token = localRemuxTokenRef.current;
       if (transportRef.current !== "gateway" || !token || isLiveRef.current || playsFromDisk(videoId) || classifyPlaybackError(error.error) !== PlaybackErrorType.STALLED) {
         handlePlaybackError(error);

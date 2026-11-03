@@ -9,6 +9,7 @@
 import Foundation
 import AVFoundation
 import react_native_video
+import TomoEngine
 
 /// Plugin for react-native-video that intercepts AVAsset creation
 /// and attaches the MultiAudioResourceLoaderDelegate for custom protocol handling
@@ -28,6 +29,12 @@ class MultiAudioVideoPlugin: RNVAVPlayerPlugin {
         guard let urlAsset = asset as? AVURLAsset else {
             NSLog("[MultiAudioVideoPlugin] Asset is not AVURLAsset")
             return nil
+        }
+
+        // An engine session serving LL-HLS parts: its playlists come through the asset's resource loader.
+        if let lowLatency = LowLatencyPlayerAsset.asset(for: urlAsset.url) {
+            NSLog("[MultiAudioVideoPlugin] LL-HLS session, playlists through the resource loader: \(lowLatency.url.absoluteString)")
+            return OverridePlayerAssetResult(type: .partial, asset: lowLatency)
         }
 
         let url = urlAsset.url.absoluteString
