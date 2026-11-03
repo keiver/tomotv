@@ -1,15 +1,10 @@
 import { usePlayerSession, type PlayerSessionHandlers } from "@/contexts/PlayerSessionContext";
 import type { JellyfinItem } from "@/types/jellyfin";
 import { previewTapAction } from "@/utils/guide";
-import { useIsFocused, useNavigation } from "expo-router";
+import { useIsFocused } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const ignore = () => {};
-
-/** The native stack's own event: a push over this screen or its pop starts to take it off screen. */
-type TransitionNavigation = {
-  addListener: (event: "transitionStart", listener: (event: { data: { closing: boolean } }) => void) => () => void;
-};
 
 /**
  * Live TV's player slot: a tapped channel plays inline above the guide, another tap switches it, and a tap
@@ -18,7 +13,6 @@ type TransitionNavigation = {
  */
 export function useLivePreview() {
   const { requestSession, switchLiveChannel, presentFullscreen, retry, releaseRoute, setHandlers, clearHandlers, sessionVideoId, hostMode } = usePlayerSession();
-  const navigation = useNavigation() as unknown as TransitionNavigation;
   const isFocused = useIsFocused();
   const [channel, setChannel] = useState<JellyfinItem | null>(null);
   const keyRef = useRef<string | null>(null);
@@ -77,16 +71,11 @@ export function useLivePreview() {
     [handlers, presentFullscreen, retry, switchLiveChannel, setHandlers, requestSession],
   );
 
+  // Navigation focus, never the native stack's transition events: the full-screen player is a modal over this
+  // screen, and its arrival reads to the stack as this screen disappearing.
   useEffect(() => {
     if (!isFocused) releaseRef.current();
   }, [isFocused]);
-  useEffect(
-    () =>
-      navigation.addListener("transitionStart", (event) => {
-        if (event.data.closing) releaseRef.current();
-      }),
-    [navigation],
-  );
   useEffect(() => () => releaseRef.current(), []);
 
   return { channel, preview };

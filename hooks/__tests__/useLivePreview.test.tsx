@@ -117,38 +117,44 @@ describe("useLivePreview", () => {
     expect(mockSession.requestSession).toHaveBeenCalledWith(expect.objectContaining({ videoId: "c1", inline: true }));
   });
 
-  it("lets the session go, naming the channel playing, as a screen pushed over it starts to appear", async () => {
+  it("lets the session go, naming the channel playing, when a screen pushed over it takes focus", async () => {
     await mount();
     await act(async () => latest().preview(one as never));
     const key = mockSession.requestSession.mock.calls[0][0].sessionKey;
     await act(async () => latest().preview(two as never));
     await hostShows("c2", "video");
 
-    await act(async () => mockTransitionListeners.forEach((listener) => listener({ data: { closing: true } })));
+    mockFocused = false;
+    await rerender();
 
     expect(mockSession.clearHandlers).toHaveBeenCalledWith(mockSession.setHandlers.mock.calls[0][0]);
     expect(mockSession.releaseRoute).toHaveBeenCalledWith({ videoId: "c2", sessionKey: key });
     expect(latest().channel).toBeNull();
   });
 
-  it("keeps the session while the screen itself is appearing", async () => {
+  it("keeps the session while the full-screen player is presented over the screen, which the stack reports as the screen disappearing", async () => {
     await mount();
     await act(async () => latest().preview(one as never));
     await hostShows("c1", "video");
+    await act(async () => latest().preview(one as never));
 
-    await act(async () => mockTransitionListeners.forEach((listener) => listener({ data: { closing: false } })));
+    await act(async () => mockTransitionListeners.forEach((listener) => listener({ data: { closing: true } })));
 
+    expect(mockSession.presentFullscreen).toHaveBeenCalledTimes(1);
     expect(mockSession.releaseRoute).not.toHaveBeenCalled();
+    expect(mockSession.clearHandlers).not.toHaveBeenCalled();
+    expect(latest().channel?.Id).toBe("c1");
   });
 
-  it("lets the session go when the screen loses focus, once", async () => {
+  it("lets the session go once, when the screen loses focus and then unmounts", async () => {
     await mount();
     await act(async () => latest().preview(one as never));
     await hostShows("c1", "video");
 
     mockFocused = false;
     await rerender();
-    await act(async () => mockTransitionListeners.forEach((listener) => listener({ data: { closing: true } })));
+    await act(async () => renderer.unmount());
+    await mount();
 
     expect(mockSession.releaseRoute).toHaveBeenCalledTimes(1);
   });
