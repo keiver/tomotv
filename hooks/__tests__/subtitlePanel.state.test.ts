@@ -24,6 +24,7 @@ jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(),
 
 import { panelStateFor, panelTrackFor, subtitleTransportButton, type PanelTrackInput } from "@/hooks/useSubtitlePanel";
 import { makeJob } from "@/services/subtitles/jobs";
+import { queryPrefix } from "@/services/subtitles/jobText";
 import { openSubtitlesDownloadsLeft } from "@/services/subtitles/sources/opensubtitles";
 import type { SubtitleHit } from "@/services/subtitles/types";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
@@ -109,6 +110,13 @@ describe("the panel's state", () => {
     expect([bare.downloads, bare.rating, bare.byline]).toEqual([null, null, "subtitles.source.podnapisi"]);
   });
 
+  it("sends the start of each result's name that only repeats the query", () => {
+    const job = { ...makeJob(item, "en"), status: "found" as const, results: [hit("a", { name: "Clip.2020.1080p.WEB-CAKES" }), hit("b", { name: "Other Thing" })] };
+    const [match, other] = panelStateFor(search([job]), [], 1, "subtitles.title", "#4F99FF").jobs[0].results;
+    expect(match.namePrefix).toBe("Clip.");
+    expect(other.namePrefix).toBe("");
+  });
+
   it("shows no timing controls while the video is not playing", () => {
     const job = { ...makeJob(item, "en"), status: "found" as const, results: [hit("a")] };
     const state = panelStateFor(search([job]), [{ ...keptTrack, canSync: false }], 1, "subtitles.title", "#4F99FF");
@@ -168,6 +176,19 @@ describe("the panel's state", () => {
     const job = { ...makeJob(item, "en"), status: "found" as const, results: [hit("a")], picked: hit("a") };
     expect(panelStateFor(search([{ ...job, error: "limit" }]), [], 1, "subtitles.title", "#4F99FF").jobs[0].note).toBe("subtitles.downloadLimit");
     expect(panelStateFor(search([{ ...job, error: "accountLimit" }]), [], 1, "subtitles.title", "#4F99FF").jobs[0].note).toBe("subtitles.accountDownloadLimit");
+  });
+
+  it("finds the query's words at the start of a release name, ignoring case, up to the first word the query lacks", () => {
+    const query = "The Lord of the Rings: The Rings of Power S01E01";
+    expect(queryPrefix("The.Lord.of.the.Rings.The.Rings.of.Power.S01E01.A.Shadow.of.the.Past.1080p-CMRG", query)).toBe("The.Lord.of.the.Rings.The.Rings.of.Power.S01E01.");
+    expect(queryPrefix("the lord of the rings - s01e01 - CAKES", query)).toBe("the lord of the rings - s01e01 - ");
+  });
+
+  it("finds no start when the name opens with a word the query lacks, or is nothing but the query", () => {
+    expect(queryPrefix("101 - The One Where Monica Gets a Roommate", "Friends S01E01")).toBe("");
+    expect(queryPrefix("[YTS] Friends S01E01", "Friends S01E01")).toBe("");
+    expect(queryPrefix("Friends.S01E01", "Friends S01E01")).toBe("");
+    expect(queryPrefix("Friends.S01E01.srt", "Friends S01E01")).toBe("Friends.S01E01.");
   });
 
   it("spins the sync button while a match runs and notes how it went", () => {

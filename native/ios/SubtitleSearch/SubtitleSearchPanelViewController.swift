@@ -460,6 +460,10 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
             let button = UIButton(configuration: rowConfiguration(plain: !Metrics.isTV))
             button.contentHorizontalAlignment = .leading
             configure(button, with: result)
+            button.configurationUpdateHandler = { [weak self] button in
+                guard let self, position < self.job.results.count else { return }
+                Self.setTitle(of: button, to: self.job.results[position])
+            }
             button.addAction(
                 UIAction { [weak self] _ in
                     guard let self, position < self.job.results.count else { return }
@@ -500,12 +504,31 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
         configuration.image = result.applied ? UIImage(systemName: "checkmark.circle.fill") : nil
         configuration.imageColorTransformer = result.applied ? UIConfigurationColorTransformer { _ in tick } : nil
         configuration.showsActivityIndicator = result.applying
-        configuration.title = result.name
         configuration.subtitleTextAttributesTransformer = nil
         configuration.attributedSubtitle = subtitleLine(for: result)
         button.configuration = configuration
+        Self.setTitle(of: button, to: result)
         button.accessibilityLabel = ([result.name, result.meta] + result.badges).filter { !$0.isEmpty }.joined(separator: ", ")
         button.alpha = result.applied ? 0.7 : 1
+    }
+
+    /// The name with the part that repeats the query faded, or plain while the row is focused or pressed.
+    private static func setTitle(of button: UIButton, to result: SubtitlePanelResult) {
+        guard var configuration = button.configuration else { return }
+        let rest = result.name.hasPrefix(result.namePrefix) ? String(result.name.dropFirst(result.namePrefix.count)) : ""
+        if result.namePrefix.isEmpty || rest.isEmpty || button.isFocused || button.isHighlighted {
+            configuration.title = result.name
+        } else {
+            let font = UIFont.systemFont(ofSize: Metrics.rowTitleFont, weight: .medium)
+            var faded = AttributedString(result.namePrefix)
+            faded.font = font
+            faded.foregroundColor = Metrics.dim
+            var kept = AttributedString(rest)
+            kept.font = font
+            kept.foregroundColor = UIColor.white
+            configuration.attributedTitle = faded + kept
+        }
+        button.configuration = configuration
     }
 
     private static let countFormat: NumberFormatter = {

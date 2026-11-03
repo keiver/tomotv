@@ -85,6 +85,23 @@ export function hitBadges(hit: SubtitleHit): string[] {
   ].filter(Boolean);
 }
 
+/** The start of a release name made only of the query's words, with the separator after it; empty when none, or when nothing follows it. */
+export function queryPrefix(name: string, query: string): string {
+  const words = new Set(query.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []);
+  let length = 0;
+  let matched = 0;
+  for (const part of name.match(/[\p{L}\p{N}]+|[^\p{L}\p{N}]+/gu) ?? []) {
+    if (/[\p{L}\p{N}]/u.test(part)) {
+      if (!words.has(part.toLowerCase())) break;
+      matched += 1;
+    } else if (matched === 0) {
+      break;
+    }
+    length += part.length;
+  }
+  return matched === 0 || length >= name.length ? "" : name.slice(0, length);
+}
+
 /** The author, then the source only when it is not OpenSubtitles, which the panel credits once. */
 export function hitByline(hit: SubtitleHit): string {
   return [hit.author, hit.source === "opensubtitles" ? "" : sourceName(hit.source)].filter(Boolean).join(" · ");

@@ -21,6 +21,8 @@ public struct SubtitlePanelLanguage: Codable, Equatable {
 public struct SubtitlePanelResult: Codable, Equatable {
     public let id: String
     public let name: String
+    /// The start of the name that only repeats the query, drawn faded; empty when none.
+    public let namePrefix: String
     /// Downloads, rating and byline in words, joined: what VoiceOver reads for the row.
     public let meta: String
     public let downloads: Int?
@@ -36,11 +38,12 @@ public struct SubtitlePanelResult: Codable, Equatable {
     public let timing: SubtitlePanelTrack?
 
     public init(
-        id: String, name: String, meta: String, downloads: Int? = nil, rating: Double? = nil, byline: String = "", badges: [String], monogram: String, hashMatch: Bool, applying: Bool,
+        id: String, name: String, namePrefix: String = "", meta: String, downloads: Int? = nil, rating: Double? = nil, byline: String = "", badges: [String], monogram: String, hashMatch: Bool, applying: Bool,
         applied: Bool, timing: SubtitlePanelTrack? = nil
     ) {
         self.id = id
         self.name = name
+        self.namePrefix = namePrefix
         self.meta = meta
         self.downloads = downloads
         self.rating = rating
