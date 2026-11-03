@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ReactVideoProps } from "react-native-video";
+import { useSharedValue, type SharedValue } from "react-native-reanimated";
 
 import type { SubtitleAlignment } from "@keiver/tomo-engine";
 import type { ActiveTextSubtitle, VideoPlayerState } from "@/hooks/useVideoPlayback";
@@ -132,6 +133,8 @@ export interface PlayerHostBridge {
 }
 
 interface PlayerSessionContextValue extends PlayerSessionSnapshot, PlayerHostBridge {
+  /** Moves an inline session's stage down from its frame, written on the UI thread by the screen. */
+  inlineOffsetY: SharedValue<number>;
   setHandlers: (handlers: PlayerSessionHandlers | null) => void;
   /** Unregisters these handlers, and only these: a screen that took over keeps its own. */
   clearHandlers: (handlers: PlayerSessionHandlers) => void;
@@ -152,6 +155,7 @@ interface PlayerSessionHostValue {
   registerHost: (bridge: PlayerHostBridge | null) => void;
   publish: React.Dispatch<React.SetStateAction<PlayerSessionSnapshot>>;
   handlersRef: React.RefObject<PlayerSessionHandlers | null>;
+  inlineOffsetY: SharedValue<number>;
 }
 
 const PlayerSessionHostContext = createContext<PlayerSessionHostValue | undefined>(undefined);
@@ -163,6 +167,7 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
   // never re-render this provider, which sits above the whole navigator.
   const bridgeRef = useRef<PlayerHostBridge | null>(null);
   const handlersRef = useRef<PlayerSessionHandlers | null>(null);
+  const inlineOffsetY = useSharedValue(0);
 
   /**
    * The route can command the host before the host exists.
@@ -293,6 +298,7 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
       toggleVideoFill,
       setInlineFrame,
       presentFullscreen,
+      inlineOffsetY,
       setHandlers,
       clearHandlers,
     }),
@@ -314,12 +320,13 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
       toggleVideoFill,
       setInlineFrame,
       presentFullscreen,
+      inlineOffsetY,
       setHandlers,
       clearHandlers,
     ],
   );
 
-  const hostValue = useMemo(() => ({ registerHost, publish: setSnapshot, handlersRef }), [registerHost]);
+  const hostValue = useMemo(() => ({ registerHost, publish: setSnapshot, handlersRef, inlineOffsetY }), [registerHost, inlineOffsetY]);
 
   return (
     <PlayerSessionContext.Provider value={value}>

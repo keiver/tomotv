@@ -54,6 +54,15 @@ let registeredBridge: PlayerHostBridge | null = null;
 const handlersRef = {
   current: null as { onPlaybackEnd: () => void; onLiveChannelFailed?: (fallbackId: string) => boolean; onPipStarted?: () => void; onRequestBack?: () => void } | null,
 };
+const mockInlineOffsetY = {
+  value: 0,
+  get() {
+    return this.value;
+  },
+  set(next: number) {
+    this.value = next;
+  },
+};
 jest.mock("@/contexts/PlayerSessionContext", () => ({
   usePlayerSessionHost: () => ({
     registerHost: (bridge: PlayerHostBridge | null) => {
@@ -61,6 +70,7 @@ jest.mock("@/contexts/PlayerSessionContext", () => ({
     },
     publish: jest.fn(),
     handlersRef,
+    inlineOffsetY: mockInlineOffsetY,
   }),
 }));
 
@@ -218,6 +228,16 @@ describe("PlayerHost", () => {
   it("registers its bridge and sits idle with no session", () => {
     expect(registeredBridge).not.toBeNull();
     expect(hookCalls[0]).toEqual({ videoId: "", skip: true });
+  });
+
+  it("leaves the stage where it is with no inline session, whatever the offset says", () => {
+    mockInlineOffsetY.value = 240;
+    act(() => {
+      renderer.update(<PlayerHost />);
+    });
+    const layer = renderer.root.findByProps({ testID: "player-offset-layer" });
+    expect(StyleSheet.flatten(layer.props.style).transform).toEqual([{ translateY: 0 }]);
+    mockInlineOffsetY.value = 0;
   });
 
   it("holds back a device-made poster while a video plays, so a frame landing mid-play never rebuilds the source", () => {
@@ -1083,6 +1103,14 @@ describe("PlayerHost", () => {
       expect(stage().props.pointerEvents).toBe("auto");
       expect(stage().props.enabled).toBe(false);
       expect(StyleSheet.flatten(stage().props.style)).toMatchObject({ position: "absolute", left: 16, top: 120, width: 343, height: 193 });
+    });
+
+    it("moves the stage down by the screen's offset, so the player follows its row", async () => {
+      mockInlineOffsetY.value = 240;
+      await playInline();
+      const layer = renderer.root.findByProps({ testID: "player-offset-layer" });
+      expect(StyleSheet.flatten(layer.props.style).transform).toEqual([{ translateY: 240 }]);
+      mockInlineOffsetY.value = 0;
     });
 
     it("stays off screen until the slot reports its frame", async () => {

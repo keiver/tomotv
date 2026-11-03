@@ -8,13 +8,21 @@ import { clearLiveFrameFocus, setLiveFrameFocus } from "@/services/liveFrames";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { isFavoriteChannel, type LiveTvPreferences } from "@/services/liveTvPreferences";
 import type { JellyfinItem } from "@/types/jellyfin";
-import type { GuideMetrics } from "@/utils/guide";
+import { GuideExpandedRow } from "@/components/live-tv/guide-expanded-row";
+import { expandedItemLayout, type GuideMetrics } from "@/utils/guide";
 import React, { useCallback, type ComponentProps } from "react";
 import { findNodeHandle, Platform, StyleSheet, View } from "react-native";
 import Animated, { type AnimatedRef, Extrapolation, interpolate, type ScrollHandlerProcessed, type SharedValue, useAnimatedStyle } from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
 const channelIds = (channel: JellyfinItem) => [channel.Id];
+/** The row that holds the Live TV player, the same in both lists. */
+export interface GuideExpansion {
+  id: string;
+  index: number;
+  extra: number;
+  open: SharedValue<number>;
+}
 const favoriteMark = (preferences: LiveTvPreferences, channel: JellyfinItem) => (isFavoriteChannel(preferences, channel) ? ("heart" as const) : undefined);
 
 interface GuideChannelColumnProps {
@@ -44,6 +52,8 @@ interface GuideChannelColumnProps {
   /** TV: each card's node by channel, so the canvas can hand Left focus out of a scrolled grid. */
   onCardNode?: ComponentProps<typeof GuideChannelCard>["onNode"];
   onEndReached?: () => void;
+  /** The channel whose row holds the Live TV player. */
+  expanded?: GuideExpansion | null;
 }
 
 /**
@@ -67,6 +77,7 @@ export function GuideChannelColumn({
   onFirstHandle,
   onCardNode,
   onEndReached,
+  expanded = null,
 }: GuideChannelColumnProps) {
   const preferences = useLiveTvPreferences();
   const { viewabilityPairs, visibleChannelIds } = useLiveFrameViewport("guide", preferences.autoUpdate, channels, channelIds);
@@ -91,49 +102,58 @@ export function GuideChannelColumn({
   }, []);
   // The wrapper is the row: exactly rowHeight, so the column never drifts off the grid's rows.
   const renderItem = useCallback(
-    ({ item, index }: { item: JellyfinItem; index: number }) => (
-      <View style={[styles.row, !IS_TV && compact && styles.rowCompact, { height: metrics.rowHeight }]} scrollSnapOffset={rowSnapOffset}>
-        {IS_TV ? (
-          <GuideChannelCard
-            ref={index === 0 ? firstCardRef : undefined}
-            channel={item}
-            index={index}
-            cardWidth={metrics.channelColumnWidth}
-            hideAiring
-            flat
-            square
-            inset={metrics.cardInset}
-            titleIcon={favoriteMark(preferences, item)}
-            recording={recordingChannelIds.has(item.Id)}
-            onPress={onChannelPress}
-            onLongPress={onChannelLongPress}
-            onItemFocus={cardFocus}
-            onItemBlur={cardBlur}
-            onNode={onCardNode}
-            playsClipInView
-            inView={visibleChannelIds.has(item.Id)}
-          />
-        ) : (
-          <ChannelMorph
-            channel={item}
-            index={index}
-            metrics={metrics}
-            columnWidth={columnWidth}
-            compact={compact}
-            inView={visibleChannelIds.has(item.Id)}
-            titleIcon={favoriteMark(preferences, item)}
-            recording={recordingChannelIds.has(item.Id)}
-            onPress={onChannelPress}
-            onLongPress={onChannelLongPress}
-          />
-        )}
-      </View>
-    ),
-    [metrics, rowSnapOffset, columnWidth, compact, preferences, recordingChannelIds, onChannelPress, onChannelLongPress, cardFocus, cardBlur, firstCardRef, onCardNode, visibleChannelIds],
+    ({ item, index }: { item: JellyfinItem; index: number }) => {
+      const row = (
+        <View style={[styles.row, !IS_TV && compact && styles.rowCompact, { height: metrics.rowHeight }]} scrollSnapOffset={rowSnapOffset}>
+          {IS_TV ? (
+            <GuideChannelCard
+              ref={index === 0 ? firstCardRef : undefined}
+              channel={item}
+              index={index}
+              cardWidth={metrics.channelColumnWidth}
+              hideAiring
+              flat
+              square
+              inset={metrics.cardInset}
+              titleIcon={favoriteMark(preferences, item)}
+              recording={recordingChannelIds.has(item.Id)}
+              onPress={onChannelPress}
+              onLongPress={onChannelLongPress}
+              onItemFocus={cardFocus}
+              onItemBlur={cardBlur}
+              onNode={onCardNode}
+              playsClipInView
+              inView={visibleChannelIds.has(item.Id)}
+            />
+          ) : (
+            <ChannelMorph
+              channel={item}
+              index={index}
+              metrics={metrics}
+              columnWidth={columnWidth}
+              compact={compact}
+              inView={visibleChannelIds.has(item.Id)}
+              titleIcon={favoriteMark(preferences, item)}
+              recording={recordingChannelIds.has(item.Id)}
+              onPress={onChannelPress}
+              onLongPress={onChannelLongPress}
+            />
+          )}
+        </View>
+      );
+      return expanded?.id === item.Id ? (
+        <GuideExpandedRow open={expanded.open} rowHeight={metrics.rowHeight} extra={expanded.extra}>
+          {row}
+        </GuideExpandedRow>
+      ) : (
+        row
+      );
+    },
+    [metrics, rowSnapOffset, columnWidth, compact, preferences, recordingChannelIds, onChannelPress, onChannelLongPress, cardFocus, cardBlur, firstCardRef, onCardNode, visibleChannelIds, expanded],
   );
   const getItemLayout = useCallback(
-    (_data: ArrayLike<JellyfinItem> | null | undefined, index: number) => ({ length: metrics.rowHeight, offset: metrics.rowHeight * index, index }),
-    [metrics.rowHeight],
+    (_data: ArrayLike<JellyfinItem> | null | undefined, index: number) => expandedItemLayout(index, metrics.rowHeight, expanded?.index ?? -1, expanded?.extra ?? 0),
+    [metrics.rowHeight, expanded],
   );
 
   const widthStyle = useAnimatedStyle(() => ({ width: columnWidth.get() }));
@@ -144,6 +164,7 @@ export function GuideChannelColumn({
         ref={listRef}
         data={channels}
         renderItem={renderItem}
+        extraData={expanded}
         keyExtractor={(item) => item.Id}
         getItemLayout={getItemLayout}
         snapToAlignment={IS_TV ? "item" : undefined}

@@ -2,7 +2,6 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { GuideCanvas } from "@/components/live-tv/guide-canvas";
 import { GuideCornerActions, HUD_ACTION_ICON, HudAction, scheduleSymbol } from "@/components/live-tv/guide-corner-actions";
 import { GuideHud } from "@/components/live-tv/guide-hud";
-import { LivePreviewSlot } from "@/components/live-tv/live-preview-slot";
 import { SfSymbolIcon } from "@/components/sf-symbol-icon";
 import { gridEdgePadding, LIBRARY_ROOT_TITLE } from "@/constants/app";
 import { WhoIsWatchingScreen } from "@/components/settings/WhoIsWatchingScreen";
@@ -132,7 +131,7 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
     showToast({ id: "guide-refresh", title: t(outcome.title), kind: outcome.kind });
   }, [guideWorking, guideFailed, hasListings, isFocused]);
 
-  // Phone, iPad and Mac play the channel in the slot above the guide; TV opens the player.
+  // Phone, iPad and Mac play the channel in its opened row in the guide; TV opens the player.
   const livePreview = useLivePreview();
   const previewChannel = livePreview.preview;
   const tune = useCallback(
@@ -249,7 +248,6 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
             {IS_TV ? (
               <View style={styles.tabBarGuideSlot}>{!focusInside && topFocusHandle !== undefined ? <TVFocusGuideView style={styles.tabBarGuide} destinations={[topFocusHandle]} /> : null}</View>
             ) : null}
-            {livePreview.channel ? <LivePreviewSlot channel={livePreview.channel} /> : null}
             <GuideCanvas
               key={session}
               guide={guide}
@@ -260,6 +258,8 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
               onProgramLongPress={openProgram}
               onChannelPress={handleChannelPress}
               onChannelLongPress={openChannel}
+              previewChannel={livePreview.channel}
+              onPreviewClose={livePreview.close}
             />
           </TVFocusGuideView>
         )}

@@ -1,4 +1,4 @@
-/** Live TV's player slot: what it shows under the player while the channel opens, fails, or is held by a recording. */
+/** Live TV's player row: what it shows under the player while the channel opens, fails, or is held by a recording. */
 import { LivePreviewSlot } from "@/components/live-tv/live-preview-slot";
 import React from "react";
 import { ActivityIndicator, Text } from "react-native";
@@ -109,5 +109,11 @@ describe("LivePreviewSlot", () => {
     await mount();
     expect(renderer.root.findAllByType(ActivityIndicator)).toHaveLength(0);
     expect(buttons()).toHaveLength(0);
+  });
+
+  it("never reports the player's frame itself", async () => {
+    mockSession.hostMode = "video";
+    await mount();
+    expect(mockSession.setInlineFrame).not.toHaveBeenCalled();
   });
 });

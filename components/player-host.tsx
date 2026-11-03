@@ -21,6 +21,7 @@ import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, StyleSheet, TVEventControl, useTVEventHandler, View } from "react-native";
 import Video from "react-native-video";
+import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import type { OnLoadData, OnPictureInPictureStatusChangedData, OnVideoErrorData } from "react-native-video";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 
@@ -132,7 +133,7 @@ interface PlayerSource {
 }
 
 export function PlayerHost() {
-  const { registerHost, publish, handlersRef } = usePlayerSessionHost();
+  const { registerHost, publish, handlersRef, inlineOffsetY } = usePlayerSessionHost();
 
   // State for rendering, ref for the AVKit callbacks and the bridge, which are
   // called from outside React and need the current value.
@@ -981,8 +982,9 @@ export function PlayerHost() {
   const inlineStage = inline && inlineFrame ? [styles.inlineStage, { left: inlineFrame.x, top: inlineFrame.y, width: inlineFrame.width, height: inlineFrame.height }] : null;
   const onStage = hostVisible && (!inline || inlineStage !== null);
   const stageStyle = inlineStage ? (onStage ? inlineStage : [...inlineStage, styles.inlineParked]) : onStage ? styles.stage : parked;
+  const offsetStyle = useAnimatedStyle(() => ({ transform: [{ translateY: inline ? inlineOffsetY.get() : 0 }] }));
 
-  return (
+  const stage = (
     <DismissPan onDismiss={handleDismissGesture} style={stageStyle} pointerEvents={onStage ? "auto" : "none"} enabled={!inline}>
       {session !== null && shownSource && (
         <Video
@@ -1082,6 +1084,13 @@ export function PlayerHost() {
       {PRESENTS_NATIVE_FULLSCREEN && session !== null && !inline && <View style={styles.closingCurtain} pointerEvents="none" testID="player-curtain" />}
     </DismissPan>
   );
+  // tvOS: no full-window layer above the focusables, and no inline session to move.
+  if (Platform.isTV) return stage;
+  return (
+    <Animated.View style={[styles.offsetLayer, offsetStyle]} pointerEvents="box-none" testID="player-offset-layer">
+      {stage}
+    </Animated.View>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -1117,15 +1126,24 @@ const styles = StyleSheet.create({
     transform: [{ translateX: -10000 }],
     backgroundColor: COLORS.MEDIA_BACKGROUND,
   },
+  // Square at the top-left, where Live TV's close tab sits.
   inlineStage: {
     position: "absolute",
     borderRadius: DESIGN.BORDER_RADIUS_CARD,
+    borderTopLeftRadius: 0,
     borderCurve: "continuous",
     overflow: "hidden",
     backgroundColor: COLORS.MEDIA_BACKGROUND,
   },
   inlineParked: {
     transform: [{ translateX: -10000 }],
+  },
+  offsetLayer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   video: {
     flex: 1,

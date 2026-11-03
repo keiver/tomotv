@@ -8,9 +8,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 const ignore = () => {};
 
 /**
- * Live TV's player slot: a tapped channel plays inline above the guide, another tap switches it, and a tap
+ * Live TV's player row: a tapped channel plays inline in the guide, another tap switches it, and a tap
  * on the playing channel opens it full screen. The screen owns the host's session the way /player does,
- * and lets it go as the screen leaves: a PiP window carries on, anything else ends.
+ * and lets it go on close or as the screen leaves: a PiP window carries on, anything else ends.
  */
 export function useLivePreview() {
   const { requestSession, switchLiveChannel, presentFullscreen, retry, releaseRoute, setHandlers, clearHandlers, sessionVideoId, hostMode } = usePlayerSession();
@@ -80,5 +80,5 @@ export function useLivePreview() {
   }, [isFocused]);
   useEffect(() => () => releaseRef.current(), []);
 
-  return { channel, preview };
+  return { channel, preview, close: release };
 }

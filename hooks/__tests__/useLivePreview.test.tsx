@@ -119,6 +119,19 @@ describe("useLivePreview", () => {
     expect(mockSession.requestSession).toHaveBeenCalledWith(expect.objectContaining({ videoId: "c1", inline: true }));
   });
 
+  it("lets the session go and clears the channel when the row is closed", async () => {
+    await mount();
+    await act(async () => latest().preview(one as never));
+    const key = mockSession.requestSession.mock.calls[0][0].sessionKey;
+    await hostShows("c1", "video");
+
+    await act(async () => latest().close());
+
+    expect(mockSession.releaseRoute).toHaveBeenCalledWith({ videoId: "c1", sessionKey: key });
+    expect(mockSession.clearHandlers).toHaveBeenCalledTimes(1);
+    expect(latest().channel).toBeNull();
+  });
+
   it("lets the session go, naming the channel playing, when a screen pushed over it takes focus", async () => {
     await mount();
     await act(async () => latest().preview(one as never));
