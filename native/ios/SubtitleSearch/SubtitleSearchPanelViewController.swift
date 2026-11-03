@@ -2,8 +2,8 @@
 //  SubtitleSearchPanelViewController.swift
 //  TomoTV
 //
-//  The subtitle panel: on tvOS a glass card over the playing video, on iPhone, iPad and the Mac a
-//  sheet. The language pill and the take-all button lead it, then one search section per video: its
+//  The subtitle panel: a card over the screen, blurred unless the video plays under it; glass on tvOS,
+//  opaque on iPhone, iPad and the Mac. The language pill and the take-all button lead it, then one search section per video: its
 //  query field, a state line and the results as rows, the kept pick's row with its timing controls
 //  under it. Every string arrives from JS. Below OS 26 the same layout draws on dark blur with filled buttons.
 //
@@ -34,6 +34,9 @@ private enum Metrics {
         static let controlSpacing: CGFloat = 16
     #else
         static let isTV = false
+        static let cardMaxSize = CGSize(width: 640, height: 900)
+        static let cardCornerRadius: CGFloat = 28
+        static let cardInset: CGFloat = 8
         static let rowCornerRadius: CGFloat = 16
         static let controlHeight: CGFloat = 48
         static let margin: CGFloat = 20
@@ -462,7 +465,7 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
             configure(button, with: result)
             button.configurationUpdateHandler = { [weak self] button in
                 guard let self, position < self.job.results.count else { return }
-                Self.setTitle(of: button, to: self.job.results[position])
+                self.setTitle(of: button, to: self.job.results[position])
             }
             button.addAction(
                 UIAction { [weak self] _ in
@@ -507,13 +510,13 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
         configuration.subtitleTextAttributesTransformer = nil
         configuration.attributedSubtitle = subtitleLine(for: result)
         button.configuration = configuration
-        Self.setTitle(of: button, to: result)
+        setTitle(of: button, to: result)
         button.accessibilityLabel = ([result.name, result.meta] + result.badges).filter { !$0.isEmpty }.joined(separator: ", ")
         button.alpha = result.applied ? 0.7 : 1
     }
 
-    /// The name with the part that repeats the query faded, or plain while the row is focused or pressed.
-    private static func setTitle(of button: UIButton, to result: SubtitlePanelResult) {
+    /// The name with the part that repeats the query in a muted accent, or plain while the row is focused or pressed.
+    private func setTitle(of button: UIButton, to result: SubtitlePanelResult) {
         guard var configuration = button.configuration else { return }
         let rest = result.name.hasPrefix(result.namePrefix) ? String(result.name.dropFirst(result.namePrefix.count)) : ""
         if result.namePrefix.isEmpty || rest.isEmpty || button.isFocused || button.isHighlighted {
@@ -522,7 +525,7 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
             let font = UIFont.systemFont(ofSize: Metrics.rowTitleFont, weight: .medium)
             var faded = AttributedString(result.namePrefix)
             faded.font = font
-            faded.foregroundColor = Metrics.dim
+            faded.foregroundColor = accent.withAlphaComponent(0.6)
             var kept = AttributedString(rest)
             kept.font = font
             kept.foregroundColor = UIColor.white
@@ -621,9 +624,13 @@ final class SubtitleSearchPanelViewController: UIViewController {
     private let centerLabel = UILabel()
     /// Active only while the state shows: they tie the content's bottom to the visible frame and squash result rows that overflow it.
     private var centerStateConstraints: [NSLayoutConstraint] = []
+    /// The screen behind, blurred unless the video plays under the panel.
+    private let backdrop = UIVisualEffectView(effect: nil)
     #if !os(tvOS)
+        private let card = UIView()
+        private let cardPan = UIPanGestureRecognizer()
         private let closeButton = UIButton(configuration: roundIconConfiguration())
-        /// The responder that held the keys before the sheet took them, handed back as it leaves.
+        /// The responder that held the keys before the panel took them, handed back as it leaves.
         private weak var previousResponder: UIResponder?
     #endif
 
@@ -631,14 +638,8 @@ final class SubtitleSearchPanelViewController: UIViewController {
         self.state = state
         super.init(nibName: nil, bundle: nil)
         overrideUserInterfaceStyle = .dark
-        #if os(tvOS)
-            modalPresentationStyle = .overFullScreen
-            modalTransitionStyle = .crossDissolve
-        #else
-            modalPresentationStyle = .pageSheet
-            sheetPresentationController?.detents = [.large()]
-            sheetPresentationController?.prefersGrabberVisible = true
-        #endif
+        modalPresentationStyle = .overFullScreen
+        modalTransitionStyle = .crossDissolve
     }
 
     @available(*, unavailable)
@@ -650,7 +651,7 @@ final class SubtitleSearchPanelViewController: UIViewController {
         apply(state, force: true)
     }
 
-    /// Gone from the screen for any reason but a quiet close: Menu, the sheet pulled down, or the
+    /// Gone from the screen for any reason but a quiet close: Menu, the card pulled down, or the
     /// player under it being replaced.
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
@@ -670,8 +671,20 @@ final class SubtitleSearchPanelViewController: UIViewController {
 
     private func buildLayout() {
         let content: UIView
+        view.backgroundColor = .clear
+        let dim = UIView()
+        dim.backgroundColor = UIColor.black.withAlphaComponent(Metrics.isTV ? 0.35 : 0.45)
+        for layer in [backdrop, dim] {
+            layer.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview(layer)
+            NSLayoutConstraint.activate([
+                layer.topAnchor.constraint(equalTo: view.topAnchor),
+                layer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+                layer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                layer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            ])
+        }
         #if os(tvOS)
-            view.backgroundColor = UIColor.black.withAlphaComponent(0.35)
             let card = surface(cornerRadius: Metrics.cardCornerRadius)
             card.translatesAutoresizingMaskIntoConstraints = false
             view.addSubview(card)
@@ -683,32 +696,45 @@ final class SubtitleSearchPanelViewController: UIViewController {
             ])
             content = card.contentView
         #else
-            view.backgroundColor = UIColor(white: 0.08, alpha: 1)
-            #if !targetEnvironment(macCatalyst)
-                if #available(iOS 26.1, *), !ProcessInfo.processInfo.isiOSAppOnMac, let sheet = sheetPresentationController {
-                    view.backgroundColor = .clear
-                    sheet.backgroundEffect = UIGlassEffect(style: .regular)
-                }
-            #endif
-            content = view
+            dim.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(closeTapped)))
+            card.backgroundColor = UIColor(red: 0x14 / 255, green: 0x14 / 255, blue: 0x14 / 255, alpha: 1)
+            card.layer.cornerRadius = Metrics.cardCornerRadius
+            card.layer.cornerCurve = .continuous
+            card.clipsToBounds = true
+            card.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview(card)
+            let safe = view.safeAreaLayoutGuide
+            let fullWidth = card.widthAnchor.constraint(equalToConstant: Metrics.cardMaxSize.width)
+            fullWidth.priority = .defaultHigh
+            let fullHeight = card.heightAnchor.constraint(equalToConstant: Metrics.cardMaxSize.height)
+            fullHeight.priority = .defaultHigh
+            let middle = card.centerYAnchor.constraint(equalTo: safe.centerYAnchor)
+            middle.priority = .defaultLow
+            NSLayoutConstraint.activate([
+                card.centerXAnchor.constraint(equalTo: safe.centerXAnchor),
+                card.widthAnchor.constraint(lessThanOrEqualTo: safe.widthAnchor, constant: -2 * Metrics.cardInset),
+                card.topAnchor.constraint(greaterThanOrEqualTo: safe.topAnchor, constant: Metrics.cardInset),
+                card.bottomAnchor.constraint(lessThanOrEqualTo: view.keyboardLayoutGuide.topAnchor, constant: -Metrics.cardInset),
+                fullWidth,
+                fullHeight,
+                middle,
+            ])
+            cardPan.addTarget(self, action: #selector(cardPanned(_:)))
+            cardPan.delegate = self
+            cardPan.isEnabled = traitCollection.userInterfaceIdiom == .phone
+            card.addGestureRecognizer(cardPan)
+            content = card
         #endif
 
         scroll.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(scroll)
-        scroll.topAnchor.constraint(equalTo: content.topAnchor).isActive = true
-        #if os(tvOS)
-            NSLayoutConstraint.activate([
-                scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-                scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-                scroll.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-            ])
-        #else
-            NSLayoutConstraint.activate([
-                scroll.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
-                scroll.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
-            ])
-            // The keyboard lifts the content instead of covering the field being typed in.
-            scroll.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor).isActive = true
+        NSLayoutConstraint.activate([
+            scroll.topAnchor.constraint(equalTo: content.topAnchor),
+            scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            scroll.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+        ])
+        #if !os(tvOS)
             scroll.keyboardDismissMode = .onDrag
         #endif
 
@@ -808,10 +834,10 @@ final class SubtitleSearchPanelViewController: UIViewController {
             closeButton.configuration?.image = UIImage(systemName: "xmark")
             closeButton.addAction(UIAction { [weak self] _ in self?.dismiss(animated: true) }, for: .primaryActionTriggered)
             closeButton.translatesAutoresizingMaskIntoConstraints = false
-            view.addSubview(closeButton)
+            card.addSubview(closeButton)
             NSLayoutConstraint.activate([
-                closeButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
-                closeButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -Metrics.margin),
+                closeButton.topAnchor.constraint(equalTo: card.topAnchor, constant: 16),
+                closeButton.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -Metrics.margin),
                 closeButton.widthAnchor.constraint(equalToConstant: Metrics.controlHeight),
                 closeButton.heightAnchor.constraint(equalToConstant: Metrics.controlHeight),
             ])
@@ -819,6 +845,28 @@ final class SubtitleSearchPanelViewController: UIViewController {
     }
 
     // MARK: - Actions
+
+    #if !os(tvOS)
+        @objc private func closeTapped() {
+            dismiss(animated: true)
+        }
+
+        /// On iPhone a drag down from the list's top closes past 120 pt, or as a 64 pt flick at 800 pt/s; anything short settles back.
+        @objc private func cardPanned(_ pan: UIPanGestureRecognizer) {
+            let distance = max(0, pan.translation(in: view).y)
+            switch pan.state {
+            case .changed:
+                card.transform = CGAffineTransform(translationX: 0, y: distance)
+                scroll.contentOffset.y = -scroll.adjustedContentInset.top
+            case .ended where distance > 120 || (pan.velocity(in: view).y > 800 && distance > 64):
+                dismiss(animated: true)
+            case .ended, .cancelled, .failed:
+                UIView.animate(withDuration: 0.16) { self.card.transform = .identity }
+            default:
+                break
+            }
+        }
+    #endif
 
     /// Before tvOS 17 a button has no menu: a press moves to the next language in the list.
     @objc private func nextLanguage() {
@@ -867,6 +915,7 @@ final class SubtitleSearchPanelViewController: UIViewController {
         guard isViewLoaded else { return }
         titleLabel.text = next.title
         creditLabel.text = next.credit
+        backdrop.effect = next.blurBehind ? UIBlurEffect(style: .dark) : nil
         #if !os(tvOS)
             closeButton.accessibilityLabel = next.closeLabel
         #endif
@@ -972,7 +1021,7 @@ final class SubtitleSearchPanelViewController: UIViewController {
             previous.becomeFirstResponder()
         }
 
-        /// The first Escape leaves the query field, the next one closes the sheet.
+        /// The first Escape leaves the query field, the next one closes the panel.
         @objc private func escapePressed() {
             if jobSections.contains(where: \.fieldEditing) {
                 view.endEditing(true)
@@ -989,3 +1038,18 @@ final class SubtitleSearchPanelViewController: UIViewController {
         dismiss(animated: true, completion: completion)
     }
 }
+
+#if !os(tvOS)
+    extension SubtitleSearchPanelViewController: UIGestureRecognizerDelegate {
+        /// The card follows a downward drag only while its list stands at the top.
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard gestureRecognizer === cardPan else { return true }
+            let velocity = cardPan.velocity(in: view)
+            return velocity.y > abs(velocity.x) && scroll.contentOffset.y <= -scroll.adjustedContentInset.top
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            gestureRecognizer === cardPan && other === scroll.panGestureRecognizer
+        }
+    }
+#endif

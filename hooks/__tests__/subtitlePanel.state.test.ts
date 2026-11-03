@@ -117,6 +117,11 @@ describe("the panel's state", () => {
     expect(other.namePrefix).toBe("");
   });
 
+  it("blurs the screen behind unless told the video plays under the panel", () => {
+    expect(panelStateFor(search([]), [], 1, "subtitles.title", "#4F99FF").blurBehind).toBe(true);
+    expect(panelStateFor(search([]), [], 1, "subtitles.title", "#4F99FF", false).blurBehind).toBe(false);
+  });
+
   it("shows no timing controls while the video is not playing", () => {
     const job = { ...makeJob(item, "en"), status: "found" as const, results: [hit("a")] };
     const state = panelStateFor(search([job]), [{ ...keptTrack, canSync: false }], 1, "subtitles.title", "#4F99FF");

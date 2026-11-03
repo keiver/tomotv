@@ -23,6 +23,7 @@ final class SubtitlePanelStateTests: XCTestCase {
             "queryPlaceholder": "Title",
             "searchLabel": "Search",
             "closeLabel": "Close",
+            "blurBehind": false,
             "jobs": jobs,
         ]
     }
@@ -32,6 +33,7 @@ final class SubtitlePanelStateTests: XCTestCase {
         XCTAssertEqual(state.title, "Subtitles")
         XCTAssertEqual(state.credit, "Subtitles provided by OpenSubtitles.com")
         XCTAssertEqual(state.closeLabel, "Close")
+        XCTAssertFalse(state.blurBehind)
         XCTAssertEqual(state.languages.map(\.code), ["en", "es"])
         XCTAssertEqual(state.selectedLanguageIndex, 1)
         XCTAssertNil(state.takeAll)

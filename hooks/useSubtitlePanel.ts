@@ -1,6 +1,6 @@
 /**
  * The native subtitle panel on every platform: opened from a video's info panel, or from the tvOS
- * player's transport bar, closed by Menu or the sheet pull. It carries one search job per video, a
+ * player's transport bar, closed by Menu, the close button or a tap beside the card. It carries one search job per video, a
  * folder's episodes each with their own; the kept pick's result row carries its timing, and a new
  * pick replaces the copy of its language.
  */
@@ -103,6 +103,7 @@ export function panelStateFor(
   videoCount: number,
   title: string,
   accent: string,
+  blurBehind = true,
 ): PanelState {
   const rest = ALL_LANGUAGES.filter((row) => !search.choices.some((choice) => choice.code === row.code));
   const alone = search.jobs.length === 1;
@@ -127,6 +128,7 @@ export function panelStateFor(
     queryPlaceholder: t("subtitles.searchPlaceholder"),
     searchLabel: t("subtitles.search"),
     closeLabel: t("common.close"),
+    blurBehind,
     jobs: search.jobs.map((job) => panelJobFor(job, alone, tracks)),
   };
 }
@@ -241,7 +243,7 @@ export function useSubtitlePanel(itemId: string, active: ActiveTextSubtitle | nu
   const lastSent = useRef("");
   useEffect(() => {
     if (!shown || !items) return;
-    const state = panelStateFor(search, tracks, items.length, t("subtitles.title"), getUiPreferences().cardTheme.accent);
+    const state = panelStateFor(search, tracks, items.length, t("subtitles.title"), getUiPreferences().cardTheme.accent, !(inPlayer && timing.canSync));
     const sent = JSON.stringify(state);
     if (presented.current && sent === lastSent.current) return;
     lastSent.current = sent;
@@ -249,7 +251,7 @@ export function useSubtitlePanel(itemId: string, active: ActiveTextSubtitle | nu
       presented.current = ok;
       if (!ok) setShown(false);
     });
-  }, [shown, items, search, tracks]);
+  }, [shown, items, search, tracks, inPlayer, timing.canSync]);
 
   useEffect(() => {
     if (!shown) return;

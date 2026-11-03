@@ -84,6 +84,8 @@ export interface PanelState {
   queryPlaceholder: string;
   searchLabel: string;
   closeLabel: string;
+  /** False while the video plays under the panel in the player: the screen behind stays sharp. */
+  blurBehind: boolean;
   jobs: PanelJob[];
 }
 

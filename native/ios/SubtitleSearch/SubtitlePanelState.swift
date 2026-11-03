@@ -170,12 +170,15 @@ public struct SubtitlePanelState: Codable, Equatable {
     public let searchLabel: String
     /// The close button's word, off the TV.
     public let closeLabel: String
+    /// False while the video plays under the panel in the player: the screen behind stays sharp.
+    public let blurBehind: Bool
     public let jobs: [SubtitlePanelJob]
 
     public init(
         title: String, credit: String = "", accent: String = "", confirm: SubtitlePanelConfirm? = nil, languages: [SubtitlePanelLanguage], selectedLanguage: String, takeAll: SubtitlePanelTakeAll? = nil,
-        skippedLine: String = "", emptyLine: String = "", queryPlaceholder: String, searchLabel: String, closeLabel: String = "", jobs: [SubtitlePanelJob]
+        skippedLine: String = "", emptyLine: String = "", queryPlaceholder: String, searchLabel: String, closeLabel: String = "", blurBehind: Bool = true, jobs: [SubtitlePanelJob]
     ) {
+        self.blurBehind = blurBehind
         self.title = title
         self.credit = credit
         self.accent = accent
