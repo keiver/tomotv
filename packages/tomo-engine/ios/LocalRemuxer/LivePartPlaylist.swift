@@ -45,6 +45,14 @@ extension RemuxSession {
         return .some(value)
     }
 
+    /// How far behind the live edge the player starts, in seconds: room for the real-time input to wobble without a stall.
+    static let liveHoldBackSeconds = 4.0
+
+    /// PART-HOLD-BACK: `liveHoldBackSeconds`, and never under three Part Target Durations (4.4.3.8 asks for at least three).
+    static func partHoldBack(partTarget: Double) -> Double {
+        max(partTarget * 3, liveHoldBackSeconds)
+    }
+
     /// The Advance Part Limit of 6.2.5.2: three divided by the Part Target Duration below one second, three otherwise.
     static func advancePartLimit(partTarget: Double) -> Double {
         partTarget < 1 ? 3 / partTarget : 3
@@ -212,7 +220,7 @@ extension RemuxSession {
         let version = skipped == 0 ? 6 : (skip == "v2" ? 10 : 9)
         var out = "#EXTM3U\n#EXT-X-VERSION:\(version)\n"
         out += "#EXT-X-TARGETDURATION:\(target)\n"
-        out += String(format: "#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,CAN-SKIP-UNTIL=%.1f,PART-HOLD-BACK=%.3f\n", skipBoundary, partTarget * 3)
+        out += String(format: "#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,CAN-SKIP-UNTIL=%.1f,PART-HOLD-BACK=%.3f\n", skipBoundary, partHoldBack(partTarget: partTarget))
         out += String(format: "#EXT-X-PART-INF:PART-TARGET=%.3f\n", partTarget)
         out += "#EXT-X-MEDIA-SEQUENCE:\(sequence)\n"
         out += "#EXT-X-DISCONTINUITY-SEQUENCE:\(discontinuitiesRemoved + generationStarts.keys.filter { $0 > 0 && $0 <= sequence }.count)\n"

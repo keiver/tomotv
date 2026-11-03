@@ -23,11 +23,16 @@ final class LivePartPlaylistTests: XCTestCase {
                 Dictionary(uniqueKeysWithValues: closed.map { ($0, 1.0) }))
     }
 
-    func testTheHeaderDeclaresVersionSixBlockingReloadDeltaUpdatesAndAHoldBackOfThreeParts() {
+    func testTheHeaderDeclaresVersionSixBlockingReloadDeltaUpdatesAndAHoldBackOfFourSeconds() {
         let text = render(closed: [], open: 0, parts: [0: [part(0.5, independent: true)]], durations: [:])
         XCTAssertTrue(text.hasPrefix("#EXTM3U\n#EXT-X-VERSION:6\n#EXT-X-TARGETDURATION:1\n"))
-        XCTAssertTrue(text.contains("#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,CAN-SKIP-UNTIL=6.0,PART-HOLD-BACK=1.500\n"))
+        XCTAssertTrue(text.contains("#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,CAN-SKIP-UNTIL=6.0,PART-HOLD-BACK=4.000\n"))
         XCTAssertTrue(text.contains("#EXT-X-PART-INF:PART-TARGET=0.500\n"))
+    }
+
+    func testTheHoldBackIsFourSecondsAndNeverUnderThreeParts() {
+        XCTAssertEqual(RemuxSession.partHoldBack(partTarget: 0.5), 4.0)
+        XCTAssertEqual(RemuxSession.partHoldBack(partTarget: 2.0), 6.0)
     }
 
     func testTheOpenSegmentIsListedByItsPartsAndTheHintNamesTheNextPart() {
