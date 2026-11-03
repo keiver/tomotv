@@ -1127,22 +1127,10 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
       </View>
     ) : null
   ) : (
-    <CardDragScroll
-      active={active}
-      pointerEvents={shown ? "auto" : "none"}
-      onContentSizeChange={() => setContentSized(true)}
-      style={[IS_TV ? styles.scroll : styles.padScroll, !shown && styles.unseen]}
-      contentContainerStyle={IS_TV ? [styles.footedContent, !groupChannel && styles.tvContentPad] : groupChannel ? styles.footedContent : styles.cardContentPad}
-      showsVerticalScrollIndicator={false}>
-      {/* Artwork heading on both platforms, whole; the scrim fades it into
-          the panel. Artless items keep the same hero with the brand face
-          (layer-front) centered in it, the cards' no-poster mark. */}
-      <View
-        style={[styles.hero, heroHeight > 0 && { height: heroHeight }, heroRise > 0 && { marginBottom: -heroRise }]}
-        onLayout={(event) => {
-          setHeroWidth(event.nativeEvent.layout.width);
-          setHeroMeasured(true);
-        }}>
+    <View style={IS_TV ? styles.flex : styles.padBody}>
+      {/* The artwork holds still behind the scroll; the scrim and the content's fill ride up over it.
+          Artless items keep the same hero with the brand face (layer-front) centered in it, the cards' no-poster mark. */}
+      <View pointerEvents="none" style={[styles.heroArt, heroHeight > 0 && { height: heroHeight }, !shown && styles.unseen]}>
         {liveFrame ? (
           <View pointerEvents="none" style={[styles.liveArt, { height: heroArtArea }]}>
             <Image
@@ -1176,58 +1164,76 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
             accessibilityLabel={t("a11y.artwork").replace("{title}", title)}
           />
         )}
-        <View style={[StyleSheet.absoluteFill, styles.heroScrim, footScrim]} />
-        {/* Above the fade: a box has edges of its own to show. */}
-        {!liveFrame && heroRef && heroArt && heroBoxed ? (
-          <Animated.View pointerEvents="none" style={[heroCropStyle, heroFadeStyle]}>
-            <Image key={heroUri} source={heroRef} style={StyleSheet.absoluteFill} contentFit="contain" transition={0} accessible accessibilityLabel={t("a11y.artwork").replace("{title}", title)} />
-          </Animated.View>
-        ) : null}
       </View>
-      {/* The card's own lip and rim, re-painted above the opaque artwork and down to the card's foot.
+      <CardDragScroll
+        active={active}
+        pointerEvents={shown ? "auto" : "none"}
+        onContentSizeChange={() => setContentSized(true)}
+        style={[IS_TV ? styles.scroll : styles.padScroll, !shown && styles.unseen]}
+        contentContainerStyle={IS_TV ? [styles.footedContent, !groupChannel && styles.tvContentPad] : groupChannel ? styles.footedContent : styles.cardContentPad}
+        showsVerticalScrollIndicator={false}>
+        {/* Opaque from the hero's foot down, under every focusable, so the content covers the artwork as it scrolls. */}
+        <View pointerEvents="none" style={[styles.contentFill, { top: heroHeight }]} />
+        <View
+          pointerEvents="none"
+          style={[styles.hero, heroHeight > 0 && { height: heroHeight }, heroRise > 0 && { marginBottom: -heroRise }]}
+          onLayout={(event) => {
+            setHeroWidth(event.nativeEvent.layout.width);
+            setHeroMeasured(true);
+          }}>
+          <View style={[StyleSheet.absoluteFill, styles.heroScrim, footScrim]} />
+          {/* Above the fade: a box has edges of its own to show. */}
+          {!liveFrame && heroRef && heroArt && heroBoxed ? (
+            <Animated.View pointerEvents="none" style={[heroCropStyle, heroFadeStyle]}>
+              <Image key={heroUri} source={heroRef} style={StyleSheet.absoluteFill} contentFit="contain" transition={0} accessible accessibilityLabel={t("a11y.artwork").replace("{title}", title)} />
+            </Animated.View>
+          ) : null}
+        </View>
+        {/* The card's own lip and rim, re-painted above the opaque artwork and down to the card's foot.
           Outside the hero, whose clip would end it there; mounted before the title, CTAs and footer so it
           sits under every focusable. */}
-      {IS_TV && <View pointerEvents="none" style={styles.heroEdge} />}
-      {/* Title sits below the hero; on TV it and the CTAs ride up onto its foot (heroRise). */}
-      <View style={[styles.heroTitleWrap, logoUri ? styles.heroLogoBelow : styles.heroTitleBelow, !IS_TV && styles.cardPad]}>
-        {logoUri ? (
-          <Image source={{ uri: logoUri }} style={[styles.heroLogo, { width: logoWidth }]} contentFit="contain" transition={200} accessible accessibilityLabel={title} />
-        ) : (
-          <Text style={styles.heroTitle} numberOfLines={2}>
-            {title}
-          </Text>
-        )}
-        {!!contextLine && <Text style={styles.heroContext}>{contextLine}</Text>}
-      </View>
-      <View style={IS_TV ? styles.tvPad : styles.cardPad}>
-        {!!metaLine && <Text style={[styles.metaLine, styles.metaBlock]}>{metaLine}</Text>}
-        {channelOffline && (
-          <View style={[styles.laneRow, metaLine ? styles.laneBlock : styles.metaBlock]}>
-            <Ionicons name="cloud-offline" size={IS_TV ? 24 : 15} color={COLORS.TEXT_SECONDARY} />
-            <Text style={styles.metaLine}>{t("liveTv.offline")}</Text>
-          </View>
-        )}
-        {(recordingNow || recordTimer?.Status === "InProgress" || !!recordTimer?.SeriesTimerId) && (
-          <View style={[styles.laneRow, styles.laneBlock]}>
-            <View style={[styles.laneDot, { backgroundColor: COLORS.DESTRUCTIVE }]} />
-            <Text style={styles.recordingNowText}>{recordingNow || recordTimer?.Status === "InProgress" ? t("liveTv.recordingNow") : t("liveTv.seriesRules")}</Text>
-          </View>
-        )}
-        {sections}
-      </View>
-      {/* The guide's groups bar in the card's footer. */}
-      {details && groupChannel && (
-        <>
-          {/* Pushes the footer to the card's foot when the content is short. */}
-          <View style={styles.footerGap} />
-          <SectionFooter focusable>
-            <View style={styles.groupFooter}>
-              <ChannelGroupBand channel={groupChannel} nextFocusUp={leadCtaHandle} cornerRadius={IS_TV ? undefined : PAD_CARD_RADIUS} />
+        {IS_TV && <View pointerEvents="none" style={styles.heroEdge} />}
+        {/* Title sits below the hero; on TV it and the CTAs ride up onto its foot (heroRise). */}
+        <View style={[styles.heroTitleWrap, logoUri ? styles.heroLogoBelow : styles.heroTitleBelow, !IS_TV && styles.cardPad]}>
+          {logoUri ? (
+            <Image source={{ uri: logoUri }} style={[styles.heroLogo, { width: logoWidth }]} contentFit="contain" transition={200} accessible accessibilityLabel={title} />
+          ) : (
+            <Text style={styles.heroTitle} numberOfLines={2}>
+              {title}
+            </Text>
+          )}
+          {!!contextLine && <Text style={styles.heroContext}>{contextLine}</Text>}
+        </View>
+        <View style={IS_TV ? styles.tvPad : styles.cardPad}>
+          {!!metaLine && <Text style={[styles.metaLine, styles.metaBlock]}>{metaLine}</Text>}
+          {channelOffline && (
+            <View style={[styles.laneRow, metaLine ? styles.laneBlock : styles.metaBlock]}>
+              <Ionicons name="cloud-offline" size={IS_TV ? 24 : 15} color={COLORS.TEXT_SECONDARY} />
+              <Text style={styles.metaLine}>{t("liveTv.offline")}</Text>
             </View>
-          </SectionFooter>
-        </>
-      )}
-    </CardDragScroll>
+          )}
+          {(recordingNow || recordTimer?.Status === "InProgress" || !!recordTimer?.SeriesTimerId) && (
+            <View style={[styles.laneRow, styles.laneBlock]}>
+              <View style={[styles.laneDot, { backgroundColor: COLORS.DESTRUCTIVE }]} />
+              <Text style={styles.recordingNowText}>{recordingNow || recordTimer?.Status === "InProgress" ? t("liveTv.recordingNow") : t("liveTv.seriesRules")}</Text>
+            </View>
+          )}
+          {sections}
+        </View>
+        {/* The guide's groups bar in the card's footer. */}
+        {details && groupChannel && (
+          <>
+            {/* Pushes the footer to the card's foot when the content is short. */}
+            <View style={styles.footerGap} />
+            <SectionFooter focusable>
+              <View style={styles.groupFooter}>
+                <ChannelGroupBand channel={groupChannel} nextFocusUp={leadCtaHandle} cornerRadius={IS_TV ? undefined : PAD_CARD_RADIUS} />
+              </View>
+            </SectionFooter>
+          </>
+        )}
+      </CardDragScroll>
+    </View>
   );
 
   // The route owns the touch chrome (backdrop, card frame, close button): it stays put while the pages slide.
@@ -1300,9 +1306,29 @@ const styles = StyleSheet.create({
     width: "100%",
     height: IS_TV ? 460 : 240,
     justifyContent: "flex-end",
+    overflow: "hidden",
+  },
+  // The touch card fits its content up to its max height; the scroll inside shrinks to it.
+  padBody: {
+    flexShrink: 1,
+  },
+  // The still artwork layer behind the scroll, the hero's size.
+  heroArt: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: IS_TV ? 460 : 240,
     backgroundColor: COLORS.SURFACE,
     // The top-anchored crop overhangs the foot of the hero.
     overflow: "hidden",
+  },
+  contentFill: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: `${HERO_FADE_RGB}1)`,
   },
   // Bottom stop matches the surface under the hero: the section bg on TV, the sheet on phone.
   heroScrim: {
