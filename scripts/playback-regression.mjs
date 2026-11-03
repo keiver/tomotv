@@ -658,6 +658,23 @@ async function mediaDuration(file) {
   }
 }
 
+/** The audio rendition carrying the file's first audio stream: its position in the master, whatever language the account prefers. */
+export function sourceOrderAudioIndex(planAudio) {
+  if (!Array.isArray(planAudio) || planAudio.length < 2) return 0;
+  const first = planAudio.reduce((lowest, entry) => (entry.streamIndex < lowest.streamIndex ? entry : lowest));
+  return Number(/^a(\d+)$/.exec(first.rendition ?? "")?.[1] ?? 0);
+}
+
+/** A baseline record with its audio in source order: the engine lists the preferred language first, and that follows the account. */
+export function inSourceOrder(record) {
+  const byJson = (a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b));
+  const streams = record.streams && { ...record.streams, audio: [...(record.streams.audio ?? [])].sort(), audioDetail: [...(record.streams.audioDetail ?? [])].sort(byJson) };
+  const plan = record.enginePlan?.audio
+    ? { ...record.enginePlan, audio: [...record.enginePlan.audio].sort((a, b) => a.streamIndex - b.streamIndex).map(({ rendition, active, ...entry }) => entry) }
+    : record.enginePlan;
+  return { ...record, streams, enginePlan: plan };
+}
+
 async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath, events = []) {
   const problems = [];
   const streams = await ffprobeStreams(masterUrl);
@@ -856,10 +873,10 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath,
   const exact = item.validate === "copy";
   const video = await framemd5(masterUrl, "0:v:0", exact);
   // Some sources carry no audio at all (T27's VC1 wmv is video-only).
-  const audio = streams.audio.length > 0 ? await framemd5(masterUrl, "0:a:0", false) : null;
+  const audio = streams.audio.length > 0 ? await framemd5(masterUrl, `0:a:${sourceOrderAudioIndex(plan?.audio)}`, false) : null;
 
   const baselinePath = path.join(BASELINE_DIR, `${item.id}.json`);
-  const current = {
+  const current = inSourceOrder({
     streams,
     // Pinned like the streams are: a change in which soundtracks the engine
     // copies, which encoder it picks, or the layout and depth it targets is
@@ -870,7 +887,7 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath,
     enginePlan: plan ? canonical({ video: plan.video, audio: plan.audio }) : null,
     video: { policy: item.validate, ...video },
     audio: audio ? { frames: audio.frames, lastPtsSec: audio.lastPtsSec } : null,
-  };
+  });
   if (!exact) delete current.video.digest;
 
   if (updateBaselines) {
@@ -896,9 +913,9 @@ async function validateRemuxOutput(item, masterUrl, updateBaselines, sourcePath,
     problems.push(`no baseline (run with --update-baselines on a known-good build)`);
     return { problems };
   }
-  const base = JSON.parse(fs.readFileSync(baselinePath, "utf8"));
+  const base = inSourceOrder(JSON.parse(fs.readFileSync(baselinePath, "utf8")));
 
-  if (JSON.stringify(base.streams) !== JSON.stringify(streams)) problems.push(`stream layout changed: ${JSON.stringify(streams)} vs baseline ${JSON.stringify(base.streams)}`);
+  if (JSON.stringify(base.streams) !== JSON.stringify(current.streams)) problems.push(`stream layout changed: ${JSON.stringify(current.streams)} vs baseline ${JSON.stringify(base.streams)}`);
   // canonical() on the baseline too, so baselines written before the plan was
   // canonicalised still compare on content rather than key order.
   if (JSON.stringify(canonical(base.enginePlan)) !== JSON.stringify(current.enginePlan)) {
@@ -1054,6 +1071,21 @@ async function validateLiveOutput(masterUrl, item) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** The driver kills the app between items, so a one-connection provider can still hold the previous channel's stream. */
+const PROVIDER_RETRY_MS = 60000;
+
+/** A text subtitle file Jellyfin attaches to the video: named after it, then `.`, ending in .srt, .ass, .ssa or .vtt. */
+export function textSidecarBeside(videoPath) {
+  const { dir, name } = path.parse(videoPath);
+  const files = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
+  return files.find((file) => file.startsWith(`${name}.`) && /\.(srt|ass|ssa|vtt)$/i.test(file)) ?? null;
+}
+
+/** The channel's open was refused by the provider's connection limit. */
+export function providerRefused(events) {
+  return events.some((e) => e.event === "errorCode" && String(e.code).startsWith("PB-LIVE-LIMIT"));
+}
+
 async function runItem(env, target, item, resolved, updateBaselines, probe) {
   const { id: itemId, path: sourcePath } = resolved;
   const result = { id: item.id, expected: item.mode, actual: "-", position: 0, validation: "-", problems: [] };
@@ -1181,7 +1213,10 @@ async function runItem(env, target, item, resolved, updateBaselines, probe) {
   // Subtitle-sync invariant on the server HLS lane, only when playback itself passed.
   if (item.mode === "transcode" && item.validate === "subsync" && result.problems.length === 0) {
     const streamEvent = events.find((e) => e.event === "stream" && e.mode === "transcode");
-    if (!streamEvent) {
+    const sidecar = sourcePath ? textSidecarBeside(sourcePath) : null;
+    if (sourcePath && !sidecar) {
+      result.problems.push(`no subtitle file beside ${path.basename(sourcePath)}: restore "${path.parse(sourcePath).name}.eng.srt" (test/playback/README.md, T44 and T45)`);
+    } else if (!streamEvent) {
       result.problems.push("no transcode stream URL in probe events");
     } else {
       try {
@@ -1445,9 +1480,16 @@ async function main() {
     const itemWork = fs.mkdtempSync(path.join(work, `${item.id}-`));
     // An item that pins its own Server transcoding level runs under it; the run's level returns after.
     if (item.serverTranscoding) await applyServerTranscoding(env, target, probe, item.serverTranscoding);
-    const r = await runItem(env, target, item, ids.get(item.title), updateBaselines, probe);
+    let r = await runItem(env, target, item, ids.get(item.title), updateBaselines, probe);
     // Read before the level is restored: applyServerTranscoding resets the listener.
-    const received = listener.events(ids.get(item.title).id);
+    let received = listener.events(ids.get(item.title).id);
+    const deniedSince = Date.now();
+    while (item.live && providerRefused(received) && Date.now() - deniedSince < PROVIDER_RETRY_MS) {
+      console.log("    (provider refused the open, a connection is still held; trying again in 5s)");
+      await sleep(5000);
+      r = await runItem(env, target, item, ids.get(item.title), updateBaselines, probe);
+      received = listener.events(ids.get(item.title).id);
+    }
     if (item.serverTranscoding) await applyServerTranscoding(env, target, probe, "linkOrFile");
     if (received.length) {
       r.probePath = path.join(itemWork, PROBE_FILENAME);
