@@ -1559,6 +1559,7 @@ extension RemuxSession {
             stateLock.lock()
             lowLatencyInput = true
             stateLock.unlock()
+            LowLatencyPlayerAsset.register(token: token)
         }
         if let bound = liveProbeBound(format: inputFormat, isLive: config.isLive) {
             input.pointee.max_analyze_duration = bound

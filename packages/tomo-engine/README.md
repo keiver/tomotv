@@ -90,7 +90,10 @@ const masterUrl = await startSession(liveSessionConfig({ inputUrl, itemId, httpH
   `_HLS_part`), delta updates (`_HLS_skip`) and rendition reports. The start buffer does not apply:
   the first answer waits for the first full segment when `liveLowLatencyTargetSeconds` is 0, which
   sets TARGETDURATION; the target rises only when a copied segment rounds past it. An HLS or DASH
-  input stays plain. `progress()` reports `lowLatency`.
+  input stays plain. `progress()` reports `lowLatency`. The player reads such a session through
+  `LowLatencyPlayerAsset.asset(for:)` (the app's react-native-video plugin hands it over): playlists
+  through the asset's resource loader, segments and parts redirected to the loopback, since the
+  Low-Latency Server Configuration Profile asks for HTTP/2, which the loopback server does not speak.
 - **In-session reopen.** A live read that brings nothing for twice its longest read so far (12 s at
   least), or ends, closes the input and opens it again in the same session, for as long as the
   session lives. The first try is at once; each further try, and each reopen within 60 s of the

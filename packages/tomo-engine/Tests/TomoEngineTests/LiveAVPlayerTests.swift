@@ -7,6 +7,7 @@ import XCTest
 /// app serves it. Answers what only a player can: does it play keyframe-cut long-GOP segments, does
 /// it see a declared caption group, and what happens when a pause outlives the window. Opt in with
 /// the TOMO_LIVE_SOURCE_* variables of LivePipelineTests.
+/// TOMO_PLAIN_LOOPBACK: an LL-HLS session is read straight off the loopback instead of through LowLatencyPlayerAsset.
 final class LiveAVPlayerTests: XCTestCase {
     private func serve(_ session: RemuxSession, onRequest: ((String) -> Void)? = nil) throws -> (LocalHTTPServer, URL) {
         try serveOverLoopback(session, onRequest: onRequest)
@@ -66,6 +67,66 @@ final class LiveAVPlayerTests: XCTestCase {
         XCTAssertNil(player.currentItem?.error)
     }
 
+    /// An LL-HLS session read through LowLatencyPlayerAsset, as the app's player reads it: AVPlayer takes low-latency mode
+    /// (no -15410), fetches parts, and plays.
+    func testLowLatencySessionPlaysInLowLatencyModeThroughThePlayerAsset() throws {
+        let (feed, path) = try startContinuousFeed(fps: "25", keyframeSeconds: 1)
+        defer {
+            feed.terminate()
+            try? FileManager.default.removeItem(atPath: path)
+        }
+        var config = makeConfig(durationSeconds: 0, inputUrl: path, videoRange: "", codecs: "", width: 0, height: 0, frameRate: 0, bandwidth: 0,
+                                isLive: true, liveSegmentSeconds: 1)
+        config.describesInput = true
+        config.liveBufferSeconds = 2
+        config.liveCopyCutSeconds = 0.4
+        config.liveTargetNearest = true
+        config.liveLowLatency = true
+        config.liveLowLatencyTargetSeconds = 0
+        let session = try RemuxSession(config: config)
+        session.start()
+        defer { session.stop() }
+        let lock = NSLock()
+        var partFetches = 0
+        let (server, url) = try serve(session) { name in
+            guard RemuxSession.partIndices(Substring(name.split(separator: "/").last ?? "")) != nil else { return }
+            lock.lock()
+            partFetches += 1
+            lock.unlock()
+        }
+        defer { server.stop() }
+        XCTAssertTrue(spin(seconds: 20) { session.servesParts }, "the session never took LL-HLS")
+        let asset = try XCTUnwrap(LowLatencyPlayerAsset.asset(for: url))
+        XCTAssertEqual(asset.url.scheme, "tomo-ll")
+        let player = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+        player.play()
+        XCTAssertTrue(spin(seconds: 20) { player.currentTime().seconds > 3 }, "never played: \(String(describing: player.currentItem?.error))")
+        let errors = player.currentItem?.errorLog()?.events.map { "\($0.errorStatusCode) \($0.errorComment ?? "")" } ?? []
+        lock.lock()
+        let fetched = partFetches
+        lock.unlock()
+        NSLog("[LiveAVPlayerTests] through LowLatencyPlayerAsset: %d part fetches, player errors %@", fetched, errors)
+        XCTAssertFalse(errors.contains { $0.hasPrefix("-15410") }, "\(errors)")
+        XCTAssertGreaterThan(fetched, 0)
+        XCTAssertNil(player.currentItem?.error)
+        session.stop()
+        XCTAssertNil(LowLatencyPlayerAsset.asset(for: url), "a stopped session is no longer read through the loader")
+    }
+
+    func testOnlyALoopbackSessionServingPartsGetsThePlayerAsset() {
+        let url = URL(string: "http://127.0.0.1:5000/TOKEN-1/master.m3u8")!
+        XCTAssertEqual(LowLatencyPlayerAsset.sessionToken(url), "TOKEN-1")
+        XCTAssertNil(LowLatencyPlayerAsset.asset(for: url))
+        LowLatencyPlayerAsset.register(token: "TOKEN-1")
+        defer { LowLatencyPlayerAsset.unregister(token: "TOKEN-1") }
+        XCTAssertEqual(LowLatencyPlayerAsset.asset(for: url)?.url.absoluteString, "tomo-ll://127.0.0.1:5000/TOKEN-1/master.m3u8")
+        XCTAssertNil(LowLatencyPlayerAsset.asset(for: URL(string: "http://example.com:5000/TOKEN-1/master.m3u8")!))
+        XCTAssertEqual(LowLatencyPlayerAsset.loopbackURL(URL(string: "tomo-ll://127.0.0.1:5000/TOKEN-1/media.m3u8?_HLS_msn=4&_HLS_part=1")!)?.absoluteString,
+                       "http://127.0.0.1:5000/TOKEN-1/media.m3u8?_HLS_msn=4&_HLS_part=1")
+        XCTAssertEqual(LowLatencyPlayerAsset.withoutDirectives(URL(string: "http://127.0.0.1:5000/T/media.m3u8?_HLS_msn=4&_HLS_part=1&_HLS_skip=YES")!)?.absoluteString,
+                       "http://127.0.0.1:5000/T/media.m3u8")
+    }
+
     /// LL-HLS as the app configures it (1 s segments, 0.4 s copy cut, target learned from the first segment) on a
     /// continuous TS whose keyframe interval grows from 1 s to 4 s: the player keeps playing past the change.
     func testLowLatencyAcrossAKeyframeIntervalThatGrows() throws {
@@ -87,7 +148,8 @@ final class LiveAVPlayerTests: XCTestCase {
         defer { session.stop() }
         let (server, url) = try serve(session)
         defer { server.stop() }
-        let player = AVPlayer(url: url)
+        XCTAssertTrue(spin(seconds: 20) { session.servesParts }, "the session never took LL-HLS")
+        let player = AVPlayer(playerItem: AVPlayerItem(asset: LowLatencyPlayerAsset.asset(for: url) ?? AVURLAsset(url: url)))
         player.play()
         XCTAssertTrue(spin(seconds: 30) { player.currentItem?.status == .readyToPlay && player.currentTime().seconds > 0.5 }, "never played: \(String(describing: player.currentItem?.error))")
         let firstTarget = session.mediaPlaylist().split(separator: "\n").first { $0.hasPrefix("#EXT-X-TARGETDURATION:") } ?? ""
@@ -228,9 +290,10 @@ final class LiveAVPlayerTests: XCTestCase {
                 }
                 defer { server.stop() }
                 // An LL-HLS session holds its own first answer until a part exists: the player binds at the open.
-                if lead > 0 { spin(seconds: lead) { false } } else if partSeconds == nil { awaitStartBuffer(session, seconds: buffer) }
+                if lead > 0 { spin(seconds: lead) { false } } else if partSeconds == nil { awaitStartBuffer(session, seconds: buffer) } else { spin(seconds: 20) { session.servesParts } }
                 let bound = Date().timeIntervalSince(opened)
-                let player = AVPlayer(url: url)
+                let asset = env["TOMO_PLAIN_LOOPBACK"] == nil ? LowLatencyPlayerAsset.asset(for: url) ?? AVURLAsset(url: url) : AVURLAsset(url: url)
+                let player = AVPlayer(playerItem: AVPlayerItem(asset: asset))
                 player.play()
                 var moving: Double?
                 var startPosition: Double?

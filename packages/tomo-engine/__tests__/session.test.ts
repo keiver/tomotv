@@ -33,6 +33,7 @@ import {
   liveSessionConfig,
   liveSubtitleRenditions,
   localRemuxToken,
+  playerSourceUrl,
   originConnectionLimit,
   originConnections,
   originHeld,
@@ -84,6 +85,14 @@ describe("startSession", () => {
     expect(events.attributeSession).not.toHaveBeenCalled();
     expect(events.watchEngineLink).toHaveBeenCalled();
     expect(events.watchEngineStage).toHaveBeenCalled();
+  });
+});
+
+describe("playerSourceUrl", () => {
+  it("reads an LL-HLS asset URL as the loopback URL it stands for and leaves any other URL alone", () => {
+    expect(playerSourceUrl("tomo-ll://127.0.0.1:5000/tok/master.m3u8")).toBe("http://127.0.0.1:5000/tok/master.m3u8");
+    expect(playerSourceUrl("http://127.0.0.1:5000/tok/master.m3u8")).toBe("http://127.0.0.1:5000/tok/master.m3u8");
+    expect(playerSourceUrl("jellyfin-multi://x")).toBe("jellyfin-multi://x");
   });
 });
 

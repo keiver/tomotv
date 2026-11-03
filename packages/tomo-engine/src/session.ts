@@ -346,6 +346,11 @@ export function localRemuxToken(masterUrl: string | null | undefined): string | 
   return masterUrl?.split("/").at(-2) ?? null;
 }
 
+/** The loopback URL a player's asset URL stands for: an LL-HLS session's asset reads it under the `tomo-ll` scheme. */
+export function playerSourceUrl(assetUrl: string): string {
+  return assetUrl.startsWith("tomo-ll://") ? `http://${assetUrl.slice("tomo-ll://".length)}` : assetUrl;
+}
+
 /**
  * Tear down one session, by the token its own start returned. Ownership belongs to the caller,
  * one token per player instance: two player screens overlap during a transition.
