@@ -4,7 +4,7 @@ import XCTest
 
 final class SubtitlePanelStateTests: XCTestCase {
     private func result(_ id: String, applied: Bool = false) -> [String: Any] {
-        ["id": id, "name": "Rel \(id)", "meta": "Podnapisi", "badges": ["SDH"], "monogram": "P", "hashMatch": false, "applying": false, "applied": applied]
+        ["id": id, "name": "Rel \(id)", "meta": "Podnapisi", "byline": "Podnapisi", "badges": ["SDH"], "monogram": "P", "hashMatch": false, "applying": false, "applied": applied]
     }
 
     private func job(_ id: String, results: [[String: Any]], heading: String = "") -> [String: Any] {
@@ -38,6 +38,19 @@ final class SubtitlePanelStateTests: XCTestCase {
         XCTAssertEqual(state.jobs.map(\.id), ["v1"])
         XCTAssertEqual(state.jobs[0].results.map(\.id), ["a", "b"])
         XCTAssertEqual(state.jobs[0].results[0].badges, ["SDH"])
+        XCTAssertNil(state.jobs[0].results[0].downloads)
+        XCTAssertNil(state.jobs[0].results[0].rating)
+    }
+
+    func testAResultsDownloadsRatingAndBylineDecodeWhenSent() throws {
+        var rated = result("r")
+        rated["downloads"] = 42786
+        rated["rating"] = 9.5
+        rated["byline"] = "devnul13"
+        let state = try XCTUnwrap(SubtitlePanelState.from(dictionary: dictionary(jobs: [job("v1", results: [rated])])))
+        XCTAssertEqual(state.jobs[0].results[0].downloads, 42786)
+        XCTAssertEqual(state.jobs[0].results[0].rating, 9.5)
+        XCTAssertEqual(state.jobs[0].results[0].byline, "devnul13")
     }
 
     func testTheKeptPicksTimingAndTheTakeAllButtonDecodeWhenSent() throws {

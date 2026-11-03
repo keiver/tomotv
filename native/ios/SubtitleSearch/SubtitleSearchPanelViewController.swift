@@ -98,9 +98,12 @@ private func roundIconConfiguration(prominent: Bool = false) -> UIButton.Configu
     return configuration
 }
 
-private func rowConfiguration() -> UIButton.Configuration {
+private func rowConfiguration(plain: Bool = false) -> UIButton.Configuration {
     var configuration: UIButton.Configuration
-    if #available(tvOS 26.0, iOS 26.0, *) {
+    if plain {
+        configuration = .plain()
+        configuration.baseForegroundColor = .white
+    } else if #available(tvOS 26.0, iOS 26.0, *) {
         configuration = .glass()
     } else {
         configuration = .gray()
@@ -124,6 +127,23 @@ private func rowConfiguration() -> UIButton.Configuration {
         return updated
     }
     return configuration
+}
+
+/// The hairline between two results in the grouped list, inset to the row text.
+private func listSeparator() -> UIView {
+    let container = UIView()
+    let line = UIView()
+    line.backgroundColor = UIColor(white: 1, alpha: 0.12)
+    line.translatesAutoresizingMaskIntoConstraints = false
+    container.addSubview(line)
+    NSLayoutConstraint.activate([
+        container.heightAnchor.constraint(equalToConstant: 0.5),
+        line.topAnchor.constraint(equalTo: container.topAnchor),
+        line.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        line.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: Metrics.rowInsets.leading),
+        line.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+    ])
+    return container
 }
 
 // MARK: - Track row
@@ -239,6 +259,8 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
     private let stateLabel = UILabel()
     private let noteLabel = UILabel()
     private let resultsStack = UIStackView()
+    /// The TV keeps one glass card per result for focus; elsewhere the results share one surface.
+    private let resultsList: UIView = Metrics.isTV ? UIView() : surface(cornerRadius: Metrics.rowCornerRadius)
     private var rows: [UIButton] = []
     /// The timing controls under a result row, by the row's position.
     private var timingRows: [Int: TrackRowView] = [:]
@@ -316,9 +338,23 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
         stateLabel.setContentCompressionResistancePriority(.required, for: .vertical)
 
         resultsStack.axis = .vertical
-        resultsStack.spacing = Metrics.isTV ? 14 : 8
+        resultsStack.spacing = Metrics.isTV ? 14 : 0
+        let results: UIView
+        if let list = resultsList as? UIVisualEffectView {
+            resultsStack.translatesAutoresizingMaskIntoConstraints = false
+            list.contentView.addSubview(resultsStack)
+            NSLayoutConstraint.activate([
+                resultsStack.topAnchor.constraint(equalTo: list.contentView.topAnchor),
+                resultsStack.bottomAnchor.constraint(equalTo: list.contentView.bottomAnchor),
+                resultsStack.leadingAnchor.constraint(equalTo: list.contentView.leadingAnchor),
+                resultsStack.trailingAnchor.constraint(equalTo: list.contentView.trailingAnchor),
+            ])
+            results = list
+        } else {
+            results = resultsStack
+        }
 
-        for view in [controls, stateRow, noteLabel, resultsStack] { body.addArrangedSubview(view) }
+        for view in [controls, stateRow, noteLabel, results] { body.addArrangedSubview(view) }
         body.axis = .vertical
         body.spacing = Metrics.isTV ? 20 : 12
 
@@ -385,6 +421,7 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
                 if let timing = next.results[index].timing { timingRows[index]?.configure(timing, accent: accent) }
             }
         }
+        resultsList.isHidden = next.results.isEmpty
     }
 
     /// Puts a control at the front of the field's row: the language button of a lone search.
@@ -397,8 +434,12 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
         field.attributedPlaceholder = NSAttributedString(string: placeholder, attributes: [.foregroundColor: UIColor(white: 0.5, alpha: 1)])
         searchButton.accessibilityLabel = searchLabel
         searchButton.tintColor = accent
+        field.tintColor = accent
         guard accent != self.accent else { return }
         self.accent = accent
+        for (position, row) in rows.enumerated() where position < job.results.count {
+            configure(row, with: job.results[position])
+        }
         for (position, row) in timingRows {
             if let timing = job.results[position].timing { row.configure(timing, accent: accent) }
         }
@@ -413,11 +454,10 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
     }
 
     private func rebuildRows() {
-        rows.forEach { $0.removeFromSuperview() }
-        timingRows.values.forEach { $0.removeFromSuperview() }
+        resultsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         timingRows = [:]
         rows = job.results.enumerated().map { position, result in
-            let button = UIButton(configuration: rowConfiguration())
+            let button = UIButton(configuration: rowConfiguration(plain: !Metrics.isTV))
             button.contentHorizontalAlignment = .leading
             configure(button, with: result)
             button.addAction(
@@ -431,9 +471,14 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
             return button
         }
         for (position, row) in rows.enumerated() {
+            if !Metrics.isTV && position > 0 { resultsStack.addArrangedSubview(listSeparator()) }
             resultsStack.addArrangedSubview(row)
             guard let timing = job.results[position].timing else { continue }
             let controls = TrackRowView()
+            if !Metrics.isTV {
+                controls.isLayoutMarginsRelativeArrangement = true
+                controls.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: Metrics.rowInsets.leading, bottom: Metrics.rowInsets.bottom, trailing: Metrics.rowInsets.trailing)
+            }
             controls.configure(timing, accent: accent)
             controls.onShift = { [weak self] delta in
                 guard let self, position < self.job.results.count, let id = self.job.results[position].timing?.id else { return }
@@ -448,17 +493,63 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
         }
     }
 
-    /// The name over its downloads and the rest of its meta, then its badges; a saved row leads with the tick.
+    /// The name over its downloads, its rating in the accent, then the byline and badges; a saved row leads with the tick.
     private func configure(_ button: UIButton, with result: SubtitlePanelResult) {
         var configuration = button.configuration ?? rowConfiguration()
+        let tick = accent
         configuration.image = result.applied ? UIImage(systemName: "checkmark.circle.fill") : nil
-        configuration.imageColorTransformer = result.applied ? UIConfigurationColorTransformer { _ in Metrics.accent } : nil
+        configuration.imageColorTransformer = result.applied ? UIConfigurationColorTransformer { _ in tick } : nil
         configuration.showsActivityIndicator = result.applying
         configuration.title = result.name
-        let badges = result.badges.joined(separator: "  ")
-        configuration.subtitle = badges.isEmpty ? result.meta : "\(result.meta)  ·  \(badges)"
+        configuration.subtitleTextAttributesTransformer = nil
+        configuration.attributedSubtitle = subtitleLine(for: result)
         button.configuration = configuration
+        button.accessibilityLabel = ([result.name, result.meta] + result.badges).filter { !$0.isEmpty }.joined(separator: ", ")
         button.alpha = result.applied ? 0.7 : 1
+    }
+
+    private static let countFormat: NumberFormatter = {
+        let format = NumberFormatter()
+        format.numberStyle = .decimal
+        return format
+    }()
+
+    private static let ratingFormat: NumberFormatter = {
+        let format = NumberFormatter()
+        format.numberStyle = .decimal
+        format.minimumFractionDigits = 1
+        format.maximumFractionDigits = 1
+        return format
+    }()
+
+    private func subtitleLine(for result: SubtitlePanelResult) -> AttributedString {
+        let plainFont = UIFont.systemFont(ofSize: Metrics.rowSubtitleFont, weight: .regular)
+        let statFont = UIFont.systemFont(ofSize: Metrics.rowSubtitleFont, weight: .semibold)
+        var line = AttributedString()
+        func text(_ string: String, font: UIFont, color: UIColor) -> AttributedString {
+            var part = AttributedString(string)
+            part.font = font
+            part.foregroundColor = color
+            return part
+        }
+        func stat(symbol: String, value: String, color: UIColor, font: UIFont) {
+            if !line.characters.isEmpty { line += text("   ", font: plainFont, color: Metrics.dim) }
+            if let image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(font: font))?.withTintColor(color, renderingMode: .alwaysOriginal) {
+                if let glyph = try? AttributedString(NSAttributedString(attachment: NSTextAttachment(image: image)), including: \.uiKit) { line += glyph }
+            }
+            line += text(" \(value)", font: font, color: color)
+        }
+        if let downloads = result.downloads, let count = Self.countFormat.string(from: NSNumber(value: downloads)) {
+            stat(symbol: "arrow.down.circle.fill", value: count, color: Metrics.dim, font: plainFont)
+        }
+        if let rating = result.rating, let score = Self.ratingFormat.string(from: NSNumber(value: rating)) {
+            stat(symbol: "star.fill", value: score, color: accent, font: statFont)
+        }
+        let rest = ([result.byline] + result.badges).filter { !$0.isEmpty }.joined(separator: "  ·  ")
+        if !rest.isEmpty {
+            line += text(line.characters.isEmpty ? rest : "   \(rest)", font: plainFont, color: Metrics.dim)
+        }
+        return line
     }
 
     // MARK: - UITextFieldDelegate
@@ -571,6 +662,12 @@ final class SubtitleSearchPanelViewController: UIViewController {
             content = card.contentView
         #else
             view.backgroundColor = UIColor(white: 0.08, alpha: 1)
+            #if !targetEnvironment(macCatalyst)
+                if #available(iOS 26.1, *), !ProcessInfo.processInfo.isiOSAppOnMac, let sheet = sheetPresentationController {
+                    view.backgroundColor = .clear
+                    sheet.backgroundEffect = UIGlassEffect(style: .regular)
+                }
+            #endif
             content = view
         #endif
 
@@ -770,7 +867,9 @@ final class SubtitleSearchPanelViewController: UIViewController {
         } else {
             for (index, job) in next.jobs.enumerated() where index < jobSections.count { jobSections[index].apply(job) }
         }
-        for section in jobSections { section.applyShared(placeholder: next.queryPlaceholder, searchLabel: next.searchLabel, accent: accentColor) }
+        let accent = accentColor
+        languageButton.configuration?.imageColorTransformer = UIConfigurationColorTransformer { _ in accent }
+        for section in jobSections { section.applyShared(placeholder: next.queryPlaceholder, searchLabel: next.searchLabel, accent: accent) }
         let loneSection = next.jobs.count == 1 && next.jobs[0].heading.isEmpty ? jobSections.first : nil
         if let loneSection {
             loneSection.lead(with: languageButton)

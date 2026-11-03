@@ -21,8 +21,12 @@ public struct SubtitlePanelLanguage: Codable, Equatable {
 public struct SubtitlePanelResult: Codable, Equatable {
     public let id: String
     public let name: String
-    /// Source, downloads, rating and author, joined for the second line.
+    /// Downloads, rating and byline in words, joined: what VoiceOver reads for the row.
     public let meta: String
+    public let downloads: Int?
+    public let rating: Double?
+    /// The author and any source other than OpenSubtitles, joined.
+    public let byline: String
     public let badges: [String]
     public let monogram: String
     public let hashMatch: Bool
@@ -31,10 +35,16 @@ public struct SubtitlePanelResult: Codable, Equatable {
     /// The timing controls under the row of the kept pick that is playing, nil on every other row.
     public let timing: SubtitlePanelTrack?
 
-    public init(id: String, name: String, meta: String, badges: [String], monogram: String, hashMatch: Bool, applying: Bool, applied: Bool, timing: SubtitlePanelTrack? = nil) {
+    public init(
+        id: String, name: String, meta: String, downloads: Int? = nil, rating: Double? = nil, byline: String = "", badges: [String], monogram: String, hashMatch: Bool, applying: Bool,
+        applied: Bool, timing: SubtitlePanelTrack? = nil
+    ) {
         self.id = id
         self.name = name
         self.meta = meta
+        self.downloads = downloads
+        self.rating = rating
+        self.byline = byline
         self.badges = badges
         self.monogram = monogram
         self.hashMatch = hashMatch

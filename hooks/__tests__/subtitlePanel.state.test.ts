@@ -97,6 +97,18 @@ describe("the panel's state", () => {
     expect(state.jobs[0].results[1].timing).toBeNull();
   });
 
+  it("sends each result's downloads, rating and byline on their own, and names a source other than OpenSubtitles in the byline", () => {
+    const job = {
+      ...makeJob(item, "en"),
+      status: "found" as const,
+      results: [hit("a", { source: "opensubtitles", downloads: 42786, rating: 9, author: "devnul13" }), hit("b")],
+    };
+    const [rated, bare] = panelStateFor(search([job]), [], 1, "subtitles.title", "#4F99FF").jobs[0].results;
+    expect([rated.downloads, rated.rating, rated.byline]).toEqual([42786, 9, "devnul13"]);
+    expect(rated.meta).toBe("subtitles.downloads · 9.0 · devnul13");
+    expect([bare.downloads, bare.rating, bare.byline]).toEqual([null, null, "subtitles.source.podnapisi"]);
+  });
+
   it("shows no timing controls while the video is not playing", () => {
     const job = { ...makeJob(item, "en"), status: "found" as const, results: [hit("a")] };
     const state = panelStateFor(search([job]), [{ ...keptTrack, canSync: false }], 1, "subtitles.title", "#4F99FF");

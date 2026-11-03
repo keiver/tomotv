@@ -15,6 +15,9 @@ export interface PanelResult {
   id: string;
   name: string;
   meta: string;
+  downloads: number | null;
+  rating: number | null;
+  byline: string;
   badges: string[];
   monogram: string;
   hashMatch: boolean;
