@@ -49,8 +49,10 @@ jest.mock("@keiver/tomo-live", () => ({
 
 import { cancelTimer, createTimer, fetchInProgressRecording, fetchTimers, readRecordingStart } from "@/services/jellyfinApi";
 import {
+  ADMIT_WAIT_MS,
   adjacentPlayableChannelId,
   admitOnOneConnection,
+  admitUntilPlaying,
   checkNewRecording,
   heldRecording,
   isAdmitting,
@@ -441,6 +443,17 @@ describe("admitOnOneConnection", () => {
     (originConnections as jest.Mock).mockResolvedValue({ budget: 2, active: 0, held: false });
     await admitOnOneConnection("ch-b");
     expect(isAdmitting("ch-b")).toBe(false);
+  });
+
+  it("stops opening a refused channel again 20 s after its first admit, however often its open admits it again", async () => {
+    const start = 1_000_000;
+    admitUntilPlaying("ch-a", start);
+    admitUntilPlaying("ch-a", start + 15_000);
+    expect(isAdmitting("ch-a", start + ADMIT_WAIT_MS - 1)).toBe(true);
+    expect(isAdmitting("ch-a", start + ADMIT_WAIT_MS)).toBe(false);
+    admitUntilPlaying(null);
+    admitUntilPlaying("ch-a", start + ADMIT_WAIT_MS);
+    expect(isAdmitting("ch-a", start + ADMIT_WAIT_MS + 1)).toBe(true);
   });
 
   it("answers a provider a recording holds from the same read and admits nothing", async () => {

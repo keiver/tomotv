@@ -400,10 +400,15 @@ export async function recordingInProgress(timer: JellyfinTimer): Promise<Jellyfi
   return fetchInProgressRecording(timer.Id);
 }
 
-let admitting: string | null = null;
+/** How long a one-connection channel keeps opening again on the provider's refusal before its error shows. */
+export const ADMIT_WAIT_MS = 20_000;
 
-/** The channel to open again on every refusal until it plays, after its provider's recording was stopped. */
-export function admitUntilPlaying(channelId: string | null): void {
+let admitting: string | null = null;
+let admittingSince = 0;
+
+/** The channel to open again on every refusal until it plays, for at most ADMIT_WAIT_MS from its first admit. */
+export function admitUntilPlaying(channelId: string | null, nowMs = Date.now()): void {
+  if (channelId !== admitting) admittingSince = nowMs;
   admitting = channelId;
 }
 
@@ -420,8 +425,8 @@ export async function admitOnOneConnection(channelId: string): Promise<boolean> 
   return false;
 }
 
-export function isAdmitting(channelId: string): boolean {
-  return admitting === channelId;
+export function isAdmitting(channelId: string, nowMs = Date.now()): boolean {
+  return admitting === channelId && nowMs - admittingSince < ADMIT_WAIT_MS;
 }
 
 /** Stops the recording; resolves once its provider is free for the channel asked for. */
@@ -436,6 +441,7 @@ export async function stopRecordingAndPlay(timer: JellyfinTimer, channelId: stri
   syncRecordingHolds();
   const deadline = Date.now() + DRAIN_TIMEOUT_MS;
   while (Date.now() < deadline && (await isChannelHeld(channelId))) await wait(POLL_MS);
+  admitUntilPlaying(null);
   admitUntilPlaying(channelId);
 }
 
