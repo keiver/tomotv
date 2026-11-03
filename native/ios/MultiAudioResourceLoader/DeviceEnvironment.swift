@@ -66,11 +66,17 @@ class DeviceEnvironment: NSObject {
     func constantsToExport() -> [AnyHashable: Any]! {
         let info = ProcessInfo.processInfo
         let model = DeviceEnvironment.modelIdentifier()
+        #if targetEnvironment(simulator)
+        let isSimulator = true
+        #else
+        let isSimulator = false
+        #endif
         return [
             // Both ways the app reaches a desktop: the iOS binary run by macOS, and a Catalyst build.
             "isMac": info.isiOSAppOnMac || info.isMacCatalystApp,
             // True only for the iPad binary run by macOS; a Catalyst build reads false.
             "isiOSAppOnMac": info.isiOSAppOnMac,
+            "isSimulator": isSimulator,
             "model": model,
             "marketingName": DeviceEnvironment.marketingName(for: model) ?? NSNull(),
             "cores": info.activeProcessorCount,

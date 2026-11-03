@@ -6,7 +6,7 @@
  * SUITE sink: a driver deep-links the player with probe=<its URL> and receives each
  * event as a POST the moment it happens (scripts/playback-regression.mjs), or with
  * probe=1 and reads Library/Caches/playback-probe.jsonl back (scripts/abr-drill.mjs).
- * URLs stay raw. Armed only by __DEV__ AND a probe param.
+ * URLs stay raw. Armed only by SUITE_LINKS_ENABLED AND a probe param.
  *
  * SESSION sink: the Diagnostics screen (app/diagnostics.tsx). Always armed. The
  * MOST RECENT playback only, capped and redacted, living in memory and mirrored to
@@ -16,7 +16,7 @@
 import { APP_BUILD_NUMBER, APP_VERSION, BRAND_NAME } from "@/constants/app";
 import { parseSession, SCHEMA_VERSION, type DeviceDecode, type PlaybackSession, type SessionEvent, type SessionHead } from "@/services/diagnosticsSchema";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
-import { DEVICE_CORES, DEVICE_MARKETING_NAME, DEVICE_MEMORY_BYTES, DEVICE_MODEL, THIS_DEVICE } from "@/utils/hostEnvironment";
+import { DEVICE_CORES, DEVICE_MARKETING_NAME, DEVICE_MEMORY_BYTES, DEVICE_MODEL, SUITE_LINKS_ENABLED, THIS_DEVICE } from "@/utils/hostEnvironment";
 import { clearVerdicts } from "@/services/engineVerdicts";
 import { logger, redactSecrets } from "@/utils/logger";
 import { File, Paths } from "expo-file-system";
@@ -288,7 +288,7 @@ export function clearLastSession(): void {
  */
 export function setPlaybackProbeEnabled(probe: string | null, videoId: string): void {
   startSession(videoId);
-  if (!__DEV__) return;
+  if (!SUITE_LINKS_ENABLED) return;
   if (!probe) {
     sink = null;
     return;

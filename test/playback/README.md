@@ -12,7 +12,20 @@ npm run test:playback -- --only T05,T07      # subset (also forces manifest-skip
 npm run test:playback -- --update-baselines  # rewrite baselines from a KNOWN-GOOD build
 npm run test:playback -- --udid <UDID>       # target and boot a specific simulator
 npm run test:playback -- --list              # print the manifest and exit
+npm run test:playback -- --app <path.app>    # install a simulator build first, then run
 ```
+
+## Release builds
+
+The suite runs a Release build in a simulator: the code and JS bundle that ship, with `__DEV__` off and no Metro. The probe, `dev-session` and `dev-prefs` links answer in any build compiled for a simulator (`SUITE_LINKS_ENABLED` in `utils/hostEnvironment.ts`) and in no build compiled for a device, so TestFlight and App Store binaries never arm them.
+
+```
+npm run build:sim-release -- tvos            # from tvos/ (npm run prebuild:dual); prints the .app path
+npm run build:sim-release -- ios             # from ios/, for iPhone and iPad simulators
+npm run test:playback -- --udid <UDID> --app <path.app>
+```
+
+`--app` installs over the simulator's current build, so the app keeps its sign-in and the dev build is replaced until the next `npm run ios`. The run prints `App: <version> (<build>), JS in the app` for a Release build and `JS from Metro` for a dev build.
 
 ## First-time setup
 

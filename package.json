@@ -76,6 +76,7 @@
     "cleartvos": "bash scripts/clear.sh --npm --tv",
     "clear": "bash scripts/clear.sh",
     "archive": "bash scripts/archive-both.sh",
+    "build:sim-release": "bash scripts/build-sim-release.sh",
     "prepare": "husky",
     "probe:pixel-transfer": "node scripts/probe-pixel-transfer.mjs",
     "notes": "node scripts/translate-notes.mjs",

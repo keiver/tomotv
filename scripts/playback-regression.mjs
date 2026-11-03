@@ -23,6 +23,7 @@
  *   npm run test:playback -- --update-baselines  record baselines (known-good build)
  *   npm run test:playback -- --udid <UDID>       target (and boot) a specific simulator
  *   npm run test:playback -- --device "Main Bedroom"  a paired device, by devicectl name
+ *   npm run test:playback -- --app <path.app>    install a simulator build first (npm run build:sim-release)
  *   npm run test:playback -- --list              print manifest and exit
  *   npm run test:playback -- --preflight         check prerequisites only, play nothing
  *   npm run test:playback -- --verify-manifest   manifest/baseline agreement, no device needed
@@ -453,6 +454,22 @@ async function assertInstalled(env, target) {
   }
   const { stdout } = await devicectl(["device", "info", "apps", "--device", target.name, "--bundle-id", env.BUNDLE_ID]);
   if (!stdout.includes(env.BUNDLE_ID)) throw new Error(`${env.BUNDLE_ID} is not installed on ${target.name}`);
+}
+
+/** Installs a simulator build over the one the simulator has; the app's data, sign-in included, stays. */
+async function installApp(target, appPath) {
+  if (target.kind !== "sim") throw new Error("--app installs a simulator build; a device runs the build installed on it");
+  if (!fs.existsSync(path.join(appPath, "Info.plist"))) throw new Error(`${appPath} is not an app bundle`);
+  await simctl(["install", target.udid, appPath], { timeout: 180000 });
+}
+
+/** "2.2.15 (48), JS in the app" for the build a simulator runs; null on a device. */
+async function describeInstalledApp(env, target) {
+  if (target.kind !== "sim") return null;
+  const app = (await simctl(["get_app_container", target.udid, env.BUNDLE_ID, "app"])).stdout.trim();
+  const read = async (key) => (await exec("/usr/libexec/PlistBuddy", ["-c", `Print :${key}`, path.join(app, "Info.plist")])).stdout.trim();
+  const bundled = fs.existsSync(path.join(app, "main.jsbundle"));
+  return `${await read("CFBundleShortVersionString")} (${await read("CFBundleVersion")}), ${bundled ? "JS in the app" : "JS from Metro"}`;
 }
 
 /**
@@ -1373,8 +1390,14 @@ async function main() {
   const env = loadEnv();
   await exec("ffprobe", ["-version"]).catch(() => fail("ffprobe not on PATH (brew install ffmpeg)"));
   const target = await pickTarget().catch((e) => fail(e.message));
-  await assertInstalled(env, target).catch(() => fail(`${env.BUNDLE_ID} is not installed on ${target.name}. Build it first (npm run ios / npm run both).`));
+  const appPath = opt("--app");
+  if (appPath) await installApp(target, appPath).catch((e) => fail(`--app ${appPath}: ${e.stderr || e.message}`));
+  await assertInstalled(env, target).catch(() =>
+    fail(`${env.BUNDLE_ID} is not installed on ${target.name}. Build it first (npm run ios / npm run both), or pass --app from npm run build:sim-release.`),
+  );
   console.log(`Target:    ${describeTarget(target)}`);
+  const appDescription = await describeInstalledApp(env, target).catch(() => null);
+  if (appDescription) console.log(`App:       ${appDescription}`);
   console.log(`Jellyfin:  ${env.JELLYFIN_URL}`);
 
   console.log("Resolving manifest items in Jellyfin...");

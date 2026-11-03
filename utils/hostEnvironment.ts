@@ -4,7 +4,7 @@ import { NativeModules, Platform } from "react-native";
 /** The machine the app is on, as the diagnostics story names it. */
 export type DeviceName = "iPhone" | "iPad" | "Mac" | "Apple TV";
 
-type Environment = { isMac?: boolean; isiOSAppOnMac?: boolean; model?: string; marketingName?: string | null; cores?: number; memoryBytes?: number };
+type Environment = { isMac?: boolean; isiOSAppOnMac?: boolean; isSimulator?: boolean; model?: string; marketingName?: string | null; cores?: number; memoryBytes?: number };
 
 /**
  * native/ios/MultiAudioResourceLoader/DeviceEnvironment. React Native cannot tell a Mac: an
@@ -26,6 +26,12 @@ function readEnvironment(): Environment {
 const ENVIRONMENT = readEnvironment();
 
 export const IS_MAC = ENVIRONMENT.isMac === true;
+
+/** A binary compiled for a simulator, whatever its build configuration. */
+export const IS_SIMULATOR = ENVIRONMENT.isSimulator === true;
+
+/** The playback suite's deep links (probe, dev-session, dev-prefs) answer in a dev build or a simulator build. */
+export const SUITE_LINKS_ENABLED = __DEV__ || IS_SIMULATOR;
 
 export const THIS_DEVICE: DeviceName = Platform.isTV ? "Apple TV" : IS_MAC ? "Mac" : Platform.OS === "ios" && Platform.isPad ? "iPad" : "iPhone";
 

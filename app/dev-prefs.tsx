@@ -4,12 +4,13 @@ import { View } from "react-native";
 
 import { COLORS } from "@/constants/colors";
 import { getUiPreferences, SERVER_TRANSCODING_LEVELS, updateUiPreferences } from "@/services/uiPreferences";
+import { SUITE_LINKS_ENABLED } from "@/utils/hostEnvironment";
 import { logger } from "@/utils/logger";
 
 type DevPrefsParams = { serverTranscoding?: string; probe?: string };
 
 /**
- * Dev builds only: the playback suite sets the preference a run assumes and
+ * Dev and simulator builds only: the playback suite sets the preference a run assumes and
  * restores the device's own afterwards; the previous value answers on `probe`.
  *
  * tomotv://dev-prefs?serverTranscoding=linkOrFile&probe=http://host:port/probe
@@ -19,7 +20,7 @@ export default function DevPrefsScreen() {
   const router = useRouter();
 
   useEffect(() => {
-    if (!__DEV__) {
+    if (!SUITE_LINKS_ENABLED) {
       router.dismissTo("/");
       return;
     }
