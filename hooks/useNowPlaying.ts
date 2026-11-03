@@ -48,8 +48,15 @@ export function useOpenNowPlaying() {
         void audioPlayerManager.present();
         return;
       }
-      router.push({ pathname: "/player", params: { videoId: video.Id, videoName: video.Name ?? "", adopt: "1" } });
+      router.push(nowPlayingVideoRoute(video));
     },
     [router],
   );
+}
+
+/** The player route that adopts the held session; a channel keeps the live flag the player gates its live controls on. */
+export function nowPlayingVideoRoute(video: Pick<JellyfinVideoItem, "Id" | "Name" | "Type">) {
+  const params: Record<string, string> = { videoId: video.Id, videoName: video.Name ?? "", adopt: "1" };
+  if (video.Type === "TvChannel") params.live = "1";
+  return { pathname: "/player" as const, params };
 }
