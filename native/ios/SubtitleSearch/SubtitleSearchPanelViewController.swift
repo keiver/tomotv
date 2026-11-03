@@ -506,6 +506,8 @@ final class SubtitleSearchPanelViewController: UIViewController {
     private let centerState = UIStackView()
     private let centerSpinner = UIActivityIndicatorView(style: .medium)
     private let centerLabel = UILabel()
+    /// Active only while the state shows: at its priority it ties the result rows' compression resistance and squashes them to the screen.
+    private var centerStateCentered: NSLayoutConstraint?
     #if !os(tvOS)
         private let closeButton = UIButton(configuration: roundIconConfiguration())
         /// The responder that held the keys before the sheet took them, handed back as it leaves.
@@ -672,10 +674,10 @@ final class SubtitleSearchPanelViewController: UIViewController {
         scroll.addLayoutGuide(resultsArea)
         let centered = centerState.centerYAnchor.constraint(equalTo: resultsArea.centerYAnchor)
         centered.priority = .defaultHigh
+        centerStateCentered = centered
         NSLayoutConstraint.activate([
             resultsArea.topAnchor.constraint(equalTo: contentStack.bottomAnchor),
             resultsArea.bottomAnchor.constraint(equalTo: scroll.frameLayoutGuide.bottomAnchor),
-            centered,
             centerState.topAnchor.constraint(greaterThanOrEqualTo: contentStack.bottomAnchor, constant: Metrics.sectionSpacing),
             centerState.centerXAnchor.constraint(equalTo: scroll.frameLayoutGuide.centerXAnchor),
             centerState.widthAnchor.constraint(lessThanOrEqualTo: scroll.frameLayoutGuide.widthAnchor, constant: -2 * Metrics.margin),
@@ -778,6 +780,7 @@ final class SubtitleSearchPanelViewController: UIViewController {
         pills.isHidden = loneSection != nil && next.takeAll == nil
         let waiting = loneSection != nil && next.jobs[0].results.isEmpty ? next.jobs[0] : nil
         centerState.isHidden = waiting == nil
+        centerStateCentered?.isActive = waiting != nil
         centerLabel.text = waiting?.stateLine
         if waiting?.busy == true { centerSpinner.startAnimating() } else { centerSpinner.stopAnimating() }
         restoreFocusIfLost()
