@@ -52,7 +52,7 @@ export interface PlayerSessionRequest {
   advance?: boolean;
   /** An item of the play queue: a window with no route left rolls into the next one itself. */
   queueMode?: boolean;
-  /** Plays muted in the frame the screen reports (setInlineFrame) and moves to a PiP window from there, instead of AVKit's presented player. */
+  /** Plays in the frame the screen reports (setInlineFrame) and moves to a PiP window from there, instead of AVKit's presented player. */
   inline?: boolean;
 }
 
@@ -127,7 +127,7 @@ export interface PlayerHostBridge {
   toggleVideoFill: () => void;
   /** Where an inline session plays until its PiP window is up; null while the screen has none. */
   setInlineFrame: (frame: InlineFrame | null) => void;
-  /** An inline session goes to AVKit's presented player, with sound, out of its PiP window if it is in one. */
+  /** An inline session goes to AVKit's presented player, out of its PiP window if it is in one. */
   presentFullscreen: () => void;
 }
 

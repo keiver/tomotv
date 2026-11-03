@@ -20,7 +20,7 @@ import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, StyleSheet, TVEventControl, useTVEventHandler, View } from "react-native";
 import Video from "react-native-video";
-import type { OnLoadData, OnPictureInPictureStatusChangedData, OnVideoErrorData } from "react-native-video";
+import type { OnLoadData, OnPictureInPictureStatusChangedData, OnPlaybackStateChangedData, OnVideoErrorData } from "react-native-video";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 
 /**
@@ -177,7 +177,13 @@ export function PlayerHost() {
   const [pipWanted, setPipWanted] = useState(false);
   // PiP's return button asked for the presented player rather than closing the window.
   const restoreToFullscreenRef = useRef(false);
-  const [muted, setMuted] = useState(false);
+  // A channel switch closed the window: it opens again for the new channel, never ends the session.
+  const pipClosingForSwitchRef = useRef(false);
+  // Full screen was asked for while the inline channel was still opening.
+  const fullscreenWhenLoadedRef = useRef(false);
+  // The player's last reported play state, and whether the window was playing when its return button was pressed.
+  const playingRef = useRef(false);
+  const resumeAfterRestoreRef = useRef(false);
 
   // Playback finished, and the route owns the screen from here: the phone's Up Next card,
   // or the pop that ends the session. Nothing in the state machine says so (onEnd reports
@@ -581,6 +587,11 @@ export function PlayerHost() {
       ...attemptCallbacks,
       onFullscreenPlayerDidPresent: () => {
         presentationRef.current = "up";
+        // Out of an inline session's window: playing there, playing here.
+        if (resumeAfterRestoreRef.current) {
+          resumeAfterRestoreRef.current = false;
+          videoRef.current?.resume();
+        }
         // A teardown that arrived while this was still arriving: there is finally
         // something for setFullscreen(false) to act on, so it can run now.
         if (endWhenPresentedRef.current) {
@@ -591,8 +602,10 @@ export function PlayerHost() {
       onLoad: (data: OnLoadData) => {
         attemptCallbacks.onLoad(data);
         // Never over a PiP window: this item was swapped inside the player the window shows.
-        // An inline session stays in its frame until the viewer asks for full screen.
-        if (sessionRef.current && !sessionRef.current.inline && pipRef.current === "none") {
+        // An inline session stays in its frame until the viewer asks for full screen, which may have come while it opened.
+        const inlineAsked = sessionRef.current?.inline === true && fullscreenWhenLoadedRef.current;
+        if (inlineAsked) fullscreenWhenLoadedRef.current = false;
+        if (sessionRef.current && pipRef.current === "none" && (!sessionRef.current.inline || (inlineAsked && presentationRef.current === "none"))) {
           programmaticDismissRef.current = false;
           presentationRef.current = "pending";
           videoRef.current?.setFullScreen(true);
@@ -648,6 +661,10 @@ export function PlayerHost() {
           setVideoSize({ width: data.naturalSize.width, height: data.naturalSize.height });
         }
         presentedCallbacks.onLoad(data);
+      },
+      onPlaybackStateChanged: (event: OnPlaybackStateChangedData) => {
+        playingRef.current = event.isPlaying;
+        presentedCallbacks.onPlaybackStateChanged(event);
       },
       onControlsVisibilityChange: (event: { isVisible: boolean; unobscuredBottom?: number }) => {
         controlsVisibleRef.current = event.isVisible;
@@ -741,13 +758,19 @@ export function PlayerHost() {
         return;
       }
       setPip("none");
-      // An inline session's window: its return button opens the presented player, its close ends the session.
+      // An inline session's window: its return button opens the presented player, its close ends the session,
+      // and a switch closes it so the new channel opens in its card and in a window of its own.
       if (sessionRef.current?.inline) {
+        if (pipClosingForSwitchRef.current) {
+          pipClosingForSwitchRef.current = false;
+          restoreToFullscreenRef.current = false;
+          setPipWanted(true);
+          return;
+        }
         const toFullscreen = restoreToFullscreenRef.current;
         restoreToFullscreenRef.current = false;
         setPipWanted(false);
         if (toFullscreen && PRESENTS_NATIVE_FULLSCREEN && presentationRef.current === "none") {
-          setMuted(false);
           programmaticDismissRef.current = false;
           presentationRef.current = "pending";
           videoRef.current?.setFullScreen(true);
@@ -783,7 +806,10 @@ export function PlayerHost() {
     const current = sessionRef.current;
     if (!current) return;
     if (pipRef.current !== "detached") {
-      if (current.inline) restoreToFullscreenRef.current = true;
+      if (current.inline && !pipClosingForSwitchRef.current) {
+        restoreToFullscreenRef.current = true;
+        resumeAfterRestoreRef.current = playingRef.current;
+      }
       answerRestore();
       return;
     }
@@ -832,9 +858,11 @@ export function PlayerHost() {
       programmaticDismissRef.current = false;
       presentationRef.current = "none";
       clearPresentationWait();
-      setMuted(next.inline === true);
       setPipWanted(next.inline === true);
       restoreToFullscreenRef.current = false;
+      resumeAfterRestoreRef.current = false;
+      pipClosingForSwitchRef.current = false;
+      fullscreenWhenLoadedRef.current = false;
       applySession(next);
     },
     [applySession, clearPresentationWait, setPip],
@@ -911,6 +939,11 @@ export function PlayerHost() {
         logger.info("Player host: live channel flip", { service: "PlayerHost", to: target.videoName });
         liveFlipRestartedRef.current = false;
         setLiveSwitching(true);
+        // Inline: the window would hold the old channel's last frame through the flip, so it closes now.
+        if (current.inline && pipRef.current === "active") {
+          pipClosingForSwitchRef.current = true;
+          videoRef.current?.exitPictureInPicture();
+        }
         if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
         settleTimerRef.current = null;
         // A hot target costs nothing to bind and a picked one is no burst, so only a cold swipe waits for the swipes to settle.
@@ -978,7 +1011,11 @@ export function PlayerHost() {
         }
         if (pipRef.current !== "none") return;
         setPipWanted(false);
-        setMuted(false);
+        // Still opening: the presented player comes up once the item loads, in place of the window.
+        if (!hostVisibleRef.current) {
+          fullscreenWhenLoadedRef.current = true;
+          return;
+        }
         programmaticDismissRef.current = false;
         presentationRef.current = "pending";
         videoRef.current?.setFullScreen(true);
@@ -1014,14 +1051,16 @@ export function PlayerHost() {
   // hands the video pipeline as its output geometry.
   const parked = Platform.isTV ? styles.offstage : styles.parked;
   // Inline, the stage is the tapped card's frame from the tap until the PiP window takes the picture, then parks.
+  // Through a flip it parks too: the held picture is the old channel's, and the card says the new one is tuning.
   const inline = session?.inline === true;
   const onStage = hostVisible && !inline;
-  const inlineStage = inline && inlineFrame && pip === "none" ? [styles.inlineStage, { left: inlineFrame.x, top: inlineFrame.y, width: inlineFrame.width, height: inlineFrame.height }] : null;
+  const inlineStage =
+    inline && inlineFrame && pip === "none" && !liveSwitching ? [styles.inlineStage, { left: inlineFrame.x, top: inlineFrame.y, width: inlineFrame.width, height: inlineFrame.height }] : null;
   const stageStyle = onStage ? styles.stage : (inlineStage ?? parked);
 
-  // Started once the channel plays, and asked again while PiP is not yet possible for the new player layer.
+  // Started once the channel plays, never on a flip's held picture, and asked again while PiP is not yet possible.
   useEffect(() => {
-    if (!PRESENTS_NATIVE_FULLSCREEN || !inline || !pipWanted || pip !== "none" || !hostVisible) return;
+    if (!PRESENTS_NATIVE_FULLSCREEN || !inline || !pipWanted || pip !== "none" || !hostVisible || liveSwitching) return;
     let tries = 0;
     const attempt = () => {
       tries += 1;
@@ -1037,7 +1076,7 @@ export function PlayerHost() {
       attempt();
     }, PIP_START_RETRY_MS);
     return () => clearInterval(timer);
-  }, [inline, pipWanted, pip, hostVisible, videoRef]);
+  }, [inline, pipWanted, pip, hostVisible, liveSwitching, videoRef]);
 
   return (
     <DismissPan onDismiss={handleDismissGesture} style={stageStyle} pointerEvents={onStage ? "auto" : "none"}>
@@ -1052,7 +1091,8 @@ export function PlayerHost() {
           resizeMode={fills ? "cover" : "contain"}
           // Inline, the lib's own player layer: its PiP controller is the one that starts from inline.
           controls={!inline}
-          muted={muted}
+          // RCTVideo.exitPictureInPicture keeps the controller (and its stop event) only with this set.
+          enterPictureInPictureOnLeave={inline}
           paused={paused}
           // Both float props stay set: 0 is AVFoundation's "no cap" and "own threshold". Clearing a scalar
           // prop makes React restore a default RNV never exposes a getter for, an uninitialised float.

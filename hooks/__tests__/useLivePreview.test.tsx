@@ -233,18 +233,20 @@ describe("useLivePreview", () => {
     expect(mockSession.releaseRoute).toHaveBeenCalledTimes(1);
   });
 
-  it("gives a tap feedback for each tap that starts, switches or opens the slot full screen, and none for a tap that does nothing", async () => {
+  it("gives a tap feedback for each tap that starts, switches or opens the channel full screen, its card's tap while it opens included", async () => {
     await mount();
     await act(async () => latest().preview(one as never));
     await hostShows("c1", "loading");
     await act(async () => latest().preview(one as never));
-    expect(mockTapFeedback).toHaveBeenCalledTimes(1);
+    expect(mockSession.presentFullscreen).toHaveBeenCalledTimes(1);
+    expect(mockTapFeedback).toHaveBeenCalledTimes(2);
 
     await hostShows("c1", "video");
     await act(async () => latest().preview(two as never));
-    await hostShows("c2", "video");
+    await hostShows("c2", "pip-active");
     await act(async () => latest().preview(two as never));
-    expect(mockTapFeedback).toHaveBeenCalledTimes(3);
+    expect(mockSession.presentFullscreen).toHaveBeenCalledTimes(2);
+    expect(mockTapFeedback).toHaveBeenCalledTimes(4);
   });
 
   it("releases nothing when no channel was tapped", async () => {

@@ -5,6 +5,7 @@ import { ActivityIndicator, Text } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 
 jest.mock("@/services/i18n", () => ({ t: (key: string) => key }));
+jest.mock("@/hooks/useCardPalette", () => ({ useCardPalette: () => ({ accent: "#ffc312" }) }));
 const mockSymbols: string[] = [];
 jest.mock("@/components/sf-symbol-icon", () => ({
   SfSymbolIcon: ({ name }: { name: string }) => {
@@ -26,9 +27,9 @@ describe("GuideLiveMark", () => {
     await act(async () => renderer.unmount());
   });
 
-  it("shows a spinner while the channel opens, and says so only to VoiceOver", async () => {
+  it("shows a spinner in the theme's accent while the channel opens, and says so only to VoiceOver", async () => {
     await mount(<GuideLiveMark state="tuning" />);
-    expect(renderer.root.findAllByType(ActivityIndicator)).toHaveLength(1);
+    expect(renderer.root.findByType(ActivityIndicator).props.color).toBe("#ffc312");
     expect(renderer.root.findAllByType(Text)).toHaveLength(0);
     expect(cover("tuning").accessibilityLabel).toBe("liveTv.tuningIn");
   });

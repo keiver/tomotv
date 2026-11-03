@@ -401,11 +401,11 @@ export type PreviewTap = "start" | "switch" | "fullscreen" | "retry" | "none";
 
 /**
  * What a channel tap does to Live TV's PiP channel: start it, switch it to the tapped channel, or, on the
- * channel already in it, open it full screen once it plays and retry it once it failed.
+ * channel already in it, open it full screen (while it opens too) and retry it once it failed.
  */
 export function previewTapAction(tappedId: string, slotChannelId: string | null, hostMode: string): PreviewTap {
   if (slotChannelId === null || hostMode === "idle" || hostMode === "pip-detached") return "start";
   if (tappedId !== slotChannelId) return "switch";
-  if (hostMode === "video" || hostMode === "pip-active") return "fullscreen";
+  if (hostMode === "video" || hostMode === "pip-active" || hostMode === "loading") return "fullscreen";
   return hostMode === "error" ? "retry" : "none";
 }

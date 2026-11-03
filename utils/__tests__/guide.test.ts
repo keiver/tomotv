@@ -519,7 +519,7 @@ describe("previewTapAction", () => {
     expect(previewTapAction("c1", "c1", "error")).toBe("retry");
   });
 
-  it("does nothing on the channel while it opens", () => {
-    expect(previewTapAction("c1", "c1", "loading")).toBe("none");
+  it("opens the channel full screen while it is still opening", () => {
+    expect(previewTapAction("c1", "c1", "loading")).toBe("fullscreen");
   });
 });
