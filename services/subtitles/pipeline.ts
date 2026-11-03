@@ -22,7 +22,9 @@ export async function searchContext(itemId: string): Promise<SearchContext> {
   return { itemId, serverAllowed, findSubtitles: getUiPreferences().findSubtitles, keys };
 }
 
-/** The chain's answers for one file and language, asked by title and by file name, merged and ranked for the list. */
+const MAX_HITS = 20;
+
+/** The chain's answers for one file and language, asked by title and by file name, merged, ranked and cut to the best few for the list. */
 export async function searchSubtitles(itemId: string, query: SubtitleQuery, language: string, context?: SearchContext): Promise<ChainAnswer> {
   const resolved = context ?? (await searchContext(itemId));
   const byFileName = fileNameQuery(query);
@@ -38,7 +40,7 @@ export async function searchSubtitles(itemId: string, query: SubtitleQuery, lang
     });
   const refusedSources = new Set<string>();
   const refused = answers.flatMap((answer) => answer.refused).filter((refusal) => (refusedSources.has(refusal.source) ? false : refusedSources.add(refusal.source)));
-  return { hits: rankHits(hits, query), answeredBy: answers.find((answer) => answer.answeredBy)?.answeredBy ?? null, refused };
+  return { hits: rankHits(hits, query).slice(0, MAX_HITS), answeredBy: answers.find((answer) => answer.answeredBy)?.answeredBy ?? null, refused };
 }
 
 export type ApplyResult =

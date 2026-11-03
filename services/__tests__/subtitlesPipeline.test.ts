@@ -93,6 +93,16 @@ describe("searchSubtitles", () => {
     expect(answer.answeredBy).toBe("gestdown");
   });
 
+  it("keeps only the 20 best ranked hits", async () => {
+    mockRunChain.mockReset();
+    const many = Array.from({ length: 30 }, (_, at) => hit({ id: `h${at}`, source: "gestdown", downloads: at }));
+    mockRunChain.mockResolvedValue({ hits: many, answeredBy: "gestdown", refused: [] });
+    const answer = await searchSubtitles(episode.Id, subtitleQuery(episode), "en");
+    expect(answer.hits).toHaveLength(20);
+    expect(answer.hits[0].id).toBe("h29");
+    expect(answer.hits.map((entry) => entry.id)).not.toContain("h0");
+  });
+
   it("asks once when the file name says nothing more than the title", async () => {
     mockRunChain.mockReset();
     mockRunChain.mockResolvedValue({ hits: [], answeredBy: null, refused: [] });
