@@ -122,6 +122,7 @@ export function panelStateFor(
     emptyLine: search.jobs.length > 0 ? "" : videoCount === 0 ? t("subtitles.noVideos") : t("subtitles.allSubtitled").replace("{language}", languageName),
     queryPlaceholder: t("subtitles.searchPlaceholder"),
     searchLabel: t("subtitles.search"),
+    closeLabel: t("common.close"),
     jobs: search.jobs.map((job) => panelJobFor(job, alone, tracks)),
   };
 }

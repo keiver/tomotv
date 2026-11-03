@@ -22,6 +22,7 @@ final class SubtitlePanelStateTests: XCTestCase {
             "emptyLine": "",
             "queryPlaceholder": "Title",
             "searchLabel": "Search",
+            "closeLabel": "Close",
             "jobs": jobs,
         ]
     }
@@ -30,6 +31,7 @@ final class SubtitlePanelStateTests: XCTestCase {
         let state = try XCTUnwrap(SubtitlePanelState.from(dictionary: dictionary(jobs: [job("v1", results: [result("a"), result("b")])], selected: "es")))
         XCTAssertEqual(state.title, "Subtitles")
         XCTAssertEqual(state.credit, "Subtitles provided by OpenSubtitles.com")
+        XCTAssertEqual(state.closeLabel, "Close")
         XCTAssertEqual(state.languages.map(\.code), ["en", "es"])
         XCTAssertEqual(state.selectedLanguageIndex, 1)
         XCTAssertNil(state.takeAll)

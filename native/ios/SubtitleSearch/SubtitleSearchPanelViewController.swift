@@ -506,6 +506,11 @@ final class SubtitleSearchPanelViewController: UIViewController {
     private let centerState = UIStackView()
     private let centerSpinner = UIActivityIndicatorView(style: .medium)
     private let centerLabel = UILabel()
+    #if !os(tvOS)
+        private let closeButton = UIButton(configuration: roundIconConfiguration())
+        /// The responder that held the keys before the sheet took them, handed back as it leaves.
+        private weak var previousResponder: UIResponder?
+    #endif
 
     init(state: SubtitlePanelState) {
         self.state = state
@@ -597,6 +602,10 @@ final class SubtitleSearchPanelViewController: UIViewController {
         titleRow.axis = Metrics.isTV ? .horizontal : .vertical
         titleRow.spacing = Metrics.isTV ? Metrics.controlSpacing : 2
         titleRow.alignment = Metrics.isTV ? .firstBaseline : .leading
+        #if !os(tvOS)
+            titleRow.isLayoutMarginsRelativeArrangement = true
+            titleRow.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 0, trailing: Metrics.controlHeight + Metrics.controlSpacing)
+        #endif
 
         languageButton.configuration?.image = UIImage(systemName: "chevron.down")
         languageButton.configuration?.imagePlacement = .trailing
@@ -671,6 +680,19 @@ final class SubtitleSearchPanelViewController: UIViewController {
             centerState.centerXAnchor.constraint(equalTo: scroll.frameLayoutGuide.centerXAnchor),
             centerState.widthAnchor.constraint(lessThanOrEqualTo: scroll.frameLayoutGuide.widthAnchor, constant: -2 * Metrics.margin),
         ])
+
+        #if !os(tvOS)
+            closeButton.configuration?.image = UIImage(systemName: "xmark")
+            closeButton.addAction(UIAction { [weak self] _ in self?.dismiss(animated: true) }, for: .primaryActionTriggered)
+            closeButton.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview(closeButton)
+            NSLayoutConstraint.activate([
+                closeButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
+                closeButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -Metrics.margin),
+                closeButton.widthAnchor.constraint(equalToConstant: Metrics.controlHeight),
+                closeButton.heightAnchor.constraint(equalToConstant: Metrics.controlHeight),
+            ])
+        #endif
     }
 
     // MARK: - Actions
@@ -722,6 +744,9 @@ final class SubtitleSearchPanelViewController: UIViewController {
         guard isViewLoaded else { return }
         titleLabel.text = next.title
         creditLabel.text = next.credit
+        #if !os(tvOS)
+            closeButton.accessibilityLabel = next.closeLabel
+        #endif
 
         languageButton.configuration?.title = next.languages.indices.contains(next.selectedLanguageIndex) ? next.languages[next.selectedLanguageIndex].name : next.selectedLanguage
         if #available(tvOS 17.0, iOS 14.0, *) {
@@ -799,6 +824,36 @@ final class SubtitleSearchPanelViewController: UIViewController {
                 return
             }
             super.pressesBegan(presses, with: event)
+        }
+    #else
+        override var canBecomeFirstResponder: Bool { true }
+
+        override var keyCommands: [UIKeyCommand]? {
+            let escape = UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(escapePressed))
+            escape.wantsPriorityOverSystemBehavior = true
+            return [escape]
+        }
+
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            previousResponder = view.window?.rootViewController
+            becomeFirstResponder()
+        }
+
+        override func viewWillDisappear(_ animated: Bool) {
+            super.viewWillDisappear(animated)
+            guard isBeingDismissed, let previous = previousResponder, previous.canBecomeFirstResponder else { return }
+            previous.becomeFirstResponder()
+        }
+
+        /// The first Escape leaves the query field, the next one closes the sheet.
+        @objc private func escapePressed() {
+            if jobSections.contains(where: \.fieldEditing) {
+                view.endEditing(true)
+                becomeFirstResponder()
+                return
+            }
+            dismiss(animated: true)
         }
     #endif
 

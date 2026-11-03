@@ -155,11 +155,13 @@ public struct SubtitlePanelState: Codable, Equatable {
     public let queryPlaceholder: String
     /// The search button's word.
     public let searchLabel: String
+    /// The close button's word, off the TV.
+    public let closeLabel: String
     public let jobs: [SubtitlePanelJob]
 
     public init(
         title: String, credit: String = "", accent: String = "", confirm: SubtitlePanelConfirm? = nil, languages: [SubtitlePanelLanguage], selectedLanguage: String, takeAll: SubtitlePanelTakeAll? = nil,
-        skippedLine: String = "", emptyLine: String = "", queryPlaceholder: String, searchLabel: String, jobs: [SubtitlePanelJob]
+        skippedLine: String = "", emptyLine: String = "", queryPlaceholder: String, searchLabel: String, closeLabel: String = "", jobs: [SubtitlePanelJob]
     ) {
         self.title = title
         self.credit = credit
@@ -172,6 +174,7 @@ public struct SubtitlePanelState: Codable, Equatable {
         self.emptyLine = emptyLine
         self.queryPlaceholder = queryPlaceholder
         self.searchLabel = searchLabel
+        self.closeLabel = closeLabel
         self.jobs = jobs
     }
 

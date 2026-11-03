@@ -78,6 +78,7 @@ export interface PanelState {
   emptyLine: string;
   queryPlaceholder: string;
   searchLabel: string;
+  closeLabel: string;
   jobs: PanelJob[];
 }
 

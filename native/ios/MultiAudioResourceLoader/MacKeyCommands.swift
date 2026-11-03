@@ -82,7 +82,8 @@ final class MacKeyCommandsViewController: UIViewController {
         // discovery surface an iOS binary has on a Mac.
         escape.discoverabilityTitle = "Back"
 
-        var commands = [escape]
+        // The subtitle sheet closes itself on Escape; this one would pop the route under it.
+        var commands = Self.subtitlePanelIsUp(over: self) ? [] : [escape]
         // A command outranks the field it would otherwise type into, so every binding
         // but Escape is withdrawn while the viewer is editing.
         if Self.editingResponder(in: view.window) == nil {
@@ -201,6 +202,15 @@ final class MacKeyCommandsViewController: UIViewController {
         RCTTriggerReloadCommandListeners("Command + R")
     }
     #endif
+
+    private static func subtitlePanelIsUp(over root: UIViewController) -> Bool {
+        var presented = root.presentedViewController
+        while let current = presented {
+            if current is SubtitleSearchPanelViewController { return true }
+            presented = current.presentedViewController
+        }
+        return false
+    }
 
     /// The focused text input, if there is one. Walked rather than asked for:
     /// UIKit exposes no public accessor for the current first responder.
