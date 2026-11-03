@@ -27,20 +27,21 @@ func startLiveFeed(in root: URL, segments: Int = 3, keyframes: String? = nil, ts
 /// A continuous real-time MPEG-TS feed from the host's ffmpeg into a FIFO, the shape of a tuner or Xtream TS stream: a
 /// keyframe every `keyframeSeconds` at `fps` (a ffmpeg rate such as "25" or "30000/1001"), H.264 or MPEG-2 video, AAC audio.
 /// ffmpeg opens the FIFO when the reader does, so the source starts with the session. The caller terminates it.
-/// `muxing` adds MPEG-TS muxer arguments.
-func startContinuousFeed(fps: String, keyframeSeconds: Double, codec: String = "h264", muxing: [String] = []) throws -> (feed: Process, path: String) {
+/// `muxing` adds MPEG-TS muxer arguments. `forcedKeyframes`, an ffmpeg `-force_key_frames` value, places the keyframes instead.
+func startContinuousFeed(fps: String, keyframeSeconds: Double, codec: String = "h264", muxing: [String] = [], forcedKeyframes: String? = nil) throws -> (feed: Process, path: String) {
     let ffmpeg = "/opt/homebrew/bin/ffmpeg"
     guard FileManager.default.isExecutableFile(atPath: ffmpeg) else { throw XCTSkip("no ffmpeg at \(ffmpeg)") }
     let path = FileManager.default.temporaryDirectory.appendingPathComponent("continuous-\(UUID().uuidString).ts").path
     guard mkfifo(path, 0o600) == 0 else { throw XCTSkip("mkfifo failed at \(path)") }
     let rate = fps.split(separator: "/").map { Double($0) ?? 1 }
-    let gop = String(Int((keyframeSeconds * (rate.count == 2 ? rate[0] / rate[1] : rate[0])).rounded()))
+    let gop = forcedKeyframes == nil ? String(Int((keyframeSeconds * (rate.count == 2 ? rate[0] / rate[1] : rate[0])).rounded())) : "1000"
     let video = codec == "mpeg2" ? ["-c:v", "mpeg2video", "-b:v", "4M"] : ["-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p"]
     let feed = Process()
     feed.executableURL = URL(fileURLWithPath: ffmpeg)
     feed.arguments = ["-hide_banner", "-loglevel", "error", "-re",
                       "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=\(fps)", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000"]
-        + video + ["-g", gop, "-keyint_min", gop, "-sc_threshold", "0", "-c:a", "aac"] + muxing + ["-f", "mpegts", "-y", path]
+        + video + ["-g", gop, "-keyint_min", forcedKeyframes == nil ? gop : "1", "-sc_threshold", "0"]
+        + (forcedKeyframes.map { ["-force_key_frames", $0] } ?? []) + ["-c:a", "aac"] + muxing + ["-f", "mpegts", "-y", path]
     try feed.run()
     return (feed, path)
 }

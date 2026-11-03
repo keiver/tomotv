@@ -66,6 +66,41 @@ final class LiveAVPlayerTests: XCTestCase {
         XCTAssertNil(player.currentItem?.error)
     }
 
+    /// LL-HLS as the app configures it (1 s segments, 0.4 s copy cut, target learned from the first segment) on a
+    /// continuous TS whose keyframe interval grows from 1 s to 4 s: the player keeps playing past the change.
+    func testLowLatencyAcrossAKeyframeIntervalThatGrows() throws {
+        let (feed, path) = try startContinuousFeed(fps: "25", keyframeSeconds: 1, forcedKeyframes: "expr:if(lt(t,20),gte(t,n_forced*1),gte(t,20+(n_forced-20)*4))")
+        defer {
+            feed.terminate()
+            try? FileManager.default.removeItem(atPath: path)
+        }
+        var config = makeConfig(durationSeconds: 0, inputUrl: path, videoRange: "", codecs: "", width: 0, height: 0, frameRate: 0, bandwidth: 0,
+                                isLive: true, liveSegmentSeconds: 1)
+        config.describesInput = true
+        config.liveBufferSeconds = 2
+        config.liveCopyCutSeconds = 0.4
+        config.liveTargetNearest = true
+        config.liveLowLatency = true
+        config.liveLowLatencyTargetSeconds = 0
+        let session = try RemuxSession(config: config)
+        session.start()
+        defer { session.stop() }
+        let (server, url) = try serve(session)
+        defer { server.stop() }
+        let player = AVPlayer(url: url)
+        player.play()
+        XCTAssertTrue(spin(seconds: 30) { player.currentItem?.status == .readyToPlay && player.currentTime().seconds > 0.5 }, "never played: \(String(describing: player.currentItem?.error))")
+        let firstTarget = session.mediaPlaylist().split(separator: "\n").first { $0.hasPrefix("#EXT-X-TARGETDURATION:") } ?? ""
+        let start = player.currentTime().seconds
+        spin(seconds: 45) { player.currentItem?.error != nil }
+        let playlist = session.mediaPlaylist()
+        let longest = playlist.split(separator: "\n").compactMap { $0.hasPrefix("#EXTINF:") ? Double($0.dropFirst(8).dropLast()) : nil }.max() ?? 0
+        NSLog("[LiveAVPlayerTests] LL keyframe interval 1s -> 4s: target %@, longest EXTINF %.2f, played %.1fs, error %@",
+              String(firstTarget), longest, player.currentTime().seconds - start, String(describing: player.currentItem?.error))
+        XCTAssertNil(player.currentItem?.error)
+        XCTAssertGreaterThan(player.currentTime().seconds - start, 35)
+    }
+
     /// A live session from the channel's URL alone, as liveSessionConfig builds it (no codecs, size,
     /// range or tracks configured; the input describes itself): its master names the variant and plays.
     func testAVPlayerPlaysALiveSessionThatDescribesItself() throws {

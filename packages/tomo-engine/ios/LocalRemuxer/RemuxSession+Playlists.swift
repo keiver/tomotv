@@ -734,14 +734,18 @@ extension RemuxSession {
         let longest = liveDurations.values.max() ?? 0
         let bound = max(liveCapSecondsLocked(), longest)
         let needed = max(1, Int(config.liveTargetNearest ? bound.rounded() : ceil(bound)))
-        // LL-HLS: the target is fixed at the first answer (draft-pantos-hls-rfc8216bis 6.2.1: it MUST NOT change).
+        // LL-HLS: the target is fixed at the first answer (draft-pantos-hls-rfc8216bis 6.2.1: it MUST NOT change), until a
+        // copied segment rounds past it; then it rises as the plain target does.
         if lowLatencyInput {
             if let fixed = liveTargetDuration {
-                if Int(longest.rounded()) > fixed, !liveTargetExceeded {
+                let rounded = Int(longest.rounded())
+                guard rounded > fixed else { return fixed }
+                if !liveTargetExceeded {
                     liveTargetExceeded = true
-                    NSLog("[LocalRemuxer] a %.2fs live segment rounds past the fixed LL-HLS target %d", longest, fixed)
+                    NSLog("[LocalRemuxer] a %.2fs live segment rounds past the LL-HLS target %d; the target rises to %d", longest, fixed, rounded)
                 }
-                return fixed
+                liveTargetDuration = rounded
+                return rounded
             }
             let target = max(needed, config.liveLowLatencyTargetSeconds)
             if fixing { liveTargetDuration = target }
