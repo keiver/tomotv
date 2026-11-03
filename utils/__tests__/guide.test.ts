@@ -30,10 +30,6 @@ import {
   MINUTE_MS,
   mountSpanFor,
   NO_GUIDE_PREFIX,
-  previewSlotSize,
-  previewBlockGeometry,
-  previewBlockTop,
-  expandedItemLayout,
   previewTapAction,
   programCategory,
   restoreFocusNode,
@@ -499,70 +495,6 @@ describe("guideMetrics", () => {
   });
 });
 
-describe("previewSlotSize", () => {
-  it("fills the width at 16:9 when the window is tall enough", () => {
-    expect(previewSlotSize(352, 852)).toEqual({ width: 352, height: 198 });
-  });
-
-  it("narrows to 16:9 at 45% of the window height when the width would be taller", () => {
-    const size = previewSlotSize(820, 393);
-    expect(size.height).toBeCloseTo(393 * 0.45);
-    expect(size.width).toBeCloseTo((393 * 0.45 * 16) / 9);
-  });
-
-  it("stops at 640 by 360 on a large iPad or Mac window", () => {
-    expect(previewSlotSize(1334, 1024)).toEqual({ width: 640, height: 360 });
-  });
-
-  it("is empty before the row has a width", () => {
-    expect(previewSlotSize(0, 852)).toEqual({ width: 0, height: 0 });
-  });
-});
-
-describe("previewBlockGeometry", () => {
-  it("centres the player under the tab strip and opens the row by the rest of the block", () => {
-    expect(previewBlockGeometry(384, 852, 72, 24, 16)).toEqual({ playerWidth: 352, playerHeight: 198, playerLeft: 16, blockHeight: 24 + 198 + 12, extra: 24 + 198 + 12 - 72 });
-  });
-
-  it("centres a capped player in a wide band", () => {
-    const geometry = previewBlockGeometry(1366, 1024, 72, 24, 16);
-    expect(geometry.playerWidth).toBe(640);
-    expect(geometry.playerLeft).toBe((1366 - 640) / 2);
-  });
-});
-
-describe("previewBlockTop", () => {
-  it("sits with its row while the row is in the band", () => {
-    expect(previewBlockTop(300, 100, 800, 234)).toBe(200);
-  });
-
-  it("holds at the band's top once its row scrolls above it", () => {
-    expect(previewBlockTop(300, 450, 800, 234)).toBe(0);
-  });
-
-  it("holds at the band's bottom while its row is below it", () => {
-    expect(previewBlockTop(1200, 0, 800, 234)).toBe(800 - 234);
-  });
-});
-
-describe("expandedItemLayout", () => {
-  it("leaves rows before the opened one where they are", () => {
-    expect(expandedItemLayout(2, 72, 5, 160)).toEqual({ length: 72, offset: 144, index: 2 });
-  });
-
-  it("gives the opened row its extra height", () => {
-    expect(expandedItemLayout(5, 72, 5, 160)).toEqual({ length: 232, offset: 360, index: 5 });
-  });
-
-  it("moves rows after the opened one down by the extra height", () => {
-    expect(expandedItemLayout(6, 72, 5, 160)).toEqual({ length: 72, offset: 432 + 160, index: 6 });
-  });
-
-  it("is the plain row layout with no opened row", () => {
-    expect(expandedItemLayout(6, 72, -1, 160)).toEqual({ length: 72, offset: 432, index: 6 });
-  });
-});
-
 describe("previewTapAction", () => {
   it("starts the slot when it plays nothing", () => {
     expect(previewTapAction("c1", null, "idle")).toBe("start");
@@ -578,16 +510,16 @@ describe("previewTapAction", () => {
     expect(previewTapAction("c2", "c1", "loading")).toBe("switch");
   });
 
-  it("opens the playing channel full screen", () => {
+  it("opens the playing channel full screen, out of its PiP window too", () => {
     expect(previewTapAction("c1", "c1", "video")).toBe("fullscreen");
+    expect(previewTapAction("c1", "c1", "pip-active")).toBe("fullscreen");
   });
 
-  it("retries the channel that failed in the slot", () => {
+  it("retries the channel that failed", () => {
     expect(previewTapAction("c1", "c1", "error")).toBe("retry");
   });
 
-  it("does nothing on the channel while it opens or plays in a PiP window", () => {
+  it("does nothing on the channel while it opens", () => {
     expect(previewTapAction("c1", "c1", "loading")).toBe("none");
-    expect(previewTapAction("c1", "c1", "pip-active")).toBe("none");
   });
 });

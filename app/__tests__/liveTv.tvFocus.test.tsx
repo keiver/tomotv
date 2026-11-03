@@ -14,7 +14,7 @@ jest.mock("@/hooks/useChannelFavoritesSync", () => ({ useChannelFavoritesSync: j
 jest.mock("@/hooks/useLiveTvPreferences", () => ({ useLiveTvPreferences: () => ({ filter: "all" }) }));
 jest.mock("@/hooks/useRecordingStatus", () => ({ useIsRecording: () => false }));
 const mockPreview = jest.fn();
-jest.mock("@/hooks/useLivePreview", () => ({ useLivePreview: () => ({ channel: null, preview: mockPreview }) }));
+jest.mock("@/hooks/useLivePreview", () => ({ useLivePreview: () => ({ channel: null, preview: mockPreview, mark: null }) }));
 const mockPush = jest.fn();
 jest.mock("@/components/live-tv/guide-canvas", () => ({ GuideCanvas: () => null }));
 jest.mock("@/components/live-tv/guide-hud", () => ({ GuideHud: () => null }));

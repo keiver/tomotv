@@ -1,6 +1,5 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ReactVideoProps } from "react-native-video";
-import { useSharedValue, type SharedValue } from "react-native-reanimated";
 
 import type { SubtitleAlignment } from "@keiver/tomo-engine";
 import type { ActiveTextSubtitle, VideoPlayerState } from "@/hooks/useVideoPlayback";
@@ -53,7 +52,7 @@ export interface PlayerSessionRequest {
   advance?: boolean;
   /** An item of the play queue: a window with no route left rolls into the next one itself. */
   queueMode?: boolean;
-  /** Plays muted in the frame the screen reports (setInlineFrame) instead of AVKit's presented player. */
+  /** Plays muted in the frame the screen reports (setInlineFrame) and moves to a PiP window from there, instead of AVKit's presented player. */
   inline?: boolean;
 }
 
@@ -126,15 +125,13 @@ export interface PlayerHostBridge {
   togglePlay: () => void;
   /** Letterbox off and on again: the Mac's double click. */
   toggleVideoFill: () => void;
-  /** The frame an inline session draws in; null while the screen has none on screen. */
+  /** Where an inline session plays until its PiP window is up; null while the screen has none. */
   setInlineFrame: (frame: InlineFrame | null) => void;
-  /** An inline session goes to AVKit's presented player, with sound. */
+  /** An inline session goes to AVKit's presented player, with sound, out of its PiP window if it is in one. */
   presentFullscreen: () => void;
 }
 
 interface PlayerSessionContextValue extends PlayerSessionSnapshot, PlayerHostBridge {
-  /** Moves an inline session's stage down from its frame, written on the UI thread by the screen. */
-  inlineOffsetY: SharedValue<number>;
   setHandlers: (handlers: PlayerSessionHandlers | null) => void;
   /** Unregisters these handlers, and only these: a screen that took over keeps its own. */
   clearHandlers: (handlers: PlayerSessionHandlers) => void;
@@ -155,7 +152,6 @@ interface PlayerSessionHostValue {
   registerHost: (bridge: PlayerHostBridge | null) => void;
   publish: React.Dispatch<React.SetStateAction<PlayerSessionSnapshot>>;
   handlersRef: React.RefObject<PlayerSessionHandlers | null>;
-  inlineOffsetY: SharedValue<number>;
 }
 
 const PlayerSessionHostContext = createContext<PlayerSessionHostValue | undefined>(undefined);
@@ -167,7 +163,6 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
   // never re-render this provider, which sits above the whole navigator.
   const bridgeRef = useRef<PlayerHostBridge | null>(null);
   const handlersRef = useRef<PlayerSessionHandlers | null>(null);
-  const inlineOffsetY = useSharedValue(0);
 
   /**
    * The route can command the host before the host exists.
@@ -298,7 +293,6 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
       toggleVideoFill,
       setInlineFrame,
       presentFullscreen,
-      inlineOffsetY,
       setHandlers,
       clearHandlers,
     }),
@@ -320,13 +314,12 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
       toggleVideoFill,
       setInlineFrame,
       presentFullscreen,
-      inlineOffsetY,
       setHandlers,
       clearHandlers,
     ],
   );
 
-  const hostValue = useMemo(() => ({ registerHost, publish: setSnapshot, handlersRef, inlineOffsetY }), [registerHost, inlineOffsetY]);
+  const hostValue = useMemo(() => ({ registerHost, publish: setSnapshot, handlersRef }), [registerHost]);
 
   return (
     <PlayerSessionContext.Provider value={value}>

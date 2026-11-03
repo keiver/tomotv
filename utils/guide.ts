@@ -397,58 +397,15 @@ export function channelWindow<T extends { Id: string }>(channels: readonly T[], 
   return [...new Set([at(-1), ...Array.from({ length: count }, (_, offset) => at(offset))])];
 }
 
-/** The share of the window the Live TV player slot may take, so the guide keeps rows under it. */
-const PREVIEW_MAX_HEIGHT_SHARE = 0.45;
-const PREVIEW_MAX_WIDTH = 640;
-
-/** The Live TV player slot: the content width at 16:9, narrowed to its share of the window height and to 640 wide. */
-export function previewSlotSize(width: number, windowHeight: number): { width: number; height: number } {
-  const height = Math.max(0, Math.min((width * 9) / 16, windowHeight * PREVIEW_MAX_HEIGHT_SHARE, (PREVIEW_MAX_WIDTH * 9) / 16));
-  return { width: (height * 16) / 9, height };
-}
-
-/** The space under the player before the next row. */
-const PREVIEW_BLOCK_GAP = 12;
-
-export interface PreviewBlockGeometry {
-  playerWidth: number;
-  playerHeight: number;
-  /** The player's left edge in the band, centred. */
-  playerLeft: number;
-  /** The open block: the tab strip, the player, the gap. */
-  blockHeight: number;
-  /** What the open block adds to its row's height in both lists. */
-  extra: number;
-}
-
-/** The open Live TV block for a band of this width: the player under a tab strip, centred, in place of one row. */
-export function previewBlockGeometry(bandWidth: number, windowHeight: number, rowHeight: number, tabHeight: number, sideMargin: number): PreviewBlockGeometry {
-  const { width, height } = previewSlotSize(Math.max(0, bandWidth - 2 * sideMargin), windowHeight);
-  const blockHeight = tabHeight + height + PREVIEW_BLOCK_GAP;
-  return { playerWidth: width, playerHeight: height, playerLeft: (bandWidth - width) / 2, blockHeight, extra: Math.max(0, blockHeight - rowHeight) };
-}
-
-/** Where the block sits in the band: with its row while it fits, held at the band's top or bottom edge when the row leaves. */
-export function previewBlockTop(rowTop: number, scrollY: number, bandHeight: number, blockHeight: number): number {
-  "worklet";
-  return Math.min(Math.max(rowTop - scrollY, 0), Math.max(0, bandHeight - blockHeight));
-}
-
-/** A list item's layout with one row opened by `extra`; no open row when `expandedIndex` is negative. */
-export function expandedItemLayout(index: number, rowHeight: number, expandedIndex: number, extra: number): { length: number; offset: number; index: number } {
-  const open = expandedIndex >= 0;
-  return { length: rowHeight + (open && index === expandedIndex ? extra : 0), offset: rowHeight * index + (open && index > expandedIndex ? extra : 0), index };
-}
-
 export type PreviewTap = "start" | "switch" | "fullscreen" | "retry" | "none";
 
 /**
- * What a channel tap does to the Live TV player slot: start it, switch it to the tapped channel, or, on the
+ * What a channel tap does to Live TV's PiP channel: start it, switch it to the tapped channel, or, on the
  * channel already in it, open it full screen once it plays and retry it once it failed.
  */
 export function previewTapAction(tappedId: string, slotChannelId: string | null, hostMode: string): PreviewTap {
   if (slotChannelId === null || hostMode === "idle" || hostMode === "pip-detached") return "start";
   if (tappedId !== slotChannelId) return "switch";
-  if (hostMode === "video") return "fullscreen";
+  if (hostMode === "video" || hostMode === "pip-active") return "fullscreen";
   return hostMode === "error" ? "retry" : "none";
 }

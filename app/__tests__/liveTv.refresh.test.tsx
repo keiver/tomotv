@@ -16,7 +16,7 @@ jest.mock("@/hooks/useAuthSession", () => ({ useAuthSession: () => "session" }))
 jest.mock("@/hooks/useChannelFavoritesSync", () => ({ useChannelFavoritesSync: jest.fn() }));
 jest.mock("@/hooks/useLiveTvPreferences", () => ({ useLiveTvPreferences: () => ({ filter: "all" }) }));
 const mockPreview = jest.fn();
-jest.mock("@/hooks/useLivePreview", () => ({ useLivePreview: () => ({ channel: null, preview: mockPreview }) }));
+jest.mock("@/hooks/useLivePreview", () => ({ useLivePreview: () => ({ channel: null, preview: mockPreview, mark: null }) }));
 jest.mock("@/components/live-tv/guide-canvas", () => {
   const { useEffect } = jest.requireActual("react");
   return {
@@ -70,12 +70,14 @@ describe("Live TV program info navigation", () => {
     expect(JSON.parse(mockPush.mock.calls[1][0].params.guideProgram)).toMatchObject(later);
   });
 
-  it("plays an airing programme's channel in the slot above the guide, as a tap on its card does", async () => {
+  it("opens an airing programme's channel in the player, and only a tap on the channel's card opens it in PiP", async () => {
     const props = await canvas();
     props.onProgramPress(program, channel);
-    props.onChannelPress(channel);
-    expect(mockPreview.mock.calls).toEqual([[channel], [channel]]);
-    expect(mockPush).not.toHaveBeenCalled();
+    expect(mockPush).toHaveBeenCalledWith({ pathname: "/player", params: { videoId: "c1", videoName: "One", live: "1" } });
+    expect(mockPreview).not.toHaveBeenCalled();
+    const card = { x: 0, y: 300, width: 160, height: 90 };
+    props.onChannelPress(channel, card);
+    expect(mockPreview.mock.calls).toEqual([[channel, card]]);
   });
 
   it("still fetches a server programme by id and opens a no-guide cell on the channel", async () => {

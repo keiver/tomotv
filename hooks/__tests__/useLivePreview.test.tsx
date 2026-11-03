@@ -1,6 +1,7 @@
-/** Live TV's player slot: which session command a channel tap sends, and how the screen lets the session go. */
+/** Live TV's PiP channel: which session command a channel tap sends, what it says while it opens, and how the screen lets the session go. */
 import { useLivePreview } from "@/hooks/useLivePreview";
 import React from "react";
+import { Alert } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 
 const mockSession = {
@@ -11,12 +12,20 @@ const mockSession = {
   releaseRoute: jest.fn(),
   setHandlers: jest.fn(),
   clearHandlers: jest.fn(),
+  setInlineFrame: jest.fn(),
   sessionVideoId: null as string | null,
   hostMode: "idle",
+  playbackState: { type: "IDLE" } as Record<string, unknown>,
 };
 jest.mock("@/contexts/PlayerSessionContext", () => ({ usePlayerSession: () => mockSession }));
 const mockTapFeedback = jest.fn();
 jest.mock("@/services/haptics", () => ({ tapFeedback: () => mockTapFeedback() }));
+const mockShowToast = jest.fn();
+const mockDismissToast = jest.fn();
+jest.mock("@/services/toast", () => ({ showToast: (options: unknown) => mockShowToast(options), dismissToast: (id: string) => mockDismissToast(id) }));
+jest.mock("@/services/i18n", () => ({ t: (key: string) => key }));
+const mockHold = { held: false, holdingTimer: null as object | null, reason: null as string | null, stopping: false, opening: false, stopAndPlay: jest.fn(), watch: jest.fn() };
+jest.mock("@/hooks/useRecordingHoldChoices", () => ({ useRecordingHoldChoices: () => mockHold }));
 
 let mockFocused = true;
 const mockTransitionListeners: ((event: { data: { closing: boolean } }) => void)[] = [];
@@ -26,7 +35,7 @@ const mockNavigation = {
     return () => mockTransitionListeners.splice(mockTransitionListeners.indexOf(listener), 1);
   },
 };
-jest.mock("expo-router", () => ({ useIsFocused: () => mockFocused, useNavigation: () => mockNavigation }));
+jest.mock("expo-router", () => ({ useIsFocused: () => mockFocused, useNavigation: () => mockNavigation, useRouter: () => ({ push: jest.fn() }) }));
 
 const one = { Id: "c1", Name: "One", Type: "TvChannel" };
 const two = { Id: "c2", Name: "Two", Type: "TvChannel" };
@@ -61,19 +70,66 @@ describe("useLivePreview", () => {
     mockTransitionListeners.length = 0;
     mockSession.sessionVideoId = null;
     mockSession.hostMode = "idle";
+    mockSession.playbackState = { type: "IDLE" };
+    Object.assign(mockHold, { held: false, holdingTimer: null, reason: null, stopping: false, opening: false });
   });
 
   afterEach(async () => {
     await act(async () => renderer.unmount());
   });
 
-  it("starts an inline live session on the first tap and shows the channel in the slot", async () => {
+  it("starts an inline live session on the first tap, playing in the tapped card", async () => {
+    const card = { x: 0, y: 300, width: 160, height: 90 };
     await mount();
-    await act(async () => latest().preview(one as never));
+    await act(async () => latest().preview(one as never, card));
 
+    expect(mockSession.setInlineFrame).toHaveBeenCalledWith(card);
     expect(mockSession.requestSession).toHaveBeenCalledWith(expect.objectContaining({ videoId: "c1", videoName: "One", isLive: true, inline: true }));
     expect(mockSession.setHandlers).toHaveBeenCalledTimes(1);
     expect(latest().channel?.Id).toBe("c1");
+  });
+
+  it("marks the channel's card while it opens, then while it plays in the PiP window, and a switch inside the window as opening again", async () => {
+    await mount();
+    await act(async () => latest().preview(one as never));
+    mockSession.playbackState = { type: "FETCHING_METADATA" };
+    await hostShows("c1", "loading");
+    expect(latest().mark).toEqual({ channelId: "c1", state: "tuning" });
+
+    mockSession.playbackState = { type: "PLAYING" };
+    await hostShows("c1", "video");
+    expect(latest().mark).toBeNull();
+
+    await hostShows("c1", "pip-active");
+    expect(latest().mark).toEqual({ channelId: "c1", state: "pip" });
+
+    await act(async () => latest().preview(two as never));
+    mockSession.playbackState = { type: "CREATING_STREAM" };
+    await hostShows("c2", "pip-active");
+    expect(latest().mark).toEqual({ channelId: "c2", state: "tuning" });
+  });
+
+  it("says the channel failed when it cannot play", async () => {
+    await mount();
+    await act(async () => latest().preview(one as never));
+    await hostShows("c1", "error");
+    expect(mockShowToast).toHaveBeenLastCalledWith(expect.objectContaining({ title: "player.unableToPlay", kind: "error" }));
+  });
+
+  it("asks once, with both ways out, when a recording holds the provider", async () => {
+    const alert = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
+    await mount();
+    await act(async () => latest().preview(one as never));
+    Object.assign(mockHold, { held: true, holdingTimer: { Id: "t1" }, reason: "held by the recording" });
+    await hostShows("c1", "error");
+    await rerender();
+
+    expect(alert).toHaveBeenCalledTimes(1);
+    const [title, message, buttons] = alert.mock.calls[0];
+    expect(title).toBe("One");
+    expect(message).toBe("held by the recording");
+    expect((buttons ?? []).map((button) => button.text)).toEqual(["common.cancel", "liveTv.stopRecordingAndPlay", "liveTv.watchRecording"]);
+    alert.mockRestore();
   });
 
   it("switches the slot to another channel in the same player", async () => {
@@ -119,16 +175,17 @@ describe("useLivePreview", () => {
     expect(mockSession.requestSession).toHaveBeenCalledWith(expect.objectContaining({ videoId: "c1", inline: true }));
   });
 
-  it("lets the session go and clears the channel when the row is closed", async () => {
+  it("lets the session go and clears the channel when the PiP window is closed", async () => {
     await mount();
     await act(async () => latest().preview(one as never));
     const key = mockSession.requestSession.mock.calls[0][0].sessionKey;
-    await hostShows("c1", "video");
+    await hostShows("c1", "pip-active");
 
-    await act(async () => latest().close());
+    await act(async () => mockSession.setHandlers.mock.calls[0][0].onRequestBack());
 
     expect(mockSession.releaseRoute).toHaveBeenCalledWith({ videoId: "c1", sessionKey: key });
     expect(mockSession.clearHandlers).toHaveBeenCalledTimes(1);
+    expect(mockSession.setInlineFrame).toHaveBeenLastCalledWith(null);
     expect(latest().channel).toBeNull();
   });
 

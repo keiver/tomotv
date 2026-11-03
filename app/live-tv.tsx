@@ -20,6 +20,7 @@ import { t } from "@/services/i18n";
 import { invalidateLiveTvSearchIndex, warmLiveTvSearch } from "@/services/jellyfinApi";
 import { dismissToast, showToast } from "@/services/toast";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
+import type { InlineFrame } from "@/contexts/PlayerSessionContext";
 import { guideMetrics, guideRefreshOutcome } from "@/utils/guide";
 import { programInfoParams } from "@/utils/programInfo";
 import { Stack, useIsFocused, useLocalSearchParams, useRouter, type NativeStackNavigationOptions } from "expo-router";
@@ -131,19 +132,21 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
     showToast({ id: "guide-refresh", title: t(outcome.title), kind: outcome.kind });
   }, [guideWorking, guideFailed, hasListings, isFocused]);
 
-  // Phone, iPad and Mac play the channel in its opened row in the guide; TV opens the player.
-  const livePreview = useLivePreview();
-  const previewChannel = livePreview.preview;
-  const tune = useCallback(
+  // Phone, iPad and Mac play the channel in its card, then in a PiP window over the guide; TV opens the player.
+  const { preview: previewChannel, mark: liveMark } = useLivePreview();
+  const openChannelPlayer = useCallback(
     (channel: JellyfinItem) => {
-      if (!IS_TV) {
-        previewChannel(channel);
-        return;
-      }
       showGlobalLoader();
       router.push({ pathname: "/player", params: { videoId: channel.Id, videoName: channel.Name, live: "1" } });
     },
-    [router, showGlobalLoader, previewChannel],
+    [router, showGlobalLoader],
+  );
+  const tune = useCallback(
+    (channel: JellyfinItem, frame?: InlineFrame) => {
+      if (IS_TV) openChannelPlayer(channel);
+      else previewChannel(channel, frame);
+    },
+    [openChannelPlayer, previewChannel],
   );
   const openProgram = useCallback(
     (program: JellyfinProgram, channel: JellyfinItem) => {
@@ -160,10 +163,11 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
     (program: JellyfinProgram, channel: JellyfinItem) => {
       const startMs = Date.parse(program.StartDate ?? "");
       const endMs = Date.parse(program.EndDate ?? "");
-      if (startMs <= nowRef.current && nowRef.current < endMs) tune(channel);
+      // A programme on now opens its channel's player; only the channel column opens the PiP window.
+      if (startMs <= nowRef.current && nowRef.current < endMs) openChannelPlayer(channel);
       else openProgram(program, channel);
     },
-    [tune, openProgram],
+    [openChannelPlayer, openProgram],
   );
   const handleChannelPress = tune;
   const openChannel = useCallback((channel: JellyfinItem) => router.push({ pathname: "/video-info", params: { videoId: channel.Id, name: channel.Name } }), [router]);
@@ -258,8 +262,7 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
               onProgramLongPress={openProgram}
               onChannelPress={handleChannelPress}
               onChannelLongPress={openChannel}
-              previewChannel={livePreview.channel}
-              onPreviewClose={livePreview.close}
+              liveMark={liveMark}
             />
           </TVFocusGuideView>
         )}

@@ -1,10 +1,7 @@
 import { FocusableButton } from "@/components/FocusableButton";
 import { LoadingRow } from "@/components/loading-row";
 import { GRID_LINE } from "@/components/live-tv/guide-cell";
-import { GuideChannelColumn, type GuideExpansion } from "@/components/live-tv/guide-channel-column";
-import { GuideExpandedRow } from "@/components/live-tv/guide-expanded-row";
-import { GuidePreviewBlock } from "@/components/live-tv/guide-preview-block";
-import { STAND_HEIGHT } from "@/constants/app";
+import { GuideChannelColumn } from "@/components/live-tv/guide-channel-column";
 import { HUD_BAR_HEIGHT } from "@/components/live-tv/guide-hud";
 import { GuideColumnDivider, useColumnResize } from "@/components/live-tv/guide-column-divider";
 import { GuideDayStrip } from "@/components/live-tv/guide-day-strip";
@@ -13,6 +10,7 @@ import { GuideSeamMark } from "@/components/live-tv/guide-seam-mark";
 import { GuideTimeRuler, useRulerScrub } from "@/components/live-tv/guide-time-ruler";
 import { sideInsets } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
+import type { InlineFrame } from "@/contexts/PlayerSessionContext";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import type { GuideRow as GuideRowData, GuideState } from "@/hooks/useGuide";
 import { t } from "@/services/i18n";
@@ -21,14 +19,12 @@ import {
   cellAtEdge,
   cellGeometry,
   exitsToCard,
-  expandedItemLayout,
   GUIDE_SPAN_MINUTES,
   guideMetrics,
   isAiring,
   leftLeavesRow,
   MINUTE_MS,
   mountSpanFor,
-  previewBlockGeometry,
   programTimes,
   restoreFocusNode,
   revealOffset,
@@ -36,11 +32,11 @@ import {
 } from "@/utils/guide";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused } from "expo-router";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import { GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
-import { LayoutChangeEvent, Platform, Animated as RNAnimated, StyleSheet, Text, TVFocusGuideView, useAnimatedValue, useTVEventHandler, useWindowDimensions, View, type ViewToken } from "react-native";
+import { LayoutChangeEvent, Platform, Animated as RNAnimated, StyleSheet, Text, TVFocusGuideView, useAnimatedValue, useTVEventHandler, View, type ViewToken } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Animated, { Easing, runOnJS, runOnUI, scrollTo, useAnimatedRef, useAnimatedScrollHandler, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
+import Animated, { runOnJS, runOnUI, scrollTo, useAnimatedRef, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 
 import { setFocusedGuideRow } from "@/services/guideChannelFocus";
 import { setLiveFrameFocus } from "@/services/liveFrames";
@@ -62,8 +58,6 @@ const SEAM_REACH = 1;
 const ART_SETTLE_MS = 150;
 const ART_ROW_VIEWABILITY = { itemVisiblePercentThreshold: 1, minimumViewTime: ART_SETTLE_MS };
 const NO_ROWS: ReadonlySet<string> = new Set();
-const PREVIEW_SIDE_MARGIN = 16;
-const BLOCK_TIMING = { duration: 350, easing: Easing.out(Easing.cubic) };
 
 interface GuideCanvasProps {
   guide: GuideState;
@@ -77,11 +71,11 @@ interface GuideCanvasProps {
   hudRow?: React.ReactNode;
   onProgramPress: (program: JellyfinProgram, channel: JellyfinItem) => void;
   onProgramLongPress: (program: JellyfinProgram, channel: JellyfinItem) => void;
-  onChannelPress: (channel: JellyfinItem) => void;
+  /** Phone: with the tapped card's place in the window, where its channel starts playing. */
+  onChannelPress: (channel: JellyfinItem, frame?: InlineFrame) => void;
   onChannelLongPress: (channel: JellyfinItem) => void;
-  /** Phone, iPad, Mac: the channel whose row opens into the player. */
-  previewChannel?: JellyfinItem | null;
-  onPreviewClose?: () => void;
+  /** Phone: the channel in Live TV's PiP window, marked on its card. */
+  liveMark?: ComponentProps<typeof GuideChannelColumn>["liveMark"];
 }
 
 /**
@@ -89,19 +83,7 @@ interface GuideCanvasProps {
  * with the channel column beside it kept level with the rows. Cells and channels are the
  * focusables; the focus engine scrolls both axes to reveal the one it lands on.
  */
-export function GuideCanvas({
-  guide,
-  filter,
-  topFocusHandle,
-  onEntryHandle,
-  hudRow,
-  onProgramPress,
-  onProgramLongPress,
-  onChannelPress,
-  onChannelLongPress,
-  previewChannel = null,
-  onPreviewClose,
-}: GuideCanvasProps) {
+export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudRow, onProgramPress, onProgramLongPress, onChannelPress, onChannelLongPress, liveMark }: GuideCanvasProps) {
   const { rows, windowStartMs, windowEndMs, nowMs, timersByProgramId, recordingChannelIds, isLoading, error, retry, holdWindow, loadMoreRows } = guide;
   const isScreenFocused = useIsFocused();
   const { onAccent } = useCardPalette();
@@ -324,6 +306,18 @@ export function GuideCanvas({
     if (node) cardNodesRef.current.set(channelId, node);
     else cardNodesRef.current.delete(channelId);
   }, []);
+  // Phone: the tapped card's place in the window travels with the press.
+  const channelPress = useCallback(
+    (channel: JellyfinItem) => {
+      const node = IS_TV ? undefined : (cardNodesRef.current.get(channel.Id) as Pick<View, "measureInWindow"> | undefined);
+      if (!node) {
+        onChannelPress(channel);
+        return;
+      }
+      node.measureInWindow((x, y, width, height) => onChannelPress(channel, width > 0 && height > 0 ? { x, y, width, height } : undefined));
+    },
+    [onChannelPress],
+  );
   const handleCellFocus = useCallback(
     (program: JellyfinProgram, channel: JellyfinItem) => {
       if (!IS_TV) return;
@@ -418,56 +412,6 @@ export function GuideCanvas({
     (restoreFocusNode(source, cellNodesRef.current, cardNodesRef.current) as { requestTVFocus?: () => void } | undefined)?.requestTVFocus?.();
   }, [isScreenFocused]);
 
-  // The opened row: the shown channel grows to 1 once it is the one asked for, and closes to 0 before another opens.
-  const reduceMotion = useReducedMotion();
-  const instant = reduceMotion || compact;
-  const open = useSharedValue(0);
-  const [shownId, setShownId] = useState<string | null>(null);
-  const [grownId, setGrownId] = useState<string | null>(null);
-  const targetId = IS_TV ? null : (previewChannel?.Id ?? null);
-  const settled = grownId !== null && grownId === shownId && shownId === targetId;
-  useEffect(() => {
-    if (targetId === shownId) {
-      if (!targetId) return;
-      const grown = () => setGrownId(targetId);
-      if (instant) {
-        open.set(1);
-        grown();
-        return;
-      }
-      open.set(
-        withTiming(1, BLOCK_TIMING, (finished) => {
-          if (finished) runOnJS(grown)();
-        }),
-      );
-      return;
-    }
-    const next = () => {
-      setGrownId(null);
-      setShownId(targetId);
-    };
-    if (shownId === null || instant) {
-      open.set(0);
-      next();
-      return;
-    }
-    open.set(
-      withTiming(0, BLOCK_TIMING, (finished) => {
-        if (finished) runOnJS(next)();
-      }),
-    );
-  }, [targetId, shownId, instant, open]);
-  const bandRef = useRef<View>(null);
-  const [band, setBand] = useState({ width: 0, height: 0 });
-  const handleBandLayout = useCallback((event: LayoutChangeEvent) => setBand({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height }), []);
-  const { height: windowHeight } = useWindowDimensions();
-  const geometry = useMemo(() => previewBlockGeometry(band.width, windowHeight, METRICS.rowHeight, STAND_HEIGHT, PREVIEW_SIDE_MARGIN), [band.width, windowHeight]);
-  const shownIndex = shownId ? rows.findIndex((row) => row.channel.Id === shownId) : -1;
-  const expansion = useMemo<GuideExpansion | null>(
-    () => (shownId && shownIndex >= 0 ? { id: shownId, index: shownIndex, extra: geometry.extra, open } : null),
-    [shownId, shownIndex, geometry.extra, open],
-  );
-
   const channels = useMemo(() => rows.map((row) => row.channel), [rows]);
   // TV: the focused row lands as the lowest whole row, so every focus scroll rests on a row edge, the last row's too.
   const snap = rowSnap(canvasHeight, METRICS.rowHeight);
@@ -475,39 +419,30 @@ export function GuideCanvas({
   const listBottomPad = IS_TV ? snap.bottomPad : LIST_BOTTOM_PAD;
 
   const renderRow = useCallback(
-    ({ item, index }: { item: GuideRowData; index: number }) => {
-      const row = (
-        <GuideRow
-          channel={item.channel}
-          programs={item.programs}
-          windowStartMs={windowStartMs}
-          windowEndMs={windowEndMs}
-          metrics={metrics}
-          spanPx={spanPx}
-          nowMs={nowMs}
-          timersByProgramId={timersByProgramId}
-          scrollX={nativeScrollX}
-          viewportWidth={viewportWidth}
-          mountSpan={mountSpan}
-          artSpan={artRows.has(item.channel.Id) ? artSpan : undefined}
-          rowIndex={index}
-          snapOffset={rowSnapOffset}
-          nextFocusUp={index === 0 ? topFocusHandle : undefined}
-          targetsFor={IS_TV ? targetsFor : undefined}
-          onProgramPress={programPress}
-          onProgramLongPress={programLongPress}
-          onCellFocus={handleCellFocus}
-          onCellHandle={handleCellHandle}
-        />
-      );
-      return expansion?.id === item.channel.Id ? (
-        <GuideExpandedRow open={expansion.open} rowHeight={METRICS.rowHeight} extra={expansion.extra}>
-          {row}
-        </GuideExpandedRow>
-      ) : (
-        row
-      );
-    },
+    ({ item, index }: { item: GuideRowData; index: number }) => (
+      <GuideRow
+        channel={item.channel}
+        programs={item.programs}
+        windowStartMs={windowStartMs}
+        windowEndMs={windowEndMs}
+        metrics={metrics}
+        spanPx={spanPx}
+        nowMs={nowMs}
+        timersByProgramId={timersByProgramId}
+        scrollX={nativeScrollX}
+        viewportWidth={viewportWidth}
+        mountSpan={mountSpan}
+        artSpan={artRows.has(item.channel.Id) ? artSpan : undefined}
+        rowIndex={index}
+        snapOffset={rowSnapOffset}
+        nextFocusUp={index === 0 ? topFocusHandle : undefined}
+        targetsFor={IS_TV ? targetsFor : undefined}
+        onProgramPress={programPress}
+        onProgramLongPress={programLongPress}
+        onCellFocus={handleCellFocus}
+        onCellHandle={handleCellHandle}
+      />
+    ),
     [
       windowStartMs,
       windowEndMs,
@@ -527,13 +462,9 @@ export function GuideCanvas({
       programLongPress,
       handleCellFocus,
       handleCellHandle,
-      expansion,
     ],
   );
-  const getItemLayout = useCallback(
-    (_data: ArrayLike<GuideRowData> | null | undefined, index: number) => expandedItemLayout(index, METRICS.rowHeight, expansion?.index ?? -1, expansion?.extra ?? 0),
-    [expansion],
-  );
+  const getItemLayout = useCallback((_data: ArrayLike<GuideRowData> | null | undefined, index: number) => ({ length: METRICS.rowHeight, offset: METRICS.rowHeight * index, index }), []);
   const keyExtractor = useCallback((row: GuideRowData) => row.channel.Id, []);
 
   // The day strip fills the corner; the column's seam grip is the phone's one resize handle.
@@ -608,7 +539,7 @@ export function GuideCanvas({
           <TVFocusGuideView style={styles.entryGuide} destinations={cellsFocused && topFocusHandle !== undefined ? [topFocusHandle] : [entryHandle]} />
         </View>
       ) : null}
-      <View ref={bandRef} style={styles.bandRow} onLayout={IS_TV ? undefined : handleBandLayout}>
+      <View style={styles.bandRow}>
         <GuideChannelColumn
           channels={channels}
           recordingChannelIds={recordingChannelIds}
@@ -620,13 +551,13 @@ export function GuideCanvas({
           contentBottomPad={listBottomPad}
           columnWidth={columnW}
           compact={compact}
-          onChannelPress={onChannelPress}
+          onChannelPress={channelPress}
           onChannelLongPress={channelLongPress}
           onChannelFocus={handleChannelFocus}
           onFirstHandle={onEntryHandle}
-          onCardNode={IS_TV ? handleCardNode : undefined}
+          onCardNode={handleCardNode}
+          liveMark={liveMark}
           onEndReached={loadMoreRows}
-          expanded={expansion}
         />
         <TVFocusGuideView style={styles.scrollHost} onLayout={handleCanvasLayout} onFocusEnter={IS_TV ? handleCellsEnter : undefined} onFocusLeave={IS_TV ? handleCellsLeave : undefined}>
           <Animated.ScrollView
@@ -642,7 +573,6 @@ export function GuideCanvas({
               ref={rowsRef}
               data={rows}
               renderItem={renderRow}
-              extraData={expansion}
               keyExtractor={keyExtractor}
               getItemLayout={getItemLayout}
               snapToAlignment={IS_TV ? "item" : undefined}
@@ -674,26 +604,9 @@ export function GuideCanvas({
             <LoadingRow label={t("liveTv.loadingGuide")} hideLabel={!IS_TV} />
           </View>
         ) : null}
-        {expansion && onPreviewClose ? (
-          <GuidePreviewBlock
-            channel={rows[expansion.index].channel}
-            open={open}
-            scrollY={scrollY}
-            rowTop={expansion.index * METRICS.rowHeight}
-            rowHeight={METRICS.rowHeight}
-            geometry={geometry}
-            tabHeight={STAND_HEIGHT}
-            columnW={columnW}
-            bandHeight={Math.max(0, band.height - TAB_BAR_HEIGHT - insets.bottom)}
-            bandRef={bandRef}
-            settled={settled}
-            onClose={onPreviewClose}
-          />
-        ) : null}
       </View>
       {IS_TV ? <View style={[styles.seam, { left: METRICS.channelColumnWidth - 1 }]} pointerEvents="none" /> : null}
-      {/* Not over the opened row's player block. */}
-      {IS_TV || expansion ? null : (
+      {IS_TV ? null : (
         <GuideColumnDivider
           columnW={columnW}
           topInset={METRICS.rulerHeight + HUD_BAR_HEIGHT}

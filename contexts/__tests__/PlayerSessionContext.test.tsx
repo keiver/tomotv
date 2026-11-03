@@ -197,28 +197,6 @@ describe("PlayerSessionContext handoff", () => {
     expect(bridge.requestSession.mock.invocationCallOrder[0]).toBeLessThan(bridge.setInlineFrame.mock.invocationCallOrder[0]);
   });
 
-  it("gives the screen and the host the same inline offset", () => {
-    const seen: unknown[] = [];
-    function Screen() {
-      seen.push(usePlayerSession().inlineOffsetY);
-      return null;
-    }
-    function HostSide() {
-      seen.push(usePlayerSessionHost().inlineOffsetY);
-      return null;
-    }
-    act(() => {
-      TestRenderer.create(
-        <PlayerSessionProvider>
-          <Screen />
-          <HostSide />
-        </PlayerSessionProvider>,
-      );
-    });
-    expect(seen[0]).toBeDefined();
-    expect(seen[1]).toBe(seen[0]);
-  });
-
   it("hands a cleared inline frame to the host too", () => {
     const bridge = makeBridge();
     renderColdLaunch(bridge, (session) => session.setInlineFrame(null));

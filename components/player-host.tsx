@@ -1,6 +1,5 @@
 import { DismissPan } from "@/components/dismiss-pan";
 import { ImageSubtitleOverlay } from "@/components/image-subtitle-overlay";
-import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { t } from "@/services/i18n";
 import { usePlayerSessionHost, type HostMode, type InlineFrame, type PlayerHostBridge, type PlayerTvConfig } from "@/contexts/PlayerSessionContext";
@@ -21,7 +20,6 @@ import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, StyleSheet, TVEventControl, useTVEventHandler, View } from "react-native";
 import Video from "react-native-video";
-import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import type { OnLoadData, OnPictureInPictureStatusChangedData, OnVideoErrorData } from "react-native-video";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 
@@ -48,6 +46,9 @@ const PRESENT_CONFIRM_TIMEOUT_MS = 1500;
 const DISMISS_CONFIRM_TIMEOUT_MS = 1500;
 /** How long after a PiP hand-off a second dismissal event still counts as part of it, in ms. */
 const PIP_HANDOFF_BURST_MS = 1500;
+/** An inline session's PiP start, asked again until the window is up. */
+const PIP_START_RETRY_MS = 500;
+const PIP_START_TRIES = 10;
 
 /**
  * The item's chapter markers in the shape react-native-video wants, or undefined
@@ -133,7 +134,7 @@ interface PlayerSource {
 }
 
 export function PlayerHost() {
-  const { registerHost, publish, handlersRef, inlineOffsetY } = usePlayerSessionHost();
+  const { registerHost, publish, handlersRef } = usePlayerSessionHost();
 
   // State for rendering, ref for the AVKit callbacks and the bridge, which are
   // called from outside React and need the current value.
@@ -170,8 +171,12 @@ export function PlayerHost() {
 
   const [tvConfig, setTvConfig] = useState<PlayerTvConfig>({});
 
-  // An inline session draws in the frame its screen reports, muted until it goes full screen.
+  // An inline session plays in the frame its screen reports (the tapped card) until its PiP window takes it over,
+  // and in AVKit's presented player when asked.
   const [inlineFrame, setInlineFrame] = useState<InlineFrame | null>(null);
+  const [pipWanted, setPipWanted] = useState(false);
+  // PiP's return button asked for the presented player rather than closing the window.
+  const restoreToFullscreenRef = useRef(false);
   const [muted, setMuted] = useState(false);
 
   // Playback finished, and the route owns the screen from here: the phone's Up Next card,
@@ -693,6 +698,11 @@ export function PlayerHost() {
       handlersRef.current?.onPipStarted?.();
       return;
     }
+    // An inline session goes back to its PiP window when the presented player closes.
+    if (sessionRef.current.inline) {
+      setPipWanted(true);
+      return;
+    }
     // No route listening: the session ends itself, or it would sit behind the curtain with nothing left to dismiss it.
     if (!handlersRef.current) {
       endSession();
@@ -731,8 +741,23 @@ export function PlayerHost() {
         return;
       }
       setPip("none");
-      // Phone: a window restored into its reopened route plays in the presented player again; an inline one, in its frame.
-      if (PRESENTS_NATIVE_FULLSCREEN && sessionRef.current && !sessionRef.current.inline && handlersRef.current && presentationRef.current === "none") {
+      // An inline session's window: its return button opens the presented player, its close ends the session.
+      if (sessionRef.current?.inline) {
+        const toFullscreen = restoreToFullscreenRef.current;
+        restoreToFullscreenRef.current = false;
+        setPipWanted(false);
+        if (toFullscreen && PRESENTS_NATIVE_FULLSCREEN && presentationRef.current === "none") {
+          setMuted(false);
+          programmaticDismissRef.current = false;
+          presentationRef.current = "pending";
+          videoRef.current?.setFullScreen(true);
+          return;
+        }
+        if (!toFullscreen) handlersRef.current?.onRequestBack();
+        return;
+      }
+      // Phone: a window restored into its reopened route plays in the presented player again.
+      if (PRESENTS_NATIVE_FULLSCREEN && sessionRef.current && handlersRef.current && presentationRef.current === "none") {
         programmaticDismissRef.current = false;
         presentationRef.current = "pending";
         videoRef.current?.setFullScreen(true);
@@ -758,6 +783,7 @@ export function PlayerHost() {
     const current = sessionRef.current;
     if (!current) return;
     if (pipRef.current !== "detached") {
+      if (current.inline) restoreToFullscreenRef.current = true;
       answerRestore();
       return;
     }
@@ -807,6 +833,8 @@ export function PlayerHost() {
       presentationRef.current = "none";
       clearPresentationWait();
       setMuted(next.inline === true);
+      setPipWanted(next.inline === true);
+      restoreToFullscreenRef.current = false;
       applySession(next);
     },
     [applySession, clearPresentationWait, setPip],
@@ -885,16 +913,16 @@ export function PlayerHost() {
         setLiveSwitching(true);
         if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
         settleTimerRef.current = null;
-        // A hot target costs nothing to bind, so only a cold one waits for the swipes to settle.
-        const hot = isHotChannel(target.videoId);
-        setLiveSettling(!hot);
-        if (!hot) {
+        // A hot target costs nothing to bind and a picked one is no burst, so only a cold swipe waits for the swipes to settle.
+        const settles = !isHotChannel(target.videoId) && !target.picked;
+        setLiveSettling(settles);
+        if (settles) {
           settleTimerRef.current = setTimeout(
             () => {
               settleTimerRef.current = null;
               setLiveSettling(false);
             },
-            !target.picked && channelOnOneConnection(target.videoId) ? ONE_CONNECTION_FLIP_SETTLE_MS : LIVE_FLIP_SETTLE_MS,
+            channelOnOneConnection(target.videoId) ? ONE_CONNECTION_FLIP_SETTLE_MS : LIVE_FLIP_SETTLE_MS,
           );
         }
         applySession({ ...current, videoId: target.videoId, videoName: target.videoName ?? current.videoName, startPositionTicks: undefined, playedAtStart: undefined });
@@ -941,7 +969,15 @@ export function PlayerHost() {
       toggleVideoFill,
       setInlineFrame,
       presentFullscreen: () => {
-        if (!PRESENTS_NATIVE_FULLSCREEN || !sessionRef.current?.inline || presentationRef.current !== "none" || pipRef.current !== "none") return;
+        if (!PRESENTS_NATIVE_FULLSCREEN || !sessionRef.current?.inline || presentationRef.current !== "none") return;
+        // From the window: the same path as its return button.
+        if (pipRef.current === "active") {
+          restoreToFullscreenRef.current = true;
+          videoRef.current?.exitPictureInPicture();
+          return;
+        }
+        if (pipRef.current !== "none") return;
+        setPipWanted(false);
         setMuted(false);
         programmaticDismissRef.current = false;
         presentationRef.current = "pending";
@@ -977,15 +1013,34 @@ export function PlayerHost() {
   // other platform parks at the stage's size, because that size is what AVKit
   // hands the video pipeline as its output geometry.
   const parked = Platform.isTV ? styles.offstage : styles.parked;
-  // Inline, the stage is the screen's frame, parked at that same size; with no frame reported yet it stays parked.
+  // Inline, the stage is the tapped card's frame from the tap until the PiP window takes the picture, then parks.
   const inline = session?.inline === true;
-  const inlineStage = inline && inlineFrame ? [styles.inlineStage, { left: inlineFrame.x, top: inlineFrame.y, width: inlineFrame.width, height: inlineFrame.height }] : null;
-  const onStage = hostVisible && (!inline || inlineStage !== null);
-  const stageStyle = inlineStage ? (onStage ? inlineStage : [...inlineStage, styles.inlineParked]) : onStage ? styles.stage : parked;
-  const offsetStyle = useAnimatedStyle(() => ({ transform: [{ translateY: inline ? inlineOffsetY.get() : 0 }] }));
+  const onStage = hostVisible && !inline;
+  const inlineStage = inline && inlineFrame && pip === "none" ? [styles.inlineStage, { left: inlineFrame.x, top: inlineFrame.y, width: inlineFrame.width, height: inlineFrame.height }] : null;
+  const stageStyle = onStage ? styles.stage : (inlineStage ?? parked);
 
-  const stage = (
-    <DismissPan onDismiss={handleDismissGesture} style={stageStyle} pointerEvents={onStage ? "auto" : "none"} enabled={!inline}>
+  // Started once the channel plays, and asked again while PiP is not yet possible for the new player layer.
+  useEffect(() => {
+    if (!PRESENTS_NATIVE_FULLSCREEN || !inline || !pipWanted || pip !== "none" || !hostVisible) return;
+    let tries = 0;
+    const attempt = () => {
+      tries += 1;
+      videoRef.current?.enterPictureInPicture();
+    };
+    attempt();
+    const timer = setInterval(() => {
+      if (tries >= PIP_START_TRIES) {
+        clearInterval(timer);
+        logger.warn("Player host: PiP did not start for an inline session", { service: "PlayerHost", tries });
+        return;
+      }
+      attempt();
+    }, PIP_START_RETRY_MS);
+    return () => clearInterval(timer);
+  }, [inline, pipWanted, pip, hostVisible, videoRef]);
+
+  return (
+    <DismissPan onDismiss={handleDismissGesture} style={stageStyle} pointerEvents={onStage ? "auto" : "none"}>
       {session !== null && shownSource && (
         <Video
           // Remount on every stream change (direct play to transcoding), except a live channel,
@@ -995,7 +1050,8 @@ export function PlayerHost() {
           source={shownSource}
           style={styles.video}
           resizeMode={fills ? "cover" : "contain"}
-          controls={true}
+          // Inline, the lib's own player layer: its PiP controller is the one that starts from inline.
+          controls={!inline}
           muted={muted}
           paused={paused}
           // Both float props stay set: 0 is AVFoundation's "no cap" and "own threshold". Clearing a scalar
@@ -1084,13 +1140,6 @@ export function PlayerHost() {
       {PRESENTS_NATIVE_FULLSCREEN && session !== null && !inline && <View style={styles.closingCurtain} pointerEvents="none" testID="player-curtain" />}
     </DismissPan>
   );
-  // tvOS: no full-window layer above the focusables, and no inline session to move.
-  if (Platform.isTV) return stage;
-  return (
-    <Animated.View style={[styles.offsetLayer, offsetStyle]} pointerEvents="box-none" testID="player-offset-layer">
-      {stage}
-    </Animated.View>
-  );
 }
 
 const styles = StyleSheet.create({
@@ -1126,24 +1175,10 @@ const styles = StyleSheet.create({
     transform: [{ translateX: -10000 }],
     backgroundColor: COLORS.MEDIA_BACKGROUND,
   },
-  // Square at the top-left, where Live TV's close tab sits.
+  // No fill: the card and its tuning mark show through until the first frame.
   inlineStage: {
     position: "absolute",
-    borderRadius: DESIGN.BORDER_RADIUS_CARD,
-    borderTopLeftRadius: 0,
-    borderCurve: "continuous",
     overflow: "hidden",
-    backgroundColor: COLORS.MEDIA_BACKGROUND,
-  },
-  inlineParked: {
-    transform: [{ translateX: -10000 }],
-  },
-  offsetLayer: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
   },
   video: {
     flex: 1,
