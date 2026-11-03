@@ -687,8 +687,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         dispatch({ type: "METADATA_FETCHED", details: retried.details, mode: "localRemux", hasSubtitles: retried.hasSubtitles });
         return;
       }
-      if (await isChannelHeld(videoId)) failWith(PLAYBACK_ERROR_IDS.LIVE_RECORDING, "live origin is held by a recording");
-      await admitOnOneConnection(videoId);
+      if (await admitOnOneConnection(videoId)) failWith(PLAYBACK_ERROR_IDS.LIVE_RECORDING, "live origin is held by a recording");
       // A ring session or a neighbour's resolve of this channel is taken rather than opened twice.
       let details = await liveChannel.open(videoId, () => requestIdRef.current === currentRequestId);
 
@@ -1963,7 +1962,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           clearTimeout(autoPlayTimerRef.current);
         }
 
-        // Timer then a tick, so play() lands clear of the load callback it was queued from.
+        // A zero timer then a tick, so play() lands clear of the load callback it was queued from.
         autoPlayTimerRef.current = setTimeout(() => {
           if (!isMountedRef.current || requestIdRef.current !== attempt) {
             logger.debug("Component unmounted, skipping auto-play", { service: "useVideoPlayback" });
@@ -2011,7 +2010,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
           });
 
           autoPlayTimerRef.current = null;
-        }, 100);
+        }, 0);
       }
     },
     [hasTriedTranscoding, markStarted, videoId, retryingForMs],
