@@ -442,6 +442,13 @@ describe("admitOnOneConnection", () => {
     await admitOnOneConnection("ch-b");
     expect(isAdmitting("ch-b")).toBe(false);
   });
+
+  it("answers a provider a recording holds from the same read and admits nothing", async () => {
+    (originConnections as jest.Mock).mockClear().mockResolvedValue({ budget: 1, active: 1, held: true });
+    expect(await admitOnOneConnection("ch-a")).toBe(true);
+    expect(isAdmitting("ch-a")).toBe(false);
+    expect(originConnections).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("stopRecordingAndPlay", () => {

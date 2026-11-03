@@ -407,10 +407,17 @@ export function admitUntilPlaying(channelId: string | null): void {
   admitting = channelId;
 }
 
-/** A channel on a one-connection provider opens again on every refusal until it plays: the slot is this device's to wait for. */
-export async function admitOnOneConnection(channelId: string): Promise<void> {
+/**
+ * Before a channel opens, from one read of the engine's counts: true when a recording holds its provider. Otherwise a channel
+ * on a one-connection provider opens again on every refusal until it plays: the slot is this device's to wait for.
+ */
+export async function admitOnOneConnection(channelId: string): Promise<boolean> {
   const originKey = channelOrigin(channelId);
-  if (originKey && (await oneConnection(originKey))) admitUntilPlaying(channelId);
+  if (!originKey) return false;
+  const connections = await originConnections(originKey);
+  if (connections?.held ?? originHeld(originKey)) return true;
+  if (originConnectionLimit(originKey) === 1 || connections?.budget === 1) admitUntilPlaying(channelId);
+  return false;
 }
 
 export function isAdmitting(channelId: string): boolean {
