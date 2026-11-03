@@ -1,8 +1,9 @@
 import { DismissPan } from "@/components/dismiss-pan";
 import { ImageSubtitleOverlay } from "@/components/image-subtitle-overlay";
+import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { t } from "@/services/i18n";
-import { usePlayerSessionHost, type HostMode, type PlayerHostBridge, type PlayerTvConfig } from "@/contexts/PlayerSessionContext";
+import { usePlayerSessionHost, type HostMode, type InlineFrame, type PlayerHostBridge, type PlayerTvConfig } from "@/contexts/PlayerSessionContext";
 import { setPlaybackHold } from "@/services/playbackHold";
 import { setToastPlayerOnScreen } from "@/services/toast";
 import { channelOnOneConnection, isHotChannel } from "@/services/liveRing";
@@ -118,6 +119,7 @@ interface HostSession {
   sessionKey: string;
   isLive?: boolean;
   queueMode?: boolean;
+  inline?: boolean;
 }
 
 type PipState = "none" | "active" | "detached";
@@ -166,6 +168,10 @@ export function PlayerHost() {
   const [liveInterstitialUp, setLiveInterstitialUp] = useState(false);
 
   const [tvConfig, setTvConfig] = useState<PlayerTvConfig>({});
+
+  // An inline session draws in the frame its screen reports, muted until it goes full screen.
+  const [inlineFrame, setInlineFrame] = useState<InlineFrame | null>(null);
+  const [muted, setMuted] = useState(false);
 
   // Playback finished, and the route owns the screen from here: the phone's Up Next card,
   // or the pop that ends the session. Nothing in the state machine says so (onEnd reports
@@ -579,7 +585,8 @@ export function PlayerHost() {
       onLoad: (data: OnLoadData) => {
         attemptCallbacks.onLoad(data);
         // Never over a PiP window: this item was swapped inside the player the window shows.
-        if (sessionRef.current && pipRef.current === "none") {
+        // An inline session stays in its frame until the viewer asks for full screen.
+        if (sessionRef.current && !sessionRef.current.inline && pipRef.current === "none") {
           programmaticDismissRef.current = false;
           presentationRef.current = "pending";
           videoRef.current?.setFullScreen(true);
@@ -723,8 +730,8 @@ export function PlayerHost() {
         return;
       }
       setPip("none");
-      // Phone: a window restored into its reopened route plays in the presented player again.
-      if (PRESENTS_NATIVE_FULLSCREEN && sessionRef.current && handlersRef.current && presentationRef.current === "none") {
+      // Phone: a window restored into its reopened route plays in the presented player again; an inline one, in its frame.
+      if (PRESENTS_NATIVE_FULLSCREEN && sessionRef.current && !sessionRef.current.inline && handlersRef.current && presentationRef.current === "none") {
         programmaticDismissRef.current = false;
         presentationRef.current = "pending";
         videoRef.current?.setFullScreen(true);
@@ -798,6 +805,7 @@ export function PlayerHost() {
       programmaticDismissRef.current = false;
       presentationRef.current = "none";
       clearPresentationWait();
+      setMuted(next.inline === true);
       applySession(next);
     },
     [applySession, clearPresentationWait, setPip],
@@ -864,6 +872,7 @@ export function PlayerHost() {
           sessionKey: request.sessionKey,
           isLive: request.isLive,
           queueMode: request.queueMode,
+          inline: request.inline,
         });
         endSession();
       },
@@ -887,6 +896,8 @@ export function PlayerHost() {
             !target.picked && channelOnOneConnection(target.videoId) ? ONE_CONNECTION_FLIP_SETTLE_MS : LIVE_FLIP_SETTLE_MS,
           );
         }
+        // Each channel picked into the frame starts muted, as the first one did.
+        if (current.inline && presentationRef.current === "none") setMuted(true);
         applySession({ ...current, videoId: target.videoId, videoName: target.videoName ?? current.videoName, startPositionTicks: undefined, playedAtStart: undefined });
       },
       releaseRoute: (owner) => {
@@ -929,6 +940,14 @@ export function PlayerHost() {
       seekBy,
       togglePlay,
       toggleVideoFill,
+      setInlineFrame,
+      presentFullscreen: () => {
+        if (!PRESENTS_NATIVE_FULLSCREEN || !sessionRef.current?.inline || presentationRef.current !== "none" || pipRef.current !== "none") return;
+        setMuted(false);
+        programmaticDismissRef.current = false;
+        presentationRef.current = "pending";
+        videoRef.current?.setFullScreen(true);
+      },
     }),
     [
       alignSubtitleTiming,
@@ -946,6 +965,7 @@ export function PlayerHost() {
       setPip,
       togglePlay,
       toggleVideoFill,
+      videoRef,
     ],
   );
 
@@ -958,9 +978,14 @@ export function PlayerHost() {
   // other platform parks at the stage's size, because that size is what AVKit
   // hands the video pipeline as its output geometry.
   const parked = Platform.isTV ? styles.offstage : styles.parked;
+  // Inline, the stage is the screen's frame, parked at that same size; with no frame reported yet it stays parked.
+  const inline = session?.inline === true;
+  const inlineStage = inline && inlineFrame ? [styles.inlineStage, { left: inlineFrame.x, top: inlineFrame.y, width: inlineFrame.width, height: inlineFrame.height }] : null;
+  const onStage = hostVisible && (!inline || inlineStage !== null);
+  const stageStyle = inlineStage ? (onStage ? inlineStage : [...inlineStage, styles.inlineParked]) : onStage ? styles.stage : parked;
 
   return (
-    <DismissPan onDismiss={handleDismissGesture} style={hostVisible ? styles.stage : parked} pointerEvents={hostVisible ? "auto" : "none"}>
+    <DismissPan onDismiss={handleDismissGesture} style={stageStyle} pointerEvents={onStage ? "auto" : "none"} enabled={!inline}>
       {session !== null && shownSource && (
         <Video
           // Remount on every stream change (direct play to transcoding), except a live channel,
@@ -971,6 +996,7 @@ export function PlayerHost() {
           style={styles.video}
           resizeMode={fills ? "cover" : "contain"}
           controls={true}
+          muted={muted}
           paused={paused}
           // Both float props stay set: 0 is AVFoundation's "no cap" and "own threshold". Clearing a scalar
           // prop makes React restore a default RNV never exposes a getter for, an uninitialised float.
@@ -1054,8 +1080,8 @@ export function PlayerHost() {
         </Video>
       )}
 
-      {/* Phone: the inline player (the one the lib re-embeds after every dismissal) is never shown; the presented player is the only picture. */}
-      {PRESENTS_NATIVE_FULLSCREEN && session !== null && <View style={styles.closingCurtain} pointerEvents="none" testID="player-curtain" />}
+      {/* Phone: the inline player (the one the lib re-embeds after every dismissal) is never shown; the presented player is the only picture. An inline session is the exception. */}
+      {PRESENTS_NATIVE_FULLSCREEN && session !== null && !inline && <View style={styles.closingCurtain} pointerEvents="none" testID="player-curtain" />}
     </DismissPan>
   );
 }
@@ -1092,6 +1118,16 @@ const styles = StyleSheet.create({
     bottom: 0,
     transform: [{ translateX: -10000 }],
     backgroundColor: COLORS.MEDIA_BACKGROUND,
+  },
+  inlineStage: {
+    position: "absolute",
+    borderRadius: DESIGN.BORDER_RADIUS_CARD,
+    borderCurve: "continuous",
+    overflow: "hidden",
+    backgroundColor: COLORS.MEDIA_BACKGROUND,
+  },
+  inlineParked: {
+    transform: [{ translateX: -10000 }],
   },
   video: {
     flex: 1,

@@ -30,6 +30,8 @@ import {
   MINUTE_MS,
   mountSpanFor,
   NO_GUIDE_PREFIX,
+  previewSlotSize,
+  previewTapAction,
   programCategory,
   restoreFocusNode,
   revealOffset,
@@ -491,5 +493,50 @@ describe("guideMetrics", () => {
     expect(Number.isInteger(metrics.channelColumnWidth)).toBe(true);
     expect(Number.isInteger(metrics.rowHeight)).toBe(true);
     expect(metrics.cardInset).toEqual({ vertical: 0, horizontal: 0 });
+  });
+});
+
+describe("previewSlotSize", () => {
+  it("fills the width at 16:9 when the window is tall enough", () => {
+    expect(previewSlotSize(352, 852)).toEqual({ width: 352, height: 198 });
+  });
+
+  it("narrows to 16:9 at 45% of the window height when the width would be taller", () => {
+    const size = previewSlotSize(820, 393);
+    expect(size.height).toBeCloseTo(393 * 0.45);
+    expect(size.width).toBeCloseTo((393 * 0.45 * 16) / 9);
+  });
+
+  it("is empty before the row has a width", () => {
+    expect(previewSlotSize(0, 852)).toEqual({ width: 0, height: 0 });
+  });
+});
+
+describe("previewTapAction", () => {
+  it("starts the slot when it plays nothing", () => {
+    expect(previewTapAction("c1", null, "idle")).toBe("start");
+  });
+
+  it("starts the slot again when the session it had is gone or left in a detached PiP window", () => {
+    expect(previewTapAction("c1", "c1", "idle")).toBe("start");
+    expect(previewTapAction("c1", "c1", "pip-detached")).toBe("start");
+  });
+
+  it("switches the slot to another channel", () => {
+    expect(previewTapAction("c2", "c1", "video")).toBe("switch");
+    expect(previewTapAction("c2", "c1", "loading")).toBe("switch");
+  });
+
+  it("opens the playing channel full screen", () => {
+    expect(previewTapAction("c1", "c1", "video")).toBe("fullscreen");
+  });
+
+  it("retries the channel that failed in the slot", () => {
+    expect(previewTapAction("c1", "c1", "error")).toBe("retry");
+  });
+
+  it("does nothing on the channel while it opens or plays in a PiP window", () => {
+    expect(previewTapAction("c1", "c1", "loading")).toBe("none");
+    expect(previewTapAction("c1", "c1", "pip-active")).toBe("none");
   });
 });

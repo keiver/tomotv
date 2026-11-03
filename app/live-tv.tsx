@@ -2,6 +2,7 @@ import { AmbientBackground } from "@/components/ambient-background";
 import { GuideCanvas } from "@/components/live-tv/guide-canvas";
 import { GuideCornerActions, HUD_ACTION_ICON, HudAction, scheduleSymbol } from "@/components/live-tv/guide-corner-actions";
 import { GuideHud } from "@/components/live-tv/guide-hud";
+import { LivePreviewSlot } from "@/components/live-tv/live-preview-slot";
 import { SfSymbolIcon } from "@/components/sf-symbol-icon";
 import { gridEdgePadding, LIBRARY_ROOT_TITLE } from "@/constants/app";
 import { WhoIsWatchingScreen } from "@/components/settings/WhoIsWatchingScreen";
@@ -12,6 +13,7 @@ import { useAuthSession } from "@/hooks/useAuthSession";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { useChannelFavoritesSync } from "@/hooks/useChannelFavoritesSync";
 import { invalidateGuideReads, useGuide } from "@/hooks/useGuide";
+import { useLivePreview } from "@/hooks/useLivePreview";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { useIsRecording } from "@/hooks/useRecordingStatus";
 import { refreshExternalGuide } from "@/services/externalGuide";
@@ -36,7 +38,7 @@ const PHONE_REFRESH_CELL_WIDTH = 44;
 const TAB_BAR_GUIDE_HEIGHT = 1;
 
 /**
- * The Live TV screen: the guide, whose channel column tunes on select, with Recordings and
+ * The Live TV screen: the guide, whose channel column tunes on select (into the slot above the guide off TV), with Recordings and
  * Schedule one press away. The livetv tab's root on TV; a pushed root-stack route on phone.
  * Signed out, the tab keeps its trigger (static-trigger rule) and shows the connect widget.
  */
@@ -130,12 +132,19 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
     showToast({ id: "guide-refresh", title: t(outcome.title), kind: outcome.kind });
   }, [guideWorking, guideFailed, hasListings, isFocused]);
 
+  // Phone, iPad and Mac play the channel in the slot above the guide; TV opens the player.
+  const livePreview = useLivePreview();
+  const previewChannel = livePreview.preview;
   const tune = useCallback(
-    (channelId: string, channelName: string) => {
+    (channel: JellyfinItem) => {
+      if (!IS_TV) {
+        previewChannel(channel);
+        return;
+      }
       showGlobalLoader();
-      router.push({ pathname: "/player", params: { videoId: channelId, videoName: channelName, live: "1" } });
+      router.push({ pathname: "/player", params: { videoId: channel.Id, videoName: channel.Name, live: "1" } });
     },
-    [router, showGlobalLoader],
+    [router, showGlobalLoader, previewChannel],
   );
   const openProgram = useCallback(
     (program: JellyfinProgram, channel: JellyfinItem) => {
@@ -152,12 +161,12 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
     (program: JellyfinProgram, channel: JellyfinItem) => {
       const startMs = Date.parse(program.StartDate ?? "");
       const endMs = Date.parse(program.EndDate ?? "");
-      if (startMs <= nowRef.current && nowRef.current < endMs) tune(channel.Id, channel.Name);
+      if (startMs <= nowRef.current && nowRef.current < endMs) tune(channel);
       else openProgram(program, channel);
     },
     [tune, openProgram],
   );
-  const handleChannelPress = useCallback((channel: JellyfinItem) => tune(channel.Id, channel.Name), [tune]);
+  const handleChannelPress = tune;
   const openChannel = useCallback((channel: JellyfinItem) => router.push({ pathname: "/video-info", params: { videoId: channel.Id, name: channel.Name } }), [router]);
   const openRecordings = useCallback(() => router.push("/recordings"), [router]);
   const openSchedule = useCallback(() => router.push("/schedule"), [router]);
@@ -240,6 +249,7 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
             {IS_TV ? (
               <View style={styles.tabBarGuideSlot}>{!focusInside && topFocusHandle !== undefined ? <TVFocusGuideView style={styles.tabBarGuide} destinations={[topFocusHandle]} /> : null}</View>
             ) : null}
+            {livePreview.channel ? <LivePreviewSlot channel={livePreview.channel} /> : null}
             <GuideCanvas
               key={session}
               guide={guide}

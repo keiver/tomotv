@@ -396,3 +396,25 @@ export function channelWindow<T extends { Id: string }>(channels: readonly T[], 
   const at = (offset: number) => channels[(index + offset + channels.length) % channels.length].Id;
   return [...new Set([at(-1), ...Array.from({ length: count }, (_, offset) => at(offset))])];
 }
+
+/** The share of the window the Live TV player slot may take, so the guide keeps rows under it. */
+const PREVIEW_MAX_HEIGHT_SHARE = 0.45;
+
+/** The Live TV player slot: the content width at 16:9, narrowed to stay within its share of the window height. */
+export function previewSlotSize(width: number, windowHeight: number): { width: number; height: number } {
+  const height = Math.max(0, Math.min((width * 9) / 16, windowHeight * PREVIEW_MAX_HEIGHT_SHARE));
+  return { width: (height * 16) / 9, height };
+}
+
+export type PreviewTap = "start" | "switch" | "fullscreen" | "retry" | "none";
+
+/**
+ * What a channel tap does to the Live TV player slot: start it, switch it to the tapped channel, or, on the
+ * channel already in it, open it full screen once it plays and retry it once it failed.
+ */
+export function previewTapAction(tappedId: string, slotChannelId: string | null, hostMode: string): PreviewTap {
+  if (slotChannelId === null || hostMode === "idle" || hostMode === "pip-detached") return "start";
+  if (tappedId !== slotChannelId) return "switch";
+  if (hostMode === "video") return "fullscreen";
+  return hostMode === "error" ? "retry" : "none";
+}

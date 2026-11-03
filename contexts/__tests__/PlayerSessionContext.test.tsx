@@ -21,6 +21,8 @@ function makeBridge(): jest.Mocked<PlayerHostBridge> {
     seekBy: jest.fn(),
     togglePlay: jest.fn(),
     toggleVideoFill: jest.fn(),
+    setInlineFrame: jest.fn(),
+    presentFullscreen: jest.fn(),
   };
 }
 
@@ -181,5 +183,100 @@ describe("PlayerSessionContext handoff", () => {
     ).not.toThrow();
     expect(bridge.pause).not.toHaveBeenCalled();
     expect(bridge.retry).not.toHaveBeenCalled();
+  });
+
+  it("hands an inline frame reported before the host registered to the host once it does", () => {
+    const bridge = makeBridge();
+    const frame = { x: 16, y: 120, width: 343, height: 193 };
+    renderColdLaunch(bridge, (session) => {
+      session.requestSession({ ...request("channel-1"), isLive: true, inline: true });
+      session.setInlineFrame(frame);
+    });
+
+    expect(bridge.setInlineFrame).toHaveBeenCalledWith(frame);
+    expect(bridge.requestSession.mock.invocationCallOrder[0]).toBeLessThan(bridge.setInlineFrame.mock.invocationCallOrder[0]);
+  });
+
+  it("hands a cleared inline frame to the host too", () => {
+    const bridge = makeBridge();
+    renderColdLaunch(bridge, (session) => session.setInlineFrame(null));
+
+    expect(bridge.setInlineFrame).toHaveBeenCalledWith(null);
+  });
+
+  it("asks a registered host for full screen, and drops the ask when there is no host", () => {
+    const bridge = makeBridge();
+    renderColdLaunch(bridge, (session) => session.presentFullscreen());
+    expect(bridge.presentFullscreen).not.toHaveBeenCalled();
+
+    const tree = renderColdLaunch(bridge, () => {}, false);
+    act(() => {
+      tree.update(
+        <PlayerSessionProvider>
+          <Route run={(session) => session.presentFullscreen()} />
+          <Host bridge={bridge} />
+        </PlayerSessionProvider>,
+      );
+    });
+    expect(bridge.presentFullscreen).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("PlayerSessionContext handlers", () => {
+  const handlers = (name: string) => ({
+    onPlaybackEnd: jest.fn(),
+    onContentProposalAccepted: jest.fn(),
+    onContentProposalRejected: jest.fn(),
+    onInfoPanelItemSelected: jest.fn(),
+    onSkipChannel: jest.fn(),
+    onTransportBarButtonSelected: jest.fn(),
+    onRequestBack: jest.fn(() => name),
+  });
+
+  function HandlersProbe({ run }: { run: (session: ReturnType<typeof usePlayerSession>, host: ReturnType<typeof usePlayerSessionHost>) => void }) {
+    const session = usePlayerSession();
+    const host = usePlayerSessionHost();
+    useEffect(() => run(session, host), []); // eslint-disable-line react-hooks/exhaustive-deps
+    return null;
+  }
+
+  it("clears the handlers that asked to be cleared", () => {
+    let registered: unknown = "unset";
+    const own = handlers("live-tv");
+    act(() => {
+      TestRenderer.create(
+        <PlayerSessionProvider>
+          <HandlersProbe
+            run={(session, host) => {
+              session.setHandlers(own);
+              session.clearHandlers(own);
+              registered = host.handlersRef.current;
+            }}
+          />
+        </PlayerSessionProvider>,
+      );
+    });
+    expect(registered).toBeNull();
+  });
+
+  it("keeps the handlers of a screen that took over when the one before it clears its own", () => {
+    let registered: unknown = null;
+    const before = handlers("live-tv");
+    const after = handlers("player");
+    act(() => {
+      TestRenderer.create(
+        <PlayerSessionProvider>
+          <HandlersProbe
+            run={(session, host) => {
+              session.setHandlers(before);
+              session.setHandlers(after);
+              session.clearHandlers(before);
+              registered = host.handlersRef.current;
+            }}
+          />
+        </PlayerSessionProvider>,
+      );
+    });
+    expect(registered).toBe(after);
   });
 });

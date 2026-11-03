@@ -1,4 +1,34 @@
-import { leavingByPan } from "@/components/dismiss-pan";
+import React from "react";
+import { GestureDetector } from "react-native-gesture-handler";
+import TestRenderer, { act } from "react-test-renderer";
+import { DismissPan, leavingByPan } from "@/components/dismiss-pan";
+
+jest.mock("react-native-gesture-handler", () => {
+  const actual = jest.requireActual("react-native-gesture-handler");
+  const { View } = jest.requireActual("react-native");
+  return { ...actual, GestureDetector: ({ children }: { children: React.ReactNode }) => children, GestureHandlerRootView: View };
+});
+
+describe("DismissPan", () => {
+  const gestureEnabled = async (enabled?: boolean) => {
+    let tree!: TestRenderer.ReactTestRenderer;
+    const props: React.ComponentProps<typeof DismissPan> = { onDismiss: jest.fn(), enabled, children: null };
+    await act(async () => {
+      tree = TestRenderer.create(React.createElement(DismissPan, props));
+    });
+    const gesture = tree.root.findByType(GestureDetector).props.gesture as { config: { enabled?: boolean } };
+    await act(async () => tree.unmount());
+    return gesture.config.enabled;
+  };
+
+  it("drags to leave by default", async () => {
+    expect(await gestureEnabled()).toBe(true);
+  });
+
+  it("turns the drag off when disabled", async () => {
+    expect(await gestureEnabled(false)).toBe(false);
+  });
+});
 
 /**
  * The rule that decides whether a drag was somebody leaving the player.

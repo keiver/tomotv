@@ -13,6 +13,9 @@ jest.mock("@/hooks/useAuthSession", () => ({ useAuthSession: () => "session" }))
 jest.mock("@/hooks/useChannelFavoritesSync", () => ({ useChannelFavoritesSync: jest.fn() }));
 jest.mock("@/hooks/useLiveTvPreferences", () => ({ useLiveTvPreferences: () => ({ filter: "all" }) }));
 jest.mock("@/hooks/useRecordingStatus", () => ({ useIsRecording: () => false }));
+const mockPreview = jest.fn();
+jest.mock("@/hooks/useLivePreview", () => ({ useLivePreview: () => ({ channel: null, preview: mockPreview }) }));
+const mockPush = jest.fn();
 jest.mock("@/components/live-tv/guide-canvas", () => ({ GuideCanvas: () => null }));
 jest.mock("@/components/live-tv/guide-hud", () => ({ GuideHud: () => null }));
 jest.mock("@/components/live-tv/guide-corner-actions", () => ({ GuideCornerActions: () => null, HudAction: () => null, HUD_ACTION_ICON: 20, scheduleSymbol: () => "calendar" }));
@@ -22,7 +25,7 @@ jest.mock("@/services/i18n", () => ({ t: (key: string) => key }));
 jest.mock("@/services/externalGuide", () => ({ refreshExternalGuide: jest.fn() }));
 jest.mock("@/services/jellyfinApi", () => ({ invalidateLiveTvSearchIndex: jest.fn(), warmLiveTvSearch: jest.fn() }));
 jest.mock("@/services/toast", () => ({ showToast: jest.fn(), dismissToast: jest.fn() }));
-jest.mock("expo-router", () => ({ Stack: { Screen: () => null }, useIsFocused: () => true, useLocalSearchParams: () => mockParams, useRouter: () => ({ push: jest.fn() }) }));
+jest.mock("expo-router", () => ({ Stack: { Screen: () => null }, useIsFocused: () => true, useLocalSearchParams: () => mockParams, useRouter: () => ({ push: mockPush }) }));
 jest.mock("expo-router/react-navigation", () => ({ useHeaderHeight: () => 0 }));
 jest.mock("react-native/Libraries/ReactNative/RendererProxy", () => ({ ...jest.requireActual("react-native/Libraries/ReactNative/RendererProxy"), findNodeHandle: () => 42 }));
 jest.mock("react-native/Libraries/Components/TV/TVFocusGuideView", () => {
@@ -91,5 +94,13 @@ describe("Live TV focus on TV", () => {
     mockParams.opened = "2";
     await act(async () => tree.update(<LiveTvRoute />));
     expect(channelsNode.requestTVFocus).toHaveBeenCalledTimes(2);
+  });
+
+  it("a channel press opens the player, never the slot above the guide", async () => {
+    const { tree } = await renderScreen();
+    const channel = { Id: "c1", Name: "One", Type: "TvChannel" };
+    await act(async () => tree.root.findByType(GuideCanvas).props.onChannelPress(channel));
+    expect(mockPush).toHaveBeenCalledWith({ pathname: "/player", params: { videoId: "c1", videoName: "One", live: "1" } });
+    expect(mockPreview).not.toHaveBeenCalled();
   });
 });

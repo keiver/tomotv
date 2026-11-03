@@ -7,6 +7,7 @@
  * not what the hook does with it.
  */
 import React from "react";
+import { StyleSheet } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 import Video from "react-native-video";
 import { DismissPan } from "@/components/dismiss-pan";
@@ -1041,6 +1042,127 @@ describe("PlayerHost", () => {
       expect(videoRef.current.setFullScreen).toHaveBeenCalledWith(true);
       expect(covered(macRenderer)).toBe(true);
       await act(async () => macRenderer.unmount());
+    });
+  });
+
+  describe("an inline session in Live TV's slot", () => {
+    const video = () => renderer.root.findByType(Video);
+    const stage = () => renderer.root.findByType(DismissPan);
+    const frame = { x: 16, y: 120, width: 343, height: 193 };
+    const videoRef = { current: { setFullScreen: jest.fn(), restoreUserInterfaceForPictureInPictureStopCompleted: jest.fn() } };
+
+    async function playInline(withFrame = true) {
+      mockUseVideoPlayback.mockImplementation((config: { videoId: string; skip?: boolean }) => {
+        hookCalls.push({ videoId: config.videoId, skip: config.skip });
+        return { ...hookResult(), videoRef };
+      });
+      handlersRef.current = { onPlaybackEnd: jest.fn(), onRequestBack: jest.fn(), onPipStarted: jest.fn() };
+      await act(async () => {
+        bridge().requestSession({ videoId: "channel-1", sessionKey: "live-tv:1", isLive: true, inline: true });
+        if (withFrame) bridge().setInlineFrame(frame);
+      });
+      sourceUri = "http://stream/channel-1";
+      await act(async () => {
+        renderer.update(<PlayerHost />);
+      });
+      await act(async () => {
+        video().props.onLoad({ naturalSize: { width: 1920, height: 1080 } });
+      });
+    }
+
+    beforeEach(() => {
+      videoRef.current.setFullScreen.mockClear();
+    });
+
+    it("plays muted in the reported frame, never presented, with no curtain and no drag to leave", async () => {
+      await playInline();
+
+      expect(videoRef.current.setFullScreen).not.toHaveBeenCalled();
+      expect(video().props.muted).toBe(true);
+      expect(covered(renderer)).toBe(false);
+      expect(stage().props.pointerEvents).toBe("auto");
+      expect(stage().props.enabled).toBe(false);
+      expect(StyleSheet.flatten(stage().props.style)).toMatchObject({ position: "absolute", left: 16, top: 120, width: 343, height: 193 });
+    });
+
+    it("stays off screen until the slot reports its frame", async () => {
+      await playInline(false);
+
+      expect(stage().props.pointerEvents).toBe("none");
+      expect(videoRef.current.setFullScreen).not.toHaveBeenCalled();
+    });
+
+    it("goes full screen with sound when asked", async () => {
+      await playInline();
+
+      await act(async () => {
+        bridge().presentFullscreen();
+      });
+
+      expect(videoRef.current.setFullScreen).toHaveBeenCalledWith(true);
+      expect(video().props.muted).toBe(false);
+    });
+
+    it("comes back to the frame when the viewer closes full screen, keeping the session", async () => {
+      await playInline();
+      await act(async () => {
+        bridge().presentFullscreen();
+      });
+      await act(async () => {
+        video().props.onFullscreenPlayerDidPresent();
+      });
+
+      await act(async () => {
+        video().props.onFullscreenPlayerDidDismiss();
+      });
+
+      expect(handlersRef.current?.onRequestBack).toHaveBeenCalledTimes(1);
+      expect(requestedVideoId()).toBe("channel-1");
+      expect(stage().props.pointerEvents).toBe("auto");
+    });
+
+    it("never presents again when a PiP window started from the frame closes", async () => {
+      await playInline();
+      await act(async () => {
+        video().props.onPictureInPictureStatusChanged({ isActive: true });
+      });
+
+      await act(async () => {
+        video().props.onPictureInPictureStatusChanged({ isActive: false });
+      });
+
+      expect(videoRef.current.setFullScreen).not.toHaveBeenCalled();
+    });
+
+    it("starts each channel switched into the frame muted", async () => {
+      await playInline();
+      await act(async () => {
+        bridge().presentFullscreen();
+      });
+      await act(async () => {
+        video().props.onFullscreenPlayerDidPresent();
+        video().props.onFullscreenPlayerDidDismiss();
+      });
+      expect(video().props.muted).toBe(false);
+
+      await act(async () => {
+        bridge().switchLiveChannel({ videoId: "channel-2", videoName: "Two", picked: true });
+      });
+
+      expect(video().props.muted).toBe(true);
+      expect(videoRef.current.setFullScreen).toHaveBeenCalledTimes(1);
+    });
+
+    it("ignores a full screen ask for a session that is not inline", async () => {
+      await act(async () => {
+        bridge().requestSession({ videoId: "movie-1", sessionKey: "key-1" });
+      });
+
+      await act(async () => {
+        bridge().presentFullscreen();
+      });
+
+      expect(videoRef.current.setFullScreen).not.toHaveBeenCalled();
     });
   });
 

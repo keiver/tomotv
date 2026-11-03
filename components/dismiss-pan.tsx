@@ -37,6 +37,8 @@ interface DismissPanProps {
   onDismiss: () => void;
   style?: StyleProp<ViewStyle>;
   pointerEvents?: ViewProps["pointerEvents"];
+  /** Off keeps the same tree with the drag disabled, so a child player is never remounted. */
+  enabled?: boolean;
   children: React.ReactNode;
 }
 
@@ -55,7 +57,7 @@ interface DismissPanProps {
  *
  * Inert on tvOS, which pops with Menu and must not gain a view above its focusables.
  */
-export function DismissPan({ onDismiss, style, pointerEvents, children }: DismissPanProps) {
+export function DismissPan({ onDismiss, style, pointerEvents, enabled = true, children }: DismissPanProps) {
   const translateY = useSharedValue(0);
 
   const dismiss = useCallback(() => {
@@ -66,6 +68,7 @@ export function DismissPan({ onDismiss, style, pointerEvents, children }: Dismis
   const pan = useMemo(
     () =>
       Gesture.Pan()
+        .enabled(enabled)
         .activeOffsetY(24)
         .failOffsetX([-20, 20])
         .onUpdate((event) => {
@@ -80,7 +83,7 @@ export function DismissPan({ onDismiss, style, pointerEvents, children }: Dismis
           }
           translateY.set(withTiming(0, { duration: 160 }));
         }),
-    [dismiss, translateY],
+    [dismiss, translateY, enabled],
   );
 
   const dragStyle = useAnimatedStyle(() => ({ transform: [{ translateY: translateY.get() }] }));
