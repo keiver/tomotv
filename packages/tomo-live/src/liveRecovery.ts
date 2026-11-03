@@ -4,19 +4,27 @@ import { isRecordingHoldFailure } from "@keiver/tomo-engine";
 export const LIVE_REOPEN_DELAYS_MS = [500, 1000, 2000, 4000, 5000];
 /** Played this long without a drop, a channel's next drop counts as its first again. */
 export const LIVE_RECOVERY_RESET_MS = 60_000;
+/** Reopens of a channel that has not played since the viewer chose it; its next drop ends the play. */
+export const LIVE_UNPLAYED_REOPENS = 4;
 
 export interface LiveRecoveryInput {
   /** Reopens since the channel last played LIVE_RECOVERY_RESET_MS without a drop (liveReopenCount). */
   attempts: number;
   /** The channel cannot play however often it is opened: refused credentials, DRM, gone from the origin. */
   permanent: boolean;
+  /** The channel played since the viewer chose it; true when absent. */
+  played?: boolean;
 }
 
 export type LiveRecoveryDecision = { reopen: true; delayMs: number } | { reopen: false };
 
-/** A dropped live channel opens again, after a growing wait, for as long as the viewer stays on it. */
+/**
+ * A dropped live channel opens again, after a growing wait, for as long as the viewer stays on it; one that
+ * never played stops after LIVE_UNPLAYED_REOPENS.
+ */
 export function planLiveRecovery(input: LiveRecoveryInput): LiveRecoveryDecision {
   if (input.permanent) return { reopen: false };
+  if (input.played === false && input.attempts >= LIVE_UNPLAYED_REOPENS) return { reopen: false };
   const step = Math.max(0, Math.min(Math.floor(input.attempts), LIVE_REOPEN_DELAYS_MS.length - 1));
   return { reopen: true, delayMs: LIVE_REOPEN_DELAYS_MS[step] };
 }

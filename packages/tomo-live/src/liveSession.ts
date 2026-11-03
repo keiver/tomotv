@@ -32,12 +32,19 @@ export class LiveDropCounter {
   private attempts = 0;
   private lastDropAt: number | null = null;
   private playingSince: number | null = null;
+  private everPlayed = false;
 
   constructor(private readonly now: () => number = Date.now) {}
 
   /** The channel plays again; the time it keeps playing is what resets the count. */
   notePlaying(): void {
     this.playingSince ??= this.now();
+    this.everPlayed = true;
+  }
+
+  /** The channel played at least once since the last reset. */
+  get played(): boolean {
+    return this.everPlayed;
   }
 
   /** The attempt this drop is, counting from zero after a stretch of playback without one. */
@@ -54,6 +61,7 @@ export class LiveDropCounter {
     this.attempts = 0;
     this.lastDropAt = null;
     this.playingSince = null;
+    this.everPlayed = false;
   }
 }
 
@@ -64,7 +72,7 @@ export function watchLiveSession(token: string, drops: LiveDropCounter, watch: L
     else watch.onReopened?.(event);
   });
   const stopFailure = subscribeEngineFailure(token, (failure) => {
-    watch.onEnded?.(failure.message, planLiveRecovery({ attempts: drops.drop(), permanent: isPermanentLiveFailure(failure.message) }));
+    watch.onEnded?.(failure.message, planLiveRecovery({ attempts: drops.drop(), permanent: isPermanentLiveFailure(failure.message), played: drops.played }));
   });
   return () => {
     stopLive();
@@ -394,7 +402,7 @@ export class LivePlayback<Item> {
    * already made. Lets go of the channel and the watch; the app stops its own session.
    */
   drop(message: string, permanent: boolean, decided?: LiveRecoveryDecision): LiveRecoveryDecision {
-    const decision = decided ?? planLiveRecovery({ attempts: this.drops.drop(), permanent: permanent || isPermanentLiveFailure(message) });
+    const decision = decided ?? planLiveRecovery({ attempts: this.drops.drop(), permanent: permanent || isPermanentLiveFailure(message), played: this.drops.played });
     this.delayMs = decision.reopen ? decision.delayMs : null;
     this.endWatch();
     this.session = null;

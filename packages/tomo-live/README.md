@@ -79,8 +79,9 @@ before each bind (a throw is a drop, `false` ends the play with no bind), `onOpe
 app's own final failures. The rule is
 `planLiveRecovery`: reopen after 0.5, 1, 2, 4, then 5 s (`LIVE_REOPEN_DELAYS_MS`), counted from
 zero again once the channel has been playing `LIVE_RECOVERY_RESET_MS` (60 s) since it last started,
-and stop only on a failure no open fixes (`isPermanentLiveFailure`: the engine gave the input up,
-the origin refused every path, or DRM).
+and stop on a failure no open fixes (`isPermanentLiveFailure`: the engine gave the input up,
+the origin refused every path, or DRM), or after `LIVE_UNPLAYED_REOPENS` (4) reopens of a channel
+that has not played since the viewer chose it.
 
 The steps underneath stay public: `open(channelId, current)` (null once `current()` turns false,
 with nothing left open), `takeAdopted`, `bind(token, url, watch)`, `drop(message, permanent)`,

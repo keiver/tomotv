@@ -549,6 +549,27 @@ it("asks for a fresh start with a growing wait when a session ends, across the c
   ]);
 });
 
+it("ends a channel that never played after its fifth failed open, and keeps reopening one that played", () => {
+  const unplayed = new LiveDropCounter();
+  const onEnded = jest.fn();
+  for (let n = 0; n < 5; n++) {
+    watchLiveSession(`u${n}`, unplayed, { onEnded });
+    failureListeners.get(`u${n}`)!({ token: `u${n}`, message: "engine failed: open_input: Invalid data found when processing input" });
+  }
+  expect(onEnded.mock.calls.map(([, decision]) => decision.reopen)).toEqual([true, true, true, true, false]);
+
+  const played = new LiveDropCounter();
+  played.notePlaying();
+  onEnded.mockClear();
+  for (let n = 0; n < 5; n++) {
+    watchLiveSession(`p${n}`, played, { onEnded });
+    failureListeners.get(`p${n}`)!({ token: `p${n}`, message: "live input lost: the origin ended the stream" });
+  }
+  expect(onEnded.mock.calls.every(([, decision]) => decision.reopen)).toBe(true);
+  played.reset();
+  expect(played.played).toBe(false);
+});
+
 it("starts the wait over once the channel played a minute without a drop", () => {
   let now = 1_000_000;
   const drops = new LiveDropCounter(() => now);
