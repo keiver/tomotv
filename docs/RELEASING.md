@@ -13,7 +13,9 @@ npm run archive -- <next-build> --upload --no-testflight   # upload, without the
 
 ### External TestFlight
 
-Every build reaches the internal group "Tomo Internal Testers" on its own. `--upload` also
+Every build reaches the internal group "Tomo Internal Testers" on its own. `--upload` sets each
+platform's build's What to Test (English) from that platform's English What's New for the version,
+replacing any English text the build already has; `--no-testflight` still sets it. `--upload` also
 sends each platform's build to the external group "Tomo Warrior Testers": it submits the build
 for TestFlight beta review, then adds it to the group. Testers are notified once Apple approves it.
 
@@ -30,7 +32,8 @@ node scripts/appstore-testflight.mjs <build> --platform IOS   # IOS, MAC_OS or T
 The first build of a version gets a full review. Later builds of the same version usually do not,
 but each still needs its own submission. Apple takes at most six beta review submissions in 24 hours;
 a refused submission is printed with Apple's reason and the build is not added to the group. A
-failure in this step never stops the rest of the archive run. `--no-testflight` skips it.
+failure in this step never stops the rest of the archive run. `--no-testflight` skips the submission.
+`node scripts/appstore-testflight.mjs <build> --no-submit` sets What to Test alone.
 
 A platform whose last version is still in review gets its build for TestFlight but keeps its
 listing. Once that review ends, open the new version with

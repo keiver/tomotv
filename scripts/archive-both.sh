@@ -7,7 +7,9 @@
 #   npm run archive -- <buildNumber> --upload   # same, then upload all three to App Store Connect
 #                                               # (--upload also composes and uploads the
 #                                               #  screenshots and the listing text, every
-#                                               #  store language)
+#                                               #  store language, and sets each build's
+#                                               #  TestFlight What to Test from the English
+#                                               #  What's New)
 #   npm run archive -- <buildNumber> --upload --notes
 #                                               # and translate missing release notes first
 #   npm run archive -- <buildNumber> --upload --no-testflight
@@ -388,10 +390,14 @@ echo "[5/$STEPS] tvOS"
 build_platform tvOS "generic/platform=tvOS" appletvos appletvos 1 scripts/exportOptions-tvos.plist
 
 if [[ $UPLOAD -eq 1 ]]; then
-  echo "[6/$STEPS] External TestFlight"
+  echo "[6/$STEPS] TestFlight"
   if [[ $TESTFLIGHT -eq 0 ]]; then
-    echo "  skipped (--no-testflight)"
-    RESULTS+=("testflight | skipped (--no-testflight)")
+    if node scripts/appstore-testflight.mjs "$BUILD_NUMBER" --no-submit; then
+      RESULTS+=("testflight | What to Test set, external submission skipped (--no-testflight)")
+    else
+      echo "Setting What to Test failed; the build is uploaded, set it in App Store Connect." >&2
+      RESULTS+=("testflight | What to Test FAILED, set it for build $BUILD_NUMBER by hand")
+    fi
   elif node scripts/appstore-testflight.mjs "$BUILD_NUMBER"; then
     RESULTS+=("testflight | build $BUILD_NUMBER submitted where the review slot was free (see above)")
   else
