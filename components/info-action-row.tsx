@@ -1,7 +1,8 @@
-import { FocusableButton } from "@/components/FocusableButton";
+import { BUTTON_BORDER_WIDTH, FocusableButton } from "@/components/FocusableButton";
 import { COLORS } from "@/constants/colors";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { t } from "@/services/i18n";
+import { withAlpha } from "@/utils/color";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Platform, StyleSheet, Text, View } from "react-native";
@@ -10,9 +11,10 @@ const IS_TV = Platform.isTV;
 const CIRCLE = IS_TV ? 104 : 66;
 const SLOT = CIRCLE + (IS_TV ? 24 : 10);
 const ICON = IS_TV ? 46 : 28;
-/** The height the icon takes in the stack; a taller icon grows upward, so the word stays put. */
-const ICON_BOX = IS_TV ? 32 : 22;
 const LABEL = IS_TV ? 19 : 11;
+const REST_FILL = withAlpha(COLORS.TEXT_PRIMARY, 0.14);
+/** Extra space between the toggles and the actions after them. */
+const GROUP_GAP = IS_TV ? 40 : 14;
 /** The smallest circle the phone row narrows to; past it the row wraps. */
 const MIN_CIRCLE = 56;
 /** How long an action report holds the caption before focus takes it back. */
@@ -89,7 +91,7 @@ const downloadCopy = (): Record<DownloadCircleState, { label: string; done: stri
 
 /**
  * The panel's secondary controls: one circle per control, toggles first, each holding its
- * icon and word, and a caption under the row.
+ * icon with its word underneath, and a caption under the row. Only the focused circle is filled.
  *
  * On tvOS the caption names what the focused control's next press will do; on both platforms a
  * press replaces it with what just happened.
@@ -163,13 +165,16 @@ export function InfoActionRow({
     report(ok ? done : t("info.couldNotReachServer"), !ok);
   };
 
-  const labeled = (name: keyof typeof Ionicons.glyphMap, ink: string, word: string) => (
-    <View style={styles.content}>
-      <Ionicons name={name} size={ICON} color={ink} style={styles.icon} />
-      <Text style={[styles.label, { color: ink }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
-        {word}
-      </Text>
-    </View>
+  const glyph = (key: ActionKey, name: keyof typeof Ionicons.glyphMap, ink: string, alarm = false) => (
+    <Ionicons name={name} size={ICON} color={focused === key ? (alarm ? COLORS.TEXT_PRIMARY : onAccent) : ink} />
+  );
+  const circleFor = (key: ActionKey, alarm = false) => ({ ...circleStyle, backgroundColor: focused === key ? (alarm ? COLORS.DESTRUCTIVE : accent) : REST_FILL });
+  // Actions carry the pill CTA's border; toggles never do.
+  const actionFor = (key: ActionKey, alarm = false) => ({ ...circleFor(key, alarm), borderWidth: BUTTON_BORDER_WIDTH, borderColor: alarm ? COLORS.DESTRUCTIVE : accent });
+  const wordFor = (key: ActionKey, word: string) => (
+    <Text style={[styles.label, { maxWidth: fitted.slot - 4 }, focused === key && styles.labelFocused]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
+      {word}
+    </Text>
   );
 
   const toggles: ToggleCircle[] = [
@@ -219,8 +224,12 @@ export function InfoActionRow({
   ];
 
   const count = toggles.length + (onStopRecording || stopSpent ? 1 : 0) + (onToggleDownload && downloadState ? 1 : 0) + extras.length;
-  const fitted = IS_TV ? { slot: SLOT, circle: CIRCLE } : fittedSlot(rowWidth, count);
+  const firstAction: ActionKey | undefined =
+    toggles.length === 0 ? undefined : onStopRecording || stopSpent ? "stop" : onToggleDownload && downloadState ? "download" : extras[0] && `extra:${extras[0].key}`;
+  const gap = firstAction ? GROUP_GAP : 0;
+  const fitted = IS_TV ? { slot: SLOT, circle: CIRCLE } : fittedSlot(rowWidth - gap, count);
   const slotStyle = [styles.slot, { width: fitted.slot }];
+  const actionSlot = (key: ActionKey) => (key === firstAction ? [...slotStyle, { marginLeft: gap }] : slotStyle);
   const circleStyle = { ...styles.circle, width: fitted.circle, height: fitted.circle, minHeight: fitted.circle };
 
   return (
@@ -229,62 +238,66 @@ export function InfoActionRow({
         {toggles.map((toggle) => (
           <View key={toggle.key} style={slotStyle}>
             <FocusableButton
-              variant={toggle.selected ? "primary" : "secondary"}
-              style={circleStyle}
-              icon={labeled(toggle.selected ? toggle.icon : toggle.offIcon, toggle.selected ? onAccent : accent, toggle.word)}
+              variant="secondary"
+              style={circleFor(toggle.key)}
+              icon={glyph(toggle.key, toggle.selected ? toggle.icon : toggle.offIcon, accent)}
               accessibilityLabel={toggle.accessibilityLabel}
               accessibilityState={{ selected: toggle.selected }}
               onFocus={() => setFocused(toggle.key)}
               onBlur={() => blur(toggle.key)}
               onPress={press(toggle.run, toggle.done)}
             />
+            {wordFor(toggle.key, toggle.word)}
           </View>
         ))}
         {(!!onStopRecording || stopSpent) && (
           // Always lit and red: one irreversible press, never a toggle. A bare glyph, since the
           // button is the circle (see the download arrow).
-          <View style={slotStyle}>
+          <View style={actionSlot("stop")}>
             <FocusableButton
               variant="secondary"
-              style={circleStyle}
-              icon={labeled("stop", COLORS.DESTRUCTIVE, t("info.word.stop"))}
+              style={actionFor("stop", true)}
+              icon={glyph("stop", "stop", COLORS.DESTRUCTIVE, true)}
               accessibilityLabel={t("liveTv.stopRecording")}
               accessibilityState={{ disabled: stopSpent }}
               onFocus={() => setFocused("stop")}
               onBlur={() => blur("stop")}
               onPress={onStopRecording ? press(onStopRecording, t("liveTv.recordingStopped")) : undefined}
             />
+            {wordFor("stop", t("info.word.stop"))}
           </View>
         )}
         {!!onToggleDownload && !!downloadState && (
           // Always lit: this is an action, not a toggle. Every state it renders in is a press
           // worth making, "none" most of all. Failure takes the ink; the caption carries state.
-          <View style={slotStyle}>
+          <View style={actionSlot("download")}>
             <FocusableButton
               variant="secondary"
-              style={circleStyle}
-              icon={labeled("arrow-down", downloadState === "failed" ? COLORS.DESTRUCTIVE : accent, t("info.word.download"))}
+              style={actionFor("download", downloadState === "failed")}
+              icon={glyph("download", "arrow-down", downloadState === "failed" ? COLORS.DESTRUCTIVE : accent, downloadState === "failed")}
               accessibilityLabel={download.label}
               accessibilityState={{ selected: downloadState === "ready" }}
               onFocus={() => setFocused("download")}
               onBlur={() => blur("download")}
               onPress={press(onToggleDownload, download.done)}
             />
+            {wordFor("download", t("info.word.download"))}
           </View>
         )}
         {extras.map((extra) => {
           const key = `extra:${extra.key}` as const;
           return (
-            <View key={extra.key} style={slotStyle}>
+            <View key={extra.key} style={actionSlot(key)}>
               <FocusableButton
                 variant="secondary"
-                style={circleStyle}
-                icon={labeled(extra.icon, extra.destructive ? COLORS.DESTRUCTIVE : accent, extra.word)}
+                style={actionFor(key, extra.destructive)}
+                icon={glyph(key, extra.icon, extra.destructive ? COLORS.DESTRUCTIVE : accent, extra.destructive)}
                 accessibilityLabel={extra.label}
                 onFocus={() => setFocused(key)}
                 onBlur={() => blur(key)}
                 onPress={extra.onPress}
               />
+              {wordFor(key, extra.word)}
             </View>
           );
         })}
@@ -320,8 +333,7 @@ const styles = StyleSheet.create({
     width: SLOT,
     alignItems: "center",
   },
-  // Shape and no border: fill and focus come from the primary and secondary variants, as on the
-  // panel's two pills. minHeight has to be restated or styles.button's CONTROL_HEIGHT floor wins.
+  // Shape and no border; the fill is set per focus. minHeight has to be restated or styles.button's CONTROL_HEIGHT floor wins.
   circle: {
     width: CIRCLE,
     height: CIRCLE,
@@ -331,19 +343,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
     borderWidth: 0,
   },
-  content: {
-    alignItems: "center",
-    justifyContent: "center",
-    gap: IS_TV ? 4 : 1,
-  },
-  icon: {
-    marginTop: ICON_BOX - ICON,
-  },
   label: {
+    marginTop: IS_TV ? 10 : 4,
     fontSize: LABEL,
     fontWeight: "600",
-    maxWidth: CIRCLE - (IS_TV ? 16 : 14),
+    color: COLORS.TEXT_SECONDARY,
     textAlign: "center",
+  },
+  labelFocused: {
+    color: COLORS.TEXT_PRIMARY,
   },
   caption: {
     height: IS_TV ? 30 : 20,
