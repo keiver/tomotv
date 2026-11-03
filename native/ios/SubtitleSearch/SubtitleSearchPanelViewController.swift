@@ -493,7 +493,7 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
         }
     }
 
-    /// The name over its downloads, its rating in the accent, then the byline and badges; a saved row leads with the tick.
+    /// The name over its downloads, rating, byline and badges; a saved row leads with the tick.
     private func configure(_ button: UIButton, with result: SubtitlePanelResult) {
         var configuration = button.configuration ?? rowConfiguration()
         let tick = accent
@@ -524,7 +524,6 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
 
     private func subtitleLine(for result: SubtitlePanelResult) -> AttributedString {
         let plainFont = UIFont.systemFont(ofSize: Metrics.rowSubtitleFont, weight: .regular)
-        let statFont = UIFont.systemFont(ofSize: Metrics.rowSubtitleFont, weight: .semibold)
         var line = AttributedString()
         func text(_ string: String, font: UIFont, color: UIColor) -> AttributedString {
             var part = AttributedString(string)
@@ -532,18 +531,18 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
             part.foregroundColor = color
             return part
         }
-        func stat(symbol: String, value: String, color: UIColor, font: UIFont) {
+        func stat(symbol: String, value: String) {
             if !line.characters.isEmpty { line += text("   ", font: plainFont, color: Metrics.dim) }
-            if let image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(font: font))?.withTintColor(color, renderingMode: .alwaysOriginal) {
+            if let image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(font: plainFont))?.withTintColor(Metrics.dim, renderingMode: .alwaysOriginal) {
                 if let glyph = try? AttributedString(NSAttributedString(attachment: NSTextAttachment(image: image)), including: \.uiKit) { line += glyph }
             }
-            line += text(" \(value)", font: font, color: color)
+            line += text(" \(value)", font: plainFont, color: Metrics.dim)
         }
         if let downloads = result.downloads, let count = Self.countFormat.string(from: NSNumber(value: downloads)) {
-            stat(symbol: "arrow.down.circle.fill", value: count, color: Metrics.dim, font: plainFont)
+            stat(symbol: "arrow.down.circle.fill", value: count)
         }
         if let rating = result.rating, let score = Self.ratingFormat.string(from: NSNumber(value: rating)) {
-            stat(symbol: "star.fill", value: score, color: accent, font: statFont)
+            stat(symbol: "star.fill", value: score)
         }
         let rest = ([result.byline] + result.badges).filter { !$0.isEmpty }.joined(separator: "  ·  ")
         if !rest.isEmpty {
