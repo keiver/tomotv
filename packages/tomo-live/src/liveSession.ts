@@ -2,7 +2,7 @@
  * A live channel's play, from the session it takes over to the one it hands back to the ring: the
  * engine's in-session reopens, the failure that ends a session, and what each drop asks for.
  */
-import { engineProgress, localRemuxToken, stopLocalRemux, subscribeEngineFailure, subscribeEngineLive, type EngineLiveEvent } from "@keiver/tomo-engine";
+import { engineProgress, localRemuxToken, stopLocalRemux, subscribeEngineFailure, subscribeEngineLive, type EngineLiveEvent, type EngineProgress } from "@keiver/tomo-engine";
 
 import { isPermanentLiveFailure, liveReopenCount, planLiveRecovery, type LiveRecoveryDecision } from "./liveRecovery";
 import { takeLivePreview } from "./livePreview";
@@ -19,6 +19,12 @@ export interface LiveSessionWatch {
    * stop: a channel is never handed anywhere else.
    */
   onEnded?: (message: string, decision: LiveRecoveryDecision) => void;
+}
+
+/** The output the start gate counts; an LL-HLS session holds its own first playlist answer, so it passes at once. */
+export function startBufferedSeconds(progress: EngineProgress | null): number | null {
+  if (progress?.lowLatency) return Number.POSITIVE_INFINITY;
+  return progress?.bufferedSeconds ?? null;
 }
 
 /** Drops counted across the sessions of one channel play, reset by a stretch of playback. */
@@ -260,7 +266,7 @@ export class LivePlayback<Item> {
   private async startBuffered(token: string, bufferSeconds: number, current: () => boolean): Promise<boolean> {
     const now = this.deps.now ?? Date.now;
     const deadline = now() + (20 + bufferSeconds) * 1000;
-    const read = this.deps.bufferedSeconds ?? ((t: string) => engineProgress(t).then((progress) => progress?.bufferedSeconds ?? null));
+    const read = this.deps.bufferedSeconds ?? ((t: string) => engineProgress(t).then(startBufferedSeconds));
     while (current() && this.session?.token === token) {
       const buffered = await read(token);
       if (!current() || this.session?.token !== token) return false;

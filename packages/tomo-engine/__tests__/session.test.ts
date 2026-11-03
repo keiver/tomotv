@@ -270,6 +270,16 @@ describe("liveSessionConfig", () => {
   it("answers the player on its first segment when asked for no buffer", () => {
     expect(liveSessionConfig({ inputUrl: "u", itemId: "i", bufferSeconds: 0 }).liveBufferSeconds).toBe(0);
   });
+
+  it("asks for LL-HLS with a target learned from the first segment on the 2 s start step", () => {
+    expect(liveSessionConfig({ inputUrl: "u", itemId: "i" })).toMatchObject({ liveLowLatency: true, liveLowLatencyTargetSeconds: 0 });
+  });
+
+  it("opens a channel stepped up to a longer start buffer without LL-HLS", () => {
+    const live = liveSessionConfig({ inputUrl: "u", itemId: "i", bufferSeconds: 6 });
+    expect("liveLowLatency" in live).toBe(false);
+    expect("liveLowLatencyTargetSeconds" in live).toBe(false);
+  });
 });
 
 describe("describedSessionConfig", () => {

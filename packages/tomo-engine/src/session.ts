@@ -156,6 +156,8 @@ export function liveSessionConfig(input: LiveSessionInput): EngineSessionConfig 
     liveCopyCutSeconds: LIVE_COPY_CUT_SECONDS,
     liveTargetNearest: true,
     liveBufferSeconds: Number.isFinite(buffer) && buffer > 0 ? buffer : 0,
+    // LL-HLS on the first start step; a channel stepped up after a poor start opens plain with its buffer.
+    ...(buffer <= LIVE_BUFFER_SECONDS ? { liveLowLatency: true, liveLowLatencyTargetSeconds: 0 } : {}),
     ...(input.windowSeconds && input.windowSeconds > 0 ? { liveWindowSeconds: input.windowSeconds } : {}),
     ...(input.httpHeaders && Object.keys(input.httpHeaders).length > 0 ? { httpHeaders: input.httpHeaders } : {}),
     ...(input.originKey ? { liveOriginKey: input.originKey } : {}),
@@ -467,6 +469,8 @@ export type EngineProgress = {
   sourceRetryAfterSeconds?: number;
   /** Live: seconds of output a player bound now would hold ahead of it. */
   bufferedSeconds?: number;
+  /** Live: the session serves LL-HLS parts, so its first playlist answer is its own start gate. */
+  lowLatency?: boolean;
 };
 
 export async function engineProgress(token: string): Promise<EngineProgress | null> {
@@ -486,6 +490,7 @@ export async function engineProgress(token: string): Promise<EngineProgress | nu
         ? { sourceRetryAfterSeconds: progress.sourceRetryAfterSeconds }
         : {}),
       ...(typeof progress.bufferedSeconds === "number" && Number.isFinite(progress.bufferedSeconds) ? { bufferedSeconds: progress.bufferedSeconds } : {}),
+      ...(progress.lowLatency === true ? { lowLatency: true } : {}),
     };
   } catch (error) {
     engineLog().warn("Engine progress read failed", error, { service: "LocalRemux", token });

@@ -24,7 +24,7 @@ jest.mock("@keiver/tomo-engine", () => ({
 }));
 
 import { LIVE_RECOVERY_RESET_MS } from "../src/liveRecovery";
-import { LiveDropCounter, LivePlayback, watchLiveSession } from "../src/liveSession";
+import { LiveDropCounter, LivePlayback, startBufferedSeconds, watchLiveSession } from "../src/liveSession";
 import type { RingSession } from "../src/liveRing";
 import { noteLiveStall, resetLiveStartBuffersForTests } from "../src/startBuffer";
 
@@ -188,6 +188,13 @@ describe("LivePlayback open and play", () => {
     void live.play("c1", { onUrl: (url) => urls.push(url) });
     return urls;
   }
+
+  it("passes the start gate at once for an LL-HLS session and counts the buffer otherwise", () => {
+    const progress = { alive: true, bytesRead: 1, readSeconds: 0, elapsedSeconds: 0.4, bufferedSeconds: 0.5 };
+    expect(startBufferedSeconds({ ...progress, lowLatency: true })).toBe(Number.POSITIVE_INFINITY);
+    expect(startBufferedSeconds(progress)).toBe(0.5);
+    expect(startBufferedSeconds(null)).toBeNull();
+  });
 
   it("hands the URL over only once the session holds 2 s", async () => {
     let buffered = 0;
