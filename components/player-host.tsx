@@ -976,6 +976,8 @@ export function PlayerHost() {
           // prop makes React restore a default RNV never exposes a getter for, an uninitialised float.
           maxBitRate={maxBitRate ?? 0}
           preferredForwardBufferDuration={forwardBufferSeconds ?? 0}
+          // A loaded live item starts at once (RNV's playImmediately); playing, AVPlayer's own stall handling is back.
+          automaticallyWaitsToMinimizeStalling={!(session.isLive && state.type === "READY")}
           // The viewer's remembered subtitle choice, applied at item start.
           // Unset is {type: "system"}, which is the automatic path the lib
           // already takes, so a fresh install is unchanged.
