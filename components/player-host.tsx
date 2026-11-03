@@ -602,10 +602,8 @@ export function PlayerHost() {
       onLoad: (data: OnLoadData) => {
         attemptCallbacks.onLoad(data);
         // Never over a PiP window: this item was swapped inside the player the window shows.
-        // An inline session stays in its frame until the viewer asks for full screen, which may have come while it opened.
-        const inlineAsked = sessionRef.current?.inline === true && fullscreenWhenLoadedRef.current;
-        if (inlineAsked) fullscreenWhenLoadedRef.current = false;
-        if (sessionRef.current && pipRef.current === "none" && (!sessionRef.current.inline || (inlineAsked && presentationRef.current === "none"))) {
+        // An inline session stays in its frame until the viewer asks for full screen.
+        if (sessionRef.current && !sessionRef.current.inline && pipRef.current === "none") {
           programmaticDismissRef.current = false;
           presentationRef.current = "pending";
           videoRef.current?.setFullScreen(true);
@@ -1077,6 +1075,16 @@ export function PlayerHost() {
     }, PIP_START_RETRY_MS);
     return () => clearInterval(timer);
   }, [inline, pipWanted, pip, hostVisible, liveSwitching, videoRef]);
+
+  // Full screen asked for while the inline channel opened: the presented player comes up once it shows, in place of the window.
+  useEffect(() => {
+    if (!hostVisible || !inline || !fullscreenWhenLoadedRef.current) return;
+    fullscreenWhenLoadedRef.current = false;
+    if (pipRef.current !== "none" || presentationRef.current !== "none") return;
+    programmaticDismissRef.current = false;
+    presentationRef.current = "pending";
+    videoRef.current?.setFullScreen(true);
+  }, [hostVisible, inline, videoRef]);
 
   return (
     <DismissPan onDismiss={handleDismissGesture} style={stageStyle} pointerEvents={onStage ? "auto" : "none"}>

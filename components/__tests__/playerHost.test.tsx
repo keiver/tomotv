@@ -88,6 +88,8 @@ let sourceUri: string | null = null;
 let stateType: string | null = null;
 /** Whether a reported ERROR still has a rung left. */
 let canRetry = false;
+/** The hook's loading overlay, which a loaded item still shows until it plays. */
+let loadingOverlay = false;
 /** The item details the hook has fetched. */
 let details: { Id: string; Name: string; Type?: string } | null = null;
 const hookCalls: { videoId: string; skip?: boolean }[] = [];
@@ -116,7 +118,7 @@ function hookResult() {
     maxBitRate: null,
     videoCallbacks,
     state: stateType === "ERROR" ? { type: "ERROR", error: "failed", canRetryWithTranscode: canRetry } : { type: stateType ?? (sourceUri ? "PLAYING" : "IDLE") },
-    showLoadingOverlay: false,
+    showLoadingOverlay: loadingOverlay,
     pause: hookPause,
     retry: jest.fn(),
     videoDetails: details,
@@ -181,6 +183,7 @@ describe("PlayerHost", () => {
     sourceUri = null;
     stateType = null;
     canRetry = false;
+    loadingOverlay = false;
     details = null;
     mockVideoMounts.count = 0;
     mockQueue.queue = [];
@@ -1152,6 +1155,41 @@ describe("PlayerHost", () => {
       });
       await act(async () => {
         video().props.onLoad({ naturalSize: { width: 1920, height: 1080 } });
+      });
+
+      expect(videoRef.current.setFullScreen).toHaveBeenCalledWith(true);
+      expect(videoRef.current.enterPictureInPicture).not.toHaveBeenCalled();
+    });
+
+    it("opens the presented player once the channel plays when full screen was asked for after it loaded but before it played", async () => {
+      mockUseVideoPlayback.mockImplementation((config: { videoId: string; skip?: boolean }) => {
+        hookCalls.push({ videoId: config.videoId, skip: config.skip });
+        return { ...hookResult(), videoRef };
+      });
+      handlersRef.current = { onPlaybackEnd: jest.fn(), onRequestBack: jest.fn(), onPipStarted: jest.fn() };
+      stateType = "FETCHING_METADATA";
+      loadingOverlay = true;
+      await act(async () => {
+        bridge().setInlineFrame(card);
+        bridge().requestSession({ videoId: "channel-1", sessionKey: "live-tv:1", isLive: true, inline: true });
+      });
+      sourceUri = "http://stream/channel-1";
+      stateType = "READY";
+      await act(async () => {
+        renderer.update(<PlayerHost />);
+      });
+      await act(async () => {
+        video().props.onLoad({ naturalSize: { width: 1920, height: 1080 } });
+      });
+      await act(async () => {
+        bridge().presentFullscreen();
+      });
+      expect(videoRef.current.setFullScreen).not.toHaveBeenCalled();
+
+      stateType = "PLAYING";
+      loadingOverlay = false;
+      await act(async () => {
+        renderer.update(<PlayerHost />);
       });
 
       expect(videoRef.current.setFullScreen).toHaveBeenCalledWith(true);
