@@ -123,8 +123,45 @@ final class LiveAVPlayerTests: XCTestCase {
         XCTAssertNil(LowLatencyPlayerAsset.asset(for: URL(string: "http://example.com:5000/TOKEN-1/master.m3u8")!))
         XCTAssertEqual(LowLatencyPlayerAsset.loopbackURL(URL(string: "tomo-ll://127.0.0.1:5000/TOKEN-1/media.m3u8?_HLS_msn=4&_HLS_part=1")!)?.absoluteString,
                        "http://127.0.0.1:5000/TOKEN-1/media.m3u8?_HLS_msn=4&_HLS_part=1")
-        XCTAssertEqual(LowLatencyPlayerAsset.withoutDirectives(URL(string: "http://127.0.0.1:5000/T/media.m3u8?_HLS_msn=4&_HLS_part=1&_HLS_skip=YES")!)?.absoluteString,
-                       "http://127.0.0.1:5000/T/media.m3u8")
+    }
+
+    /// A source that pauses for longer than three target durations, read through LowLatencyPlayerAsset: the held reload
+    /// is asked again past the engine's 503, AVPlayer logs no invalid blocking reload, and it plays on once the source resumes.
+    func testLowLatencyThroughThePlayerAssetRidesASourcePause() throws {
+        let (feed, path) = try startContinuousFeed(fps: "25", keyframeSeconds: 1)
+        defer {
+            kill(feed.processIdentifier, SIGCONT)
+            feed.terminate()
+            try? FileManager.default.removeItem(atPath: path)
+        }
+        var config = makeConfig(durationSeconds: 0, inputUrl: path, videoRange: "", codecs: "", width: 0, height: 0, frameRate: 0, bandwidth: 0,
+                                isLive: true, liveSegmentSeconds: 1)
+        config.describesInput = true
+        config.liveBufferSeconds = 2
+        config.liveCopyCutSeconds = 0.4
+        config.liveTargetNearest = true
+        config.liveLowLatency = true
+        config.liveLowLatencyTargetSeconds = 0
+        let session = try RemuxSession(config: config)
+        session.start()
+        defer { session.stop() }
+        let (server, url) = try serve(session)
+        defer { server.stop() }
+        XCTAssertTrue(spin(seconds: 20) { session.servesParts }, "the session never took LL-HLS")
+        let player = AVPlayer(playerItem: AVPlayerItem(asset: try XCTUnwrap(LowLatencyPlayerAsset.asset(for: url))))
+        player.play()
+        XCTAssertTrue(spin(seconds: 20) { player.currentTime().seconds > 3 }, "never played: \(String(describing: player.currentItem?.error))")
+        kill(feed.processIdentifier, SIGSTOP)
+        spin(seconds: 7) { false }
+        kill(feed.processIdentifier, SIGCONT)
+        let resumedAt = player.currentTime().seconds
+        let resumed = spin(seconds: 20) { player.currentTime().seconds > resumedAt + 3 }
+        let errors = player.currentItem?.errorLog()?.events.map { "\($0.errorStatusCode) \($0.errorComment ?? "")" } ?? []
+        NSLog("[LiveAVPlayerTests] LL source pause 7s through the asset: resumed %@, clock %.1fs, player errors %@, item error %@",
+              resumed ? "yes" : "no", player.currentTime().seconds, errors, String(describing: player.currentItem?.error))
+        XCTAssertTrue(resumed)
+        XCTAssertFalse(errors.contains { $0.contains("blocking reload") }, "\(errors)")
+        XCTAssertNil(player.currentItem?.error)
     }
 
     /// LL-HLS as the app configures it (1 s segments, 0.4 s copy cut, target learned from the first segment) on a

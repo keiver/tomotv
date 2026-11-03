@@ -68,13 +68,6 @@ public final class LowLatencyPlayerAsset: NSObject, AVAssetResourceLoaderDelegat
         return parts.url
     }
 
-    /// The same playlist without the blocking-reload and delta directives, so it is answered at once.
-    static func withoutDirectives(_ url: URL) -> URL? {
-        guard var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
-        let kept = parts.queryItems?.filter { !$0.name.hasPrefix("_HLS_") } ?? []
-        parts.queryItems = kept.isEmpty ? nil : kept
-        return parts.url
-    }
 
     public func resourceLoader(_ resourceLoader: AVAssetResourceLoader, shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest) -> Bool {
         guard let custom = loadingRequest.request.url, let http = Self.loopbackURL(custom) else { return false }
@@ -84,7 +77,7 @@ public final class LowLatencyPlayerAsset: NSObject, AVAssetResourceLoaderDelegat
             loadingRequest.finishLoading()
             return true
         }
-        fetchPlaylist(http, for: loadingRequest, retried: false)
+        fetchPlaylist(http, for: loadingRequest)
         return true
     }
 
@@ -95,8 +88,9 @@ public final class LowLatencyPlayerAsset: NSObject, AVAssetResourceLoaderDelegat
         task?.cancel()
     }
 
-    /// A refused blocking reload (400 past the advance limit, 503 after three targets) is answered with the playlist as it stands.
-    private func fetchPlaylist(_ http: URL, for loadingRequest: AVAssetResourceLoadingRequest, retried: Bool) {
+    /// A blocking reload the server gives up on (503 after three targets, 400 past the advance limit) is asked again, so the
+    /// player's request stays held until the playlist it asked for exists; only the session's end (404) fails it.
+    private func fetchPlaylist(_ http: URL, for loadingRequest: AVAssetResourceLoadingRequest) {
         let key = ObjectIdentifier(loadingRequest)
         let task = session.dataTask(with: http) { [weak self] data, response, error in
             guard let self else { return }
@@ -106,8 +100,12 @@ public final class LowLatencyPlayerAsset: NSObject, AVAssetResourceLoaderDelegat
             if loadingRequest.isCancelled || loadingRequest.isFinished { return }
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             guard let data, status == 200 else {
-                if !retried, status == 400 || status == 503, let plain = Self.withoutDirectives(http) {
-                    self.fetchPlaylist(plain, for: loadingRequest, retried: true)
+                if status == 503 {
+                    self.fetchPlaylist(http, for: loadingRequest)
+                    return
+                }
+                if status == 400 {
+                    self.queue.asyncAfter(deadline: .now() + 0.25) { self.fetchPlaylist(http, for: loadingRequest) }
                     return
                 }
                 loadingRequest.finishLoading(with: error ?? NSError(domain: NSURLErrorDomain, code: NSURLErrorBadServerResponse,
