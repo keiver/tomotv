@@ -20,6 +20,7 @@ import {
   guideDays,
   guideDayWindow,
   guideMetrics,
+  guideRowHeight,
   guideRefreshOutcome,
   guideWindowStart,
   isActiveTimer,
@@ -30,7 +31,8 @@ import {
   MINUTE_MS,
   mountSpanFor,
   NO_GUIDE_PREFIX,
-  previewTapAction,
+  nearestColumnStop,
+  pinTapAction,
   programCategory,
   restoreFocusNode,
   revealOffset,
@@ -39,6 +41,7 @@ import {
   rulerTicks,
   standInChannelId,
   trimPrograms,
+  wideColumnWidth,
 } from "../guide";
 import { __setLocaleForTests } from "@/services/i18n";
 
@@ -495,31 +498,66 @@ describe("guideMetrics", () => {
   });
 });
 
-describe("previewTapAction", () => {
-  it("starts the slot when it plays nothing", () => {
-    expect(previewTapAction("c1", null, "idle")).toBe("start");
+describe("pinTapAction", () => {
+  it("pins the tapped channel when nothing is pinned", () => {
+    expect(pinTapAction("c1", null, "idle")).toBe("start");
   });
 
-  it("starts the slot again when the session it had is gone or left in a detached PiP window", () => {
-    expect(previewTapAction("c1", "c1", "idle")).toBe("start");
-    expect(previewTapAction("c1", "c1", "pip-detached")).toBe("start");
+  it("pins again when the session it had is gone or was left in a detached PiP window", () => {
+    expect(pinTapAction("c1", "c1", "idle")).toBe("start");
+    expect(pinTapAction("c1", "c1", "pip-detached")).toBe("start");
   });
 
-  it("switches the slot to another channel", () => {
-    expect(previewTapAction("c2", "c1", "video")).toBe("switch");
-    expect(previewTapAction("c2", "c1", "loading")).toBe("switch");
+  it("switches the pin to another channel", () => {
+    expect(pinTapAction("c2", "c1", "video")).toBe("switch");
+    expect(pinTapAction("c2", "c1", "loading")).toBe("switch");
   });
 
-  it("opens the playing channel full screen, out of its PiP window too", () => {
-    expect(previewTapAction("c1", "c1", "video")).toBe("fullscreen");
-    expect(previewTapAction("c1", "c1", "pip-active")).toBe("fullscreen");
+  it("does nothing on the pinned channel's own card while it opens or plays", () => {
+    expect(pinTapAction("c1", "c1", "video")).toBe("none");
+    expect(pinTapAction("c1", "c1", "loading")).toBe("none");
   });
 
-  it("retries the channel that failed", () => {
-    expect(previewTapAction("c1", "c1", "error")).toBe("retry");
+  it("retries the pinned channel once it failed", () => {
+    expect(pinTapAction("c1", "c1", "error")).toBe("retry");
+  });
+});
+
+describe("guideRowHeight", () => {
+  it("is the card's 16:9 height plus the row's line, at every column width", () => {
+    expect(guideRowHeight(176)).toBe(100);
+    expect(guideRowHeight(362)).toBe(205);
+    expect(guideRowHeight(368)).toBe(208);
   });
 
-  it("opens the channel full screen while it is still opening", () => {
-    expect(previewTapAction("c1", "c1", "loading")).toBe("fullscreen");
+  it("gives the default metrics their row height", () => {
+    expect(guideMetrics(false).rowHeight).toBe(guideRowHeight(176));
+  });
+});
+
+describe("wideColumnWidth", () => {
+  it("is 352pt wherever the guide has room, leaving the rest to the rows", () => {
+    expect(wideColumnWidth(402, 176)).toBe(352);
+    expect(wideColumnWidth(1366, 176)).toBe(352);
+  });
+
+  it("is 90% of a guide narrower than that, and never under the default card", () => {
+    expect(wideColumnWidth(375, 176)).toBe(337.5);
+    expect(wideColumnWidth(150, 176)).toBe(176);
+  });
+});
+
+describe("nearestColumnStop", () => {
+  const stops = { closed: 74, default: 176, wide: 352 };
+
+  it("rests on the stop nearest where the column was let go", () => {
+    expect(nearestColumnStop(100, 0, stops)).toBe("closed");
+    expect(nearestColumnStop(200, 0, stops)).toBe("default");
+    expect(nearestColumnStop(300, 0, stops)).toBe("wide");
+  });
+
+  it("carries a fling on to the stop it heads for", () => {
+    expect(nearestColumnStop(200, 1200, stops)).toBe("wide");
+    expect(nearestColumnStop(160, -800, stops)).toBe("closed");
   });
 });

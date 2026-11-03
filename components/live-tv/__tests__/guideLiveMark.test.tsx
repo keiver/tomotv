@@ -1,43 +1,24 @@
-/** Live TV's PiP channel marked on its card: a spinner while it opens, the system's PiP symbol while it plays in the window. */
+/** The pinned channel marked on its own card in the guide's list. */
 import { GuideLiveMark } from "@/components/live-tv/guide-live-mark";
 import React from "react";
-import { ActivityIndicator, Text } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 
 jest.mock("@/services/i18n", () => ({ t: (key: string) => key }));
-jest.mock("@/hooks/useCardPalette", () => ({ useCardPalette: () => ({ accent: "#ffc312" }) }));
-const mockSymbols: string[] = [];
-jest.mock("@/components/sf-symbol-icon", () => ({
-  SfSymbolIcon: ({ name }: { name: string }) => {
-    mockSymbols.push(name);
-    return null;
-  },
-}));
+jest.mock("@/hooks/useCardPalette", () => ({ useCardPalette: () => ({ accent: "#ffc312", onAccent: "#000000" }) }));
+jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 
 describe("GuideLiveMark", () => {
-  let renderer: TestRenderer.ReactTestRenderer;
-  const mount = async (element: React.ReactElement) => {
+  it("shows a speaker badge in the theme's accent, never covering the card, and says it plays at the top to VoiceOver", async () => {
+    let renderer!: TestRenderer.ReactTestRenderer;
     await act(async () => {
-      renderer = TestRenderer.create(element);
+      renderer = TestRenderer.create(<GuideLiveMark />);
     });
-  };
-  const cover = (state: string) => renderer.root.findByProps({ testID: `guide-live-mark-${state}` }).props;
-  afterEach(async () => {
-    mockSymbols.length = 0;
+    const badge = renderer.root.findByProps({ testID: "guide-live-mark" }).props;
+    expect(badge.accessibilityLabel).toBe("liveTv.playingPinned");
+    expect(badge.pointerEvents).toBe("none");
+    const style = Object.assign({}, ...[badge.style].flat());
+    expect(style.backgroundColor).toBe("#ffc312");
+    expect(style.bottom).toBeUndefined();
     await act(async () => renderer.unmount());
-  });
-
-  it("shows a spinner in the theme's accent while the channel opens, and says so only to VoiceOver", async () => {
-    await mount(<GuideLiveMark state="tuning" />);
-    expect(renderer.root.findByType(ActivityIndicator).props.color).toBe("#ffc312");
-    expect(renderer.root.findAllByType(Text)).toHaveLength(0);
-    expect(cover("tuning").accessibilityLabel).toBe("liveTv.tuningIn");
-  });
-
-  it("shows the system's PiP symbol while the channel plays in the window, and says so only to VoiceOver", async () => {
-    await mount(<GuideLiveMark state="pip" />);
-    expect(mockSymbols).toContain("pip");
-    expect(renderer.root.findAllByType(Text)).toHaveLength(0);
-    expect(cover("pip").accessibilityLabel).toBe("liveTv.playingInPip");
   });
 });

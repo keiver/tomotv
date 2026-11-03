@@ -1,4 +1,4 @@
-/** Live TV's PiP channel: which session command a channel tap sends, what it says while it opens, and how the screen lets the session go. */
+/** Live TV's pinned channel: what a channel tap sends the session, the close, the airing programme's full screen, and how the screen lets the session go. */
 import { useLivePreview } from "@/hooks/useLivePreview";
 import React from "react";
 import { Alert } from "react-native";
@@ -28,14 +28,7 @@ const mockHold = { held: false, holdingTimer: null as object | null, reason: nul
 jest.mock("@/hooks/useRecordingHoldChoices", () => ({ useRecordingHoldChoices: () => mockHold }));
 
 let mockFocused = true;
-const mockTransitionListeners: ((event: { data: { closing: boolean } }) => void)[] = [];
-const mockNavigation = {
-  addListener: (_event: string, listener: (event: { data: { closing: boolean } }) => void) => {
-    mockTransitionListeners.push(listener);
-    return () => mockTransitionListeners.splice(mockTransitionListeners.indexOf(listener), 1);
-  },
-};
-jest.mock("expo-router", () => ({ useIsFocused: () => mockFocused, useNavigation: () => mockNavigation, useRouter: () => ({ push: jest.fn() }) }));
+jest.mock("expo-router", () => ({ useIsFocused: () => mockFocused, useRouter: () => ({ push: jest.fn() }) }));
 
 const one = { Id: "c1", Name: "One", Type: "TvChannel" };
 const two = { Id: "c2", Name: "Two", Type: "TvChannel" };
@@ -57,9 +50,10 @@ async function rerender() {
   await act(async () => renderer.update(<Probe />));
 }
 /** The host's published state after a command, as the provider would hand it back. */
-async function hostShows(videoId: string | null, hostMode: string) {
+async function hostShows(videoId: string | null, hostMode: string, playback = "PLAYING") {
   mockSession.sessionVideoId = videoId;
   mockSession.hostMode = hostMode;
+  mockSession.playbackState = { type: playback };
   await rerender();
 }
 
@@ -67,7 +61,6 @@ describe("useLivePreview", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockFocused = true;
-    mockTransitionListeners.length = 0;
     mockSession.sessionVideoId = null;
     mockSession.hostMode = "idle";
     mockSession.playbackState = { type: "IDLE" };
@@ -78,40 +71,115 @@ describe("useLivePreview", () => {
     await act(async () => renderer.unmount());
   });
 
-  it("starts an inline live session on the first tap, playing in the tapped card", async () => {
-    const card = { x: 0, y: 300, width: 160, height: 90 };
+  it("pins a tapped channel as an inline live session, with a tap under the finger", async () => {
     await mount();
-    await act(async () => latest().preview(one as never, card));
+    await act(async () => latest().pin(one as never));
 
-    expect(mockSession.setInlineFrame).toHaveBeenCalledWith(card);
     expect(mockSession.requestSession).toHaveBeenCalledWith(expect.objectContaining({ videoId: "c1", videoName: "One", isLive: true, inline: true }));
     expect(mockSession.setHandlers).toHaveBeenCalledTimes(1);
+    expect(mockTapFeedback).toHaveBeenCalledTimes(1);
     expect(latest().channel?.Id).toBe("c1");
   });
 
-  it("marks the channel's card while it opens, then while it plays in the PiP window, and a switch inside the window as opening again", async () => {
+  it("says the pinned channel is opening until it plays", async () => {
     await mount();
-    await act(async () => latest().preview(one as never));
-    mockSession.playbackState = { type: "FETCHING_METADATA" };
-    await hostShows("c1", "loading");
-    expect(latest().mark).toEqual({ channelId: "c1", state: "tuning" });
+    await act(async () => latest().pin(one as never));
+    await hostShows("c1", "loading", "FETCHING_METADATA");
+    expect(latest().opening).toBe(true);
+    await hostShows("c1", "video", "PLAYING");
+    expect(latest().opening).toBe(false);
+  });
 
-    mockSession.playbackState = { type: "PLAYING" };
+  it("switches the pin to another channel in the same player", async () => {
+    await mount();
+    await act(async () => latest().pin(one as never));
     await hostShows("c1", "video");
-    expect(latest().mark).toBeNull();
 
-    await hostShows("c1", "pip-active");
-    expect(latest().mark).toEqual({ channelId: "c1", state: "pip" });
+    await act(async () => latest().pin(two as never));
 
-    await act(async () => latest().preview(two as never));
-    mockSession.playbackState = { type: "CREATING_STREAM" };
-    await hostShows("c2", "pip-active");
-    expect(latest().mark).toEqual({ channelId: "c2", state: "tuning" });
+    expect(mockSession.switchLiveChannel).toHaveBeenCalledWith({ videoId: "c2", videoName: "Two", picked: true });
+    expect(mockSession.requestSession).toHaveBeenCalledTimes(1);
+    expect(latest().channel?.Id).toBe("c2");
+  });
+
+  it("does nothing on the pinned channel's own card", async () => {
+    await mount();
+    await act(async () => latest().pin(one as never));
+    await hostShows("c1", "video");
+
+    await act(async () => latest().pin(one as never));
+
+    expect(mockSession.presentFullscreen).not.toHaveBeenCalled();
+    expect(mockSession.switchLiveChannel).not.toHaveBeenCalled();
+    expect(mockTapFeedback).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries the pinned channel once it failed", async () => {
+    await mount();
+    await act(async () => latest().pin(one as never));
+    await hostShows("c1", "error");
+
+    await act(async () => latest().pin(one as never));
+
+    expect(mockSession.retry).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens the pinned channel's airing programme full screen without a new session, and leaves any other channel to the caller", async () => {
+    await mount();
+    await act(async () => latest().pin(one as never));
+    await hostShows("c1", "video");
+
+    let handled: boolean[] = [];
+    await act(async () => {
+      handled = [latest().fullscreen("c1"), latest().fullscreen("c2")];
+    });
+
+    expect(handled).toEqual([true, false]);
+    expect(mockSession.presentFullscreen).toHaveBeenCalledTimes(1);
+    expect(mockSession.requestSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("hands the band's slot to the host, and null to park the player", async () => {
+    const slot = { x: 0, y: 120, width: 176, height: 99 };
+    await mount();
+    await act(async () => latest().setSlot(slot));
+    await act(async () => latest().setSlot(null));
+    expect(mockSession.setInlineFrame.mock.calls).toEqual([[slot], [null]]);
+  });
+
+  it("lets the session go and clears the pin on close, with a tap under the finger", async () => {
+    await mount();
+    await act(async () => latest().pin(one as never));
+    const key = mockSession.requestSession.mock.calls[0][0].sessionKey;
+    await hostShows("c1", "video");
+
+    await act(async () => latest().close());
+
+    expect(mockSession.releaseRoute).toHaveBeenCalledWith({ videoId: "c1", sessionKey: key });
+    expect(mockSession.clearHandlers).toHaveBeenCalledTimes(1);
+    expect(mockSession.setInlineFrame).toHaveBeenLastCalledWith(null);
+    expect(mockTapFeedback).toHaveBeenCalledTimes(2);
+    expect(latest().channel).toBeNull();
+  });
+
+  it("lets the session go, naming the channel playing, when the screen loses focus", async () => {
+    await mount();
+    await act(async () => latest().pin(one as never));
+    const key = mockSession.requestSession.mock.calls[0][0].sessionKey;
+    await hostShows("c1", "video");
+    await act(async () => latest().pin(two as never));
+    await hostShows("c2", "video");
+
+    mockFocused = false;
+    await rerender();
+
+    expect(mockSession.releaseRoute).toHaveBeenCalledWith({ videoId: "c2", sessionKey: key });
+    expect(latest().channel).toBeNull();
   });
 
   it("says the channel failed when it cannot play", async () => {
     await mount();
-    await act(async () => latest().preview(one as never));
+    await act(async () => latest().pin(one as never));
     await hostShows("c1", "error");
     expect(mockShowToast).toHaveBeenLastCalledWith(expect.objectContaining({ title: "player.unableToPlay", kind: "error" }));
   });
@@ -119,7 +187,7 @@ describe("useLivePreview", () => {
   it("asks once, with both ways out, when a recording holds the provider", async () => {
     const alert = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
     await mount();
-    await act(async () => latest().preview(one as never));
+    await act(async () => latest().pin(one as never));
     Object.assign(mockHold, { held: true, holdingTimer: { Id: "t1" }, reason: "held by the recording" });
     await hostShows("c1", "error");
     await rerender();
@@ -132,129 +200,13 @@ describe("useLivePreview", () => {
     alert.mockRestore();
   });
 
-  it("switches the slot to another channel in the same player", async () => {
-    await mount();
-    await act(async () => latest().preview(one as never));
-    await hostShows("c1", "video");
-
-    await act(async () => latest().preview(two as never));
-
-    expect(mockSession.switchLiveChannel).toHaveBeenCalledWith({ videoId: "c2", videoName: "Two", picked: true });
-    expect(mockSession.requestSession).toHaveBeenCalledTimes(1);
-    expect(latest().channel?.Id).toBe("c2");
-  });
-
-  it("opens the playing channel full screen on a second tap", async () => {
-    await mount();
-    await act(async () => latest().preview(one as never));
-    await hostShows("c1", "video");
-
-    await act(async () => latest().preview(one as never));
-
-    expect(mockSession.presentFullscreen).toHaveBeenCalledTimes(1);
-  });
-
-  it("retries the channel that failed in the slot when it is tapped again", async () => {
-    await mount();
-    await act(async () => latest().preview(one as never));
-    await hostShows("c1", "error");
-
-    await act(async () => latest().preview(one as never));
-
-    expect(mockSession.retry).toHaveBeenCalledTimes(1);
-  });
-
-  it("starts its own session over one it does not own, even on the same channel", async () => {
-    mockSession.sessionVideoId = "c1";
-    mockSession.hostMode = "video";
-    await mount();
-
-    await act(async () => latest().preview(one as never));
-
-    expect(mockSession.presentFullscreen).not.toHaveBeenCalled();
-    expect(mockSession.requestSession).toHaveBeenCalledWith(expect.objectContaining({ videoId: "c1", inline: true }));
-  });
-
-  it("lets the session go and clears the channel when the PiP window is closed", async () => {
-    await mount();
-    await act(async () => latest().preview(one as never));
-    const key = mockSession.requestSession.mock.calls[0][0].sessionKey;
-    await hostShows("c1", "pip-active");
-
-    await act(async () => mockSession.setHandlers.mock.calls[0][0].onRequestBack());
-
-    expect(mockSession.releaseRoute).toHaveBeenCalledWith({ videoId: "c1", sessionKey: key });
-    expect(mockSession.clearHandlers).toHaveBeenCalledTimes(1);
-    expect(mockSession.setInlineFrame).toHaveBeenLastCalledWith(null);
-    expect(latest().channel).toBeNull();
-  });
-
-  it("lets the session go, naming the channel playing, when a screen pushed over it takes focus", async () => {
-    await mount();
-    await act(async () => latest().preview(one as never));
-    const key = mockSession.requestSession.mock.calls[0][0].sessionKey;
-    await hostShows("c1", "video");
-    await act(async () => latest().preview(two as never));
-    await hostShows("c2", "video");
-    expect(mockSession.requestSession).toHaveBeenCalledTimes(1);
-
-    mockFocused = false;
-    await rerender();
-
-    expect(mockSession.clearHandlers).toHaveBeenCalledWith(mockSession.setHandlers.mock.calls[0][0]);
-    expect(mockSession.releaseRoute).toHaveBeenCalledWith({ videoId: "c2", sessionKey: key });
-    expect(latest().channel).toBeNull();
-  });
-
-  it("keeps the session while the full-screen player is presented over the screen, which the stack reports as the screen disappearing", async () => {
-    await mount();
-    await act(async () => latest().preview(one as never));
-    await hostShows("c1", "video");
-    await act(async () => latest().preview(one as never));
-
-    await act(async () => mockTransitionListeners.forEach((listener) => listener({ data: { closing: true } })));
-
-    expect(mockSession.presentFullscreen).toHaveBeenCalledTimes(1);
-    expect(mockSession.releaseRoute).not.toHaveBeenCalled();
-    expect(mockSession.clearHandlers).not.toHaveBeenCalled();
-    expect(latest().channel?.Id).toBe("c1");
-  });
-
-  it("lets the session go once, when the screen loses focus and then unmounts", async () => {
-    await mount();
-    await act(async () => latest().preview(one as never));
-    await hostShows("c1", "video");
-
-    mockFocused = false;
-    await rerender();
-    await act(async () => renderer.unmount());
-    await mount();
-
-    expect(mockSession.releaseRoute).toHaveBeenCalledTimes(1);
-  });
-
-  it("gives a tap feedback for each tap that starts, switches or opens the channel full screen, its card's tap while it opens included", async () => {
-    await mount();
-    await act(async () => latest().preview(one as never));
-    await hostShows("c1", "loading");
-    await act(async () => latest().preview(one as never));
-    expect(mockSession.presentFullscreen).toHaveBeenCalledTimes(1);
-    expect(mockTapFeedback).toHaveBeenCalledTimes(2);
-
-    await hostShows("c1", "video");
-    await act(async () => latest().preview(two as never));
-    await hostShows("c2", "pip-active");
-    await act(async () => latest().preview(two as never));
-    expect(mockSession.presentFullscreen).toHaveBeenCalledTimes(2);
-    expect(mockTapFeedback).toHaveBeenCalledTimes(4);
-  });
-
-  it("releases nothing when no channel was tapped", async () => {
+  it("releases nothing when no channel was pinned", async () => {
     await mount();
     mockFocused = false;
     await rerender();
+    await act(async () => latest().close());
 
     expect(mockSession.releaseRoute).not.toHaveBeenCalled();
-    expect(mockSession.clearHandlers).not.toHaveBeenCalled();
+    expect(mockTapFeedback).not.toHaveBeenCalled();
   });
 });

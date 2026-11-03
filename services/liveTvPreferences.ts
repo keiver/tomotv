@@ -6,6 +6,7 @@
  */
 import { getCachedConfig } from "@/services/jellyfin/session";
 import type { JellyfinItem } from "@/types/jellyfin";
+import type { ColumnStop } from "@/utils/guide";
 import { logger } from "@/utils/logger";
 import { Settings } from "react-native";
 
@@ -64,8 +65,8 @@ export interface LiveTvPreferences {
   recordingMinutes: RecordingMinutes;
   /** Guide and wall leave out channels whose health check concluded down; unchecked ones stay. */
   hideOffline: boolean;
-  /** Phone: the guide's channel column rests collapsed to logos. */
-  compactColumn: boolean;
+  /** Phone: where the guide's channel column rests: logos only, cards, or wide cards. */
+  columnStop: ColumnStop;
   /** Streams a tuner playlist's provider allows this device at once, by playlist URL; a playlist left out is learned from its provider. */
   connectionLimits: Record<string, ConnectionLimit>;
 }
@@ -89,7 +90,7 @@ export const DEFAULT_LIVE_TV_PREFERENCES: LiveTvPreferences = {
   guideSourcesOff: [],
   recordingMinutes: 120,
   hideOffline: false,
-  compactColumn: false,
+  columnStop: "default",
   connectionLimits: {},
 };
 
@@ -191,9 +192,15 @@ export function parseLiveTvPreferences(raw: unknown): LiveTvPreferences {
       ? (source.recordingMinutes as RecordingMinutes)
       : DEFAULT_LIVE_TV_PREFERENCES.recordingMinutes,
     hideOffline: typeof source.hideOffline === "boolean" ? source.hideOffline : DEFAULT_LIVE_TV_PREFERENCES.hideOffline,
-    compactColumn: source.compactColumn === true,
+    columnStop: parseColumnStop(source.columnStop, source.compactColumn),
     connectionLimits: parseConnectionLimits(source.connectionLimits),
   };
+}
+
+/** A document from before the three stops saved only whether the column was collapsed. */
+function parseColumnStop(raw: unknown, legacyCompact: unknown): ColumnStop {
+  if (raw === "closed" || raw === "default" || raw === "wide") return raw;
+  return legacyCompact === true ? "closed" : "default";
 }
 
 /** Playlist URL to limit, keeping only the limits a viewer can set. */

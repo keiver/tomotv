@@ -43,7 +43,7 @@
   "liveTv.stopRecordingAndPlay": "Aufnahme beenden und abspielen",
   "liveTv.watchRecording": "Aufnahme anschauen",
   "liveTv.tuningIn": "Sender wird eingestellt…",
-  "liveTv.playingInPip": "Wird im Bild-im-Bild-Modus wiedergegeben",
+  "liveTv.playingPinned": "Läuft oben",
   "liveTv.recordingSoon": "Eine Aufnahme auf {channel} beginnt in 1 Minute.",
   "liveTv.stopAllRecordings": "Alle Aufnahmen beenden",
   "liveTv.stopAllRecordingsConfirm": "Jede laufende Aufnahme wird beendet. Was bisher aufgenommen wurde, bleibt erhalten.",

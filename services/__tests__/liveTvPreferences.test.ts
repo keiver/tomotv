@@ -62,7 +62,7 @@ describe("live TV preferences", () => {
       guideSourcesOff: [],
       recordingMinutes: 120,
       hideOffline: false,
-      compactColumn: false,
+      columnStop: "default",
       connectionLimits: {},
     });
     // A connection limit survives only as a listed number under a host; anything else is dropped.
@@ -93,8 +93,11 @@ describe("live TV preferences", () => {
     // Hide offline survives only as a boolean; anything else falls back to off.
     expect(parseLiveTvPreferences({ hideOffline: true }).hideOffline).toBe(true);
     expect(parseLiveTvPreferences({ hideOffline: "yes" }).hideOffline).toBe(false);
-    expect(parseLiveTvPreferences({ compactColumn: true }).compactColumn).toBe(true);
-    expect(parseLiveTvPreferences({ compactColumn: 1 }).compactColumn).toBe(false);
+    // The column's stop survives only as one of its three; a collapsed column from before the three stops reads as closed.
+    expect(parseLiveTvPreferences({ columnStop: "wide" }).columnStop).toBe("wide");
+    expect(parseLiveTvPreferences({ columnStop: "huge" }).columnStop).toBe("default");
+    expect(parseLiveTvPreferences({ compactColumn: true }).columnStop).toBe("closed");
+    expect(parseLiveTvPreferences({ compactColumn: 1 }).columnStop).toBe("default");
   });
 
   it("reads a favorites-only document from the previous build as the Favorites filter", () => {

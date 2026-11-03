@@ -1,12 +1,11 @@
 import { usePlayerSession, type InlineFrame, type PlayerSessionHandlers } from "@/contexts/PlayerSessionContext";
-import type { LiveMarkState } from "@/components/live-tv/guide-live-mark";
 import { useRecordingHoldChoices } from "@/hooks/useRecordingHoldChoices";
 import { tapFeedback } from "@/services/haptics";
 import { t } from "@/services/i18n";
 import { dismissToast, showToast } from "@/services/toast";
 import type { JellyfinItem } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
-import { previewTapAction } from "@/utils/guide";
+import { pinTapAction } from "@/utils/guide";
 import { useIsFocused, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "react-native";
@@ -15,11 +14,9 @@ const ignore = () => {};
 const TOAST_ID = "live-preview";
 
 /**
- * Live TV's PiP channel: a tapped channel opens in a PiP window over the guide, another tap switches it, and a
- * tap on the playing channel opens it full screen. The screen owns the host's session the way /player does, and
- * lets it go when the window is closed or as the screen leaves: a PiP window carries on, anything else ends.
- * The channel's card says it is opening and then that it plays in the window; a failure says it failed in a toast,
- * and a recording holding the provider asks.
+ * Live TV's pinned channel: a tapped card pins its channel at the top of the guide, playing with sound and AVKit's
+ * controls, another card's tap switches the pin, and its close button or the screen leaving lets it go. The screen
+ * owns the host's session the way /player does. A failure says so in a toast, and a recording holding the provider asks.
  */
 export function useLivePreview() {
   const { requestSession, switchLiveChannel, presentFullscreen, retry, releaseRoute, setHandlers, clearHandlers, setInlineFrame, sessionVideoId, hostMode, playbackState } = usePlayerSession();
@@ -34,7 +31,6 @@ export function useLivePreview() {
   }, [sessionVideoId, hostMode]);
 
   const releaseRef = useRef(ignore);
-  // The window's close ends the session; closing full screen goes back to the window, which the host does.
   const handlers = useMemo<PlayerSessionHandlers>(
     () => ({
       onPlaybackEnd: ignore,
@@ -64,19 +60,17 @@ export function useLivePreview() {
     releaseRef.current = release;
   }, [release]);
 
-  const preview = useCallback(
-    (tapped: JellyfinItem, frame?: InlineFrame) => {
+  const pin = useCallback(
+    (tapped: JellyfinItem) => {
       const { videoId, hostMode: mode } = sessionRef.current;
-      const action = previewTapAction(tapped.Id, keyRef.current ? videoId : null, mode);
-      if (action !== "none") void tapFeedback();
-      // The tapped card is where the channel plays until its PiP window takes it.
-      if ((action === "start" || action === "switch") && frame) setInlineFrame(frame);
-      if (action === "fullscreen") presentFullscreen();
-      else if (action === "retry") retry();
+      const action = pinTapAction(tapped.Id, keyRef.current ? videoId : null, mode);
+      if (action === "none") return;
+      void tapFeedback();
+      if (action === "retry") retry();
       else if (action === "switch") {
         setChannel(tapped);
         switchLiveChannel({ videoId: tapped.Id, videoName: tapped.Name, picked: true });
-      } else if (action === "start") {
+      } else {
         const key = `live-tv:${Date.now()}`;
         keyRef.current = key;
         setChannel(tapped);
@@ -84,23 +78,30 @@ export function useLivePreview() {
         requestSession({ videoId: tapped.Id, videoName: tapped.Name, isLive: true, inline: true, sessionKey: key });
       }
     },
-    [handlers, presentFullscreen, retry, switchLiveChannel, setHandlers, requestSession, setInlineFrame],
+    [handlers, retry, switchLiveChannel, setHandlers, requestSession],
   );
+
+  const close = useCallback(() => {
+    if (!keyRef.current) return;
+    void tapFeedback();
+    release();
+  }, [release]);
+
+  /** The pinned channel's own programme opens it full screen, with no new session; false for any other channel. */
+  const fullscreen = useCallback(
+    (channelId: string) => {
+      if (!keyRef.current || sessionRef.current.videoId !== channelId) return false;
+      presentFullscreen();
+      return true;
+    },
+    [presentFullscreen],
+  );
+
+  /** Where the band shows the player; null parks it, still playing. */
+  const setSlot = useCallback((frame: InlineFrame | null) => setInlineFrame(frame), [setInlineFrame]);
 
   const openRecording = useCallback((item: JellyfinItem) => router.push({ pathname: "/player", params: { videoId: item.Id, videoName: item.Name } }), [router]);
   const hold = useRecordingHoldChoices(sessionVideoId ?? channel?.Id ?? "", playbackState, retry, openRecording);
-
-  // The channel's card says it is opening, a switch inside the PiP window included, then that it plays in the window.
-  const channelId = channel?.Id ?? null;
-  const markState: LiveMarkState | null =
-    !channelId || hostMode === "error" || hostMode === "idle" || hostMode === "pip-detached"
-      ? null
-      : playbackState.type !== "PLAYING" || hold.stopping
-        ? "tuning"
-        : hostMode === "pip-active"
-          ? "pip"
-          : null;
-  const mark = useMemo(() => (channelId && markState ? { channelId, state: markState } : null), [channelId, markState]);
 
   // A failure says so; a recording's hold asks instead.
   const failed = !!channel && hostMode === "error" && !hold.held;
@@ -133,5 +134,7 @@ export function useLivePreview() {
   }, [isFocused]);
   useEffect(() => () => releaseRef.current(), []);
 
-  return { channel, preview, mark };
+  // The pinned channel is opening (its band shows the card's own clip meanwhile) until it plays.
+  const opening = !!channel && hostMode !== "error" && playbackState.type !== "PLAYING";
+  return { channel, opening, pin, close, fullscreen, setSlot };
 }

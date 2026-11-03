@@ -1,7 +1,7 @@
 import { GuideChannelCard } from "@/components/live-tv/guide-channel-card";
 import { GRID_LINE } from "@/components/live-tv/guide-cell";
 import { GuideChannelTile } from "@/components/live-tv/guide-channel-tile";
-import { GuideLiveMark, type LiveMarkState } from "@/components/live-tv/guide-live-mark";
+import { GuideLiveMark } from "@/components/live-tv/guide-live-mark";
 import { COLORS } from "@/constants/colors";
 import { useLiveFrameViewport } from "@/hooks/useLiveFrameViewport";
 import { clearFocusedGuideChannel, setFocusedGuideChannel } from "@/services/guideChannelFocus";
@@ -9,12 +9,14 @@ import { clearLiveFrameFocus, setLiveFrameFocus } from "@/services/liveFrames";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { isFavoriteChannel, type LiveTvPreferences } from "@/services/liveTvPreferences";
 import type { JellyfinItem } from "@/types/jellyfin";
-import type { GuideMetrics } from "@/utils/guide";
+import { guideMetrics, type GuideMetrics } from "@/utils/guide";
 import React, { useCallback, type ComponentProps } from "react";
 import { findNodeHandle, Platform, StyleSheet, View } from "react-native";
 import Animated, { type AnimatedRef, Extrapolation, interpolate, type ScrollHandlerProcessed, type SharedValue, useAnimatedStyle } from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
+/** The default stop's width: the card and the logo tile cross-fade between the closed stop and this. */
+const DEFAULT_COLUMN_WIDTH = guideMetrics(IS_TV).channelColumnWidth;
 const channelIds = (channel: JellyfinItem) => [channel.Id];
 const favoriteMark = (preferences: LiveTvPreferences, channel: JellyfinItem) => (isFavoriteChannel(preferences, channel) ? ("heart" as const) : undefined);
 
@@ -42,11 +44,13 @@ interface GuideChannelColumnProps {
   /** TV: the first card's native node, the strip's way down into the guide (the canvas cells sit
       in a scrolled expanse the focus engine cannot enter geometrically). */
   onFirstHandle?: (handle: number | undefined) => void;
-  /** Each card's node by channel: TV hands Left focus out of a scrolled grid with it, phone measures the tapped card. */
+  /** TV: each card's node by channel, to hand Left focus out of a scrolled grid. */
   onCardNode?: ComponentProps<typeof GuideChannelCard>["onNode"];
   onEndReached?: () => void;
-  /** Phone: the channel in Live TV's PiP window, marked on its card while it opens and while it plays there. */
-  liveMark?: { channelId: string; state: LiveMarkState } | null;
+  /** Phone: the pinned channel, marked on its own card in the list. */
+  playingId?: string | null;
+  /** Phone: the list's scale from its top-left corner while the column is dragged wider, 1 at rest. */
+  listScale?: SharedValue<number>;
 }
 
 /**
@@ -70,7 +74,8 @@ export function GuideChannelColumn({
   onFirstHandle,
   onCardNode,
   onEndReached,
-  liveMark = null,
+  playingId = null,
+  listScale,
 }: GuideChannelColumnProps) {
   const preferences = useLiveTvPreferences();
   const { viewabilityPairs, visibleChannelIds } = useLiveFrameViewport("guide", preferences.autoUpdate, channels, channelIds);
@@ -129,13 +134,12 @@ export function GuideChannelColumn({
             recording={recordingChannelIds.has(item.Id)}
             onPress={onChannelPress}
             onLongPress={onChannelLongPress}
-            onNode={onCardNode}
           />
         )}
-        {liveMark?.channelId === item.Id ? <GuideLiveMark state={liveMark.state} /> : null}
+        {playingId === item.Id && !compact ? <GuideLiveMark /> : null}
       </View>
     ),
-    [metrics, rowSnapOffset, columnWidth, compact, preferences, recordingChannelIds, onChannelPress, onChannelLongPress, cardFocus, cardBlur, firstCardRef, onCardNode, visibleChannelIds, liveMark],
+    [metrics, rowSnapOffset, columnWidth, compact, preferences, recordingChannelIds, onChannelPress, onChannelLongPress, cardFocus, cardBlur, firstCardRef, onCardNode, visibleChannelIds, playingId],
   );
   const getItemLayout = useCallback(
     (_data: ArrayLike<JellyfinItem> | null | undefined, index: number) => ({ length: metrics.rowHeight, offset: metrics.rowHeight * index, index }),
@@ -143,6 +147,7 @@ export function GuideChannelColumn({
   );
 
   const widthStyle = useAnimatedStyle(() => ({ width: columnWidth.get() }));
+  const scaleStyle = useAnimatedStyle(() => ({ transform: [{ scale: listScale?.get() ?? 1 }] }));
 
   return (
     <Animated.View style={[styles.column, widthStyle]}>
@@ -150,7 +155,7 @@ export function GuideChannelColumn({
         ref={listRef}
         data={channels}
         renderItem={renderItem}
-        extraData={liveMark}
+        extraData={playingId}
         keyExtractor={(item) => item.Id}
         getItemLayout={getItemLayout}
         snapToAlignment={IS_TV ? "item" : undefined}
@@ -167,7 +172,7 @@ export function GuideChannelColumn({
         maxToRenderPerBatch={4}
         updateCellsBatchingPeriod={16}
         windowSize={7}
-        style={{ height: listHeight }}
+        style={[styles.list, { height: listHeight }, scaleStyle]}
         contentContainerStyle={{ paddingBottom: contentBottomPad }}
       />
     </Animated.View>
@@ -190,7 +195,6 @@ function ChannelMorph({
   recording,
   onPress,
   onLongPress,
-  onNode,
 }: {
   channel: JellyfinItem;
   index: number;
@@ -202,9 +206,8 @@ function ChannelMorph({
   recording: boolean;
   onPress: (channel: JellyfinItem) => void;
   onLongPress: (channel: JellyfinItem) => void;
-  onNode?: ComponentProps<typeof GuideChannelCard>["onNode"];
 }) {
-  const range = [metrics.compactColumnWidth, metrics.channelColumnWidth];
+  const range = [metrics.compactColumnWidth, DEFAULT_COLUMN_WIDTH];
   const cardStyle = useAnimatedStyle(() => {
     const t = interpolate(columnWidth.get(), range, [0, 1], Extrapolation.CLAMP);
     return { opacity: t, transform: [{ scale: 0.8 + 0.2 * t }] };
@@ -228,7 +231,6 @@ function ChannelMorph({
           recording={recording}
           onPress={onPress}
           onLongPress={onLongPress}
-          onNode={onNode}
           playsClipInView={!compact}
           inView={inView && !compact}
         />
@@ -244,6 +246,9 @@ const styles = StyleSheet.create({
   // The seam is drawn over the grid by the canvas (TV) or the resize divider (phone), since the grid reaches under it.
   column: {
     overflow: "hidden",
+  },
+  list: {
+    transformOrigin: "left top",
   },
   // The program rows' grid line, so the card above it reads as the row's first cell.
   row: {

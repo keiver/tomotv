@@ -49,13 +49,12 @@ describe("GuideColumnDivider", () => {
 });
 
 describe("useColumnResize", () => {
-  const drag = async (translationX: number, translationY = 0) => {
+  const drag = async (translationX: number, translationY = 0, velocityX = 0) => {
     const onSettle = jest.fn();
-    const columnW = shared(150);
+    const columnW = shared(176);
     let seam!: { handlers: Record<string, PanHandler> };
     function Probe() {
-      seam = useColumnResize({ columnW: columnW as never, canvasW: shared(400) as never, minWidth: 77, maxWidth: 150, initialCompact: false, onCompactChange: () => undefined, onSettle })
-        .seam as never;
+      seam = useColumnResize({ columnW: columnW as never, canvasW: shared(400) as never, minWidth: 74, defaultWidth: 176, onSettle }).seam as never;
       return null;
     }
     await act(async () => {
@@ -63,12 +62,20 @@ describe("useColumnResize", () => {
     });
     seam.handlers.begin();
     seam.handlers.update({ translationX, translationY });
-    seam.handlers.finalize();
+    (seam.handlers.finalize as unknown as (event: { velocityX: number }) => void)({ velocityX });
     return onSettle;
   };
 
-  it("reports the magnet's width when a resize ends", async () => {
-    expect(await drag(-30)).toHaveBeenCalledWith(77);
+  it("settles on the closed stop when let go nearer the logo width", async () => {
+    expect(await drag(-80)).toHaveBeenCalledWith("closed", 74);
+  });
+
+  it("settles on the wide stop, 352pt, when let go nearer it", async () => {
+    expect(await drag(120)).toHaveBeenCalledWith("wide", 352);
+  });
+
+  it("follows a fling to the next stop even when let go nearer the last one", async () => {
+    expect(await drag(30, 0, 1500)).toHaveBeenCalledWith("wide", 352);
   });
 
   it("reports nothing for a slide along the seam", async () => {

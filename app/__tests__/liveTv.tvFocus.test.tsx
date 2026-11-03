@@ -13,8 +13,8 @@ jest.mock("@/hooks/useAuthSession", () => ({ useAuthSession: () => "session" }))
 jest.mock("@/hooks/useChannelFavoritesSync", () => ({ useChannelFavoritesSync: jest.fn() }));
 jest.mock("@/hooks/useLiveTvPreferences", () => ({ useLiveTvPreferences: () => ({ filter: "all" }) }));
 jest.mock("@/hooks/useRecordingStatus", () => ({ useIsRecording: () => false }));
-const mockPreview = jest.fn();
-jest.mock("@/hooks/useLivePreview", () => ({ useLivePreview: () => ({ channel: null, preview: mockPreview, mark: null }) }));
+const mockPin = jest.fn();
+jest.mock("@/hooks/useLivePreview", () => ({ useLivePreview: () => ({ channel: null, opening: false, pin: mockPin, close: jest.fn(), fullscreen: () => false, setSlot: jest.fn() }) }));
 const mockPush = jest.fn();
 jest.mock("@/components/live-tv/guide-canvas", () => ({ GuideCanvas: () => null }));
 jest.mock("@/components/live-tv/guide-hud", () => ({ GuideHud: () => null }));
@@ -96,11 +96,12 @@ describe("Live TV focus on TV", () => {
     expect(channelsNode.requestTVFocus).toHaveBeenCalledTimes(2);
   });
 
-  it("a channel press opens the player, never the slot above the guide", async () => {
+  it("a channel press opens the player, never the pinned band", async () => {
     const { tree } = await renderScreen();
     const channel = { Id: "c1", Name: "One", Type: "TvChannel" };
     await act(async () => tree.root.findByType(GuideCanvas).props.onChannelPress(channel));
     expect(mockPush).toHaveBeenCalledWith({ pathname: "/player", params: { videoId: "c1", videoName: "One", live: "1" } });
-    expect(mockPreview).not.toHaveBeenCalled();
+    expect(mockPin).not.toHaveBeenCalled();
+    expect(tree.root.findByType(GuideCanvas).props.pinned).toBeUndefined();
   });
 });

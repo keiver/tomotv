@@ -16,11 +16,11 @@ import { useLivePreview } from "@/hooks/useLivePreview";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { useIsRecording } from "@/hooks/useRecordingStatus";
 import { refreshExternalGuide } from "@/services/externalGuide";
+import { recenterLiveRing, releaseLiveRing } from "@/services/liveRing";
 import { t } from "@/services/i18n";
 import { invalidateLiveTvSearchIndex, warmLiveTvSearch } from "@/services/jellyfinApi";
 import { dismissToast, showToast } from "@/services/toast";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
-import type { InlineFrame } from "@/contexts/PlayerSessionContext";
 import { guideMetrics, guideRefreshOutcome } from "@/utils/guide";
 import { programInfoParams } from "@/utils/programInfo";
 import { Stack, useIsFocused, useLocalSearchParams, useRouter, type NativeStackNavigationOptions } from "expo-router";
@@ -38,7 +38,7 @@ const PHONE_REFRESH_CELL_WIDTH = 44;
 const TAB_BAR_GUIDE_HEIGHT = 1;
 
 /**
- * The Live TV screen: the guide, whose channel column tunes on select (into the slot above the guide off TV), with Recordings and
+ * The Live TV screen: the guide, whose channel column tunes on select (pinned at the guide's top off TV), with Recordings and
  * Schedule one press away. The livetv tab's root on TV; a pushed root-stack route on phone.
  * Signed out, the tab keeps its trigger (static-trigger rule) and shows the connect widget.
  */
@@ -132,21 +132,37 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
     showToast({ id: "guide-refresh", title: t(outcome.title), kind: outcome.kind });
   }, [guideWorking, guideFailed, hasListings, isFocused]);
 
-  // Phone, iPad and Mac play the channel in its card, then in a PiP window over the guide; TV opens the player.
-  const { preview: previewChannel, mark: liveMark } = useLivePreview();
+  // Phone, iPad and Mac pin the channel at the top of the guide, playing with sound; TV opens the player.
+  const pinned = useLivePreview();
+  const { pin: pinChannel, fullscreen: pinnedFullscreen } = pinned;
+  // The pinned channel's guide neighbours are kept cutting in the engine, so a tap on one plays at once.
+  const pinnedId = pinned.channel?.Id ?? null;
+  const pinnedPlaying = pinnedId !== null && !pinned.opening;
+  const guideChannels = useMemo(() => guide.rows.map((row) => row.channel), [guide.rows]);
+  useEffect(() => {
+    if (IS_TV || !pinnedId || guideChannels.length === 0) return;
+    recenterLiveRing(guideChannels, pinnedId, pinnedPlaying);
+  }, [guideChannels, pinnedId, pinnedPlaying]);
+  useEffect(() => {
+    if (IS_TV || !pinnedId) return;
+    return () => {
+      void releaseLiveRing();
+    };
+  }, [pinnedId]);
   const openChannelPlayer = useCallback(
     (channel: JellyfinItem) => {
+      if (pinnedFullscreen(channel.Id)) return;
       showGlobalLoader();
       router.push({ pathname: "/player", params: { videoId: channel.Id, videoName: channel.Name, live: "1" } });
     },
-    [router, showGlobalLoader],
+    [router, showGlobalLoader, pinnedFullscreen],
   );
   const tune = useCallback(
-    (channel: JellyfinItem, frame?: InlineFrame) => {
+    (channel: JellyfinItem) => {
       if (IS_TV) openChannelPlayer(channel);
-      else previewChannel(channel, frame);
+      else pinChannel(channel);
     },
-    [openChannelPlayer, previewChannel],
+    [openChannelPlayer, pinChannel],
   );
   const openProgram = useCallback(
     (program: JellyfinProgram, channel: JellyfinItem) => {
@@ -163,7 +179,7 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
     (program: JellyfinProgram, channel: JellyfinItem) => {
       const startMs = Date.parse(program.StartDate ?? "");
       const endMs = Date.parse(program.EndDate ?? "");
-      // A programme on now opens its channel's player; only the channel column opens the PiP window.
+      // A programme on now opens its channel's player, the pinned one's without reopening it; only the channel column pins.
       if (startMs <= nowRef.current && nowRef.current < endMs) openChannelPlayer(channel);
       else openProgram(program, channel);
     },
@@ -262,7 +278,7 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
               onProgramLongPress={openProgram}
               onChannelPress={handleChannelPress}
               onChannelLongPress={openChannel}
-              liveMark={liveMark}
+              pinned={IS_TV ? undefined : pinned}
             />
           </TVFocusGuideView>
         )}

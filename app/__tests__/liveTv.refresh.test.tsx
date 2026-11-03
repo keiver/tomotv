@@ -15,8 +15,12 @@ jest.mock("@/hooks/useGuide", () => ({ useGuide: () => mockGuide, invalidateGuid
 jest.mock("@/hooks/useAuthSession", () => ({ useAuthSession: () => "session" }));
 jest.mock("@/hooks/useChannelFavoritesSync", () => ({ useChannelFavoritesSync: jest.fn() }));
 jest.mock("@/hooks/useLiveTvPreferences", () => ({ useLiveTvPreferences: () => ({ filter: "all" }) }));
-const mockPreview = jest.fn();
-jest.mock("@/hooks/useLivePreview", () => ({ useLivePreview: () => ({ channel: null, preview: mockPreview, mark: null }) }));
+const mockPin = jest.fn();
+const mockPinnedFullscreen = jest.fn((channelId: string) => channelId === mockPinnedId);
+let mockPinnedId: string | null = null;
+jest.mock("@/hooks/useLivePreview", () => ({
+  useLivePreview: () => ({ channel: null, opening: false, pin: mockPin, close: jest.fn(), fullscreen: mockPinnedFullscreen, setSlot: jest.fn() }),
+}));
 jest.mock("@/components/live-tv/guide-canvas", () => {
   const { useEffect } = jest.requireActual("react");
   return {
@@ -70,14 +74,24 @@ describe("Live TV program info navigation", () => {
     expect(JSON.parse(mockPush.mock.calls[1][0].params.guideProgram)).toMatchObject(later);
   });
 
-  it("opens an airing programme's channel in the player, and only a tap on the channel's card opens it in PiP", async () => {
+  it("opens an airing programme's channel in the player, and only a tap on the channel's card pins it", async () => {
+    mockPinnedId = null;
     const props = await canvas();
     props.onProgramPress(program, channel);
     expect(mockPush).toHaveBeenCalledWith({ pathname: "/player", params: { videoId: "c1", videoName: "One", live: "1" } });
-    expect(mockPreview).not.toHaveBeenCalled();
-    const card = { x: 0, y: 300, width: 160, height: 90 };
-    props.onChannelPress(channel, card);
-    expect(mockPreview.mock.calls).toEqual([[channel, card]]);
+    expect(mockPin).not.toHaveBeenCalled();
+    props.onChannelPress(channel);
+    expect(mockPin.mock.calls).toEqual([[channel]]);
+  });
+
+  it("opens the pinned channel's airing programme full screen in place, pushing no player", async () => {
+    mockPinnedId = "c1";
+    const props = await canvas();
+    mockPush.mockClear();
+    props.onProgramPress(program, channel);
+    expect(mockPinnedFullscreen).toHaveBeenLastCalledWith("c1");
+    expect(mockPush).not.toHaveBeenCalled();
+    mockPinnedId = null;
   });
 
   it("still fetches a server programme by id and opens a no-guide cell on the channel", async () => {

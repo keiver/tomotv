@@ -54,6 +54,8 @@ let registeredBridge: PlayerHostBridge | null = null;
 const handlersRef = {
   current: null as { onPlaybackEnd: () => void; onLiveChannelFailed?: (fallbackId: string) => boolean; onPipStarted?: () => void; onRequestBack?: () => void } | null,
 };
+/** The band's drag scale the host's inline stage follows; 1 at rest. */
+const mockInlineScale = { get: () => 1, set: jest.fn(), value: 1 };
 jest.mock("@/contexts/PlayerSessionContext", () => ({
   usePlayerSessionHost: () => ({
     registerHost: (bridge: PlayerHostBridge | null) => {
@@ -61,6 +63,7 @@ jest.mock("@/contexts/PlayerSessionContext", () => ({
     },
     publish: jest.fn(),
     handlersRef,
+    inlineScale: mockInlineScale,
   }),
 }));
 
@@ -327,7 +330,7 @@ describe("PlayerHost", () => {
     }
   });
 
-  it("opens a picked channel at once, with no swipe wait, whatever its provider allows", async () => {
+  it("opens a channel picked from the panel after the short wait, whatever its provider allows", async () => {
     mockOneConnectionChannels.add("ch-2");
     jest.useFakeTimers();
     try {
@@ -340,6 +343,9 @@ describe("PlayerHost", () => {
       });
       await act(async () => {
         bridge().switchLiveChannel({ videoId: "ch-2", picked: true });
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(500);
       });
       expect(requestedVideoId()).toBe("ch-2");
     } finally {
@@ -1045,7 +1051,7 @@ describe("PlayerHost", () => {
     });
   });
 
-  describe("an inline session in Live TV's PiP window", () => {
+  describe("an inline session in Live TV's pinned band", () => {
     const video = () => renderer.root.findByType(Video);
     const stage = () => renderer.root.findByType(DismissPan);
     const card = { x: 0, y: 300, width: 160, height: 90 };
@@ -1087,41 +1093,33 @@ describe("PlayerHost", () => {
       Object.values(videoRef.current).forEach((fn) => fn.mockClear());
     });
 
-    it("plays with sound in the tapped card without AVKit's controls, never presented, and opens a PiP window once it plays", async () => {
+    it("plays with sound and AVKit's controls in the band's slot, taking touches there, never presented and never starting PiP", async () => {
       await playInline();
 
       expect(videoRef.current.setFullScreen).not.toHaveBeenCalled();
       expect(video().props.muted).toBeUndefined();
-      expect(video().props.controls).toBe(false);
-      expect(video().props.enterPictureInPictureOnLeave).toBe(true);
+      expect(video().props.controls).toBe(true);
+      expect(video().props.enterPictureInPictureOnLeave).toBeUndefined();
       expect(covered(renderer)).toBe(false);
-      expect(stage().props.pointerEvents).toBe("none");
+      expect(stage().props.pointerEvents).toBe("auto");
+      expect(stage().props.enabled).toBe(false);
       expect(StyleSheet.flatten(stage().props.style)).toMatchObject({ position: "absolute", left: 0, top: 300, width: 160, height: 90 });
-      expect(videoRef.current.enterPictureInPicture).toHaveBeenCalledTimes(1);
+      expect(videoRef.current.enterPictureInPicture).not.toHaveBeenCalled();
     });
 
-    it("closes the window on a channel switch, keeps the session, and opens a new window once the new channel plays", async () => {
+    it("parks through a channel switch, keeping the session, and comes back to the slot once the new channel plays", async () => {
       await playInline();
-      await pipStatus(true);
-      stateType = "PLAYING";
       await act(async () => {
         bridge().switchLiveChannel({ videoId: "channel-2", videoName: "Two", picked: true });
       });
-      expect(videoRef.current.exitPictureInPicture).toHaveBeenCalledTimes(1);
-
-      await act(async () => {
-        video().props.onRestoreUserInterfaceForPictureInPictureStop();
-      });
-      await pipStatus(false);
       sourceUri = null;
       stateType = "IDLE";
       await act(async () => {
         renderer.update(<PlayerHost />);
       });
-      expect(handlersRef.current?.onRequestBack).not.toHaveBeenCalled();
-      expect(videoRef.current.setFullScreen).not.toHaveBeenCalled();
       expect(StyleSheet.flatten(stage().props.style)).not.toMatchObject({ top: 300, width: 160 });
-      videoRef.current.enterPictureInPicture.mockClear();
+      expect(handlersRef.current?.onRequestBack).not.toHaveBeenCalled();
+      expect(videoRef.current.exitPictureInPicture).not.toHaveBeenCalled();
 
       sourceUri = "http://stream/channel-2";
       stateType = "PLAYING";
@@ -1129,7 +1127,18 @@ describe("PlayerHost", () => {
         renderer.update(<PlayerHost />);
       });
       expect(StyleSheet.flatten(stage().props.style)).toMatchObject({ top: 300, width: 160 });
-      expect(videoRef.current.enterPictureInPicture).toHaveBeenCalled();
+      expect(videoRef.current.enterPictureInPicture).not.toHaveBeenCalled();
+    });
+
+    it("parks while the band has no slot, the closed column's audio-only state, and keeps playing", async () => {
+      await playInline();
+      await act(async () => {
+        bridge().setInlineFrame(null);
+      });
+
+      expect(StyleSheet.flatten(stage().props.style)).not.toMatchObject({ top: 300, width: 160 });
+      expect(requestedVideoId()).toBe("channel-1");
+      expect(handlersRef.current?.onRequestBack).not.toHaveBeenCalled();
     });
 
     it("opens the presented player once the channel loads when full screen was asked for while it opened, instead of a window", async () => {
@@ -1196,111 +1205,36 @@ describe("PlayerHost", () => {
       expect(videoRef.current.enterPictureInPicture).not.toHaveBeenCalled();
     });
 
-    it("leaves the card for its parked place once the PiP window has the picture", async () => {
+    it("leaves the slot while AVKit's own PiP window has the picture, and comes back to it when the window closes, keeping the session", async () => {
       await playInline();
       await pipStatus(true);
-
       expect(StyleSheet.flatten(stage().props.style)).not.toMatchObject({ top: 300, width: 160 });
-    });
 
-    it("asks for the window again while PiP is not yet possible, and stops once it is up", async () => {
-      jest.useFakeTimers();
-      try {
-        await playInline();
-        await act(async () => {
-          jest.advanceTimersByTime(1000);
-        });
-        expect(videoRef.current.enterPictureInPicture).toHaveBeenCalledTimes(3);
-
-        await pipStatus(true);
-        await act(async () => {
-          jest.advanceTimersByTime(5000);
-        });
-        expect(videoRef.current.enterPictureInPicture).toHaveBeenCalledTimes(3);
-      } finally {
-        jest.useRealTimers();
-      }
-    });
-
-    it("opens the presented player from the window's return button", async () => {
-      await playInline();
-      await pipStatus(true);
-
-      await act(async () => {
-        video().props.onRestoreUserInterfaceForPictureInPictureStop();
-      });
       await pipStatus(false);
 
-      expect(videoRef.current.restoreUserInterfaceForPictureInPictureStopCompleted).toHaveBeenCalledWith(true);
-      expect(videoRef.current.setFullScreen).toHaveBeenCalledWith(true);
+      expect(StyleSheet.flatten(stage().props.style)).toMatchObject({ top: 300, width: 160 });
       expect(handlersRef.current?.onRequestBack).not.toHaveBeenCalled();
-    });
-
-    it("keeps a channel playing in the window playing in the presented player its return button opens, and a paused one paused", async () => {
-      await playInline();
-      await pipStatus(true);
-      await act(async () => {
-        video().props.onPlaybackStateChanged({ isPlaying: true, isSeeking: false });
-      });
-      await act(async () => {
-        video().props.onRestoreUserInterfaceForPictureInPictureStop();
-      });
-      await pipStatus(false);
-      await act(async () => {
-        video().props.onFullscreenPlayerDidPresent();
-      });
-      expect(videoRef.current.resume).toHaveBeenCalledTimes(1);
-
-      await act(async () => {
-        video().props.onFullscreenPlayerDidDismiss();
-      });
-      await pipStatus(true);
-      await act(async () => {
-        video().props.onPlaybackStateChanged({ isPlaying: false, isSeeking: false });
-      });
-      await act(async () => {
-        video().props.onRestoreUserInterfaceForPictureInPictureStop();
-      });
-      await pipStatus(false);
-      await act(async () => {
-        video().props.onFullscreenPlayerDidPresent();
-      });
-      expect(videoRef.current.resume).toHaveBeenCalledTimes(1);
-    });
-
-    it("hands the window's close to the screen, which ends the session", async () => {
-      await playInline();
-      await pipStatus(true);
-
-      await pipStatus(false);
-
-      expect(handlersRef.current?.onRequestBack).toHaveBeenCalledTimes(1);
       expect(videoRef.current.setFullScreen).not.toHaveBeenCalled();
     });
 
-    it("leaves the window for the presented player when the playing channel is tapped", async () => {
+    it("answers AVKit's return button so the picture goes back to the slot", async () => {
       await playInline();
       await pipStatus(true);
 
       await act(async () => {
-        bridge().presentFullscreen();
-      });
-      expect(videoRef.current.exitPictureInPicture).toHaveBeenCalledTimes(1);
-      await act(async () => {
         video().props.onRestoreUserInterfaceForPictureInPictureStop();
       });
-      await pipStatus(false);
 
-      expect(videoRef.current.setFullScreen).toHaveBeenCalledWith(true);
+      expect(videoRef.current.restoreUserInterfaceForPictureInPictureStopCompleted).toHaveBeenCalledWith(true);
+      expect(videoRef.current.setFullScreen).not.toHaveBeenCalled();
     });
 
-    it("goes back to a PiP window when the viewer closes the presented player, keeping the session", async () => {
+    it("goes back to its band when the viewer closes the presented player, keeping the session", async () => {
       await playInline();
       await act(async () => {
         bridge().presentFullscreen();
       });
       expect(videoRef.current.setFullScreen).toHaveBeenCalledWith(true);
-      videoRef.current.enterPictureInPicture.mockClear();
       await act(async () => {
         video().props.onFullscreenPlayerDidPresent();
       });
@@ -1311,7 +1245,7 @@ describe("PlayerHost", () => {
 
       expect(handlersRef.current?.onRequestBack).not.toHaveBeenCalled();
       expect(requestedVideoId()).toBe("channel-1");
-      expect(videoRef.current.enterPictureInPicture).toHaveBeenCalledTimes(1);
+      expect(videoRef.current.enterPictureInPicture).not.toHaveBeenCalled();
     });
 
     it("ignores a full screen ask for a session that is not inline", async () => {

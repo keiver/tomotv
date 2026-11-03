@@ -43,7 +43,7 @@
   "liveTv.stopRecordingAndPlay": "Stop Recording and Play",
   "liveTv.watchRecording": "Watch Recording",
   "liveTv.tuningIn": "Tuning in…",
-  "liveTv.playingInPip": "Playing in Picture in Picture",
+  "liveTv.playingPinned": "Playing at the top",
   "liveTv.recordingSoon": "A recording on {channel} starts in 1 minute.",
   "liveTv.stopAllRecordings": "Stop All Recordings",
   "liveTv.stopAllRecordingsConfirm": "Every recording in progress stops. What was recorded so far is kept.",

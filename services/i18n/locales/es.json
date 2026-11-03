@@ -43,7 +43,7 @@
   "liveTv.stopRecordingAndPlay": "Detener grabación y reproducir",
   "liveTv.watchRecording": "Ver la grabación",
   "liveTv.tuningIn": "Sintonizando…",
-  "liveTv.playingInPip": "Reproduciendo en imagen dentro de imagen",
+  "liveTv.playingPinned": "Reproduciendo arriba",
   "liveTv.recordingSoon": "Una grabación en {channel} empieza en 1 minuto.",
   "liveTv.stopAllRecordings": "Detener todas las grabaciones",
   "liveTv.stopAllRecordingsConfirm": "Se detienen todas las grabaciones en curso. Lo grabado hasta ahora se conserva.",

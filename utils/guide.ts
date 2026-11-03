@@ -66,7 +66,7 @@ export interface GuideMetrics {
 export function guideMetrics(isTV: boolean): GuideMetrics {
   const channelColumnWidth = isTV ? 368 : 176;
   const padding = slotCardPadding(isTV);
-  const rowHeight = Math.round(channelColumnWidth / GRID.LIVE_RATIO) + 1;
+  const rowHeight = guideRowHeight(channelColumnWidth);
   // The compact column holds a portrait card the row's own height, capping the row: padded on the left only.
   const compactColumnWidth = isTV ? channelColumnWidth : Math.round((rowHeight - 1) * GRID.PORTRAIT_RATIO + padding);
   const cardInset = { vertical: 0, horizontal: 0 };
@@ -397,15 +397,48 @@ export function channelWindow<T extends { Id: string }>(channels: readonly T[], 
   return [...new Set([at(-1), ...Array.from({ length: count }, (_, offset) => at(offset))])];
 }
 
-export type PreviewTap = "start" | "switch" | "fullscreen" | "retry" | "none";
+export type PinTap = "start" | "switch" | "retry" | "none";
 
-/**
- * What a channel tap does to Live TV's PiP channel: start it, switch it to the tapped channel, or, on the
- * channel already in it, open it full screen (while it opens too) and retry it once it failed.
- */
-export function previewTapAction(tappedId: string, slotChannelId: string | null, hostMode: string): PreviewTap {
-  if (slotChannelId === null || hostMode === "idle" || hostMode === "pip-detached") return "start";
-  if (tappedId !== slotChannelId) return "switch";
-  if (hostMode === "video" || hostMode === "pip-active" || hostMode === "loading") return "fullscreen";
+/** What a channel card's tap does to Live TV's pinned channel: pin it, switch the pin to it, or retry the pinned one once it failed. */
+export function pinTapAction(tappedId: string, pinnedId: string | null, hostMode: string): PinTap {
+  if (pinnedId === null || hostMode === "idle" || hostMode === "pip-detached") return "start";
+  if (tappedId !== pinnedId) return "switch";
   return hostMode === "error" ? "retry" : "none";
+}
+
+/** The guide's row height for a channel column this wide: the card's 16:9 picture and the row's line. */
+export function guideRowHeight(columnWidth: number): number {
+  "worklet";
+  return Math.round(columnWidth / GRID.LIVE_RATIO) + 1;
+}
+
+export type ColumnStop = "closed" | "default" | "wide";
+
+/** The wide stop's card: twice the default card, a multiple of 16 like it. */
+const WIDE_COLUMN_MAX = 352;
+/** On a guide narrower than that, the wide stop leaves this share of it to the rows. */
+const WIDE_COLUMN_RATIO = 0.9;
+
+/** The wide stop's width: 352pt, or 90% of a narrower guide, never under the default card. */
+export function wideColumnWidth(guideWidth: number, defaultWidth: number): number {
+  "worklet";
+  return Math.max(defaultWidth, Math.min(WIDE_COLUMN_MAX, guideWidth * WIDE_COLUMN_RATIO));
+}
+/** A fling carries the column this many seconds of its speed past where the finger let go. */
+const COLUMN_FLING_S = 0.15;
+
+/** Where the column rests after a drag: the stop nearest the release width carried on by the fling. */
+export function nearestColumnStop(width: number, velocityX: number, stops: Record<ColumnStop, number>): ColumnStop {
+  "worklet";
+  const projected = width + velocityX * COLUMN_FLING_S;
+  let best: ColumnStop = "default";
+  let distance = Infinity;
+  for (const stop of ["closed", "default", "wide"] as const) {
+    const gap = Math.abs(stops[stop] - projected);
+    if (gap < distance) {
+      best = stop;
+      distance = gap;
+    }
+  }
+  return best;
 }
