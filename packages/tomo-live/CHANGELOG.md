@@ -4,6 +4,8 @@
 
 - A channel's start buffer steps through `LIVE_START_STEPS` (2, 6, then 15 s): `noteLiveStall(channelId, playedMs)` steps it up one on a stall within `LIVE_POOR_START_WINDOW_MS` (60 s) of the picture coming up and returns the seconds to hold the picture for, the gap to the next step; `noteLiveCleanStart(channelId)` steps it back down one after a clean minute; `liveStartBufferSeconds(channelId)` is what the channel's next session builds. Kept in memory for the app run. `LivePlayback` waits for the channel's step, at most 20 s past it.
 - `@keiver/tomo-engine` 1.8.0 or later, whose `LIVE_BUFFER_SECONDS` (2) is the first step.
+- `LivePlayback`'s start wait passes at once for a session that serves LL-HLS (`startBufferedSeconds`), since the engine holds its own first answer.
+- `planLiveRecovery` takes `played`: a channel that has not played since the viewer chose it ends after `LIVE_UNPLAYED_REOPENS` (4) reopens instead of reopening every 5 s for as long as the viewer stays. `LiveDropCounter.played` carries it.
 
 ## 1.5.0
 

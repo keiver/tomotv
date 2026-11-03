@@ -84,6 +84,13 @@ const masterUrl = await startSession(liveSessionConfig({ inputUrl, itemId, httpH
   `LIVE_SEGMENT_SECONDS` (1). A copied segment is cut at the first keyframe `LIVE_COPY_CUT_SECONDS`
   (0.4) past its open one, so it runs one keyframe gap, and TARGETDURATION is the nearest integer
   of the longest segment that cut allows (`liveTargetNearest`).
+- **LL-HLS.** With `liveLowLatency` (on in `liveSessionConfig` at the first start step) a continuous
+  MPEG-TS input is cut into parts of at most `livePartSeconds` (0.5) and served per
+  draft-pantos-hls-rfc8216bis-22: `EXT-X-PART`, `PRELOAD-HINT`, blocking reloads (`_HLS_msn`,
+  `_HLS_part`), delta updates (`_HLS_skip`) and rendition reports. The start buffer does not apply:
+  the first answer waits for the first full segment when `liveLowLatencyTargetSeconds` is 0, which
+  sets TARGETDURATION; the target rises only when a copied segment rounds past it. An HLS or DASH
+  input stays plain. `progress()` reports `lowLatency`.
 - **In-session reopen.** A live read that brings nothing for twice its longest read so far (12 s at
   least), or ends, closes the input and opens it again in the same session, for as long as the
   session lives. The first try is at once; each further try, and each reopen within 60 s of the
