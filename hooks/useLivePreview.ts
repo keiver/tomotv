@@ -1,4 +1,5 @@
 import { usePlayerSession, type PlayerSessionHandlers } from "@/contexts/PlayerSessionContext";
+import { tapFeedback } from "@/services/haptics";
 import type { JellyfinItem } from "@/types/jellyfin";
 import { previewTapAction } from "@/utils/guide";
 import { useIsFocused } from "expo-router";
@@ -55,6 +56,7 @@ export function useLivePreview() {
     (tapped: JellyfinItem) => {
       const { videoId, hostMode: mode } = sessionRef.current;
       const action = previewTapAction(tapped.Id, keyRef.current ? videoId : null, mode);
+      if (action !== "none") void tapFeedback();
       if (action === "fullscreen") presentFullscreen();
       else if (action === "retry") retry();
       else if (action === "switch") {

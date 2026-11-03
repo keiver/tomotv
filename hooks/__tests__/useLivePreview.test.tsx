@@ -15,6 +15,8 @@ const mockSession = {
   hostMode: "idle",
 };
 jest.mock("@/contexts/PlayerSessionContext", () => ({ usePlayerSession: () => mockSession }));
+const mockTapFeedback = jest.fn();
+jest.mock("@/services/haptics", () => ({ tapFeedback: () => mockTapFeedback() }));
 
 let mockFocused = true;
 const mockTransitionListeners: ((event: { data: { closing: boolean } }) => void)[] = [];
@@ -121,8 +123,10 @@ describe("useLivePreview", () => {
     await mount();
     await act(async () => latest().preview(one as never));
     const key = mockSession.requestSession.mock.calls[0][0].sessionKey;
+    await hostShows("c1", "video");
     await act(async () => latest().preview(two as never));
     await hostShows("c2", "video");
+    expect(mockSession.requestSession).toHaveBeenCalledTimes(1);
 
     mockFocused = false;
     await rerender();
@@ -157,6 +161,20 @@ describe("useLivePreview", () => {
     await mount();
 
     expect(mockSession.releaseRoute).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives a tap feedback for each tap that starts, switches or opens the slot full screen, and none for a tap that does nothing", async () => {
+    await mount();
+    await act(async () => latest().preview(one as never));
+    await hostShows("c1", "loading");
+    await act(async () => latest().preview(one as never));
+    expect(mockTapFeedback).toHaveBeenCalledTimes(1);
+
+    await hostShows("c1", "video");
+    await act(async () => latest().preview(two as never));
+    await hostShows("c2", "video");
+    await act(async () => latest().preview(two as never));
+    expect(mockTapFeedback).toHaveBeenCalledTimes(3);
   });
 
   it("releases nothing when no channel was tapped", async () => {

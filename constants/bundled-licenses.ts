@@ -1,7 +1,7 @@
 /**
  * bundled-licenses.ts — GENERATED. Do not edit.
  *
- * fingerprint: bfe534e0a2888ae5
+ * fingerprint: 036d64b64eef4280
  *
  * Run `npm run licenses` to rebuild from the production dependency tree.
  * See scripts/generate-licenses.mjs for what it will and will not infer.
@@ -327,6 +327,7 @@ export const BUNDLED_PACKAGES: BundledPackage[] = [
   { name: "expo-file-system", version: "57.0.7", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
   { name: "expo-font", version: "57.0.4", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
   { name: "expo-glass-effect", version: "57.0.4", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
+  { name: "expo-haptics", version: "57.0.3", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
   { name: "expo-image", version: "57.0.5", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
   { name: "expo-keep-awake", version: "57.0.2", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
   { name: "expo-linking", version: "57.0.13", license: "MIT", body: "L3", copyright: ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"] },
