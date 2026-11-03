@@ -70,6 +70,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   fetchIsAdministrator: jest.fn(async () => true),
   isLiveChannel: (item: { Type?: string } | null) => item?.Type === "TvChannel",
   fetchItemDetails: jest.fn(),
+  fetchVideoDetails: jest.fn(async () => null),
   fetchFolderMediaKinds: jest.fn(async () => null),
   fetchItemFolderPath: jest.fn(async () => [{ id: "channels-folder" }]),
   getBackdropUrl: () => null,
