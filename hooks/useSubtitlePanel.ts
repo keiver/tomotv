@@ -11,7 +11,7 @@ import { t } from "@/services/i18n";
 import { fetchItemDetails, fetchRecursiveDownloadables, isAudioItem, isBook, isFolder, isPhoto } from "@/services/jellyfinApi";
 import { getCachedConfig } from "@/services/jellyfin/session";
 import { currentTextSubtitles, isCurrentPick, replacementFor, type CurrentSubtitle } from "@/services/subtitles/current";
-import { hitBadges, hitByline, hitMeta, jobErrorLine, jobNoteLine, jobStateLine, offsetLabel, queryPrefix, SOURCE_MONOGRAM, syncStateLine } from "@/services/subtitles/jobText";
+import { hitBadges, hitByline, hitMeta, jobErrorLine, jobNoteLine, jobStateLine, offsetLabel, SOURCE_MONOGRAM, syncStateLine } from "@/services/subtitles/jobText";
 import { ALL_LANGUAGES, languageCode, languageFor } from "@/services/subtitles/languages";
 import { queryText } from "@/services/subtitles/query";
 import { SUBTITLE_OFFSET_STEP_MS, type SubtitleSyncState } from "@/services/subtitles/timing";
@@ -80,7 +80,6 @@ export function panelJobFor(job: SubtitleJob, alone: boolean, tracks: PanelTrack
       return {
         id: `${hit.source}:${hit.id}`,
         name: hit.name,
-        namePrefix: queryPrefix(hit.name, queryText(job.query)),
         meta: hitMeta(hit),
         downloads: hit.downloads,
         rating: hit.rating,

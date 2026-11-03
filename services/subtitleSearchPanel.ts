@@ -14,8 +14,6 @@ export interface PanelLanguage {
 export interface PanelResult {
   id: string;
   name: string;
-  /** The start of the name that only repeats the query, drawn faded. */
-  namePrefix: string;
   meta: string;
   downloads: number | null;
   rating: number | null;
