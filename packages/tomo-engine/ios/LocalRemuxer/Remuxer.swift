@@ -415,8 +415,12 @@ final class RemuxSession {
     /// Written once on the pipeline thread, before any playlist names the grid.
     var keyframeStarts: [Double] = []
     var keyframeSeekTimestamps: [Int64] = []
-    /// The grid of a copy without rungs is settled, keyframe or fixed; its playlists wait for it. Under stateLock.
+    /// The copy's grid is settled, keyframe, adopted or fixed; its playlists wait for it. Under stateLock.
     var copyGridDecided = false
+    /// A session with rungs whose link carried the copy at open, cut on the source's keyframes: the rungs'
+    /// grid was let go, so every master lists the copy alone (as Jellyfin never lists a copy beside
+    /// re-encodes). Under stateLock.
+    var copyLatched = false
     var tierSegments: [Int: [TierSegment]] = [:]
     /// Per rung id, tier segment indices with a rewrapped file on disk (prune).
     var tierMaterialized: [Int: Set<Int>] = [:]

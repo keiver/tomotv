@@ -1353,7 +1353,8 @@ extension RemuxSession {
     }
 
     /// The copy's keyframe grid, from the index and the opening keyframe's anchor (pipeline thread, before any cut).
-    /// A playlist that already named the fixed grid keeps it. True when the session is on the keyframe grid.
+    /// A playlist that already named a grid keeps it. A session with rungs lets their grid go and lists the copy
+    /// alone from then on. True when the session is on the keyframe grid.
     func adoptKeyframeGrid(_ entries: KeyframeIndex.Entries, anchorUs: Int64,
                            indexPoints: (points: [SegmentBitrates.IndexPoint], size: Int64)?) -> Bool {
         let microTb = AVRational(num: 1, den: SWIFT_AV_TIME_BASE)
@@ -1362,6 +1363,12 @@ extension RemuxSession {
         let published = gridPublished
         let picked = published ? nil : Self.keyframeGridStarts(keyframes: seconds, durationSeconds: durationSeconds)
         if let picked {
+            if !config.tiers.isEmpty {
+                adoptedStarts = []
+                adoptedDurations = []
+                tierSegments = [:]
+                copyLatched = true
+            }
             keyframeStarts = [0] + picked.dropFirst().map { seconds[$0] }
             keyframeSeekTimestamps = picked.map { entries.seekTimestamps[$0] }
             // The windows keep the seconds they cover on the fixed grid, so long segments read no further ahead.
@@ -2158,9 +2165,14 @@ extension RemuxSession {
             primaryDolbyVision = converter
         }
 
-        // A copy without rungs cuts on the keyframes its source indexes: Apple's authoring spec 7.4 has
-        // every video segment open on one. Its grid waits for the opening keyframe, which fixes the timeline.
-        let keyframeCopy = !config.isLive && hasVideo && primaryVideoTranscoder == nil && config.tiers.isEmpty
+        // A copy cuts on the keyframes its source indexes: Apple's authoring spec 7.4 has every video segment
+        // open on one. Its grid waits for the opening keyframe, which fixes the timeline. With rungs, only when the
+        // link carried the copy at open (decideCopy): the rungs cut on equal marks and 8.22 needs one grid, so the
+        // session then lists the copy alone.
+        stateLock.lock()
+        let copyListed = copyVerdict == .listed
+        stateLock.unlock()
+        let keyframeCopy = !config.isLive && hasVideo && primaryVideoTranscoder == nil && (config.tiers.isEmpty || copyListed)
         var gridKeyframes: KeyframeIndex.Entries?
         var gridIndexPoints: (points: [SegmentBitrates.IndexPoint], size: Int64)?
         if !config.isLive, hasVideo, primaryVideoTranscoder == nil {
@@ -3519,21 +3531,23 @@ extension RemuxSession {
                 // position 0: seek before it and every later segment is labelled by the offset.
                 let firstGeneration = sessionAnchorUs == nil
                 var anchor = sessionAnchorUs ?? keyframeUs
-                // A copy without rungs opens on the keyframe's decode time, as live does: a keyframe decoded
-                // before it is presented (B-frames in MP4 and MPEG-TS) keeps a DTS at zero and is written.
+                // A copy opens on the keyframe's decode time, as live does: a keyframe decoded before it is
+                // presented (B-frames in MP4 and MPEG-TS) keeps a DTS at zero and is written. Beside rungs only
+                // once their grid is let go, since theirs start at the keyframe's presentation.
                 if firstGeneration, keyframeCopy, pkt.pointee.dts != SWIFT_AV_NOPTS_VALUE {
                     anchor = min(keyframeUs, av_rescale_q(pkt.pointee.dts, inStream.pointee.time_base, microTb))
-                    openingLeadUs = keyframeUs - anchor
                 }
+                if firstGeneration, keyframeCopy, let entries = gridKeyframes {
+                    onKeyframeGrid = adoptKeyframeGrid(entries, anchorUs: anchor, indexPoints: gridIndexPoints)
+                }
+                if firstGeneration, !config.tiers.isEmpty, !onKeyframeGrid { anchor = keyframeUs }
+                if firstGeneration { openingLeadUs = keyframeUs - anchor }
                 sessionAnchorUs = anchor
                 timelineAnchorUs = anchor
                 // The segment writer holds cues in source time, owes output time.
                 stateLock.lock()
                 sessionAnchorSeconds = Double(anchor) / Double(SWIFT_AV_TIME_BASE)
                 stateLock.unlock()
-                if firstGeneration, keyframeCopy, let entries = gridKeyframes {
-                    onKeyframeGrid = adoptKeyframeGrid(entries, anchorUs: anchor, indexPoints: gridIndexPoints)
-                }
                 let openingLead = Double(openingLeadUs) / Double(SWIFT_AV_TIME_BASE)
                 let gridSlack = onKeyframeGrid ? keyframeGridTolerance : 0
 

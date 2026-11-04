@@ -309,39 +309,81 @@ final class CopySegmentIndependenceTests: XCTestCase {
                                  "read ahead stays within one segment of 30 s")
     }
 
-    /// With a server rung configured, the copy keeps the rung's grid (Apple 8.22: one grid across variants), as
-    /// Jellyfin 12.2.0 answers a transcode playlist (measured: 235 segments of 6.000 s).
-    func testACopyBesideServerRungsKeepsTheRungGrid() throws {
+    /// A session with a server rung on Jellyfin's grid: an equal 6 s list, as Jellyfin 12.2.0 answers a transcode
+    /// playlist (measured: 235 segments of 6.000 s), and the film served with byte ranges, as Jellyfin serves it.
+    /// `linkBps` stands in for the measured link.
+    private func rungSession(linkBps: Double) throws -> (RemuxSession, LocalHTTPServer, ThrottledFileServer) {
         guard FileManager.default.isExecutableFile(atPath: Self.ffmpeg) else { throw XCTSkip("no ffmpeg at \(Self.ffmpeg)") }
         let file = try XCTUnwrap(Self.mkvWithCues, "ffmpeg produced no fixture")
         let bytes = try Data(contentsOf: file)
+        let source = try ThrottledFileServer(data: bytes, bytesPerSecond: Int(Double(bytes.count) / Self.seconds * 50))
         let grid = "#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXT-X-PLAYLIST-TYPE:VOD\n"
             + (0..<20).map { "#EXTINF:6.000000,\nseg\($0).ts\n" }.joined() + "#EXT-X-ENDLIST\n"
         let origin = LocalHTTPServer { request in
-            switch request {
-            case "/source.mkv": return .data(bytes, contentType: "application/octet-stream")
-            case "/tier.m3u8": return .data(Data(grid.utf8), contentType: "application/vnd.apple.mpegurl")
-            default: return .notFound
-            }
+            request == "/tier.m3u8" ? .data(Data(grid.utf8), contentType: "application/vnd.apple.mpegurl") : .notFound
         }
         let port = try origin.start()
-        defer { origin.stop() }
         let base = "http://127.0.0.1:\(port)"
         var track = RemuxAudioTrack(index: 1, name: "Audio", language: "eng", serverAudioUrl: "\(base)/audio.m3u8")
         track.serverAudioChannels = 2
         let session = try RemuxSession(config: makeConfig(
-            durationSeconds: Self.seconds, inputUrl: "\(base)/source.mkv", audioTracks: [track],
+            durationSeconds: Self.seconds, inputUrl: "http://127.0.0.1:\(source.port)/source.mkv", audioTracks: [track],
             codecs: "avc1.4D400D,ac-3", width: 320, height: 180, frameRate: 24, bandwidth: 600_000,
             tierPlaylistUrl: "\(base)/tier.m3u8", tierBandwidth: 260_000, tierCodecs: "avc1.64000C,mp4a.40.2", tierWidth: 256, tierHeight: 144))
+        session.testLinkBps = linkBps
         session.start()
-        defer { session.stop() }
-        _ = session.masterPlaylist()
+        return (session, origin, source)
+    }
+
+    private func videoVariants(_ master: String) -> Int {
+        master.split(separator: "\n").filter { $0.hasPrefix("#EXT-X-STREAM-INF") }.count
+    }
+
+    /// On a link that carries the copy, a session with rungs cuts the copy on its keyframes and lists it alone, as
+    /// Jellyfin never lists a copy beside re-encodes; a master re-served after a subtitle swap lists it alone too.
+    func testARungSessionOnALinkThatCarriesTheCopyListsItAloneOnItsKeyframes() throws {
+        let (session, origin, source) = try rungSession(linkBps: 50_000_000)
+        defer {
+            session.stop()
+            origin.stop()
+            source.stop()
+        }
+        let master = session.masterPlaylist()
+        XCTAssertEqual(videoVariants(master), 1, "the copy alone: \(master)")
+        XCTAssertTrue(onKeyframeGrid(session), "the copy cuts on the source's keyframes")
         session.stateLock.lock()
         let adopted = session.adoptedStarts.count
+        let latched = session.copyLatched
         session.stateLock.unlock()
-        XCTAssertEqual(adopted, 20, "the copy keeps the rung's 20-segment grid")
-        XCTAssertFalse(onKeyframeGrid(session), "no keyframe grid beside rungs")
-        XCTAssertEqual(shape(session.mediaPlaylist()).durations.count, 20)
+        XCTAssertEqual(adopted, 0, "the rungs' grid is let go")
+        XCTAssertTrue(latched)
+        assertPlaylistShape(session, "copy beside rungs")
+        assertIndependent(try readings(session: session, segments: Array(0..<session.segmentCount)), "copy beside rungs")
+        session.testLinkBps = 100_000
+        guard case .data(let again, _) = session.route("master1.m3u8") else { return XCTFail("no re-served master") }
+        XCTAssertEqual(videoVariants(String(decoding: again, as: UTF8.self)), 1, "a slower link later still lists the copy alone")
+    }
+
+    /// On a link that cannot carry the copy, the session lets the source go and plays the rungs on Jellyfin's grid.
+    func testARungSessionOnASlowLinkKeepsTheRungGrid() throws {
+        let (session, origin, source) = try rungSession(linkBps: 100_000)
+        defer {
+            session.stop()
+            origin.stop()
+            source.stop()
+        }
+        XCTAssertTrue(spinMainRunLoop(seconds: 15) {
+            session.stateLock.lock()
+            defer { session.stateLock.unlock() }
+            return session.sourceReleased
+        }, "the source is let go")
+        session.stateLock.lock()
+        let adopted = session.adoptedStarts.count
+        let latched = session.copyLatched
+        session.stateLock.unlock()
+        XCTAssertEqual(adopted, 20, "the rungs' 20-segment grid")
+        XCTAssertFalse(latched)
+        XCTAssertFalse(onKeyframeGrid(session))
     }
 
     /// The host's AVPlayer, the way a progress bar jumps: play, then seek far into segments that are not on disk, so

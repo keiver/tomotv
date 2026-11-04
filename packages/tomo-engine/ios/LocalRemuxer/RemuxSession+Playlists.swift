@@ -152,11 +152,11 @@ extension RemuxSession {
         }
     }
 
-    /// Blocks (bounded) until a copy without rungs has settled its grid at the opening keyframe.
+    /// Blocks (bounded) until the copy has settled its grid at the opening keyframe, or let its source go.
     /// Serving threads only: the pipeline decides it and must never wait here. A timeout lets the
-    /// fixed grid be named; the pipeline keeps it once a playlist has.
+    /// grid as it stands be named; the pipeline keeps it once a playlist has.
     func awaitCopyGrid(deadline: TimeInterval) {
-        guard !config.isLive, config.tiers.isEmpty else { return }
+        guard !config.isLive else { return }
         _ = waitUntil(deadline: deadline) { [weak self] in
             guard let self else { return true }
             self.stateLock.lock()
@@ -275,7 +275,11 @@ extension RemuxSession {
                 return self.primaryInitWritten || self.failed || self.cancelled
             }
         }
-        let offered = tierOffered
+        stateLock.lock()
+        let latched = copyLatched
+        stateLock.unlock()
+        // A latched copy let the rungs' grid go: the session is still one with rungs, and it lists the copy alone.
+        let offered = tierOffered || latched
         stateLock.lock()
         let awaitLocalOutput = pipelineStarted && !offered && !config.isLive
         stateLock.unlock()
@@ -290,7 +294,7 @@ extension RemuxSession {
             }
         }
         stateLock.lock()
-        let copyOnly = offered && !sourceUnusable && copyLeadsLocked(linkBps: testLinkBps ?? wireLinkBps ?? playlistLinkBps ?? 0)
+        let copyOnly = offered && !sourceUnusable && (latched || copyLeadsLocked(linkBps: testLinkBps ?? wireLinkBps ?? playlistLinkBps ?? 0))
         // From here the session's length is on the record: every playlist must share this grid.
         gridPublished = true
         stateLock.unlock()
