@@ -172,6 +172,7 @@ export function PlayerHost() {
   // and in AVKit's presented player when asked.
   const [inlineFrame, setInlineFrame] = useState<InlineFrame | null>(null);
   const [inlineOverlay, setInlineOverlay] = useState<React.ReactNode>(null);
+  const [inlineMuted, setInlineMuted] = useState(false);
   // Full screen was asked for while the inline channel was still opening.
   const fullscreenWhenLoadedRef = useRef(false);
 
@@ -946,6 +947,7 @@ export function PlayerHost() {
       toggleVideoFill,
       setInlineFrame,
       setInlineOverlay,
+      setInlineMuted,
       presentFullscreen: () => {
         if (!PRESENTS_NATIVE_FULLSCREEN || !sessionRef.current?.inline || presentationRef.current !== "none" || pipRef.current !== "none") return;
         // Still opening: the presented player comes up once the item shows.
@@ -1018,6 +1020,7 @@ export function PlayerHost() {
           resizeMode={fills ? "cover" : "contain"}
           // Inline, the picture alone: AVKit's controls do not shrink to the band, so a tap on it opens the presented player.
           controls={!inline}
+          muted={inline && inlineMuted}
           paused={paused}
           // Both float props stay set: 0 is AVFoundation's "no cap" and "own threshold". Clearing a scalar
           // prop makes React restore a default RNV never exposes a getter for, an uninitialised float.

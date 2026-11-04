@@ -50,6 +50,8 @@
   "liveTv.columnWide": "Wide cards",
   "liveTv.largerPicture": "Larger picture",
   "liveTv.smallerPicture": "Smaller picture",
+  "liveTv.mute": "Mute",
+  "liveTv.unmute": "Unmute",
   "liveTv.recordingSoon": "A recording on {channel} starts in 1 minute.",
   "liveTv.stopAllRecordings": "Stop All Recordings",
   "liveTv.stopAllRecordingsConfirm": "Every recording in progress stops. What was recorded so far is kept.",

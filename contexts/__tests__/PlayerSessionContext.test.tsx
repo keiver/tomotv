@@ -23,6 +23,7 @@ function makeBridge(): jest.Mocked<PlayerHostBridge> {
     toggleVideoFill: jest.fn(),
     setInlineFrame: jest.fn(),
     setInlineOverlay: jest.fn(),
+    setInlineMuted: jest.fn(),
     presentFullscreen: jest.fn(),
   };
 }
@@ -204,6 +205,13 @@ describe("PlayerSessionContext handoff", () => {
     renderColdLaunch(bridge, (session) => session.setInlineOverlay(overlay));
 
     expect(bridge.setInlineOverlay).toHaveBeenCalledWith(overlay);
+  });
+
+  it("hands a mute set before the host registered to the host once it does", () => {
+    const bridge = makeBridge();
+    renderColdLaunch(bridge, (session) => session.setInlineMuted(true));
+
+    expect(bridge.setInlineMuted).toHaveBeenCalledWith(true);
   });
 
   it("hands a cleared inline frame to the host too", () => {

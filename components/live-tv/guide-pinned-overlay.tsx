@@ -36,6 +36,8 @@ interface GuidePinnedOverlayProps {
   accent: string;
   /** The band's swipe between sizes, for the copy over the player, which takes the picture's touches. */
   swipe?: GestureType;
+  muted: boolean;
+  onToggleMute: () => void;
   onToggleSize: () => void;
   onOpen: () => void;
   onClose: () => void;
@@ -45,7 +47,7 @@ interface GuidePinnedOverlayProps {
  * Over the pinned channel's picture: the tap to full screen and the band's swipe, and on iPhone's larger picture the
  * name and buttons on a black scrim. Drawn by the player host over the inline video, and by the band over the clip.
  */
-export function GuidePinnedOverlay({ name, mark, record, extended, bar, accent, swipe, onToggleSize, onOpen, onClose }: GuidePinnedOverlayProps) {
+export function GuidePinnedOverlay({ name, mark, record, extended, bar, accent, swipe, muted, onToggleMute, onToggleSize, onOpen, onClose }: GuidePinnedOverlayProps) {
   const body = (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none" testID="guide-pinned-overlay">
       <Pressable style={StyleSheet.absoluteFill} onPress={onOpen} accessibilityRole="button" accessibilityLabel={mark ? `${name}, ${mark}` : name} />
@@ -69,6 +71,14 @@ export function GuidePinnedOverlay({ name, mark, record, extended, bar, accent, 
               <GlassIconButton icon={record.icon} iconSize={20} size={GRIP_SIZE} color={COLORS.DESTRUCTIVE} label={record.text} onPress={record.onPress} accessibilityLabel={record.label} />
             </View>
           ) : null}
+          <GlassIconButton
+            icon={muted ? "volume-mute-outline" : "volume-high-outline"}
+            iconSize={20}
+            size={GRIP_SIZE}
+            color={accent}
+            onPress={onToggleMute}
+            accessibilityLabel={t(muted ? "liveTv.unmute" : "liveTv.mute")}
+          />
           <GlassIconButton
             icon={extended ? "contract-outline" : "expand-outline"}
             iconSize={20}

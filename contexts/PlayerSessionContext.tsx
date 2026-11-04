@@ -129,6 +129,8 @@ export interface PlayerHostBridge {
   setInlineFrame: (frame: InlineFrame | null) => void;
   /** Drawn over an inline session's picture, never over the presented player; null draws nothing. */
   setInlineOverlay: (overlay: ReactNode | null) => void;
+  /** An inline session plays without sound; an item that is not inline always has its sound. */
+  setInlineMuted: (muted: boolean) => void;
   /** An inline session goes to AVKit's presented player. */
   presentFullscreen: () => void;
 }
@@ -176,7 +178,14 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
    * that describe INTENT are held here and replayed at registration; the rest need a live
    * host by definition. Nothing in this file may depend on mount order.
    */
-  const pendingRef = useRef<{ request?: PlayerSessionRequest; tvConfig?: PlayerTvConfig; routePresented?: boolean; inlineFrame?: InlineFrame | null; inlineOverlay?: ReactNode | null }>({});
+  const pendingRef = useRef<{
+    request?: PlayerSessionRequest;
+    tvConfig?: PlayerTvConfig;
+    routePresented?: boolean;
+    inlineFrame?: InlineFrame | null;
+    inlineOverlay?: ReactNode | null;
+    inlineMuted?: boolean;
+  }>({});
 
   const registerHost = useCallback((bridge: PlayerHostBridge | null) => {
     bridgeRef.current = bridge;
@@ -189,6 +198,7 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
     if (pending.routePresented) bridge.signalRoutePresented();
     if (pending.inlineFrame !== undefined) bridge.setInlineFrame(pending.inlineFrame);
     if (pending.inlineOverlay !== undefined) bridge.setInlineOverlay(pending.inlineOverlay);
+    if (pending.inlineMuted !== undefined) bridge.setInlineMuted(pending.inlineMuted);
   }, []);
 
   /** Commands that only mean something while a host is live. A miss is a bug, not a state. */
@@ -283,6 +293,14 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
     }
     bridge.setInlineOverlay(overlay);
   }, []);
+  const setInlineMuted = useCallback((muted: boolean) => {
+    const bridge = bridgeRef.current;
+    if (!bridge) {
+      pendingRef.current.inlineMuted = muted;
+      return;
+    }
+    bridge.setInlineMuted(muted);
+  }, []);
   const presentFullscreen = useCallback(() => withHost("presentFullscreen", (bridge) => bridge.presentFullscreen()), [withHost]);
 
   const value = useMemo(
@@ -304,6 +322,7 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
       toggleVideoFill,
       setInlineFrame,
       setInlineOverlay,
+      setInlineMuted,
       presentFullscreen,
       setHandlers,
       clearHandlers,
@@ -326,6 +345,7 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
       toggleVideoFill,
       setInlineFrame,
       setInlineOverlay,
+      setInlineMuted,
       presentFullscreen,
       setHandlers,
       clearHandlers,

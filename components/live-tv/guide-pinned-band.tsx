@@ -24,7 +24,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const OPENING_DIM = 0.3;
 /** The band's bottom edge, in the theme's accent and heavier than the rows' grid line below it. */
-const BAND_EDGE = 4;
+const BAND_EDGE = 5;
 /** The band's swipe reaches this far below its edge. */
 const EDGE_SLOP = 20;
 const SIDE_BUTTON = 38;
@@ -95,7 +95,7 @@ export function GuidePinnedBand({
   onHeight,
 }: GuidePinnedBandProps) {
   const { accent } = useCardPalette();
-  const { setInlineOverlay } = usePlayerSession();
+  const { setInlineOverlay, setInlineMuted } = usePlayerSession();
   const insets = useSafeAreaInsets();
   const { height: windowH } = useWindowDimensions();
   const [bandW, setBandW] = useState(0);
@@ -103,6 +103,14 @@ export function GuidePinnedBand({
   const [extended, setExtended] = useState(false);
   // From the size button's press until the band has animated to its new size: the player parks, still playing.
   const [sizing, setSizing] = useState(false);
+  // Kept across channel switches, like the size.
+  const [muted, setMuted] = useState(false);
+  const toggleMute = useCallback(() => {
+    void tapFeedback();
+    setMuted((was) => !was);
+  }, []);
+  useEffect(() => setInlineMuted(muted), [muted, setInlineMuted]);
+  useEffect(() => () => setInlineMuted(false), [setInlineMuted]);
 
   const rowVideoH = metrics.rowHeight - 1;
   const large = bandExtendedSize(Math.max(0, bandW - insets.right), windowH, !ON_PICTURE);
@@ -204,7 +212,19 @@ export function GuidePinnedBand({
   const mark = playsRecording ? t("liveTv.playingRecording") : recordingNow ? t("liveTv.recordingNow") : null;
 
   const overlay = showTile ? null : (
-    <GuidePinnedOverlay name={name} mark={mark} record={recordButton} extended={extended} bar={onPicture} accent={accent} onToggleSize={toggleSize} onOpen={onOpen} onClose={onClose} />
+    <GuidePinnedOverlay
+      name={name}
+      mark={mark}
+      record={recordButton}
+      extended={extended}
+      bar={onPicture}
+      accent={accent}
+      muted={muted}
+      onToggleMute={toggleMute}
+      onToggleSize={toggleSize}
+      onOpen={onOpen}
+      onClose={onClose}
+    />
   );
   // The player draws above the guide, so the copy over the playing picture is the host's, and it takes the swipe there.
   const hostOverlay = useMemo(
@@ -218,12 +238,14 @@ export function GuidePinnedBand({
           bar={onPicture}
           accent={accent}
           swipe={overlaySwipe}
+          muted={muted}
+          onToggleMute={toggleMute}
           onToggleSize={toggleSize}
           onOpen={onOpen}
           onClose={onClose}
         />
       ),
-    [showTile, name, mark, recordButton, extended, onPicture, accent, overlaySwipe, toggleSize, onOpen, onClose],
+    [showTile, name, mark, recordButton, extended, onPicture, accent, overlaySwipe, muted, toggleMute, toggleSize, onOpen, onClose],
   );
   useEffect(() => setInlineOverlay(hostOverlay), [hostOverlay, setInlineOverlay]);
   useEffect(() => () => setInlineOverlay(null), [setInlineOverlay]);
@@ -264,6 +286,14 @@ export function GuidePinnedBand({
           />
         </View>
       ) : null}
+      <GlassIconButton
+        icon={muted ? "volume-mute-outline" : "volume-high-outline"}
+        iconSize={SIDE_ICON}
+        size={SIDE_BUTTON}
+        color={accent}
+        onPress={toggleMute}
+        accessibilityLabel={t(muted ? "liveTv.unmute" : "liveTv.mute")}
+      />
       <GlassIconButton
         icon={extended ? "contract-outline" : "expand-outline"}
         iconSize={SIDE_ICON}

@@ -1094,7 +1094,7 @@ describe("PlayerHost", () => {
       await playInline();
 
       expect(videoRef.current.setFullScreen).not.toHaveBeenCalled();
-      expect(video().props.muted).toBeUndefined();
+      expect(video().props.muted).toBe(false);
       expect(video().props.controls).toBe(false);
       expect(video().props.enterPictureInPictureOnLeave).toBeUndefined();
       expect(covered(renderer)).toBe(false);
@@ -1117,6 +1117,19 @@ describe("PlayerHost", () => {
         bridge().setInlineOverlay(null);
       });
       expect(stage().props.pointerEvents).toBe("none");
+    });
+
+    it("mutes the inline picture when the band asks, and plays it with sound again when it asks back", async () => {
+      await playInline();
+      await act(async () => {
+        bridge().setInlineMuted(true);
+      });
+      expect(video().props.muted).toBe(true);
+
+      await act(async () => {
+        bridge().setInlineMuted(false);
+      });
+      expect(video().props.muted).toBe(false);
     });
 
     it("draws no overlay while the inline player is parked", async () => {

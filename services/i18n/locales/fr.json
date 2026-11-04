@@ -50,6 +50,8 @@
   "liveTv.columnWide": "Grandes cartes",
   "liveTv.largerPicture": "Image plus grande",
   "liveTv.smallerPicture": "Image plus petite",
+  "liveTv.mute": "Couper le son",
+  "liveTv.unmute": "Activer le son",
   "liveTv.recordingSoon": "Un enregistrement sur {channel} commence dans 1 minute.",
   "liveTv.stopAllRecordings": "Arrêter tous les enregistrements",
   "liveTv.stopAllRecordingsConfirm": "Tous les enregistrements en cours s'arrêtent. Ce qui a été enregistré jusqu'ici est conservé.",
