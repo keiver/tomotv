@@ -4,6 +4,7 @@
 [![Tests](https://github.com/keiver/tomotv/actions/workflows/test-pr.yml/badge.svg)](https://github.com/keiver/tomotv/actions/workflows/test-pr.yml)
 [![@keiver/tomo-engine](https://img.shields.io/npm/v/@keiver/tomo-engine?label=%40keiver%2Ftomo-engine)](https://www.npmjs.com/package/@keiver/tomo-engine)
 [![@keiver/tomo-live](https://img.shields.io/npm/v/@keiver/tomo-live?label=%40keiver%2Ftomo-live)](https://www.npmjs.com/package/@keiver/tomo-live)
+[![TestFlight](https://img.shields.io/badge/TestFlight-join_the_beta-0D96F6)](https://testflight.apple.com/join/6fCQ45V5)
 
 A free, open source Jellyfin client for Apple TV, iPhone, iPad and Mac. Files play at
 original quality in Apple's own player, with an on-device FFmpeg engine doing the
