@@ -172,8 +172,14 @@ export function GuidePinnedBand({
       ? { programId: program && !externalProgram ? program.Id : undefined, channelId: channel.Id, channelName: name, program: program ?? null }
       : null,
   );
-  const { timer: recordTimer, busy: recordBusy, record, cancel: cancelRecording } = recording;
+  const { timer: recordTimer, busy: recordBusy, record, cancel: cancelRecording, cancelWaiting } = recording;
+  const waiting = recordBusy === "waiting";
   const pressRecord = useCallback(() => {
+    if (waiting) {
+      void tapFeedback();
+      cancelWaiting();
+      return;
+    }
     if (recordBusy !== null) return;
     void tapFeedback();
     if (recordTimer) {
@@ -182,18 +188,19 @@ export function GuidePinnedBand({
     }
     onRecordStart();
     void Promise.resolve(record()).then((landed) => onRecordSettled(landed === true));
-  }, [recordBusy, recordTimer, cancelRecording, record, onRecordStart, onRecordSettled]);
+  }, [waiting, cancelWaiting, recordBusy, recordTimer, cancelRecording, record, onRecordStart, onRecordSettled]);
   // Recording now by the shared status's rule: InProgress, or its span covers the clock before the server says so.
   const recordingNow = !!recordTimer && runningTimers([recordTimer], nowMs).length > 0;
   const recordButton = useMemo<PinnedRecordButton | null>(() => {
     if (recordTimer === undefined) return null;
+    if (waiting) return { icon: "close-circle-outline", label: t("liveTv.waitingForConnection"), text: t("liveTv.waitingForConnection"), onPress: pressRecord };
     return {
       icon: recordTimer ? (recordingNow ? "stop" : "close-circle-outline") : "radio-button-on",
       label: t(recordTimer ? (recordingNow ? "liveTv.stopRecording" : "liveTv.cancelRecording") : "liveTv.record"),
       text: recordingNow ? t("liveTv.stopRecording") : undefined,
       onPress: pressRecord,
     };
-  }, [recordTimer, recordingNow, pressRecord]);
+  }, [recordTimer, recordingNow, waiting, pressRecord]);
   const mark = playsRecording ? t("liveTv.playingRecording") : recordingNow ? t("liveTv.recordingNow") : null;
 
   const overlay = showTile ? null : (

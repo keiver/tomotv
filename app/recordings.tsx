@@ -10,6 +10,7 @@ import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { t } from "@/services/i18n";
 import { fetchFilteredVideos, fetchRecordingFolderIds, fetchRecordings, subscribeRecordingsChange } from "@/services/jellyfinApi";
+import { hiddenRefusedRecordings } from "@/services/refusedRecordings";
 import { countActiveFilters, EMPTY_FILTERS, type FolderStackEntry, type JellyfinItem } from "@/types/jellyfin";
 import { compareItems } from "@/utils/librarySort";
 import { logger } from "@/utils/logger";
@@ -66,7 +67,10 @@ export default function RecordingsScreen() {
     const load =
       filterKey && folderId ? Promise.all(folderIds.map((id) => fetchFilteredVideos(id, filters))).then((pages) => ({ items: pages.flat().sort(compareItems(filters)) })) : fetchRecordings();
     load
-      .then(({ items }) => !cancelled && setRecordings({ items, isLoading: false, error: null }))
+      .then(({ items }) => {
+        const refused = hiddenRefusedRecordings();
+        if (!cancelled) setRecordings({ items: items.filter((item) => !refused.has(item.Id)), isLoading: false, error: null });
+      })
       .catch((err) => {
         logger.warn("Recordings load failed", err, { screen: "Recordings" });
         if (!cancelled) setRecordings((current) => ({ ...current, isLoading: false, error: err instanceof Error ? err.message : String(err) }));

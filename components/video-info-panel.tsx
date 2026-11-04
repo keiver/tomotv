@@ -872,6 +872,16 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
           icon={<Ionicons name={recordTimer.Status === "InProgress" ? "stop-circle-outline" : "close-circle-outline"} size={IS_TV ? 34 : 22} color={COLORS.DESTRUCTIVE} />}
           onPress={recording.cancel}
         />
+      ) : recording.busy === "waiting" ? (
+        <FocusableButton
+          ref={watchable ? undefined : leadCtaRef}
+          title={t("liveTv.waitingForConnection")}
+          variant="record"
+          style={pairButton}
+          hasTVPreferredFocus={!watchable}
+          icon={<Ionicons name="close-circle-outline" size={IS_TV ? 34 : 22} color={COLORS.DESTRUCTIVE} />}
+          onPress={recording.cancelWaiting}
+        />
       ) : (
         <FocusableButton
           ref={watchable ? undefined : leadCtaRef}

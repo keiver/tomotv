@@ -74,6 +74,7 @@
   "liveTv.recordingStarted": "Enregistrement démarré",
   "liveTv.recordingStartedFor": "Enregistrement démarré pour {duration}",
   "liveTv.recordingStopped": "Enregistrement arrêté",
+  "liveTv.waitingForConnection": "En attente de la connexion",
   "liveTv.recordingCanceled": "Enregistrement annulé",
   "liveTv.recordingFailed": "Échec de l'action d'enregistrement",
   "liveTv.noManagement": "Tu n'as pas les permissions de gestion de la TV en direct sur ce serveur.",

@@ -58,6 +58,7 @@ export {
   closeLiveStream,
   createSeriesTimer,
   createTimer,
+  deleteRecording,
   fetchCategoryChannelIds,
   fetchChannelOrder,
   fetchChannelsByIds,

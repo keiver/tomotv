@@ -74,6 +74,7 @@
   "liveTv.recordingStarted": "Recording started",
   "liveTv.recordingStartedFor": "Recording started for {duration}",
   "liveTv.recordingStopped": "Recording stopped",
+  "liveTv.waitingForConnection": "Waiting for the connection",
   "liveTv.recordingCanceled": "Recording canceled",
   "liveTv.recordingFailed": "Recording action failed",
   "liveTv.noManagement": "You don't have Live TV management permissions on this server.",

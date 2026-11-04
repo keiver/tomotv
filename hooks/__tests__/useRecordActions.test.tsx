@@ -1,7 +1,7 @@
 /** Record writes: a write that landed stands even when the re-read fails, and a cancel on that stand-in reads first. */
 import { useRecordActions, type RecordTarget } from "@/hooks/useRecordActions";
 import { cancelSeriesTimer, cancelTimer, createSeriesTimer, createTimer, fetchSeriesTimers, fetchTimerDefaults, fetchTimers } from "@/services/jellyfinApi";
-import { checkNewRecording, reserveForRecording } from "@/services/recordingHold";
+import { cancelRecording, checkNewRecording, reserveForRecording } from "@/services/recordingHold";
 import { showToast } from "@/services/toast";
 import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
@@ -21,8 +21,9 @@ jest.mock("@/services/liveTvPreferences", () => ({ getLiveTvPreferences: () => (
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), warn: jest.fn(), info: jest.fn(), debug: jest.fn() } }));
 const mockRelease = jest.fn();
 jest.mock("@/services/recordingHold", () => ({
-  reserveForRecording: jest.fn(async () => mockRelease),
+  reserveForRecording: jest.fn(async () => ({ free: true, release: mockRelease })),
   checkNewRecording: jest.fn(async () => undefined),
+  cancelRecording: jest.fn(async () => undefined),
   stopRecordingCheck: jest.fn(),
 }));
 
@@ -117,12 +118,12 @@ describe("useRecordActions", () => {
     await act(async () => {
       await ref.current!.get().cancel();
     });
-    expect(cancelTimer).not.toHaveBeenCalled();
+    expect(cancelRecording).not.toHaveBeenCalled();
     expect(ref.current!.get().timer).toMatchObject({ Id: "t1" });
     await act(async () => {
       await ref.current!.get().cancel();
     });
-    expect(cancelTimer).toHaveBeenCalledWith("t1");
+    expect(cancelRecording).toHaveBeenCalledWith("t1");
   });
 
   it("marks a series stand-in as set, so the rule is not written twice, and never cancels it by a made-up id", async () => {
@@ -166,7 +167,8 @@ describe("useRecordActions", () => {
     await act(async () => {
       await ref.current!.get().cancel();
     });
-    expect(cancelTimer).toHaveBeenCalledWith("t1");
+    expect(cancelRecording).toHaveBeenCalledWith("t1");
+    expect(cancelTimer).not.toHaveBeenCalled();
     expect(ref.current!.get().timer).toBeNull();
   });
 
@@ -189,9 +191,35 @@ describe("useRecordActions", () => {
     await act(async () => {
       await ref.current!.get().record();
     });
-    expect(reserveForRecording).toHaveBeenCalledWith("ch1");
+    expect(reserveForRecording).toHaveBeenCalledWith("ch1", expect.objectContaining({ endMs: Date.parse(program.EndDate) }));
     expect(jest.mocked(reserveForRecording).mock.invocationCallOrder[0]).toBeLessThan(jest.mocked(createTimer).mock.invocationCallOrder[0]);
     expect(mockRelease).not.toHaveBeenCalled();
+  });
+
+  it("waits for the connection as its own busy state, and a cancel writes no timer", async () => {
+    let finish: (value: { free: boolean; release: () => void }) => void = () => {};
+    jest.mocked(reserveForRecording).mockImplementationOnce(
+      (_channelId, options) =>
+        new Promise((resolve) => {
+          finish = resolve;
+          options?.signal?.addEventListener("abort", () => resolve({ free: false, release: mockRelease }));
+        }),
+    );
+    const ref = await mount();
+    let landed: Promise<boolean | undefined> | undefined;
+    await act(async () => {
+      landed = ref.current!.get().record();
+    });
+    expect(ref.current!.get().busy).toBe("waiting");
+    await act(async () => {
+      ref.current!.get().cancelWaiting();
+      await landed;
+    });
+    expect(await landed).toBe(false);
+    expect(createTimer).not.toHaveBeenCalled();
+    expect(showToast).not.toHaveBeenCalled();
+    expect(ref.current!.get().busy).toBeNull();
+    finish({ free: true, release: mockRelease });
   });
 
   it("checks the new recording for the stream, making it again with the same write", async () => {

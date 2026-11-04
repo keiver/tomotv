@@ -40,7 +40,7 @@ import { JellyfinItem, JellyfinTimer, JellyfinVideoItem } from "@/types/jellyfin
 import { libraryManager } from "@/services/libraryManager";
 import { logger } from "@/utils/logger";
 import { formatErrorRef } from "@/utils/errorIds";
-import { adjacentPlayableChannelId, stopRecordingCheck, watchRecordingsWhilePlaying } from "@/services/recordingHold";
+import { adjacentPlayableChannelId, cancelRecording, stopRecordingCheck, watchRecordingsWhilePlaying } from "@/services/recordingHold";
 import { writeAfterReserve } from "@/hooks/useRecordActions";
 import { useRecordingHoldChoices } from "@/hooks/useRecordingHoldChoices";
 import { useChannelHeld } from "@/hooks/useRecordingStatus";
@@ -568,6 +568,8 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
   }, [canRecord, recordKey, currentProgramId, videoId]);
   // One recording write at a time: AVKit can deliver a second press before the reload lands.
   const recordBusyRef = useRef(false);
+  // A recording that waits for its provider's connection: a press meanwhile cancels the wait.
+  const recordWaitRef = useRef<AbortController | null>(null);
   // A timer stopped or made again anywhere (Stop Recording and Play, the recording check, another screen) moves the button too.
   useEffect(() => {
     if (!canRecord || !recordKey) return;
@@ -609,6 +611,10 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
         return;
       }
       if (event.id === "record") {
+        if (recordBusyRef.current && recordWaitRef.current) {
+          recordWaitRef.current.abort();
+          return;
+        }
         if (!recordKey || !liveChannel || recordTimer === undefined || recordBusyRef.current) return;
         recordBusyRef.current = true;
         const key = recordKey;
@@ -656,8 +662,12 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
         });
         if (recordTimer) stopRecordingCheck(channelId);
         const manualEnd = new Date(Date.now() + getLiveTvPreferences().recordingMinutes * 60_000).toISOString();
-        const action = recordTimer
-          ? cancelTimer(recordTimer.Id)
+        const wait = recordTimer ? null : new AbortController();
+        recordWaitRef.current = wait;
+        const action: Promise<boolean | void> = recordTimer
+          ? recordTimer.Status === "InProgress"
+            ? cancelRecording(recordTimer.Id)
+            : cancelTimer(recordTimer.Id)
           : writeAfterReserve(
               channelId,
               () =>
@@ -665,9 +675,15 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
                   createTimer(programId ? defaults : { ...defaults, ChannelId: channelId, Name: channelName, StartDate: new Date().toISOString(), EndDate: manualEnd }),
                 ),
               programId,
+              undefined,
+              { signal: wait?.signal, endMs: Date.now() + (recordingMs > 0 ? recordingMs : 3_600_000), onReserved: () => (recordWaitRef.current = null) },
             );
         action
-          .then(() => {
+          .then((landed) => {
+            if (landed === false) {
+              setTimerResult({ key, timer: previousTimer ?? null });
+              return;
+            }
             showToast(doneToast, "success");
             // The write landed: a failed re-read keeps the flipped CTA rather than reverting it.
             return reloadTimer(key, programId, channelId).catch((err) => logger.warn("Timer state read failed", err, { service: "VideoPlayer" }));
@@ -679,6 +695,7 @@ function VideoPlayerBody({ sessionKey, videoId }: { sessionKey: string; videoId:
           })
           .finally(() => {
             recordBusyRef.current = false;
+            recordWaitRef.current = null;
           });
         return;
       }

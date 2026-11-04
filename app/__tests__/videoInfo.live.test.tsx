@@ -67,6 +67,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   subscribeAuthChange: jest.fn(() => () => {}),
   clearResumePosition: jest.fn(async () => {}),
   deleteItem: jest.fn(async () => {}),
+  fetchInProgressRecording: jest.fn(async () => null),
   fetchIsAdministrator: jest.fn(async () => true),
   isLiveChannel: (item: { Type?: string } | null) => item?.Type === "TvChannel",
   fetchItemDetails: jest.fn(),

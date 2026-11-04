@@ -666,6 +666,12 @@ export async function fetchInProgressRecording(timerId: string): Promise<Jellyfi
   return json.Items?.find((item) => item.TimerId === timerId) ?? null;
 }
 
+/** Drops a recording's library entry under the Live TV permission; the server leaves its file on disk. */
+export async function deleteRecording(itemId: string): Promise<void> {
+  await liveTvRequest(`/LiveTv/Recordings/${encodeURIComponent(itemId)}`, { method: "DELETE" });
+  await invalidateAfterTimerWrite(itemId);
+}
+
 /** The first bytes of a recording's file as written so far; empty while nothing has reached disk (the server answers 416). */
 export async function readRecordingStart(itemId: string): Promise<Uint8Array> {
   const config = await getConfig();
