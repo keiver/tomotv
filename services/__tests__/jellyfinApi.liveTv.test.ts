@@ -32,7 +32,7 @@ jest.mock("../jellyfin/liveOpens", () => {
 const resetLiveOpens = (jest.requireMock("../jellyfin/liveOpens") as { __reset: () => void }).__reset;
 
 const mockAccounts: { serverUrl: string; serverId: string; userId: string; deviceId: string }[] = [];
-jest.mock("../jellyfin/accounts", () => ({ getSavedAccounts: jest.fn(async () => mockAccounts) }));
+jest.mock("../jellyfin/accountIndex", () => ({ getSavedAccounts: jest.fn(async () => mockAccounts) }));
 
 jest.mock("expo-secure-store", () => ({
   getItemAsync: jest.fn().mockResolvedValue(null),
