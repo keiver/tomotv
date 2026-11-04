@@ -604,6 +604,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
           resizing={resizing}
           opening={pinned.opening}
           onSlot={pinned.setSlot}
+          onOpen={pinned.open}
           onClose={pinned.close}
         />
       ) : null}

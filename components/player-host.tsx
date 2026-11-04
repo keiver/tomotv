@@ -1004,7 +1004,7 @@ export function PlayerHost() {
   }, [hostVisible, inline, videoRef]);
 
   return (
-    <DismissPan onDismiss={handleDismissGesture} style={stageStyle} pointerEvents={onStage || inlineShown ? "auto" : "none"} enabled={!inline}>
+    <DismissPan onDismiss={handleDismissGesture} style={stageStyle} pointerEvents={onStage ? "auto" : "none"}>
       {session !== null && shownSource && (
         <Video
           // Remount on every stream change (direct play to transcoding), except a live channel,
@@ -1014,7 +1014,8 @@ export function PlayerHost() {
           source={shownSource}
           style={styles.video}
           resizeMode={fills ? "cover" : "contain"}
-          controls={true}
+          // Inline, the picture alone: AVKit's controls do not shrink to the band, so a tap on it opens the presented player.
+          controls={!inline}
           paused={paused}
           // Both float props stay set: 0 is AVFoundation's "no cap" and "own threshold". Clearing a scalar
           // prop makes React restore a default RNV never exposes a getter for, an uninitialised float.

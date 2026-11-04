@@ -139,6 +139,19 @@ describe("useLivePreview", () => {
     expect(mockSession.requestSession).toHaveBeenCalledTimes(1);
   });
 
+  it("opens the pinned channel full screen from a tap on its band, and nothing with no pin", async () => {
+    await mount();
+    await act(async () => latest().open());
+    expect(mockSession.presentFullscreen).not.toHaveBeenCalled();
+
+    await act(async () => latest().pin(one as never));
+    await hostShows("c1", "video");
+    await act(async () => latest().open());
+
+    expect(mockSession.presentFullscreen).toHaveBeenCalledTimes(1);
+    expect(mockSession.requestSession).toHaveBeenCalledTimes(1);
+  });
+
   it("hands the band's slot to the host, and null to park the player", async () => {
     const slot = { x: 0, y: 120, width: 176, height: 99 };
     await mount();

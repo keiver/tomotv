@@ -13,7 +13,6 @@ import React, { useCallback, useEffect, useRef } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { type SharedValue, useAnimatedStyle } from "react-native-reanimated";
 
-const ignore = () => {};
 /** Fits beside the wide stop on the narrowest phone; the hit slop takes the touch target past 44. */
 const CLOSE_SIZE = 36;
 const OPENING_DIM = 0.3;
@@ -38,14 +37,16 @@ interface GuidePinnedBandProps {
   opening: boolean;
   /** Where the player draws, in window coordinates; null parks it. */
   onSlot: (frame: InlineFrame | null) => void;
+  /** A tap on the player or its card: the presented player, with AVKit's controls. */
+  onOpen: () => void;
   onClose: () => void;
 }
 
 /**
- * Live TV's pinned channel, above the guide's two lists: the player in the card's slot with AVKit's controls, the
- * channel and what it airs beside it, and a close button. Outside both lists, so scrolling never moves the player. Phone only.
+ * Live TV's pinned channel, above the guide's two lists: the player's picture in the card's slot, the channel and what
+ * it airs beside it, and a close button. Outside both lists, so scrolling never moves the player. Phone only.
  */
-export function GuidePinnedBand({ channel, program, metrics, compact, bare, columnWidth, cardScale, resizing, opening, onSlot, onClose }: GuidePinnedBandProps) {
+export function GuidePinnedBand({ channel, program, metrics, compact, bare, columnWidth, cardScale, resizing, opening, onSlot, onOpen, onClose }: GuidePinnedBandProps) {
   const { accent } = useCardPalette();
   const slotRef = useRef<View>(null);
   const cardWidth = compact ? metrics.compactColumnWidth : metrics.channelColumnWidth;
@@ -67,15 +68,16 @@ export function GuidePinnedBand({ channel, program, metrics, compact, bare, colu
   const slot = Number.isFinite(startMs) && Number.isFinite(endMs) ? formatClockRange(startMs, endMs) : null;
 
   return (
-    <View style={[styles.band, { height: metrics.rowHeight }]} testID="guide-pinned-band">
+    // The band's own layout too: a rotation moves the slot in the window without changing the slot's size.
+    <View style={[styles.band, { height: metrics.rowHeight }]} onLayout={measure} testID="guide-pinned-band">
       <View style={[styles.inner, { height: metrics.rowHeight }]}>
         <Animated.View style={[styles.crop, { height: metrics.rowHeight - 1 }, cropStyle]}>
           <Animated.View ref={slotRef} style={[styles.grow, { width: cardWidth, height: metrics.rowHeight - 1 }, growStyle]} onLayout={measure} collapsable={false}>
-            <View style={opening ? styles.dimmed : styles.fill}>
+            <View style={[opening ? styles.dimmed : styles.fill, compact && styles.tileSeat]}>
               {compact ? (
-                <GuideChannelTile channel={channel} metrics={metrics} onPress={ignore} />
+                <GuideChannelTile channel={channel} metrics={metrics} onPress={onOpen} />
               ) : (
-                <GuideChannelCard channel={channel} index={0} cardWidth={cardWidth} hideAiring flat square inset={metrics.cardInset} onPress={ignore} playsClipInView inView />
+                <GuideChannelCard channel={channel} index={0} cardWidth={cardWidth} hideAiring flat square inset={metrics.cardInset} onPress={onOpen} playsClipInView inView />
               )}
             </View>
           </Animated.View>
@@ -128,6 +130,10 @@ const styles = StyleSheet.create({
   },
   fill: {
     flex: 1,
+  },
+  // Flush with the column's right edge, as the list's logo tiles sit.
+  tileSeat: {
+    alignItems: "flex-end",
   },
   // The channel's own picture or logo, dimmed so the spinner over it reads.
   dimmed: {

@@ -97,6 +97,11 @@ export function useLivePreview() {
     [presentFullscreen],
   );
 
+  /** A tap on the band's player: the presented player, where AVKit's controls fit. */
+  const open = useCallback(() => {
+    if (keyRef.current) presentFullscreen();
+  }, [presentFullscreen]);
+
   /** Where the band shows the player; null parks it, still playing. */
   const setSlot = useCallback((frame: InlineFrame | null) => setInlineFrame(frame), [setInlineFrame]);
 
@@ -136,5 +141,5 @@ export function useLivePreview() {
 
   // The pinned channel is opening (its band shows the card's own clip meanwhile) until it plays.
   const opening = !!channel && hostMode !== "error" && playbackState.type !== "PLAYING";
-  return { channel, opening, pin, close, fullscreen, setSlot };
+  return { channel, opening, pin, close, open, fullscreen, setSlot };
 }

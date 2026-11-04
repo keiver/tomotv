@@ -1090,16 +1090,15 @@ describe("PlayerHost", () => {
       Object.values(videoRef.current).forEach((fn) => fn.mockClear());
     });
 
-    it("plays with sound and AVKit's controls in the band's slot, taking touches there, never presented and never starting PiP", async () => {
+    it("plays the picture with sound and no controls in the band's slot, leaving its touches to the band, never presented and never starting PiP", async () => {
       await playInline();
 
       expect(videoRef.current.setFullScreen).not.toHaveBeenCalled();
       expect(video().props.muted).toBeUndefined();
-      expect(video().props.controls).toBe(true);
+      expect(video().props.controls).toBe(false);
       expect(video().props.enterPictureInPictureOnLeave).toBeUndefined();
       expect(covered(renderer)).toBe(false);
-      expect(stage().props.pointerEvents).toBe("auto");
-      expect(stage().props.enabled).toBe(false);
+      expect(stage().props.pointerEvents).toBe("none");
       expect(StyleSheet.flatten(stage().props.style)).toMatchObject({ position: "absolute", left: 0, top: 300, width: 160, height: 90 });
       expect(videoRef.current.enterPictureInPicture).not.toHaveBeenCalled();
     });

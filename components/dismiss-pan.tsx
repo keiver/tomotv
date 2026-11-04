@@ -37,8 +37,6 @@ interface DismissPanProps {
   onDismiss: () => void;
   style?: StyleProp<ViewStyle>;
   pointerEvents?: ViewProps["pointerEvents"];
-  /** False keeps the stage's touches for the player itself (an inline player has AVKit's controls). */
-  enabled?: boolean;
   children: React.ReactNode;
 }
 
@@ -57,7 +55,7 @@ interface DismissPanProps {
  *
  * Inert on tvOS, which pops with Menu and must not gain a view above its focusables.
  */
-export function DismissPan({ onDismiss, style, pointerEvents, enabled = true, children }: DismissPanProps) {
+export function DismissPan({ onDismiss, style, pointerEvents, children }: DismissPanProps) {
   const translateY = useSharedValue(0);
 
   const dismiss = useCallback(() => {
@@ -68,7 +66,6 @@ export function DismissPan({ onDismiss, style, pointerEvents, enabled = true, ch
   const pan = useMemo(
     () =>
       Gesture.Pan()
-        .enabled(enabled)
         .activeOffsetY(24)
         .failOffsetX([-20, 20])
         .onUpdate((event) => {
@@ -83,7 +80,7 @@ export function DismissPan({ onDismiss, style, pointerEvents, enabled = true, ch
           }
           translateY.set(withTiming(0, { duration: 160 }));
         }),
-    [dismiss, enabled, translateY],
+    [dismiss, translateY],
   );
 
   const dragStyle = useAnimatedStyle(() => ({ transform: [{ translateY: translateY.get() }] }));
