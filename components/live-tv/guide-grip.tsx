@@ -1,7 +1,12 @@
+import { CONTROL_TINT } from "@/components/glass-icon-button";
+import { GlassSurface } from "@/components/glass-surface";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import { StyleSheet, View } from "react-native";
+
+/** The grip's diameter, shared with the pinned band's buttons on the picture so the two read as one set. */
+export const GRIP_SIZE = 42;
 
 interface GuideGripProps {
   /** The circle's diameter. */
@@ -10,30 +15,32 @@ interface GuideGripProps {
 }
 
 /**
- * The column's resize handle: a solid accent disc holding a nested left/right arrow pair. Solid, not glass, so it reads the
- * same over a live picture as over the dark rows; a dark ring and a shadow lift it off a bright picture.
+ * The column's resize handle: a nested left/right arrow pair in the accent on the same glass as the pinned band's
+ * buttons, with a shadow to lift it off a bright picture.
  */
 export function GuideGrip({ size, arrowSize }: GuideGripProps) {
-  const { accent, onAccent } = useCardPalette();
+  const { accent } = useCardPalette();
   return (
-    <View style={[styles.disc, { width: size, height: size, borderRadius: size / 2, backgroundColor: accent }]}>
-      <Ionicons name="chevron-back" size={arrowSize} color={onAccent} style={styles.nestLeft} />
-      <Ionicons name="chevron-forward" size={arrowSize} color={onAccent} style={styles.nestRight} />
+    <View style={[styles.lift, { borderRadius: size / 2 }]}>
+      <GlassSurface style={[styles.disc, { width: size, height: size }]} radius={size / 2} tintColor={CONTROL_TINT}>
+        <Ionicons name="chevron-back" size={arrowSize} color={accent} style={styles.nestLeft} />
+        <Ionicons name="chevron-forward" size={arrowSize} color={accent} style={styles.nestRight} />
+      </GlassSurface>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  disc: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(0, 0, 0, 0.35)",
+  lift: {
     shadowColor: "#000000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.5,
     shadowRadius: 6,
+  },
+  disc: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
   },
   // Ionicons chevrons carry side bearing; pulling them in nests the pair at the circle's centre.
   nestLeft: {

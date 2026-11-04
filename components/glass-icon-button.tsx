@@ -11,7 +11,7 @@ const SIZE = 44;
  * built for cards over a dark canvas; a control sitting on arbitrary artwork needs the glass to
  * stay glass, and the glyph carries its own contrast from the tint plus the material's dimming.
  */
-const CONTROL_TINT = "rgba(18, 18, 20, 0.30)";
+export const CONTROL_TINT = "rgba(18, 18, 20, 0.30)";
 
 interface GlassIconButtonProps {
   icon: React.ComponentProps<typeof Ionicons>["name"];

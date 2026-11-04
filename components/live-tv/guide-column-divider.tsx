@@ -1,5 +1,5 @@
 import { GRID_LINE } from "@/components/live-tv/guide-cell";
-import { GuideGrip } from "@/components/live-tv/guide-grip";
+import { GRIP_SIZE, GuideGrip } from "@/components/live-tv/guide-grip";
 import { t } from "@/services/i18n";
 import { columnDragWidth, type ColumnStop, columnStopAt, columnStopStep, settleColumnStop, wideColumnWidth } from "@/utils/guide";
 import React, { useCallback, useMemo, useRef } from "react";
@@ -182,7 +182,7 @@ export function GuideColumnDivider({ columnW, topInset, bottomInset, gesture, gr
               accessibilityValue={{ text: t(STOP_LABEL[stop]) }}
               accessibilityActions={STEP_ACTIONS}
               onAccessibilityAction={(event) => onStep(event.nativeEvent.actionName === "increment" ? 1 : -1)}>
-              <GuideGrip size={40} arrowSize={18} />
+              <GuideGrip size={GRIP_SIZE} arrowSize={19} />
             </Animated.View>
           </GestureDetector>
         </View>

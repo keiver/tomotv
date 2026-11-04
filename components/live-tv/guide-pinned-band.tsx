@@ -3,6 +3,7 @@ import { GlassIconButton } from "@/components/glass-icon-button";
 import { GuideChannelCard } from "@/components/live-tv/guide-channel-card";
 import { GuideChannelTile } from "@/components/live-tv/guide-channel-tile";
 import { COLORS } from "@/constants/colors";
+import { GuidePinnedDots, PINNED_DOT_SIZE } from "@/components/live-tv/guide-pinned-dots";
 import { GuidePinnedOverlay } from "@/components/live-tv/guide-pinned-overlay";
 import { usePlayerSession, type InlineFrame } from "@/contexts/PlayerSessionContext";
 import { useCardPalette } from "@/hooks/useCardPalette";
@@ -125,11 +126,22 @@ export function GuidePinnedBand({ channel, program, metrics, compact, bare, colu
   const overlaySwipe = useMemo(() => swipe(), [swipe]);
 
   const name = cleanLabel(channel.Name);
-  const overlay = onPicture ? <GuidePinnedOverlay name={name} extended accent={accent} onToggleSize={toggleSize} onOpen={onOpen} onClose={onClose} /> : null;
+  // The swipe's dots straddle the band's bottom edge at its centre; their top reaches into the picture, so where the
+  // picture covers them the overlay draws that part over it, from the picture's own bottom.
+  const dotsX = bandW / 2;
+  const dotsBottom = BAND_EDGE / 2 - PINNED_DOT_SIZE / 2;
+  const dotsCovered = bandW > 0 && dotsX < videoW;
+  const dotsOnPicture = useMemo(() => (dotsCovered ? { x: dotsX, bottom: dotsBottom - BAND_EDGE } : undefined), [dotsCovered, dotsX, dotsBottom]);
+  const overlay = showTile ? null : (
+    <GuidePinnedOverlay name={name} extended={extended} bar={onPicture} accent={accent} dots={dotsOnPicture} onToggleSize={toggleSize} onOpen={onOpen} onClose={onClose} />
+  );
   // The player draws above the guide, so the copy over the playing picture is the host's, and it takes the swipe there.
   const hostOverlay = useMemo(
-    () => (onPicture ? <GuidePinnedOverlay name={name} extended accent={accent} swipe={overlaySwipe} onToggleSize={toggleSize} onOpen={onOpen} onClose={onClose} /> : null),
-    [onPicture, name, accent, overlaySwipe, toggleSize, onOpen, onClose],
+    () =>
+      showTile ? null : (
+        <GuidePinnedOverlay name={name} extended={extended} bar={onPicture} accent={accent} dots={dotsOnPicture} swipe={overlaySwipe} onToggleSize={toggleSize} onOpen={onOpen} onClose={onClose} />
+      ),
+    [showTile, name, extended, onPicture, accent, dotsOnPicture, overlaySwipe, toggleSize, onOpen, onClose],
   );
   useEffect(() => setInlineOverlay(hostOverlay), [hostOverlay, setInlineOverlay]);
   useEffect(() => () => setInlineOverlay(null), [setInlineOverlay]);
@@ -176,7 +188,7 @@ export function GuidePinnedBand({ channel, program, metrics, compact, bare, colu
   return (
     // The band's own layout too: a rotation moves the slot in the window without changing the slot's size.
     <Animated.View style={styles.lift} layout={sizeTransition} onLayout={handleBandLayout} testID="guide-pinned-band">
-      <GestureHandlerRootView>
+      <GestureHandlerRootView style={styles.swipeRoot}>
         <GestureDetector gesture={bandSwipe}>
           <Animated.View style={[styles.band, { borderBottomColor: accent, paddingRight: insets.right }]} layout={sizeTransition}>
             <View style={styles.row}>
@@ -207,11 +219,16 @@ export function GuidePinnedBand({ channel, program, metrics, compact, bare, colu
           </Animated.View>
         </GestureDetector>
       </GestureHandlerRootView>
+      {bandW > 0 ? <GuidePinnedDots color={accent} centerX={dotsX} bottom={dotsBottom} /> : null}
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
+  // Sized by the band: the root view's default style is flex 1, which collapses it in this content-sized column.
+  swipeRoot: {
+    alignSelf: "stretch",
+  },
   // Above the lists it lies over, casting its shadow down onto them; unclipped, so the shadow shows.
   lift: {
     zIndex: 1,
