@@ -4,7 +4,7 @@ import React from "react";
 import { StyleSheet, View } from "react-native";
 import { GestureDetector, GestureHandlerRootView, type GestureType } from "react-native-gesture-handler";
 
-const TAB_WIDTH = 44;
+const TAB_WIDTH = 56;
 const TAB_HEIGHT = 14;
 
 interface GuidePinnedTabProps {
@@ -24,7 +24,7 @@ export function GuidePinnedTab({ centerX, extended, swipe }: GuidePinnedTabProps
     <GestureHandlerRootView style={[styles.seat, { left: centerX - TAB_WIDTH / 2 }]}>
       <GestureDetector gesture={swipe}>
         <View style={[styles.tab, { backgroundColor: accent }]} testID="guide-pinned-tab">
-          <Ionicons name={extended ? "chevron-up" : "chevron-down"} size={12} color={onAccent} />
+          <Ionicons name={extended ? "chevron-up" : "chevron-down"} size={15} color={onAccent} />
         </View>
       </GestureDetector>
     </GestureHandlerRootView>
