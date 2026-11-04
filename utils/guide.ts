@@ -496,15 +496,19 @@ export function settleColumnStop(width: number, velocityX: number, startWidth: n
   return COLUMN_STOPS[settleStop(width, velocityX, startWidth, columnWidths(stops))];
 }
 
-/** The pinned band's video can grow to at most this share of the window's height, so some guide stays in view. */
+/** The pinned band's larger picture is at most this share of the window's height, so some guide stays in view. */
 const BAND_MAX_HEIGHT_RATIO = 0.5;
+/** The larger picture's widest, beside its name and buttons on iPad and Mac. */
+const BAND_MAX_WIDTH = 640;
+/** The room kept beside the larger picture for the channel's name and the two buttons. */
+const BAND_INFO_ROOM = 260;
 
 /**
- * The pinned band's video heights, ascending: its row's own, the guide's full width at 16:9 (held to half the window's
- * height), and halfway between. A video never grows wider than the guide.
+ * The pinned band's larger picture at 16:9: the guide's full width when its name and buttons sit under it, or up to
+ * 640pt with room kept beside it for them; never taller than half the window.
  */
-export function bandVideoStops(rowVideoHeight: number, guideWidth: number, windowHeight: number): number[] {
-  "worklet";
-  const full = Math.max(rowVideoHeight, Math.min(guideWidth / GRID.LIVE_RATIO, windowHeight * BAND_MAX_HEIGHT_RATIO));
-  return [rowVideoHeight, (rowVideoHeight + full) / 2, full];
+export function bandExtendedSize(guideWidth: number, windowHeight: number, infoBeside: boolean): { width: number; height: number } {
+  const room = infoBeside ? Math.min(BAND_MAX_WIDTH, guideWidth - BAND_INFO_ROOM) : guideWidth;
+  const width = Math.max(0, Math.min(room, windowHeight * BAND_MAX_HEIGHT_RATIO * GRID.LIVE_RATIO));
+  return { width, height: width / GRID.LIVE_RATIO };
 }

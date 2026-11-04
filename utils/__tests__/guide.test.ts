@@ -43,7 +43,7 @@ import {
   standInChannelId,
   trimPrograms,
   wideColumnWidth,
-  bandVideoStops,
+  bandExtendedSize,
   settleStop,
   stopDragValue,
 } from "../guide";
@@ -575,21 +575,26 @@ describe("columnDragWidth", () => {
   });
 });
 
-describe("bandVideoStops", () => {
-  it("runs from the row's picture to the guide's width at 16:9, with a stop halfway", () => {
-    expect(bandVideoStops(99, 352, 874)).toEqual([99, 148.5, 198]);
+describe("bandExtendedSize", () => {
+  it("spans the guide's full width at 16:9 when the name and buttons sit under it", () => {
+    expect(bandExtendedSize(352, 874, false)).toEqual({ width: 352, height: 198 });
   });
 
-  it("holds the largest picture to half the window's height, as in landscape", () => {
-    expect(bandVideoStops(99, 900, 402)).toEqual([99, 150, 201]);
+  it("holds the picture to half the window's height, as in landscape", () => {
+    expect(bandExtendedSize(800, 360, false)).toEqual({ width: 320, height: 180 });
   });
 
-  it("never offers a stop under the row's own picture", () => {
-    expect(bandVideoStops(99, 100, 874)).toEqual([99, 99, 99]);
+  it("keeps room beside the picture for the name and buttons, up to 640pt wide", () => {
+    expect(bandExtendedSize(700, 1366, true)).toEqual({ width: 440, height: 247.5 });
+    expect(bandExtendedSize(1200, 1366, true)).toEqual({ width: 640, height: 360 });
+  });
+
+  it("never goes below zero in a narrow guide", () => {
+    expect(bandExtendedSize(200, 1366, true)).toEqual({ width: 0, height: 0 });
   });
 });
 
-describe("stopDragValue and settleStop over the band's heights", () => {
+describe("stopDragValue and settleStop over three stops", () => {
   const stops = [99, 149, 198];
 
   it("stops a flick from the row's size at the middle stop, however fast", () => {

@@ -121,6 +121,8 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   // The pinned player parks, still playing, from the drag until the band is measured at the new width.
   const [resizing, setResizing] = useState(false);
   const handleResizeStart = useCallback(() => setResizing(true), []);
+  // The player draws above every screen, so the column's grip travels only below the pinned band.
+  const [pinnedBandHeight, setPinnedBandHeight] = useState(0);
   const [viewportWidth, setViewportWidth] = useState(0);
   // The window never holds less than GUIDE_SPAN_MINUTES, so this density keeps every state of the
   // grid, loading and no-listings rows included, at least as wide as the viewport.
@@ -609,6 +611,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
           onSlot={pinned.setSlot}
           onOpen={pinned.open}
           onClose={pinned.close}
+          onHeight={setPinnedBandHeight}
         />
       ) : null}
       <View style={styles.bandRow}>
@@ -683,7 +686,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
       {IS_TV ? null : (
         <GuideColumnDivider
           columnW={columnW}
-          topInset={METRICS.rulerHeight + HUD_BAR_HEIGHT}
+          topInset={METRICS.rulerHeight + HUD_BAR_HEIGHT + (pinned?.channel ? pinnedBandHeight : 0)}
           bottomInset={TAB_BAR_HEIGHT + insets.bottom}
           gesture={resize.seam}
           gripY={resize.gripY}

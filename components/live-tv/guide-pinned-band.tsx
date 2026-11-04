@@ -1,30 +1,30 @@
 import { CloseOverlayButton } from "@/components/close-overlay-button";
+import { GlassIconButton } from "@/components/glass-icon-button";
 import { GuideChannelCard } from "@/components/live-tv/guide-channel-card";
 import { GuideChannelTile } from "@/components/live-tv/guide-channel-tile";
-import { GRID } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
-import { usePlayerSession, type InlineFrame } from "@/contexts/PlayerSessionContext";
+import type { InlineFrame } from "@/contexts/PlayerSessionContext";
 import { useCardPalette } from "@/hooks/useCardPalette";
-import { selectionFeedback } from "@/services/haptics";
+import { tapFeedback } from "@/services/haptics";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
-import { bandVideoStops, formatClockRange, type GuideMetrics, nearestStop, settleStop, stopDragValue } from "@/utils/guide";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { bandExtendedSize, formatClockRange, type GuideMetrics } from "@/utils/guide";
+import { THIS_DEVICE } from "@/utils/hostEnvironment";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, type LayoutChangeEvent, StyleSheet, Text, useWindowDimensions, View } from "react-native";
-import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
-import Animated, { Extrapolation, interpolate, runOnJS, type SharedValue, useAnimatedReaction, useAnimatedStyle, useDerivedValue, useSharedValue, withSpring } from "react-native-reanimated";
+import Animated, { LinearTransition, type SharedValue, useAnimatedStyle } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const OPENING_DIM = 0.3;
 /** The band's bottom edge, in the theme's accent and heavier than the rows' grid line below it. */
 const BAND_EDGE = 3;
-/** The close button's strip right of the video: the player draws over the app, so nothing can sit on the picture itself. */
-const CLOSE_STRIP = 56;
-const EDGE_HIT = 24;
-const STOP_SPRING = { damping: 32, stiffness: 260, mass: 1, overshootClamping: true };
-const SIZE_LABEL: Parameters<typeof t>[0][] = ["liveTv.pinnedSmall", "liveTv.pinnedMedium", "liveTv.pinnedLarge"];
-const STEP_ACTIONS = [{ name: "increment" }, { name: "decrement" }];
+/** iPhone's larger picture takes the screen's width, so its name and buttons move to a bar under it. */
+const BAR_UNDER = THIS_DEVICE === "iPhone";
+const BAR_HEIGHT = 48;
+const SIZE_MS = 260;
+/** The picture's height from which the programme beside it gets a second line under the buttons. */
+const TWO_LINE_HEIGHT = 130;
 
 interface GuidePinnedBandProps {
   channel: JellyfinItem;
@@ -34,7 +34,7 @@ interface GuidePinnedBandProps {
   metrics: GuideMetrics;
   /** The closed stop: the band holds the logo tile and the player parks, still playing. */
   compact: boolean;
-  /** Too little room beside the player to name the channel: only the close button stays. */
+  /** Too little room beside the player to name the channel: only the buttons stay. */
   bare: boolean;
   /** The column's live width: the slot crops to it while it is dragged. */
   columnWidth: SharedValue<number>;
@@ -49,176 +49,138 @@ interface GuidePinnedBandProps {
   /** A tap on the player or its card: the presented player, with AVKit's controls. */
   onOpen: () => void;
   onClose: () => void;
+  /** The band's laid-out height, bottom edge included. */
+  onHeight: (height: number) => void;
 }
 
 /**
  * Live TV's pinned channel, above the guide's two lists: the player's picture in the card's slot, the channel and what
- * it airs beside it, and a close button. Its bottom edge drags the picture taller, up to the guide's width, the channel's
- * name fading out as it grows. Outside both lists, so scrolling never moves the player. Phone only.
+ * it airs, a button between the card's size and a larger picture, and a close button. Outside both lists, so scrolling
+ * never moves the player. Phone, iPad and Mac.
  */
-export function GuidePinnedBand({ channel, program, metrics, compact, bare, columnWidth, cardScale, resizing, opening, onSlot, onOpen, onClose }: GuidePinnedBandProps) {
+export function GuidePinnedBand({ channel, program, metrics, compact, bare, columnWidth, cardScale, resizing, opening, onSlot, onOpen, onClose, onHeight }: GuidePinnedBandProps) {
   const { accent } = useCardPalette();
-  const { inlineScale } = usePlayerSession();
   const insets = useSafeAreaInsets();
   const { height: windowH } = useWindowDimensions();
   const [bandW, setBandW] = useState(0);
-  const rowVideoH = metrics.rowHeight - 1;
-  const stops = useMemo(() => bandVideoStops(rowVideoH, Math.max(0, bandW - insets.right - CLOSE_STRIP), windowH), [rowVideoH, bandW, insets.right, windowH]);
-  const [stopIndex, setStopIndex] = useState(0);
-  const grown = stopIndex > 0;
-  const videoH = stops[stopIndex];
-  const showTile = compact && !grown;
-  const cardWidth = grown ? videoH * GRID.LIVE_RATIO : compact ? metrics.compactColumnWidth : metrics.channelColumnWidth;
+  // Kept across channel switches: the band stays mounted while the pin moves.
+  const [extended, setExtended] = useState(false);
+  // From the size button's press until the band has animated to its new size: the player parks, still playing.
+  const [sizing, setSizing] = useState(false);
 
-  // The picture's live height during an edge drag, and the height the band is laid out at.
-  const liveH = useSharedValue(videoH);
-  const committedH = useSharedValue(videoH);
-  useEffect(() => {
-    liveH.set(videoH);
-    committedH.set(videoH);
-  }, [videoH, liveH, committedH]);
-  const growing = useDerivedValue(() => liveH.get() / committedH.get());
-  useAnimatedReaction(
-    () => growing.get(),
-    (scale) => inlineScale.set(scale),
-  );
-  useEffect(() => () => inlineScale.set(1), [inlineScale]);
+  const rowVideoH = metrics.rowHeight - 1;
+  const large = bandExtendedSize(Math.max(0, bandW - insets.right), windowH, !BAR_UNDER);
+  const showTile = compact && !extended;
+  const videoW = extended ? large.width : compact ? metrics.compactColumnWidth : metrics.channelColumnWidth;
+  const videoH = extended ? large.height : rowVideoH;
+  const barUnder = extended && BAR_UNDER;
 
   const slotRef = useRef<View>(null);
   const measure = useCallback(() => {
-    if (showTile || resizing) {
+    if (showTile || resizing || sizing) {
       onSlot(null);
       return;
     }
     slotRef.current?.measureInWindow((x, y, width, height) => onSlot(width > 0 && height > 0 ? { x, y, width, height } : null));
-  }, [showTile, resizing, onSlot]);
+  }, [showTile, resizing, sizing, onSlot]);
   useEffect(() => {
     measure();
-  }, [measure, cardWidth, videoH]);
+  }, [measure, videoW, videoH]);
   const handleBandLayout = useCallback(
     (event: LayoutChangeEvent) => {
       setBandW(event.nativeEvent.layout.width);
+      onHeight(event.nativeEvent.layout.height);
       measure();
     },
-    [measure],
+    [measure, onHeight],
   );
 
-  const tick = useCallback(() => void selectionFeedback(), []);
-  const start = useSharedValue(0);
-  const passing = useSharedValue(0);
-  const edgePan = useMemo(
-    () =>
-      Gesture.Pan()
-        .enabled(!showTile)
-        .activeOffsetY([-8, 8])
-        .failOffsetX([-20, 20])
-        .onBegin(() => {
-          "worklet";
-          start.set(liveH.get());
-          passing.set(nearestStop(liveH.get(), stops));
-        })
-        .onUpdate((event) => {
-          "worklet";
-          const height = stopDragValue(start.get(), event.translationY, stops);
-          liveH.set(height);
-          const near = nearestStop(height, stops);
-          if (near !== passing.get()) {
-            passing.set(near);
-            runOnJS(tick)();
-          }
-        })
-        .onFinalize((event) => {
-          "worklet";
-          const index = settleStop(liveH.get(), event.velocityY, start.get(), stops);
-          const height = stops[index];
-          liveH.set(
-            withSpring(height, { ...STOP_SPRING, velocity: event.velocityY }, (finished) => {
-              "worklet";
-              if (finished) runOnJS(setStopIndex)(index);
-            }),
-          );
-        }),
-    [showTile, stops, start, passing, liveH, tick],
-  );
-  const stepSize = useCallback((direction: 1 | -1) => setStopIndex((index) => Math.min(stops.length - 1, Math.max(0, index + direction))), [stops.length]);
+  useEffect(() => {
+    if (!sizing) return;
+    const timer = setTimeout(() => setSizing(false), SIZE_MS);
+    return () => clearTimeout(timer);
+  }, [sizing]);
+  const sizeTransition = sizing ? LinearTransition.duration(SIZE_MS) : undefined;
+  const toggleSize = useCallback(() => {
+    void tapFeedback();
+    setSizing(true);
+    setExtended((was) => !was);
+  }, []);
 
-  const bandStyle = useAnimatedStyle(() => ({ height: liveH.get() + BAND_EDGE }));
-  const edgeStyle = useAnimatedStyle(() => ({ top: liveH.get() + BAND_EDGE - EDGE_HIT / 2 }));
   const cropStyle = useAnimatedStyle(() => {
-    const scale = growing.get();
-    if (showTile) return { width: cardWidth, height: rowVideoH };
-    const base = grown ? cardWidth : Math.min(columnWidth.get(), Math.max(cardWidth * cardScale.get(), cardWidth));
-    return { width: base * scale, height: (grown ? videoH : rowVideoH) * scale };
+    if (extended || showTile) return { width: videoW };
+    return { width: Math.min(columnWidth.get(), Math.max(videoW * cardScale.get(), videoW)) };
   });
-  const growStyle = useAnimatedStyle(() => ({ transform: [{ scale: growing.get() * (grown ? 1 : cardScale.get()) }] }));
-  const infoStyle = useAnimatedStyle(() => {
-    const fade = interpolate(liveH.get(), [stops[0], stops[1]], [0, 1], Extrapolation.CLAMP);
-    return { opacity: 1 - fade, transform: [{ translateX: 24 * fade }] };
-  });
+  const growStyle = useAnimatedStyle(() => ({ transform: [{ scale: extended ? 1 : cardScale.get() }] }));
 
   const startMs = Date.parse(program?.StartDate ?? "");
   const endMs = Date.parse(program?.EndDate ?? "");
   const slot = Number.isFinite(startMs) && Number.isFinite(endMs) ? formatClockRange(startMs, endMs) : null;
 
+  const info = (
+    <View style={styles.info} pointerEvents="none">
+      <Text style={styles.channelName} numberOfLines={1}>
+        {cleanLabel(channel.Name)}
+      </Text>
+      {program && !barUnder ? (
+        <Text style={styles.program} numberOfLines={videoH < TWO_LINE_HEIGHT ? 1 : 2}>
+          {cleanLabel(program.Name)}
+          {slot ? <Text style={styles.slot}>{`  ${slot.start} – ${slot.end}`}</Text> : null}
+        </Text>
+      ) : null}
+    </View>
+  );
+  const buttons = (
+    <View style={styles.buttons}>
+      <GlassIconButton
+        icon={extended ? "contract-outline" : "expand-outline"}
+        iconSize={16}
+        size={32}
+        onPress={toggleSize}
+        accessibilityLabel={t(extended ? "liveTv.smallerPicture" : "liveTv.largerPicture")}
+      />
+      <View testID="guide-pinned-close">
+        <CloseOverlayButton onPress={onClose} compact />
+      </View>
+    </View>
+  );
+
   return (
     // The band's own layout too: a rotation moves the slot in the window without changing the slot's size.
-    <View style={[styles.lift, { height: videoH + BAND_EDGE }]} onLayout={handleBandLayout} testID="guide-pinned-band">
-      {/* An edge drag grows this over the lists below; the band's laid-out height follows once the picture rests. */}
-      <Animated.View style={[styles.band, styles.inner, { borderBottomColor: accent, paddingRight: insets.right }, bandStyle]}>
-        <Animated.View style={[styles.crop, cropStyle]}>
-          <Animated.View ref={slotRef} style={[styles.grow, { width: cardWidth, height: grown ? videoH : rowVideoH }, growStyle]} onLayout={measure} collapsable={false}>
-            <View style={[opening ? styles.dimmed : styles.fill, showTile && styles.tileSeat]}>
-              {showTile ? (
-                <GuideChannelTile channel={channel} metrics={metrics} onPress={onOpen} />
-              ) : (
-                <GuideChannelCard channel={channel} index={0} cardWidth={cardWidth} hideAiring flat square inset={metrics.cardInset} onPress={onOpen} playsClipInView inView />
-              )}
-            </View>
-          </Animated.View>
-          {opening ? (
-            <View style={styles.opening} pointerEvents="none" accessible accessibilityLabel={t("liveTv.tuningIn")} testID="guide-pinned-opening">
-              <ActivityIndicator size="small" color={accent} />
-            </View>
-          ) : null}
-        </Animated.View>
-        {bare ? (
-          <View style={styles.spacer} />
-        ) : (
-          <Animated.View style={[styles.info, infoStyle]} pointerEvents="none">
-            <Text style={styles.channelName} numberOfLines={1}>
-              {cleanLabel(channel.Name)}
-            </Text>
-            {program ? (
-              <Text style={styles.program} numberOfLines={2}>
-                {cleanLabel(program.Name)}
-                {slot ? <Text style={styles.slot}>{`  ${slot.start} – ${slot.end}`}</Text> : null}
-              </Text>
+    <Animated.View style={styles.lift} layout={sizeTransition} onLayout={handleBandLayout} testID="guide-pinned-band">
+      <Animated.View style={[styles.band, { borderBottomColor: accent, paddingRight: barUnder ? 0 : insets.right }]} layout={sizeTransition}>
+        <View style={barUnder ? undefined : styles.row}>
+          <Animated.View style={[styles.crop, { height: videoH }, cropStyle]}>
+            <Animated.View ref={slotRef} style={[styles.grow, { width: videoW, height: videoH }, growStyle]} onLayout={measure} collapsable={false}>
+              <View style={[opening ? styles.dimmed : styles.fill, showTile && styles.tileSeat]}>
+                {showTile ? (
+                  <GuideChannelTile channel={channel} metrics={metrics} onPress={onOpen} />
+                ) : (
+                  <GuideChannelCard channel={channel} index={0} cardWidth={videoW} hideAiring flat square inset={metrics.cardInset} onPress={onOpen} playsClipInView inView />
+                )}
+              </View>
+            </Animated.View>
+            {opening ? (
+              <View style={styles.opening} pointerEvents="none" accessible accessibilityLabel={t("liveTv.tuningIn")} testID="guide-pinned-opening">
+                <ActivityIndicator size="small" color={accent} />
+              </View>
             ) : null}
           </Animated.View>
-        )}
-        <View style={styles.close} testID="guide-pinned-close">
-          <CloseOverlayButton onPress={onClose} compact />
-        </View>
-      </Animated.View>
-      {/* Straddles the bottom edge, its grip below it, where the player cannot cover it. */}
-      <Animated.View style={[styles.edge, edgeStyle]} pointerEvents="box-none">
-        <GestureHandlerRootView style={styles.fill}>
-          <GestureDetector gesture={edgePan}>
-            <View
-              style={styles.edgeHit}
-              accessible
-              accessibilityRole="adjustable"
-              accessibilityLabel={t("liveTv.pinnedSize")}
-              accessibilityValue={{ text: t(SIZE_LABEL[stopIndex]) }}
-              accessibilityActions={STEP_ACTIONS}
-              onAccessibilityAction={(event) => stepSize(event.nativeEvent.actionName === "increment" ? 1 : -1)}
-              testID="guide-pinned-edge">
-              <View style={[styles.edgePill, { backgroundColor: accent }]} />
+          {barUnder ? null : (
+            <View style={styles.side}>
+              {buttons}
+              {bare ? null : info}
             </View>
-          </GestureDetector>
-        </GestureHandlerRootView>
+          )}
+        </View>
+        {barUnder ? (
+          <View style={[styles.bar, { paddingRight: insets.right }]}>
+            {info}
+            {buttons}
+          </View>
+        ) : null}
       </Animated.View>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -238,9 +200,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: BAND_EDGE,
     backgroundColor: COLORS.BACKGROUND,
   },
-  inner: {
+  row: {
     flexDirection: "row",
-    alignItems: "flex-start",
+  },
+  // Beside the picture: the buttons along the top, close in the corner, and the text along the bottom at full width.
+  side: {
+    flex: 1,
+    justifyContent: "space-between",
+    paddingVertical: 8,
   },
   // The slot follows the column's width while it is dragged, cropping the card it grows.
   crop: {
@@ -270,14 +237,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  spacer: {
-    flex: 1,
-  },
   info: {
     flex: 1,
-    alignSelf: "center",
+    justifyContent: "flex-end",
     paddingHorizontal: 12,
-    gap: 4,
+    gap: 2,
   },
   channelName: {
     color: COLORS.TEXT_PRIMARY,
@@ -291,26 +255,17 @@ const styles = StyleSheet.create({
   slot: {
     color: COLORS.TEXT_SECONDARY,
   },
-  close: {
-    alignSelf: "center",
-    marginHorizontal: 12,
-  },
-  // The bottom edge's drag handle, the band's full width; half of it reaches over the lists below.
-  edge: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    height: EDGE_HIT,
-  },
-  edgeHit: {
-    flex: 1,
+  buttons: {
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
-    paddingBottom: 3,
+    gap: 12,
+    marginHorizontal: 12,
   },
-  edgePill: {
-    width: 28,
-    height: 5,
-    borderRadius: 2.5,
+  // iPhone's larger picture: the name and buttons under the full-width picture.
+  bar: {
+    height: BAR_HEIGHT,
+    flexDirection: "row",
+    alignItems: "center",
   },
 });

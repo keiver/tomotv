@@ -19,7 +19,6 @@ import { logger } from "@/utils/logger";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, StyleSheet, TVEventControl, useTVEventHandler, View } from "react-native";
-import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import Video from "react-native-video";
 import type { OnLoadData, OnPictureInPictureStatusChangedData, OnVideoErrorData } from "react-native-video";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
@@ -132,7 +131,7 @@ interface PlayerSource {
 }
 
 export function PlayerHost() {
-  const { registerHost, publish, handlersRef, inlineScale } = usePlayerSessionHost();
+  const { registerHost, publish, handlersRef } = usePlayerSessionHost();
 
   // State for rendering, ref for the AVKit callbacks and the bridge, which are
   // called from outside React and need the current value.
@@ -1003,84 +1002,81 @@ export function PlayerHost() {
     presentationRef.current = "pending";
     videoRef.current?.setFullScreen(true);
   }, [hostVisible, inline, videoRef]);
-  // The pinned band grows its frame by a drag; the picture follows on the UI thread until the frame is measured again.
-  const scaleStyle = useAnimatedStyle(() => (inline ? { transform: [{ scale: inlineScale.get() }] } : {}));
 
   return (
     <DismissPan onDismiss={handleDismissGesture} style={stageStyle} pointerEvents={onStage ? "auto" : "none"}>
-      <Animated.View style={[styles.scaled, scaleStyle]}>
-        {session !== null && shownSource && (
-          <Video
-            // Remount on every stream change (direct play to transcoding), except a live channel,
-            // whose flips replace the item inside the one player, and a player a PiP window has shown.
-            key={session.isLive ? "live" : (pinnedKey ?? shownSource.uri)}
-            ref={videoRef}
-            source={shownSource}
-            style={styles.video}
-            resizeMode={fills ? "cover" : "contain"}
-            // Inline, the picture alone: AVKit's controls do not shrink to the band, so a tap on it opens the presented player.
-            controls={!inline}
-            paused={paused}
-            // Both float props stay set: 0 is AVFoundation's "no cap" and "own threshold". Clearing a scalar
-            // prop makes React restore a default RNV never exposes a getter for, an uninitialised float.
-            maxBitRate={maxBitRate ?? 0}
-            preferredForwardBufferDuration={forwardBufferSeconds ?? 0}
-            // A loaded live item starts at once (RNV's playImmediately); playing, AVPlayer's own stall handling is back.
-            automaticallyWaitsToMinimizeStalling={!(session.isLive && state.type === "READY")}
-            // The viewer's remembered subtitle choice, applied at item start.
-            // Unset is {type: "system"}, which is the automatic path the lib
-            // already takes, so a fresh install is unchanged.
-            selectedTextTrack={selectedTextTrack}
-            // Only set when the viewer chose a track and a rebuild has to restore it.
-            selectedAudioTrack={selectedAudioTrack}
-            allowsExternalPlayback={true}
-            // RNV hard-disables AVKit's own now-playing publishing (updatesNowPlayingInfoCenter
-            // = false); this prop is what turns on the lib's replacement publisher, which feeds
-            // the AirPlay route sheet / lock screen card from source.metadata (title + poster).
-            // Not on TV: it registers global MPRemoteCommandCenter targets that would compete
-            // with the Siri remote's tuned seek/pause handling.
-            showNotificationControls={!Platform.isTV}
-            playWhenInactive={true} // Keep playing through the resign-active window so PiP entry doesn't find a paused player
-            // tvOS native Up Next / skip pills, computed by the route from the queue
-            // and this item's media segments.
-            contentProposal={tvConfig.contentProposal}
-            onContentProposalAccepted={() => handlersRef.current?.onContentProposalAccepted()}
-            onContentProposalRejected={() => handlersRef.current?.onContentProposalRejected()}
-            contextualActions={tvConfig.contextualActions}
-            infoPanelItems={tvConfig.infoPanelItems}
-            infoPanelTitle={tvConfig.infoPanelTitle}
-            // tvOS Chapters tab in the same info panel, from this item's markers.
-            chapters={chapters}
-            onInfoPanelItemSelected={(event) => handlersRef.current?.onInfoPanelItemSelected(event)}
-            // tvOS transport bar: the route's custom buttons (the favorite heart).
-            transportBarButtons={tvConfig.transportBarButtons}
-            onTransportBarButtonSelected={(event) => handlersRef.current?.onTransportBarButtonSelected(event)}
-            // tvOS live channel flipping: AVKit's own swipe and interstitial, gated on a live session.
-            liveChannelFlip={session.isLive ? tvConfig.liveChannelFlip : undefined}
-            liveChannelStage={session.isLive ? liveChannelStage : undefined}
-            liveChannelFailed={session.isLive ? liveFlipFailed : undefined}
-            onSkipToNextChannel={() => {
-              setLiveInterstitialUp(true);
-              handlersRef.current?.onSkipChannel(1);
-            }}
-            onSkipToPreviousChannel={() => {
-              setLiveInterstitialUp(true);
-              handlersRef.current?.onSkipChannel(-1);
-            }}
-            // Menu on the interstitial leaves the player paused under it, so it leaves the player.
-            onChannelSkipAbandoned={() => {
-              setLiveInterstitialUp(false);
-              handlersRef.current?.onRequestBack();
-            }}
-            // The presented player coming down: ✕, swipe-down, a PiP hand-off, or our own
-            // onEnd/onError dismissals; the DID handler closes only for the first two. Will is
-            // observed and never acted on; it fires for transitions that get cancelled.
-            onFullscreenPlayerWillDismiss={handlePresentationWillDismiss}
-            onFullscreenPlayerDidDismiss={handlePresentationDidDismiss}
-            onPictureInPictureStatusChanged={handlePipStatusChanged}
-            onRestoreUserInterfaceForPictureInPictureStop={handleRestoreFromPip}
-            {...playerCallbacks}>
-            {/* A child of <Video> is inserted into AVKit's contentOverlayView
+      {session !== null && shownSource && (
+        <Video
+          // Remount on every stream change (direct play to transcoding), except a live channel,
+          // whose flips replace the item inside the one player, and a player a PiP window has shown.
+          key={session.isLive ? "live" : (pinnedKey ?? shownSource.uri)}
+          ref={videoRef}
+          source={shownSource}
+          style={styles.video}
+          resizeMode={fills ? "cover" : "contain"}
+          // Inline, the picture alone: AVKit's controls do not shrink to the band, so a tap on it opens the presented player.
+          controls={!inline}
+          paused={paused}
+          // Both float props stay set: 0 is AVFoundation's "no cap" and "own threshold". Clearing a scalar
+          // prop makes React restore a default RNV never exposes a getter for, an uninitialised float.
+          maxBitRate={maxBitRate ?? 0}
+          preferredForwardBufferDuration={forwardBufferSeconds ?? 0}
+          // A loaded live item starts at once (RNV's playImmediately); playing, AVPlayer's own stall handling is back.
+          automaticallyWaitsToMinimizeStalling={!(session.isLive && state.type === "READY")}
+          // The viewer's remembered subtitle choice, applied at item start.
+          // Unset is {type: "system"}, which is the automatic path the lib
+          // already takes, so a fresh install is unchanged.
+          selectedTextTrack={selectedTextTrack}
+          // Only set when the viewer chose a track and a rebuild has to restore it.
+          selectedAudioTrack={selectedAudioTrack}
+          allowsExternalPlayback={true}
+          // RNV hard-disables AVKit's own now-playing publishing (updatesNowPlayingInfoCenter
+          // = false); this prop is what turns on the lib's replacement publisher, which feeds
+          // the AirPlay route sheet / lock screen card from source.metadata (title + poster).
+          // Not on TV: it registers global MPRemoteCommandCenter targets that would compete
+          // with the Siri remote's tuned seek/pause handling.
+          showNotificationControls={!Platform.isTV}
+          playWhenInactive={true} // Keep playing through the resign-active window so PiP entry doesn't find a paused player
+          // tvOS native Up Next / skip pills, computed by the route from the queue
+          // and this item's media segments.
+          contentProposal={tvConfig.contentProposal}
+          onContentProposalAccepted={() => handlersRef.current?.onContentProposalAccepted()}
+          onContentProposalRejected={() => handlersRef.current?.onContentProposalRejected()}
+          contextualActions={tvConfig.contextualActions}
+          infoPanelItems={tvConfig.infoPanelItems}
+          infoPanelTitle={tvConfig.infoPanelTitle}
+          // tvOS Chapters tab in the same info panel, from this item's markers.
+          chapters={chapters}
+          onInfoPanelItemSelected={(event) => handlersRef.current?.onInfoPanelItemSelected(event)}
+          // tvOS transport bar: the route's custom buttons (the favorite heart).
+          transportBarButtons={tvConfig.transportBarButtons}
+          onTransportBarButtonSelected={(event) => handlersRef.current?.onTransportBarButtonSelected(event)}
+          // tvOS live channel flipping: AVKit's own swipe and interstitial, gated on a live session.
+          liveChannelFlip={session.isLive ? tvConfig.liveChannelFlip : undefined}
+          liveChannelStage={session.isLive ? liveChannelStage : undefined}
+          liveChannelFailed={session.isLive ? liveFlipFailed : undefined}
+          onSkipToNextChannel={() => {
+            setLiveInterstitialUp(true);
+            handlersRef.current?.onSkipChannel(1);
+          }}
+          onSkipToPreviousChannel={() => {
+            setLiveInterstitialUp(true);
+            handlersRef.current?.onSkipChannel(-1);
+          }}
+          // Menu on the interstitial leaves the player paused under it, so it leaves the player.
+          onChannelSkipAbandoned={() => {
+            setLiveInterstitialUp(false);
+            handlersRef.current?.onRequestBack();
+          }}
+          // The presented player coming down: ✕, swipe-down, a PiP hand-off, or our own
+          // onEnd/onError dismissals; the DID handler closes only for the first two. Will is
+          // observed and never acted on; it fires for transitions that get cancelled.
+          onFullscreenPlayerWillDismiss={handlePresentationWillDismiss}
+          onFullscreenPlayerDidDismiss={handlePresentationDidDismiss}
+          onPictureInPictureStatusChanged={handlePipStatusChanged}
+          onRestoreUserInterfaceForPictureInPictureStop={handleRestoreFromPip}
+          {...playerCallbacks}>
+          {/* A child of <Video> is inserted into AVKit's contentOverlayView
               (RCTVideo.insertReactSubview). Apple documents that layer as
               holding "custom views between the video content and the controls",
               but a bitmap has been photographed drawing across the transport
@@ -1090,22 +1086,21 @@ export function PlayerHost() {
               Bitmap subtitles are the one thing we draw here; the native chrome
               stays the product. Renders nothing unless an image track is
               selected. */}
-            <ImageSubtitleOverlay
-              sessionUrl={imageSubtitleSessionUrl}
-              streamIndex={activeImageSubtitleStream}
-              currentTimeRef={currentTimeRef}
-              videoWidth={videoSize.width}
-              videoHeight={videoSize.height}
-              fills={fills}
-              controlsVisible={controls.visible}
-              unobscuredBottom={controls.unobscuredBottom}
-            />
-          </Video>
-        )}
+          <ImageSubtitleOverlay
+            sessionUrl={imageSubtitleSessionUrl}
+            streamIndex={activeImageSubtitleStream}
+            currentTimeRef={currentTimeRef}
+            videoWidth={videoSize.width}
+            videoHeight={videoSize.height}
+            fills={fills}
+            controlsVisible={controls.visible}
+            unobscuredBottom={controls.unobscuredBottom}
+          />
+        </Video>
+      )}
 
-        {/* Phone: the inline player (the one the lib re-embeds after every dismissal) is never shown; the presented player is the only picture. An inline session is the exception. */}
-        {PRESENTS_NATIVE_FULLSCREEN && session !== null && !inline && <View style={styles.closingCurtain} pointerEvents="none" testID="player-curtain" />}
-      </Animated.View>
+      {/* Phone: the inline player (the one the lib re-embeds after every dismissal) is never shown; the presented player is the only picture. An inline session is the exception. */}
+      {PRESENTS_NATIVE_FULLSCREEN && session !== null && !inline && <View style={styles.closingCurtain} pointerEvents="none" testID="player-curtain" />}
     </DismissPan>
   );
 }
@@ -1144,10 +1139,6 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.MEDIA_BACKGROUND,
   },
   // No fill: the card and its tuning mark show through until the first frame.
-  scaled: {
-    flex: 1,
-    transformOrigin: "left top",
-  },
   inlineStage: {
     position: "absolute",
     overflow: "hidden",
