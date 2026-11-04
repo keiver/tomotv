@@ -3,7 +3,7 @@ import { GlassIconButton } from "@/components/glass-icon-button";
 import { GuideChannelCard } from "@/components/live-tv/guide-channel-card";
 import { GuideChannelTile } from "@/components/live-tv/guide-channel-tile";
 import { COLORS } from "@/constants/colors";
-import { GuidePinnedDots, PINNED_DOT_SIZE } from "@/components/live-tv/guide-pinned-dots";
+import { GuidePinnedTab } from "@/components/live-tv/guide-pinned-tab";
 import { GuidePinnedOverlay } from "@/components/live-tv/guide-pinned-overlay";
 import { usePlayerSession, type InlineFrame } from "@/contexts/PlayerSessionContext";
 import { useCardPalette } from "@/hooks/useCardPalette";
@@ -124,24 +124,14 @@ export function GuidePinnedBand({ channel, program, metrics, compact, bare, colu
   );
   const bandSwipe = useMemo(() => swipe(), [swipe]);
   const overlaySwipe = useMemo(() => swipe(), [swipe]);
+  const tabSwipe = useMemo(() => swipe().hitSlop({ vertical: 12, horizontal: 12 }), [swipe]);
 
   const name = cleanLabel(channel.Name);
-  // The swipe's dots straddle the band's bottom edge at its centre; their top reaches into the picture, so where the
-  // picture covers them the overlay draws that part over it, from the picture's own bottom.
-  const dotsX = bandW / 2;
-  const dotsBottom = BAND_EDGE / 2 - PINNED_DOT_SIZE / 2;
-  const dotsCovered = bandW > 0 && dotsX < videoW;
-  const dotsOnPicture = useMemo(() => (dotsCovered ? { x: dotsX, bottom: dotsBottom - BAND_EDGE } : undefined), [dotsCovered, dotsX, dotsBottom]);
-  const overlay = showTile ? null : (
-    <GuidePinnedOverlay name={name} extended={extended} bar={onPicture} accent={accent} dots={dotsOnPicture} onToggleSize={toggleSize} onOpen={onOpen} onClose={onClose} />
-  );
+  const overlay = showTile ? null : <GuidePinnedOverlay name={name} extended={extended} bar={onPicture} accent={accent} onToggleSize={toggleSize} onOpen={onOpen} onClose={onClose} />;
   // The player draws above the guide, so the copy over the playing picture is the host's, and it takes the swipe there.
   const hostOverlay = useMemo(
-    () =>
-      showTile ? null : (
-        <GuidePinnedOverlay name={name} extended={extended} bar={onPicture} accent={accent} dots={dotsOnPicture} swipe={overlaySwipe} onToggleSize={toggleSize} onOpen={onOpen} onClose={onClose} />
-      ),
-    [showTile, name, extended, onPicture, accent, dotsOnPicture, overlaySwipe, toggleSize, onOpen, onClose],
+    () => (showTile ? null : <GuidePinnedOverlay name={name} extended={extended} bar={onPicture} accent={accent} swipe={overlaySwipe} onToggleSize={toggleSize} onOpen={onOpen} onClose={onClose} />),
+    [showTile, name, extended, onPicture, accent, overlaySwipe, toggleSize, onOpen, onClose],
   );
   useEffect(() => setInlineOverlay(hostOverlay), [hostOverlay, setInlineOverlay]);
   useEffect(() => () => setInlineOverlay(null), [setInlineOverlay]);
@@ -219,7 +209,7 @@ export function GuidePinnedBand({ channel, program, metrics, compact, bare, colu
           </Animated.View>
         </GestureDetector>
       </GestureHandlerRootView>
-      {bandW > 0 ? <GuidePinnedDots color={accent} centerX={dotsX} bottom={dotsBottom} /> : null}
+      {bandW > 0 ? <GuidePinnedTab centerX={bandW / 2} extended={extended} swipe={tabSwipe} /> : null}
     </Animated.View>
   );
 }

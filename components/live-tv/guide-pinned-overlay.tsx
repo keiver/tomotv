@@ -1,7 +1,6 @@
 import { CloseOverlayButton } from "@/components/close-overlay-button";
 import { GlassIconButton } from "@/components/glass-icon-button";
 import { GRIP_SIZE } from "@/components/live-tv/guide-grip";
-import { GuidePinnedDots } from "@/components/live-tv/guide-pinned-dots";
 import { COLORS } from "@/constants/colors";
 import { t } from "@/services/i18n";
 import React from "react";
@@ -15,10 +14,8 @@ interface GuidePinnedOverlayProps {
   extended: boolean;
   /** The name and buttons sit on the picture: iPhone's larger picture. */
   bar: boolean;
-  /** The buttons' glyphs and the dots, in the theme's accent. */
+  /** The buttons' glyphs, in the theme's accent. */
   accent: string;
-  /** Where the band's dots sit, from the picture's left and bottom, when the picture covers them. */
-  dots?: { x: number; bottom: number };
   /** The band's swipe between sizes, for the copy over the player, which takes the picture's touches. */
   swipe?: GestureType;
   onToggleSize: () => void;
@@ -27,10 +24,10 @@ interface GuidePinnedOverlayProps {
 }
 
 /**
- * Over the pinned channel's picture: the band's dots where the picture covers them, and on iPhone's larger picture the
+ * Over the pinned channel's picture: the tap to full screen and the band's swipe, and on iPhone's larger picture the
  * name and buttons on a black scrim. Drawn by the player host over the inline video, and by the band over the clip.
  */
-export function GuidePinnedOverlay({ name, extended, bar, accent, dots, swipe, onToggleSize, onOpen, onClose }: GuidePinnedOverlayProps) {
+export function GuidePinnedOverlay({ name, extended, bar, accent, swipe, onToggleSize, onOpen, onClose }: GuidePinnedOverlayProps) {
   const body = (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none" testID="guide-pinned-overlay">
       <Pressable style={StyleSheet.absoluteFill} onPress={onOpen} accessibilityRole="button" accessibilityLabel={name} />
@@ -52,7 +49,6 @@ export function GuidePinnedOverlay({ name, extended, bar, accent, dots, swipe, o
           </View>
         </View>
       ) : null}
-      {dots ? <GuidePinnedDots color={accent} centerX={dots.x} bottom={dots.bottom} /> : null}
     </View>
   );
   return swipe ? <GestureDetector gesture={swipe}>{body}</GestureDetector> : body;
