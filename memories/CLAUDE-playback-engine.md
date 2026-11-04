@@ -473,6 +473,30 @@ against `scripts/demo-livetv/relay.py` with `RELAY_CAP_STATUS` 403, 429, 503 and
 `RELAY_RELEASE_LAG_MS` and `RELAY_HOLD_MS` (admitted, silent, then closed). Issue 104 was a 429
 answered by a one-connection provider's server.
 
+## Package layout
+
+### @keiver/tomo-engine
+
+Imports nothing from the app (`@/`) and nothing from `@keiver/tomo-live`; `__tests__/claudeMd.test.ts` pins both.
+
+- JS entry `packages/tomo-engine/src/index.ts` re-exports every module. `packages/tomo-engine/src/session.ts` `startSession`, `stopLocalRemux` open and close a session; `packages/tomo-engine/src/native.ts` `engineModule`, `isLocalRemuxAvailable` reach the native module; `packages/tomo-engine/src/verdicts.ts` `VERDICT_STRIKES`, `VERDICT_TTL_MS` hold the below-realtime memory; `packages/tomo-engine/src/imageSubtitleOverlay.tsx` `ImageSubtitleOverlay` draws image subtitles.
+- Native engine `packages/tomo-engine/ios/LocalRemuxer/`: React Native module `packages/tomo-engine/ios/LocalRemuxer/LocalRemuxer.swift` `LocalRemuxer` (bridged in `packages/tomo-engine/ios/LocalRemuxer/LocalRemuxer.m`), the session in `packages/tomo-engine/ios/LocalRemuxer/Remuxer.swift` and `packages/tomo-engine/ios/LocalRemuxer/RemuxSession+*.swift`, transcoders in `packages/tomo-engine/ios/LocalRemuxer/VideoTranscoder.swift` and `packages/tomo-engine/ios/LocalRemuxer/AudioTranscoder.swift`, subtitle decoders in `packages/tomo-engine/ios/LocalRemuxer/ImageSubtitleDecoder.swift` and `packages/tomo-engine/ios/LocalRemuxer/TextSubtitleDecoder.swift`, the viewer's subtitle time shift in `packages/tomo-engine/ios/LocalRemuxer/WebVttShift.swift`, the ASS markup left in a sidecar's WebVTT rendered in `packages/tomo-engine/ios/LocalRemuxer/WebVttCueText.swift`, the match of a subtitle track to the audio in `packages/tomo-engine/ios/LocalRemuxer/SpeechLevels.swift` (the audio's loudness per 10 ms, measured as the read loop passes it), `packages/tomo-engine/ios/LocalRemuxer/SpeechTimeline.swift` (speech or not per 10 ms), `packages/tomo-engine/ios/LocalRemuxer/SubtitleAligner.swift` (the shift that lines the cues up), `packages/tomo-engine/ios/LocalRemuxer/AudioWindowReader.swift` (the audio window decoded on its own) and `packages/tomo-engine/ios/LocalRemuxer/RemuxSession+Align.swift`.
+- Native live sources `packages/tomo-engine/ios/LiveSources/` (module `LiveSources`): `packages/tomo-engine/ios/LiveSources/M3uParser.swift`, `packages/tomo-engine/ios/LiveSources/XmltvParser.swift`.
+- Build: `packages/tomo-engine/app.plugin.js` `addEnginePods` adds the TomoEngine, TomoLiveSources and TomoFFmpeg pods (`packages/tomo-engine/ios/*.podspec`) to the Podfile. The podspecs glob their folders, so a new Swift file needs no registration.
+- SwiftPM `packages/tomo-engine/Package.swift` builds the same sources for `swift build`/`swift test` but excludes the bridge files (`LocalRemuxer.swift`/`.m`, `LiveSources.swift`/`.m`): those compile only in Xcode.
+- FFmpeg: built by `scripts/ffmpeg/build.sh`, published by `.github/workflows/build-ffmpeg.yml`, fetched into the gitignored ios/Frameworks folder by `packages/tomo-engine/scripts/fetch-ffmpeg.js` (postinstall), pinned by `packages/tomo-engine/ffmpeg-lock.json`.
+- Tests: Jest `packages/tomo-engine/__tests__/`; Swift `packages/tomo-engine/Tests/TomoEngineTests/` and `packages/tomo-engine/Tests/TomoLiveSourcesTests/`.
+- The session anchor is the first keyframe the engine sees: the first generation MUST open at position 0. Move the segment index, never the clock.
+- Before changing the HLS master shape, read Apple's HLS authoring spec appendixes, not only RFC 8216.
+
+### @keiver/tomo-live
+
+Live TV services over `@keiver/tomo-engine`. Imports nothing from the app (`@/`); `__tests__/claudeMd.test.ts` pins that.
+
+- `packages/tomo-live/src/liveSession.ts` `LivePlayback`: one channel's play (open, bind, reopen), used by `hooks/useVideoPlayback.ts`. Neighbour channel ring `packages/tomo-live/src/liveRing.ts`, previews `packages/tomo-live/src/livePreview.ts`, guide `packages/tomo-live/src/externalGuide.ts` and `packages/tomo-live/src/guideMatch.ts`, playback hold `packages/tomo-live/src/playbackHold.ts`.
+- Native: Expo module `LiveClipModule` declared in `packages/tomo-live/expo-module.config.json`, sources in `packages/tomo-live/ios/` (pod `packages/tomo-live/ios/LiveClip.podspec`).
+- Tests: Jest `packages/tomo-live/__tests__/`. No Swift package.
+
 ## Rules of engagement
 
 1. `ios/` and `tvos/` are generated and gitignored. Engine edits go in

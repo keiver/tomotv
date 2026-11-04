@@ -53,10 +53,15 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
-const INSTRUCTION_FILES = ["CLAUDE.md", "memories/CLAUDE-debugging.md", ...fs.readdirSync(path.join(root, ".claude", "rules")).map((name) => `.claude/rules/${name}`)];
+const section = (file: string, heading: string) => read(file).split(`\n## ${heading}\n`)[1].split("\n## ")[0];
 
-describe.each(INSTRUCTION_FILES)("%s", (file) => {
-  const text = read(file);
+const INSTRUCTION_TEXTS: [string, string][] = [
+  ["CLAUDE.md", doc],
+  ["memories/CLAUDE-debugging.md", read("memories/CLAUDE-debugging.md")],
+  ["memories/CLAUDE-playback-engine.md Package layout", section("memories/CLAUDE-playback-engine.md", "Package layout")],
+];
+
+describe.each(INSTRUCTION_TEXTS)("%s", (_name, text) => {
   const prose = text.replace(/```[\s\S]*?```/g, "");
 
   it("names only paths that exist", () => {
@@ -101,11 +106,6 @@ describe("CLAUDE.md", () => {
       ...fs.readdirSync(path.join(root, "memories")).map((name) => `memories/${name}`),
     ].filter((name) => !doc.includes(`\`${name}\``));
     expect(unnamed).toEqual([]);
-  });
-
-  it("gives every package a rule file scoped to its folder", () => {
-    const missing = listedDirs("packages").filter((name) => !repoFileSet.has(`.claude/rules/${name}.md`) || !read(`.claude/rules/${name}.md`).includes(`"packages/${name}/**"`));
-    expect(missing).toEqual([]);
   });
 });
 

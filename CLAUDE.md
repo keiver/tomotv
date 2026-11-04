@@ -2,7 +2,7 @@
 
 **TomoTV** is a Jellyfin client built with React Native TVOS and Expo for Apple TV, iPhone, iPad and Mac Catalyst (macOS 13.4 or later). Playback runs through our own on-device engine (`packages/tomo-engine`); live TV runs through `packages/tomo-live` on top of it. The server transcodes only what the engine cannot take.
 
-This file is an index. The global `~/.claude/CLAUDE.md` holds the general working rules; nothing here repeats them. Instructions that matter only while editing certain code live in `.claude/rules/` and load when that code is touched: `.claude/rules/tomo-engine.md`, `.claude/rules/tomo-live.md`, `.claude/rules/native-swift.md`, `.claude/rules/tvos-ui.md`. They stay out of `packages/`, where any changed file counts as a package release for `scripts/package-versions.mjs`. `__tests__/claudeMd.test.ts` pins every path, script, package and symbol these files name, so a stale line fails `npm test`.
+This file is an index. The global `~/.claude/CLAUDE.md` holds the general working rules; nothing here repeats them. Instructions that matter only while editing certain code live in `memories/`, listed under "Before you touch X, read Y". They stay out of `packages/`, where any changed file counts as a package release for `scripts/package-versions.mjs`. `__tests__/claudeMd.test.ts` pins every path, script, package and symbol these files name, so a stale line fails `npm test`.
 
 ## THE ULTIMATE RULE: NO ASSUMPTIONS. EVER.
 
@@ -28,8 +28,8 @@ A fix is complete when I have read every file on its path in full (every caller,
 
 Two npm workspaces (`packages/*` in the root `package.json`, symlinked into node_modules/@keiver). Dependencies point one way: app -> `@keiver/tomo-live` -> `@keiver/tomo-engine`. No package imports `@/` app code, and the engine never imports the live package; the test pins both.
 
-- `packages/tomo-engine`: the on-device playback engine (FFmpeg, the `LocalRemuxer` and `LiveSources` native modules). Layout, build, FFmpeg and engine facts: `.claude/rules/tomo-engine.md`.
-- `packages/tomo-live`: live TV over the engine (`LivePlayback`, the channel ring, previews, guide, the `LiveClipModule` Expo module). Layout: `.claude/rules/tomo-live.md`.
+- `packages/tomo-engine`: the on-device playback engine (FFmpeg, the `LocalRemuxer` and `LiveSources` native modules). Layout, build, FFmpeg and engine facts: `memories/CLAUDE-playback-engine.md`.
+- `packages/tomo-live`: live TV over the engine (`LivePlayback`, the channel ring, previews, guide, the `LiveClipModule` Expo module). Layout: `memories/CLAUDE-playback-engine.md`.
 - The code is in the package: `services/playbackHold.ts`, `services/livePreview.ts`, `services/liveRing.ts` and `utils/guideMatch.ts` only re-export or wrap package symbols. Fix the package file.
 - Versions: `npm run release:engine` / `npm run release:live` bump the version only; each package keeps its own `CHANGELOG.md`. Name a version with its package (`@keiver/tomo-engine@1.4.0`).
 
@@ -52,7 +52,8 @@ Two npm workspaces (`packages/*` in the root `package.json`, symlinked into node
 
 ## Before you touch X, read Y
 
-- A playback lane, the engine, a codec, a transcode: `memories/CLAUDE-playback-engine.md` and `.claude/rules/tomo-engine.md`
+- A playback lane, the engine, a codec, a transcode: `memories/CLAUDE-playback-engine.md`
+- Native Swift, a native module: `memories/CLAUDE-development.md`
 - Tiers, ABR, the gateway, link measurement: `memories/CLAUDE-slipstream.md`
 - Audio track switching: `memories/CLAUDE-multi-audio.md`
 - A Jellyfin call: `memories/CLAUDE-api-reference.md`, then <https://api.jellyfin.org/openapi/jellyfin-openapi-stable.json>
@@ -191,4 +192,4 @@ They load into sessions, so a stale line is a confident wrong answer. Before the
 - added an npm script worth naming, or changed what one does;
 - settled a product decision or measured a platform fact worth keeping.
 
-Then run `npx jest __tests__/claudeMd.test.ts`. It fails on a named path that no longer exists, an `npm run` script missing from `package.json`, a symbol missing from the file it is listed under, a package without its own rule file in `.claude/rules/`, a package, `native/ios/` module or `memories/` file this file does not name, and a package file that imports app code or imports against the dependency direction.
+Then run `npx jest __tests__/claudeMd.test.ts`. It fails on a named path that no longer exists, an `npm run` script missing from `package.json`, a symbol missing from the file it is listed under, a package, `native/ios/` module or `memories/` file this file does not name, and a package file that imports app code or imports against the dependency direction.

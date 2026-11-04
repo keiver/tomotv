@@ -235,6 +235,10 @@ When using grid items in FlatList:
 
 ## Design Rules
 
+- No new dependency, icon family or font for a cosmetic change. Ionicons only.
+- Stacked buttons share one width; hierarchy comes from fill/outline. Positional anchors (progress bars, badges) never move between states.
+- Reanimated worklet helpers are not hoisted: define them above their callers.
+
 ### Section footers
 
 - Help text, explanations, and source attribution belong at the **bottom** of their section, after its rows. Do not place an always-visible help band at the top of a card.

@@ -62,8 +62,7 @@ coverage
 
 nogit/
 
-.claude/*
-!.claude/rules/
+.claude/
 CLAUDE.local.md
 
 # FFmpeg build tree: pinned sources, per-slice prefixes, packaged artifacts.
