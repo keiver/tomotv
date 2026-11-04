@@ -11,6 +11,8 @@ import { GestureDetector, type GestureType } from "react-native-gesture-handler"
 
 /** The channel's name, here and beside the picture, starts this far in; the band's pull tab lines up with it. */
 export const PINNED_TEXT_INSET = 12;
+const CORNER_BUTTON = 36;
+const CORNER_ICON = 18;
 // Eased stops: the fade starts at the scrim's top edge and deepens gradually, with no visible line.
 const SCRIM =
   "linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.08) 15%, rgba(0, 0, 0, 0.22) 30%, rgba(0, 0, 0, 0.42) 45%, rgba(0, 0, 0, 0.62) 60%, rgba(0, 0, 0, 0.8) 75%, rgba(0, 0, 0, 0.92) 90%, rgba(0, 0, 0, 0.96) 100%)";
@@ -79,16 +81,20 @@ export function GuidePinnedOverlay({ name, mark, record, extended, bar, accent, 
             onPress={onToggleMute}
             accessibilityLabel={t(muted ? "liveTv.unmute" : "liveTv.mute")}
           />
+        </View>
+      ) : null}
+      {bar ? (
+        <View style={styles.corner} pointerEvents="box-none">
           <GlassIconButton
             icon={extended ? "contract-outline" : "expand-outline"}
-            iconSize={20}
-            size={GRIP_SIZE}
+            iconSize={CORNER_ICON}
+            size={CORNER_BUTTON}
             color={accent}
             onPress={onToggleSize}
             accessibilityLabel={t(extended ? "liveTv.smallerPicture" : "liveTv.largerPicture")}
           />
           <View testID="guide-pinned-close">
-            <CloseOverlayButton onPress={onClose} color={accent} size={GRIP_SIZE} />
+            <CloseOverlayButton onPress={onClose} color={accent} size={CORNER_BUTTON} />
           </View>
         </View>
       ) : null}
@@ -98,6 +104,14 @@ export function GuidePinnedOverlay({ name, mark, record, extended, bar, accent, 
 }
 
 const styles = StyleSheet.create({
+  // Size and close: the band's own controls, in the picture's top corner, apart from what acts on the channel.
+  corner: {
+    position: "absolute",
+    top: 8,
+    right: PINNED_TEXT_INSET,
+    flexDirection: "row",
+    gap: 10,
+  },
   scrim: {
     position: "absolute",
     left: 0,

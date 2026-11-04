@@ -29,6 +29,9 @@ const BAND_EDGE = 5;
 const EDGE_SLOP = 20;
 const SIDE_BUTTON = 38;
 const SIDE_ICON = 19;
+/** Size and close are about the band, not the channel: a step smaller than record and mute. */
+const WINDOW_BUTTON = 32;
+const WINDOW_ICON = 16;
 /** iPhone's larger picture takes the screen's width, so its name and buttons move onto the picture. */
 const ON_PICTURE = THIS_DEVICE === "iPhone";
 const SIZE_MS = 260;
@@ -271,8 +274,9 @@ export function GuidePinnedBand({
       ) : null}
     </View>
   );
-  const buttons = (
-    <View style={styles.buttons}>
+  // What plays: record and mute, beside the channel they act on.
+  const actions = (
+    <View style={styles.actions}>
       {recordButton ? (
         <View testID="guide-pinned-record">
           <GlassIconButton
@@ -294,16 +298,21 @@ export function GuidePinnedBand({
         onPress={toggleMute}
         accessibilityLabel={t(muted ? "liveTv.unmute" : "liveTv.mute")}
       />
+    </View>
+  );
+  // The band itself: size and close, in its corner.
+  const windowButtons = (
+    <View style={styles.windowButtons}>
       <GlassIconButton
         icon={extended ? "contract-outline" : "expand-outline"}
-        iconSize={SIDE_ICON}
-        size={SIDE_BUTTON}
+        iconSize={WINDOW_ICON}
+        size={WINDOW_BUTTON}
         color={accent}
         onPress={toggleSize}
         accessibilityLabel={t(extended ? "liveTv.smallerPicture" : "liveTv.largerPicture")}
       />
       <View testID="guide-pinned-close">
-        <CloseOverlayButton onPress={onClose} size={SIDE_BUTTON} color={accent} />
+        <CloseOverlayButton onPress={onClose} size={WINDOW_BUTTON} color={accent} />
       </View>
     </View>
   );
@@ -334,8 +343,11 @@ export function GuidePinnedBand({
               </Animated.View>
               {onPicture ? null : (
                 <View style={styles.side}>
-                  {buttons}
-                  {bare ? null : info}
+                  {windowButtons}
+                  <View style={styles.foot}>
+                    {bare ? <View style={styles.fill} /> : info}
+                    {actions}
+                  </View>
                 </View>
               )}
             </View>
@@ -370,7 +382,7 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
   },
-  // Beside the picture: the buttons along the top, close in the corner, and the text along the bottom at full width.
+  // Beside the picture: size and close in the top corner, the channel and its record and mute along the bottom.
   side: {
     flex: 1,
     justifyContent: "space-between",
@@ -422,11 +434,22 @@ const styles = StyleSheet.create({
   slot: {
     color: COLORS.TEXT_SECONDARY,
   },
-  buttons: {
+  windowButtons: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
-    gap: 12,
+    gap: 10,
     marginHorizontal: 12,
+  },
+  // The channel's text with its actions centred against it, at the side's bottom.
+  foot: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingRight: 12,
+  },
+  actions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
   },
 });
