@@ -24,7 +24,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const OPENING_DIM = 0.3;
 /** The band's bottom edge, in the theme's accent and heavier than the rows' grid line below it. */
-const BAND_EDGE = 3;
+const BAND_EDGE = 4;
+/** The band's swipe reaches this far below its edge. */
+const EDGE_SLOP = 20;
+const SIDE_BUTTON = 38;
+const SIDE_ICON = 19;
 /** iPhone's larger picture takes the screen's width, so its name and buttons move onto the picture. */
 const ON_PICTURE = THIS_DEVICE === "iPhone";
 const SIZE_MS = 260;
@@ -153,7 +157,7 @@ export function GuidePinnedBand({
   );
   const bandSwipe = useMemo(() => swipe(), [swipe]);
   const overlaySwipe = useMemo(() => swipe(), [swipe]);
-  const tabSwipe = useMemo(() => swipe().hitSlop({ vertical: 12, horizontal: 12 }), [swipe]);
+  const tabSwipe = useMemo(() => swipe(), [swipe]);
 
   const name = cleanLabel(channel.Name);
   const startMs = Date.parse(program?.StartDate ?? "");
@@ -241,19 +245,19 @@ export function GuidePinnedBand({
     <View style={styles.buttons}>
       {recordButton ? (
         <View testID="guide-pinned-record">
-          <GlassIconButton icon={recordButton.icon} iconSize={16} size={32} color={COLORS.DESTRUCTIVE} onPress={recordButton.onPress} accessibilityLabel={recordButton.label} />
+          <GlassIconButton icon={recordButton.icon} iconSize={SIDE_ICON} size={SIDE_BUTTON} color={COLORS.DESTRUCTIVE} onPress={recordButton.onPress} accessibilityLabel={recordButton.label} />
         </View>
       ) : null}
       <GlassIconButton
         icon={extended ? "contract-outline" : "expand-outline"}
-        iconSize={16}
-        size={32}
+        iconSize={SIDE_ICON}
+        size={SIDE_BUTTON}
         color={accent}
         onPress={toggleSize}
         accessibilityLabel={t(extended ? "liveTv.smallerPicture" : "liveTv.largerPicture")}
       />
       <View testID="guide-pinned-close">
-        <CloseOverlayButton onPress={onClose} compact color={accent} />
+        <CloseOverlayButton onPress={onClose} size={SIDE_BUTTON} color={accent} />
       </View>
     </View>
   );
@@ -263,7 +267,7 @@ export function GuidePinnedBand({
     <Animated.View style={styles.lift} layout={sizeTransition} onLayout={handleBandLayout} testID="guide-pinned-band">
       <GestureHandlerRootView style={styles.swipeRoot}>
         <GestureDetector gesture={bandSwipe}>
-          <Animated.View style={[styles.band, { borderBottomColor: accent, paddingRight: insets.right }]} layout={sizeTransition}>
+          <Animated.View style={[styles.band, { borderBottomColor: accent, paddingRight: insets.right }]} hitSlop={{ bottom: EDGE_SLOP }} layout={sizeTransition}>
             <View style={styles.row}>
               <Animated.View style={[styles.crop, { height: videoH }, cropStyle]}>
                 <Animated.View ref={slotRef} style={[styles.grow, { width: videoW, height: videoH }, growStyle]} onLayout={measure} collapsable={false}>
@@ -292,7 +296,7 @@ export function GuidePinnedBand({
           </Animated.View>
         </GestureDetector>
       </GestureHandlerRootView>
-      <GuidePinnedTab left={PINNED_TEXT_INSET} extended={extended} swipe={tabSwipe} />
+      <GuidePinnedTab left={PINNED_TEXT_INSET} extended={extended} swipe={tabSwipe} onToggle={toggleSize} />
     </Animated.View>
   );
 }
