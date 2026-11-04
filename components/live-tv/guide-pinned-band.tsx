@@ -10,11 +10,12 @@ import { tapFeedback } from "@/services/haptics";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
-import { bandExtendedSize, formatClockRange, type GuideMetrics } from "@/utils/guide";
+import { bandExtendedSize, bandSwipeToggles, formatClockRange, type GuideMetrics } from "@/utils/guide";
 import { THIS_DEVICE } from "@/utils/hostEnvironment";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, type LayoutChangeEvent, StyleSheet, Text, useWindowDimensions, View } from "react-native";
-import Animated, { LinearTransition, type SharedValue, useAnimatedStyle } from "react-native-reanimated";
+import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
+import Animated, { LinearTransition, runOnJS, type SharedValue, useAnimatedStyle } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const OPENING_DIM = 0.3;
@@ -108,13 +109,29 @@ export function GuidePinnedBand({ channel, program, metrics, compact, bare, colu
     setExtended((was) => !was);
   }, []);
 
-  const name = cleanLabel(channel.Name);
-  const overlay = useMemo(
-    () => (onPicture ? <GuidePinnedOverlay name={name} extended onToggleSize={toggleSize} onOpen={onOpen} onClose={onClose} /> : null),
-    [onPicture, name, toggleSize, onOpen, onClose],
+  // Down opens the larger picture, up closes it; one gesture per view it is attached to.
+  const swipe = useCallback(
+    () =>
+      Gesture.Pan()
+        .activeOffsetY([-12, 12])
+        .failOffsetX([-20, 20])
+        .onEnd((event, success) => {
+          "worklet";
+          if (success && bandSwipeToggles(event.translationY, event.velocityY, extended)) runOnJS(toggleSize)();
+        }),
+    [extended, toggleSize],
   );
-  // The player draws above the guide, so the copy over the playing picture is the host's.
-  useEffect(() => setInlineOverlay(overlay), [overlay, setInlineOverlay]);
+  const bandSwipe = useMemo(() => swipe(), [swipe]);
+  const overlaySwipe = useMemo(() => swipe(), [swipe]);
+
+  const name = cleanLabel(channel.Name);
+  const overlay = onPicture ? <GuidePinnedOverlay name={name} extended accent={accent} onToggleSize={toggleSize} onOpen={onOpen} onClose={onClose} /> : null;
+  // The player draws above the guide, so the copy over the playing picture is the host's, and it takes the swipe there.
+  const hostOverlay = useMemo(
+    () => (onPicture ? <GuidePinnedOverlay name={name} extended accent={accent} swipe={overlaySwipe} onToggleSize={toggleSize} onOpen={onOpen} onClose={onClose} /> : null),
+    [onPicture, name, accent, overlaySwipe, toggleSize, onOpen, onClose],
+  );
+  useEffect(() => setInlineOverlay(hostOverlay), [hostOverlay, setInlineOverlay]);
   useEffect(() => () => setInlineOverlay(null), [setInlineOverlay]);
 
   const cropStyle = useAnimatedStyle(() => {
@@ -146,11 +163,12 @@ export function GuidePinnedBand({ channel, program, metrics, compact, bare, colu
         icon={extended ? "contract-outline" : "expand-outline"}
         iconSize={16}
         size={32}
+        color={accent}
         onPress={toggleSize}
         accessibilityLabel={t(extended ? "liveTv.smallerPicture" : "liveTv.largerPicture")}
       />
       <View testID="guide-pinned-close">
-        <CloseOverlayButton onPress={onClose} compact />
+        <CloseOverlayButton onPress={onClose} compact color={accent} />
       </View>
     </View>
   );
@@ -158,33 +176,37 @@ export function GuidePinnedBand({ channel, program, metrics, compact, bare, colu
   return (
     // The band's own layout too: a rotation moves the slot in the window without changing the slot's size.
     <Animated.View style={styles.lift} layout={sizeTransition} onLayout={handleBandLayout} testID="guide-pinned-band">
-      <Animated.View style={[styles.band, { borderBottomColor: accent, paddingRight: insets.right }]} layout={sizeTransition}>
-        <View style={styles.row}>
-          <Animated.View style={[styles.crop, { height: videoH }, cropStyle]}>
-            <Animated.View ref={slotRef} style={[styles.grow, { width: videoW, height: videoH }, growStyle]} onLayout={measure} collapsable={false}>
-              <View style={[opening ? styles.dimmed : styles.fill, showTile && styles.tileSeat]}>
-                {showTile ? (
-                  <GuideChannelTile channel={channel} metrics={metrics} onPress={onOpen} />
-                ) : (
-                  <GuideChannelCard channel={channel} index={0} cardWidth={videoW} hideAiring flat square inset={metrics.cardInset} onPress={onOpen} playsClipInView inView />
-                )}
-              </View>
-            </Animated.View>
-            {opening ? (
-              <View style={styles.opening} pointerEvents="none" accessible accessibilityLabel={t("liveTv.tuningIn")} testID="guide-pinned-opening">
-                <ActivityIndicator size="small" color={accent} />
-              </View>
-            ) : null}
-            {overlay}
-          </Animated.View>
-          {onPicture ? null : (
-            <View style={styles.side}>
-              {buttons}
-              {bare ? null : info}
+      <GestureHandlerRootView>
+        <GestureDetector gesture={bandSwipe}>
+          <Animated.View style={[styles.band, { borderBottomColor: accent, paddingRight: insets.right }]} layout={sizeTransition}>
+            <View style={styles.row}>
+              <Animated.View style={[styles.crop, { height: videoH }, cropStyle]}>
+                <Animated.View ref={slotRef} style={[styles.grow, { width: videoW, height: videoH }, growStyle]} onLayout={measure} collapsable={false}>
+                  <View style={[opening ? styles.dimmed : styles.fill, showTile && styles.tileSeat]}>
+                    {showTile ? (
+                      <GuideChannelTile channel={channel} metrics={metrics} onPress={onOpen} />
+                    ) : (
+                      <GuideChannelCard channel={channel} index={0} cardWidth={videoW} hideAiring flat square inset={metrics.cardInset} onPress={onOpen} playsClipInView inView />
+                    )}
+                  </View>
+                </Animated.View>
+                {opening ? (
+                  <View style={styles.opening} pointerEvents="none" accessible accessibilityLabel={t("liveTv.tuningIn")} testID="guide-pinned-opening">
+                    <ActivityIndicator size="small" color={accent} />
+                  </View>
+                ) : null}
+                {overlay}
+              </Animated.View>
+              {onPicture ? null : (
+                <View style={styles.side}>
+                  {buttons}
+                  {bare ? null : info}
+                </View>
+              )}
             </View>
-          )}
-        </View>
-      </Animated.View>
+          </Animated.View>
+        </GestureDetector>
+      </GestureHandlerRootView>
     </Animated.View>
   );
 }

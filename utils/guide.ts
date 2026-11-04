@@ -503,8 +503,20 @@ const BAND_MAX_WIDTH = 640;
 /** The room kept beside the larger picture for the channel's name and the two buttons. */
 const BAND_INFO_ROOM = 260;
 
+/** How far, in points, or how fast, in points per second, a vertical swipe on the pinned band goes to switch its size. */
+const BAND_SWIPE_DISTANCE = 40;
+const BAND_SWIPE_VELOCITY = 500;
+
+/** Whether a finished vertical swipe on the pinned band switches its size: down opens the larger picture, up closes it. */
+export function bandSwipeToggles(translationY: number, velocityY: number, extended: boolean): boolean {
+  "worklet";
+  const down = translationY > BAND_SWIPE_DISTANCE || (translationY > 0 && velocityY > BAND_SWIPE_VELOCITY);
+  const up = translationY < -BAND_SWIPE_DISTANCE || (translationY < 0 && velocityY < -BAND_SWIPE_VELOCITY);
+  return extended ? up : down;
+}
+
 /**
- * The pinned band's larger picture at 16:9: the guide's full width when its name and buttons sit under it, or up to
+ * The pinned band's larger picture at 16:9: the guide's full width when its name and buttons sit on it, or up to
  * 640pt with room kept beside it for them; never taller than half the window.
  */
 export function bandExtendedSize(guideWidth: number, windowHeight: number, infoBeside: boolean): { width: number; height: number } {

@@ -10,6 +10,8 @@ interface CloseOverlayButtonProps {
   accessibilityHint?: string;
   /** A smaller circle for tight rows, its ✕ scaled with it; the touch target stays 44pt and more. */
   compact?: boolean;
+  /** The ✕'s colour; the primary text colour by default. */
+  color?: string;
 }
 
 /**
@@ -17,10 +19,11 @@ interface CloseOverlayButtonProps {
  * player's pill: it sits over the item's hero, which is the case the glass is for.
  * TV never renders it — the remote's Menu/back pops the screen natively.
  */
-export function CloseOverlayButton({ onPress, style, accessibilityHint, compact = false }: CloseOverlayButtonProps) {
+export function CloseOverlayButton({ onPress, style, accessibilityHint, compact = false, color }: CloseOverlayButtonProps) {
   return (
     <GlassIconButton
       icon="close"
+      color={color}
       iconSize={compact ? 18 : 26}
       size={compact ? 32 : undefined}
       style={style}

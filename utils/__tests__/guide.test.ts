@@ -44,6 +44,7 @@ import {
   trimPrograms,
   wideColumnWidth,
   bandExtendedSize,
+  bandSwipeToggles,
   settleStop,
   stopDragValue,
 } from "../guide";
@@ -591,6 +592,25 @@ describe("bandExtendedSize", () => {
 
   it("never goes below zero in a narrow guide", () => {
     expect(bandExtendedSize(200, 1366, true)).toEqual({ width: 0, height: 0 });
+  });
+});
+
+describe("bandSwipeToggles", () => {
+  it("opens the larger picture on a swipe down past 40pt or a fast flick down, and only from the normal size", () => {
+    expect(bandSwipeToggles(60, 0, false)).toBe(true);
+    expect(bandSwipeToggles(20, 900, false)).toBe(true);
+    expect(bandSwipeToggles(60, 0, true)).toBe(false);
+  });
+
+  it("closes the larger picture on a swipe up past 40pt or a fast flick up, and only from the larger size", () => {
+    expect(bandSwipeToggles(-60, 0, true)).toBe(true);
+    expect(bandSwipeToggles(-20, -900, true)).toBe(true);
+    expect(bandSwipeToggles(-60, 0, false)).toBe(false);
+  });
+
+  it("ignores a short, slow swipe and a flick against the drag", () => {
+    expect(bandSwipeToggles(20, 100, false)).toBe(false);
+    expect(bandSwipeToggles(-10, 900, false)).toBe(false);
   });
 });
 

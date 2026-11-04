@@ -23,6 +23,8 @@ interface GlassIconButtonProps {
   iconSize?: number;
   /** The circle's diameter; 44 by default. A smaller one keeps the hit slop's reach. */
   size?: number;
+  /** The glyph's colour; the primary text colour by default. */
+  color?: string;
 }
 
 /**
@@ -30,11 +32,11 @@ interface GlassIconButtonProps {
  * built the material for: chrome that sits on content the viewer still needs to see. Below
  * iOS 26 GlassSurface renders the dark blur instead, so the shape is identical everywhere.
  */
-export function GlassIconButton({ icon, onPress, accessibilityLabel, accessibilityHint, style, iconSize = 24, size = SIZE }: GlassIconButtonProps) {
+export function GlassIconButton({ icon, onPress, accessibilityLabel, accessibilityHint, style, iconSize = 24, size = SIZE, color = COLORS.TEXT_PRIMARY }: GlassIconButtonProps) {
   return (
     <Pressable style={style} onPress={onPress} accessibilityRole="button" accessibilityLabel={accessibilityLabel} accessibilityHint={accessibilityHint} hitSlop={10 + (SIZE - size) / 2}>
       <GlassSurface style={[styles.circle, { width: size, height: size }]} radius={size / 2} tintColor={CONTROL_TINT} interactive>
-        <Ionicons name={icon} size={iconSize} color={COLORS.TEXT_PRIMARY} />
+        <Ionicons name={icon} size={iconSize} color={color} />
       </GlassSurface>
     </Pressable>
   );
