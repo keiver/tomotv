@@ -1,18 +1,17 @@
 /**
  * The native subtitle panel on every platform: opened from a video's info panel, or from the tvOS
- * player's transport bar, closed by Menu, the close button or a tap beside the card. It carries one search job per video, a
- * folder's episodes each with their own; the kept pick's result row carries its timing, and a new
- * pick replaces the copy of its language.
+ * player's transport bar, closed by Menu, the close button or a tap beside the card. It searches one
+ * video; the kept pick's result row carries its timing, and a new pick replaces the copy of its language.
  */
 import type { ActiveTextSubtitle } from "@/contexts/PlayerSessionContext";
 import { useSubtitleSearch } from "@/hooks/useSubtitleSearch";
 import { useSubtitleTiming } from "@/hooks/useSubtitleTiming";
 import { t } from "@/services/i18n";
-import { fetchItemDetails, fetchRecursiveDownloadables, isAudioItem, isBook, isFolder, isPhoto } from "@/services/jellyfinApi";
+import { fetchItemDetails, isAudioItem, isBook, isFolder, isPhoto } from "@/services/jellyfinApi";
 import { getCachedConfig } from "@/services/jellyfin/session";
 import { currentTextSubtitles, isCurrentPick, replacementFor, type CurrentSubtitle } from "@/services/subtitles/current";
 import { hitBadges, hitByline, hitMeta, jobErrorLine, jobNoteLine, jobStateLine, offsetLabel, SOURCE_MONOGRAM, syncStateLine } from "@/services/subtitles/jobText";
-import { ALL_LANGUAGES, languageCode, languageFor } from "@/services/subtitles/languages";
+import { ALL_LANGUAGES, languageCode } from "@/services/subtitles/languages";
 import { queryText } from "@/services/subtitles/query";
 import { SUBTITLE_OFFSET_STEP_MS, type SubtitleSyncState } from "@/services/subtitles/timing";
 import { openSubtitlesDownloadsLeft } from "@/services/subtitles/sources/opensubtitles";
@@ -23,13 +22,11 @@ import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-/** The videos a search covers: the item itself, or every video under a folder, series or season. */
-export async function loadSearchItems(itemId: string): Promise<JellyfinVideoItem[]> {
+/** The video a search covers, or null for a folder, series, season, song, photo or book. */
+export async function loadSearchItem(itemId: string): Promise<JellyfinVideoItem | null> {
   const details = await fetchItemDetails(itemId);
-  if (!details) return [];
-  if (!isFolder(details)) return [details];
-  const leaves = await fetchRecursiveDownloadables(itemId);
-  return leaves.filter((item) => !isAudioItem(item) && !isPhoto(item) && !isBook(item));
+  if (!details || isFolder(details) || isAudioItem(details) || isPhoto(details) || isBook(details)) return null;
+  return details;
 }
 
 export interface PanelTrackInput {
@@ -63,13 +60,11 @@ export function isPlayingPick(job: SubtitleJob, hit: SubtitleHit, track: Current
   return job.status === "applied" && job.picked?.id === hit.id && job.picked.source === hit.source && job.applied?.streamIndex === track.index;
 }
 
-/** One job as its panel section; a lone job carries no heading and is the whole search. While the video plays, the result kept as one of `tracks` carries that track's timing controls. */
-export function panelJobFor(job: SubtitleJob, alone: boolean, tracks: PanelTrackInput[]): PanelJob {
+/** The video's search as the panel draws it. While the video plays, the result kept as one of `tracks` carries that track's timing controls. */
+export function panelJobFor(job: SubtitleJob, tracks: PanelTrackInput[]): PanelJob {
   const currents = tracks.map((track) => track.subtitle);
   return {
     id: job.item.Id,
-    label: alone ? "" : (job.label ?? ""),
-    heading: alone ? "" : job.title,
     query: queryText(job.query),
     stateLine: jobStateLine(job),
     note: jobErrorLine(job) ?? jobNoteLine(job) ?? "",
@@ -95,19 +90,16 @@ export function panelJobFor(job: SubtitleJob, alone: boolean, tracks: PanelTrack
   };
 }
 
-/** The whole panel for one search, every string in the viewer's language; the likely languages lead the menu. */
+/** The whole panel for the video's search, every string in the viewer's language; the likely languages lead the menu. */
 export function panelStateFor(
-  search: { jobs: SubtitleJob[]; language: string; choices: { code: string; native: string }[]; skipped: number; matches: unknown[] },
+  job: SubtitleJob,
+  search: { language: string; choices: { code: string; native: string }[] },
   tracks: PanelTrackInput[],
-  videoCount: number,
   title: string,
   accent: string,
   blurBehind = true,
 ): PanelState {
   const rest = ALL_LANGUAGES.filter((row) => !search.choices.some((choice) => choice.code === row.code));
-  const alone = search.jobs.length === 1;
-  const busy = search.jobs.some((job) => job.status === "applying");
-  const languageName = languageFor(search.language)?.native ?? search.language;
   const left = openSubtitlesDownloadsLeft();
   return {
     title,
@@ -121,14 +113,11 @@ export function panelStateFor(
     accent,
     languages: [...search.choices, ...rest].map((row) => ({ code: row.code, name: row.native })),
     selectedLanguage: search.language,
-    takeAll: search.matches.length > 0 ? { label: t("subtitles.takeMatches").replace("{count}", String(search.matches.length)), busy } : null,
-    skippedLine: search.skipped > 0 ? t("subtitles.filesSkipped").replace("{count}", String(search.skipped)).replace("{language}", languageName) : "",
-    emptyLine: search.jobs.length > 0 ? "" : videoCount === 0 ? t("subtitles.noVideos") : t("subtitles.allSubtitled").replace("{language}", languageName),
     queryPlaceholder: t("subtitles.searchPlaceholder"),
     searchLabel: t("subtitles.search"),
     closeLabel: t("common.close"),
     blurBehind,
-    jobs: search.jobs.map((job) => panelJobFor(job, alone, tracks)),
+    job: panelJobFor(job, tracks),
   };
 }
 
@@ -147,12 +136,10 @@ export function subtitleTransportButton(input: TransportButtonInput): { id: "sub
 }
 
 export function useSubtitlePanel(itemId: string, active: ActiveTextSubtitle | null, inPlayer = false): { available: boolean; open: () => void; offsetMs: number } {
-  // The videos read for one item, kept between opens with their jobs and results; another item starts over.
-  const [loaded, setLoaded] = useState<{ itemId: string; items: JellyfinVideoItem[] } | null>(null);
-  const items = loaded?.itemId === itemId ? loaded.items : null;
+  // The video read for one item, kept between opens with its job and results; another item starts over.
+  const [loaded, setLoaded] = useState<{ itemId: string; item: JellyfinVideoItem } | null>(null);
+  const item = loaded?.itemId === itemId ? loaded.item : null;
   const [shown, setShown] = useState(false);
-  // One video always gets its search job, so the field and button never disappear; only a
-  // folder's episodes already carrying the language are skipped.
   const presented = useRef(false);
   // In the player a kept pick reloads the session, so the panel closes before the reload starts.
   // Shown drops in the same tick as the pick's job update, so no send re-presents the closing panel and marks it presented after it is gone.
@@ -163,7 +150,7 @@ export function useSubtitlePanel(itemId: string, active: ActiveTextSubtitle | nu
     await dismissSubtitlePanel();
     presented.current = false;
   }, []);
-  const search = useSubtitleSearch(items, !inPlayer && (items?.length ?? 0) > 1, inPlayer ? closeBeforeReload : undefined);
+  const search = useSubtitleSearch(item, inPlayer ? closeBeforeReload : undefined);
   const timing = useSubtitleTiming(itemId);
   const searchRef = useRef(search);
   const timingRef = useRef(timing);
@@ -175,9 +162,9 @@ export function useSubtitlePanel(itemId: string, active: ActiveTextSubtitle | nu
   // The subtitle that is on, as the item lists it: a device copy carries what a replacement removes.
   const playerCurrent = useMemo<CurrentSubtitle | null>(() => {
     if (!active) return null;
-    const listed = items?.[0] ? currentTextSubtitles(items[0], getCachedConfig().server).find((entry) => entry.index === active.index) : undefined;
+    const listed = item ? currentTextSubtitles(item, getCachedConfig().server).find((entry) => entry.index === active.index) : undefined;
     return listed ?? { index: active.index, name: active.name, language: active.language };
-  }, [active, items]);
+  }, [active, item]);
   const offsetMs = active ? timing.offsetFor(active.index) : 0;
 
   // The subtitles a kept pick can be: the one playing in-player, the selected language's otherwise. Only the
@@ -187,8 +174,8 @@ export function useSubtitlePanel(itemId: string, active: ActiveTextSubtitle | nu
     ? playerCurrent
       ? [playerCurrent]
       : []
-    : items?.length === 1
-      ? currentTextSubtitles(items[0], getCachedConfig().server).filter((entry) => languageCode(entry.language) === languageCode(search.language))
+    : item
+      ? currentTextSubtitles(item, getCachedConfig().server).filter((entry) => languageCode(entry.language) === languageCode(search.language))
       : [];
   const tracks: PanelTrackInput[] = listed.map((subtitle) => ({
     subtitle,
@@ -224,25 +211,26 @@ export function useSubtitlePanel(itemId: string, active: ActiveTextSubtitle | nu
   const open = useCallback(() => {
     if (!itemId || !subtitlePanelAvailable()) return;
     setShown(true);
-    if (items) return;
-    loadSearchItems(itemId)
+    if (item) return;
+    loadSearchItem(itemId)
       .then((found) => {
-        if (found.length > 0) setLoaded({ itemId, items: found });
+        if (found) setLoaded({ itemId, item: found });
         else setShown(false);
       })
       .catch((error) => {
         logger.warn("Subtitle panel could not read the item", error, { service: "Subtitles", itemId });
         setShown(false);
       });
-  }, [itemId, items]);
+  }, [itemId, item]);
 
-  // The panel shows once the items are read and follows every change after that; the native side
+  // The panel shows once the video is read and follows every change after that; the native side
   // applies the state to the panel on screen, or presents a new one when none is. A state identical
   // to the last sent one stays home, so unrelated re-renders cost no bridge call.
   const lastSent = useRef("");
   useEffect(() => {
-    if (!shown || !items) return;
-    const state = panelStateFor(search, tracks, items.length, t("subtitles.title"), getUiPreferences().cardTheme.accent, !(inPlayer && timing.canSync));
+    const job = search.jobs[0];
+    if (!shown || !job) return;
+    const state = panelStateFor(job, search, tracks, t("subtitles.title"), getUiPreferences().cardTheme.accent, !(inPlayer && timing.canSync));
     const sent = JSON.stringify(state);
     if (presented.current && sent === lastSent.current) return;
     lastSent.current = sent;
@@ -250,7 +238,7 @@ export function useSubtitlePanel(itemId: string, active: ActiveTextSubtitle | nu
       presented.current = ok;
       if (!ok) setShown(false);
     });
-  }, [shown, items, search, tracks, inPlayer, timing.canSync]);
+  }, [shown, search, tracks, inPlayer, timing.canSync]);
 
   useEffect(() => {
     if (!shown) return;
@@ -271,7 +259,6 @@ export function useSubtitlePanel(itemId: string, active: ActiveTextSubtitle | nu
       },
       onShift: (trackId, deltaMs) => timingRef.current.shift(trackId, deltaMs === null ? null : Math.sign(deltaMs) * SUBTITLE_OFFSET_STEP_MS),
       onSync: (trackId) => void timingRef.current.sync(trackId),
-      onTakeAll: () => void searchRef.current.takeAll(),
       onDismissed: () => {
         presented.current = false;
         setShown(false);

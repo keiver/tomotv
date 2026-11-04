@@ -551,8 +551,8 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   const liveSlot = timedProgram && liveTimes ? formatClockRange(liveTimes.startMs, liveTimes.endMs) : null;
   const liveChannel = !!details && isLiveChannel(details);
   const live = !!liveProgram || liveChannel;
-  // A video, or a container holding some: never a channel, a programme, a song, a photo or a book.
-  const canFindSubtitles = !!details && !live && !audio && !photo && !book && subtitlePanel.available && (isContainer ? !!mediaKinds?.video : true);
+  // A single video: never a folder, series, season, channel, programme, song, photo or book.
+  const canFindSubtitles = !!details && !isContainer && !live && !audio && !photo && !book && subtitlePanel.available;
   const liveChannelId = (liveProgram ? details?.ChannelId : liveChannel ? details?.Id : undefined) ?? "";
   const liveChannelName = cleanLabel(liveProgram ? details?.ChannelName : liveChannel ? details?.Name : undefined);
   const canManage = useLiveTvManagement(live);

@@ -3,9 +3,9 @@
 //  TomoTV
 //
 //  The subtitle panel: a card over the screen, blurred unless the video plays under it; glass on tvOS,
-//  opaque on iPhone, iPad and the Mac. The language pill and the take-all button lead it, then one search section per video: its
-//  query field, a state line and the results as rows, the kept pick's row with its timing controls
-//  under it. Every string arrives from JS. Below OS 26 the same layout draws on dark blur with filled buttons.
+//  opaque on iPhone, iPad and the Mac. One video's search: the language pill and the query field,
+//  a state line and the results as rows, the kept pick's row with its timing controls under it.
+//  Every string arrives from JS. Below OS 26 the same layout draws on dark blur with filled buttons.
 //
 
 import UIKit
@@ -241,18 +241,14 @@ private final class TrackRowView: UIStackView {
 
 // MARK: - Job section
 
-/// One video's search: a header naming it when it is not the whole search, its query field and
-/// search button, a state line, a note and the result rows. A header tap folds the body.
+/// The video's search: its query field and search button, a state line, a note and the result rows.
 private final class JobSectionView: UIStackView, UITextFieldDelegate {
     var onQueryChanged: ((String) -> Void)?
     var onPick: ((String) -> Void)?
-    var onToggled: ((Bool) -> Void)?
     /// A timing press under the playing pick's row: its stream index and the step's sign, or nil for the reset.
     var onShift: ((Int, Int?) -> Void)?
     var onSync: ((Int) -> Void)?
 
-    private let header = UIButton(configuration: rowConfiguration())
-    private let body = UIStackView()
     private let fieldWell = surface(cornerRadius: Metrics.controlHeight / 2)
     private let field = UITextField()
     private let searchButton = UIButton(type: .custom)
@@ -269,20 +265,15 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
     private var timingRows: [Int: TrackRowView] = [:]
     private var accent = Metrics.accent
     private var job: SubtitlePanelJob
-    private var expanded: Bool
 
     var fieldEditing: Bool { field.isEditing }
-    var leadView: UIView { header.isHidden ? (rows.first ?? field) : header }
+    var leadView: UIView { rows.first ?? field }
 
-    init(job: SubtitlePanelJob, expanded: Bool) {
+    init(job: SubtitlePanelJob) {
         self.job = job
-        self.expanded = expanded
         super.init(frame: .zero)
         axis = .vertical
-        spacing = Metrics.isTV ? 12 : 8
-
-        header.contentHorizontalAlignment = .leading
-        header.addAction(UIAction { [weak self] _ in self?.toggle() }, for: .primaryActionTriggered)
+        spacing = Metrics.isTV ? 20 : 12
 
         field.borderStyle = .none
         field.font = UIFont.systemFont(ofSize: Metrics.fieldFont, weight: .medium)
@@ -357,12 +348,7 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
             results = resultsStack
         }
 
-        for view in [controls, stateRow, noteLabel, results] { body.addArrangedSubview(view) }
-        body.axis = .vertical
-        body.spacing = Metrics.isTV ? 20 : 12
-
-        addArrangedSubview(header)
-        addArrangedSubview(body)
+        for view in [controls, stateRow, noteLabel, results] { addArrangedSubview(view) }
         apply(job, force: true)
     }
 
@@ -378,15 +364,6 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
         }
     #endif
 
-    private func toggle() {
-        expanded.toggle()
-        body.isHidden = !expanded
-        var configuration = header.configuration
-        configuration?.image = UIImage(systemName: expanded ? "chevron.up" : "chevron.down")
-        header.configuration = configuration
-        onToggled?(expanded)
-    }
-
     private func searchPressed() {
         field.resignFirstResponder()
         let query = (field.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -397,22 +374,9 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
     func apply(_ next: SubtitlePanelJob, force: Bool = false) {
         let previous = job
         job = next
-        // A lone job is the whole search: no header, the body always open, the state on its own line.
-        let alone = next.heading.isEmpty
-        header.isHidden = alone
-        body.isHidden = !(alone || expanded)
-        if !alone {
-            var configuration = header.configuration ?? rowConfiguration()
-            configuration.attributedTitle = Self.headerTitle(label: next.label, heading: next.heading)
-            configuration.subtitle = next.stateLine
-            configuration.image = UIImage(systemName: expanded ? "chevron.up" : "chevron.down")
-            configuration.imagePlacement = .trailing
-            configuration.showsActivityIndicator = next.busy
-            header.configuration = configuration
-        }
-        stateRow.isHidden = !alone || next.results.isEmpty
+        stateRow.isHidden = next.results.isEmpty
         stateLabel.text = next.stateLine
-        if alone && next.busy { spinner.startAnimating() } else { spinner.stopAnimating() }
+        if next.busy { spinner.startAnimating() } else { spinner.stopAnimating() }
         if !field.isEditing, field.text != next.query { field.text = next.query }
         noteLabel.text = next.note
         noteLabel.isHidden = next.note.isEmpty
@@ -427,7 +391,7 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
         resultsList.isHidden = next.results.isEmpty
     }
 
-    /// Puts a control at the front of the field's row: the language button of a lone search.
+    /// Puts a control at the front of the field's row: the language button.
     func lead(with view: UIView) {
         guard view.superview !== controls else { return }
         controls.insertArrangedSubview(view, at: 0)
@@ -446,14 +410,6 @@ private final class JobSectionView: UIStackView, UITextFieldDelegate {
         for (position, row) in timingRows {
             if let timing = job.results[position].timing { row.configure(timing, accent: accent) }
         }
-    }
-
-    private static func headerTitle(label: String, heading: String) -> AttributedString {
-        var title = AttributedString(label.isEmpty ? heading : "\(label)  \(heading)")
-        if !label.isEmpty, let range = title.range(of: label) {
-            title[range].foregroundColor = Metrics.accent
-        }
-        return title
     }
 
     private func rebuildRows() {
@@ -577,7 +533,6 @@ final class SubtitleSearchPanelViewController: UIViewController {
     /// A timing press: the track's stream index and the step's sign, or nil for the reset.
     var onShift: ((Int, Int?) -> Void)?
     var onSync: ((Int) -> Void)?
-    var onTakeAll: (() -> Void)?
     var onDismissed: (() -> Void)?
 
     private var state: SubtitlePanelState
@@ -588,14 +543,7 @@ final class SubtitleSearchPanelViewController: UIViewController {
     private let titleLabel = UILabel()
     private let creditLabel = UILabel()
     private let languageButton = UIButton(configuration: pillConfiguration())
-    private let takeAllButton = UIButton(configuration: pillConfiguration(prominent: true))
-    private let skippedLabel = UILabel()
-    private let emptyLabel = UILabel()
-    private let jobsStack = UIStackView()
-    private var jobSections: [JobSectionView] = []
-    /// Fold state per item id, kept while the job list is rebuilt around it.
-    private var expandedJobs: [String: Bool] = [:]
-    private let pills = UIStackView()
+    private let section: JobSectionView
     private let centerState = UIStackView()
     private let centerSpinner = UIActivityIndicatorView(style: .medium)
     private let centerLabel = UILabel()
@@ -613,6 +561,7 @@ final class SubtitleSearchPanelViewController: UIViewController {
 
     init(state: SubtitlePanelState) {
         self.state = state
+        section = JobSectionView(job: state.job)
         super.init(nibName: nil, bundle: nil)
         overrideUserInterfaceStyle = .dark
         modalPresentationStyle = .overFullScreen
@@ -639,8 +588,7 @@ final class SubtitleSearchPanelViewController: UIViewController {
 
     #if os(tvOS)
         override var preferredFocusEnvironments: [UIFocusEnvironment] {
-            if let lead = jobSections.first?.leadView { return [lead] }
-            return []
+            [section.leadView]
         }
     #endif
 
@@ -742,28 +690,19 @@ final class SubtitleSearchPanelViewController: UIViewController {
         }
         languageButton.heightAnchor.constraint(equalToConstant: Metrics.controlHeight).isActive = true
 
-        takeAllButton.addAction(UIAction { [weak self] _ in self?.onTakeAll?() }, for: .primaryActionTriggered)
-        takeAllButton.heightAnchor.constraint(equalToConstant: Metrics.controlHeight).isActive = true
-        takeAllButton.setContentHuggingPriority(.required, for: .horizontal)
+        section.lead(with: languageButton)
+        section.onQueryChanged = { [weak self] query in
+            guard let self else { return }
+            self.onQueryChanged?(self.state.job.id, query)
+        }
+        section.onPick = { [weak self] id in
+            guard let self else { return }
+            self.confirmPick(jobId: self.state.job.id, resultId: id)
+        }
+        section.onShift = { [weak self] id, delta in self?.onShift?(id, delta) }
+        section.onSync = { [weak self] id in self?.onSync?(id) }
 
-        let spacer = UIView()
-        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        for view in [languageButton, spacer, takeAllButton] { pills.addArrangedSubview(view) }
-        pills.axis = .horizontal
-        pills.spacing = Metrics.controlSpacing
-        pills.alignment = .center
-
-        skippedLabel.font = UIFont.systemFont(ofSize: Metrics.metaFont, weight: .regular)
-        skippedLabel.textColor = Metrics.dim
-        skippedLabel.numberOfLines = 2
-        emptyLabel.font = UIFont.systemFont(ofSize: Metrics.stateFont, weight: .regular)
-        emptyLabel.textColor = Metrics.dim
-        emptyLabel.textAlignment = .center
-
-        jobsStack.axis = .vertical
-        jobsStack.spacing = Metrics.sectionSpacing
-
-        for view in [titleRow, pills, skippedLabel, emptyLabel, jobsStack] { contentStack.addArrangedSubview(view) }
+        for view in [titleRow, section] { contentStack.addArrangedSubview(view) }
         contentStack.axis = .vertical
         contentStack.spacing = Metrics.sectionSpacing
         contentStack.setCustomSpacing(Metrics.isTV ? 28 : 18, after: titleRow)
@@ -858,7 +797,7 @@ final class SubtitleSearchPanelViewController: UIViewController {
             onPick?(jobId, resultId)
             return
         }
-        let name = state.jobs.first(where: { $0.id == jobId })?.results.first(where: { $0.id == resultId })?.name ?? ""
+        let name = state.job.results.first(where: { $0.id == resultId })?.name ?? ""
         let message = [name, confirm.remaining].filter { !$0.isEmpty }.joined(separator: "\n\n")
         let alert = UIAlertController(title: confirm.title, message: message.isEmpty ? nil : message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: confirm.cancel, style: .cancel))
@@ -887,7 +826,6 @@ final class SubtitleSearchPanelViewController: UIViewController {
     }
 
     private func apply(_ next: SubtitlePanelState, force: Bool) {
-        let previous = state
         state = next
         guard isViewLoaded else { return }
         titleLabel.text = next.title
@@ -901,33 +839,11 @@ final class SubtitleSearchPanelViewController: UIViewController {
         if #available(tvOS 17.0, iOS 14.0, *) {
             languageButton.menu = languageMenu()
         }
-        takeAllButton.isHidden = next.takeAll == nil
-        if let takeAll = next.takeAll {
-            takeAllButton.configuration?.title = takeAll.label
-            takeAllButton.configuration?.showsActivityIndicator = takeAll.busy
-            takeAllButton.isEnabled = !takeAll.busy
-        }
-        skippedLabel.text = next.skippedLine
-        skippedLabel.isHidden = next.skippedLine.isEmpty
-        emptyLabel.text = next.emptyLine
-        emptyLabel.isHidden = next.emptyLine.isEmpty
-
-        if force || previous.jobs.map(\.id) != next.jobs.map(\.id) {
-            rebuildJobSections()
-        } else {
-            for (index, job) in next.jobs.enumerated() where index < jobSections.count { jobSections[index].apply(job) }
-        }
+        section.apply(next.job, force: force)
         let accent = accentColor
         languageButton.configuration?.imageColorTransformer = UIConfigurationColorTransformer { _ in accent }
-        for section in jobSections { section.applyShared(placeholder: next.queryPlaceholder, searchLabel: next.searchLabel, accent: accent) }
-        let loneSection = next.jobs.count == 1 && next.jobs[0].heading.isEmpty ? jobSections.first : nil
-        if let loneSection {
-            loneSection.lead(with: languageButton)
-        } else if languageButton.superview !== pills {
-            pills.insertArrangedSubview(languageButton, at: 0)
-        }
-        pills.isHidden = loneSection != nil && next.takeAll == nil
-        let waiting = loneSection != nil && next.jobs[0].results.isEmpty ? next.jobs[0] : nil
+        section.applyShared(placeholder: next.queryPlaceholder, searchLabel: next.searchLabel, accent: accent)
+        let waiting = next.job.results.isEmpty ? next.job : nil
         centerState.isHidden = waiting == nil
         if waiting != nil { NSLayoutConstraint.activate(centerStateConstraints) } else { NSLayoutConstraint.deactivate(centerStateConstraints) }
         centerLabel.text = waiting?.stateLine
@@ -941,26 +857,9 @@ final class SubtitleSearchPanelViewController: UIViewController {
         return UIColor(red: rgb.red, green: rgb.green, blue: rgb.blue, alpha: 1)
     }
 
-    private func rebuildJobSections() {
-        jobSections.forEach { $0.removeFromSuperview() }
-        jobSections = state.jobs.map { job in
-            let section = JobSectionView(job: job, expanded: expandedJobs[job.id] ?? false)
-            section.onQueryChanged = { [weak self] query in self?.onQueryChanged?(job.id, query) }
-            section.onPick = { [weak self] id in self?.confirmPick(jobId: job.id, resultId: id) }
-            section.onToggled = { [weak self] expanded in self?.expandedJobs[job.id] = expanded }
-            section.onShift = { [weak self] id, delta in self?.onShift?(id, delta) }
-            section.onSync = { [weak self] id in self?.onSync?(id) }
-            return section
-        }
-        jobSections.forEach(jobsStack.addArrangedSubview)
-        #if os(tvOS)
-            setNeedsFocusUpdate()
-        #endif
-    }
-
     private func restoreFocusIfLost() {
         #if os(tvOS)
-            guard viewIfLoaded?.window != nil, !jobSections.contains(where: \.fieldEditing) else { return }
+            guard viewIfLoaded?.window != nil, !section.fieldEditing else { return }
             if let focused = UIFocusSystem.focusSystem(for: self)?.focusedItem as? UIView, focused.isDescendant(of: view) { return }
             setNeedsFocusUpdate()
             updateFocusIfNeeded()
@@ -1000,7 +899,7 @@ final class SubtitleSearchPanelViewController: UIViewController {
 
         /// The first Escape leaves the query field, the next one closes the panel.
         @objc private func escapePressed() {
-            if jobSections.contains(where: \.fieldEditing) {
+            if section.fieldEditing {
                 view.endEditing(true)
                 becomeFirstResponder()
                 return

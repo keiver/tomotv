@@ -1,27 +1,24 @@
 /**
- * The job list behind a subtitle search screen or panel: one job per video, one language at a
- * time, each pick saved where the account allows and then handed to the running player.
+ * The search behind the subtitle panel: one video, one language at a time, each pick saved where
+ * the account allows and then handed to the running player.
  */
 import { usePlayerSession } from "@/contexts/PlayerSessionContext";
 import { deviceLanguage } from "@/services/i18n";
 import { getTrackSettingsSync, recordSubtitlePick } from "@/services/jellyfin/trackSettings";
-import { jobApplied, jobApplying, jobApplyFailed, jobSearched, jobSearching, makeJobs, refusalSources, runJobs, takeMatches, withQuery } from "@/services/subtitles/jobs";
+import { jobApplied, jobApplying, jobApplyFailed, jobSearched, jobSearching, makeJob, refusalSources, runJobs, withQuery } from "@/services/subtitles/jobs";
 import { languageChoices, type SubtitleLanguage } from "@/services/subtitles/languages";
 import { appliedStreamIndex, applyPick, searchContext, searchSubtitles, type ApplyResult, type Replacing } from "@/services/subtitles/pipeline";
 import { queryFromText } from "@/services/subtitles/query";
 import type { SearchContext, SubtitleHit, SubtitleJob } from "@/services/subtitles/types";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import { logger } from "@/utils/logger";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export interface SubtitleSearchState {
   jobs: SubtitleJob[];
   language: string;
   choices: SubtitleLanguage[];
   running: boolean;
-  /** Videos left out because they already carry the language. */
-  skipped: number;
-  matches: { index: number; hit: SubtitleHit }[];
 }
 
 export interface SubtitleSearchActions {
@@ -30,44 +27,38 @@ export interface SubtitleSearchActions {
   setQueryText: (index: number, text: string) => void;
   /** Saves a hit; with `replacing`, the device copy named goes once the new one is kept. */
   pick: (index: number, hit: SubtitleHit, replacing?: Replacing) => Promise<ApplyResult | null>;
-  takeAll: () => Promise<void>;
 }
 
 interface Board {
-  items: JellyfinVideoItem[] | null;
+  item: JellyfinVideoItem | null;
   language: string;
   choices: SubtitleLanguage[];
   jobs: SubtitleJob[];
-  skipped: number;
 }
 
 /** The first chip: the account's standing language, else the device's, else English. */
-export function startingLanguage(items: JellyfinVideoItem[]): { language: string; choices: SubtitleLanguage[] } {
+export function startingLanguage(item: JellyfinVideoItem): { language: string; choices: SubtitleLanguage[] } {
   const stored = getTrackSettingsSync().subtitleLanguage;
-  const choices = languageChoices({ item: items[0] ?? {}, stored, deviceTags: [deviceLanguage()] });
+  const choices = languageChoices({ item, stored, deviceTags: [deviceLanguage()] });
   return { language: choices[0]?.code ?? "en", choices };
 }
 
-function boardFor(items: JellyfinVideoItem[] | null, skipSubtitled: boolean): Board {
-  if (!items) return { items, language: "en", choices: [], jobs: [], skipped: 0 };
-  const start = startingLanguage(items);
-  const jobs = makeJobs(items, start.language, skipSubtitled);
-  return { items, language: start.language, choices: start.choices, jobs, skipped: items.length - jobs.length };
+function boardFor(item: JellyfinVideoItem | null): Board {
+  if (!item) return { item, language: "en", choices: [], jobs: [] };
+  const start = startingLanguage(item);
+  return { item, language: start.language, choices: start.choices, jobs: [makeJob(item, start.language)] };
 }
 
-/**
- * With `skipSubtitled` on, a video already carrying the language gets no job; a single playing video keeps its job either way.
- * `beforeReload` runs after a pick is kept and before the playing session reloads to take it.
- */
-export function useSubtitleSearch(items: JellyfinVideoItem[] | null, skipSubtitled: boolean = true, beforeReload?: () => Promise<void>): SubtitleSearchState & SubtitleSearchActions {
+/** `beforeReload` runs after a pick is kept and before the playing session reloads to take it. */
+export function useSubtitleSearch(item: JellyfinVideoItem | null, beforeReload?: () => Promise<void>): SubtitleSearchState & SubtitleSearchActions {
   const beforeReloadRef = useRef(beforeReload);
   useEffect(() => {
     beforeReloadRef.current = beforeReload;
   }, [beforeReload]);
   const { sessionVideoId, reloadSubtitles } = usePlayerSession();
-  const [board, setBoard] = useState<Board>(() => boardFor(items, skipSubtitled));
-  // A new set of videos starts a new board; derived in render so the first frame already shows it.
-  if (board.items !== items) setBoard(boardFor(items, skipSubtitled));
+  const [board, setBoard] = useState<Board>(() => boardFor(item));
+  // A new video starts a new board; derived in render so the first frame already shows it.
+  if (board.item !== item) setBoard(boardFor(item));
   const contextRef = useRef<Promise<SearchContext> | null>(null);
   const generation = useRef(0);
   const boardRef = useRef(board);
@@ -108,22 +99,15 @@ export function useSubtitleSearch(items: JellyfinVideoItem[] | null, skipSubtitl
   const allIdle = board.jobs.length > 0 && board.jobs.every((job) => job.status === "idle");
   useEffect(() => {
     if (!allIdle) return;
-    // A fresh job list (new videos, language or query) searches itself on the next tick.
+    // A fresh job (new video, language or query) searches itself on the next tick.
     const timer = setTimeout(() => start(boardRef.current.jobs), 0);
     return () => clearTimeout(timer);
   }, [allIdle, board.jobs, start]);
 
-  const setLanguage = useCallback(
-    (code: string) => {
-      generation.current += 1;
-      setBoard((current) => {
-        if (!current.items) return current;
-        const jobs = makeJobs(current.items, code, skipSubtitled);
-        return { ...current, language: code, jobs, skipped: current.items.length - jobs.length };
-      });
-    },
-    [skipSubtitled],
-  );
+  const setLanguage = useCallback((code: string) => {
+    generation.current += 1;
+    setBoard((current) => (current.item ? { ...current, language: code, jobs: [makeJob(current.item, code)] } : current));
+  }, []);
 
   const setQueryText = useCallback(
     (index: number, text: string) => {
@@ -179,13 +163,7 @@ export function useSubtitleSearch(items: JellyfinVideoItem[] | null, skipSubtitl
     [context, reloadSubtitles, sessionVideoId, setJobs],
   );
 
-  const matches = useMemo(() => takeMatches(board.jobs), [board.jobs]);
-
-  const takeAll = useCallback(async () => {
-    for (const match of takeMatches(boardRef.current.jobs)) await pick(match.index, match.hit);
-  }, [pick]);
-
   const running = board.jobs.some((job) => job.status === "searching" || job.status === "idle");
 
-  return { jobs: board.jobs, language: board.language, choices: board.choices, running, skipped: board.skipped, matches, setLanguage, setQueryText, pick, takeAll };
+  return { jobs: board.jobs, language: board.language, choices: board.choices, running, setLanguage, setQueryText, pick };
 }

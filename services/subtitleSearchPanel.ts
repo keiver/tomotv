@@ -1,6 +1,6 @@
 /**
  * The native subtitle panel (native/ios/SubtitleSearch), as JS drives it: present it with a state,
- * update that state, listen for the viewer's query, language, pick, timing and take-all presses,
+ * update that state, listen for the viewer's query, language, pick and timing presses,
  * and hear when it closed.
  */
 import { NativeEventEmitter, NativeModules } from "react-native";
@@ -47,14 +47,10 @@ export interface PanelTrack {
   note: string;
 }
 
-/** One video's search: its own query, state and results. A lone job shows no heading. */
+/** The video's search: its query, state and results. */
 export interface PanelJob {
   /** The item id the query and pick events name. */
   id: string;
-  /** The episode mark ("S04E06"), empty for a movie or a lone video. */
-  label: string;
-  /** The video's title, empty when the job is the whole search. */
-  heading: string;
   query: string;
   stateLine: string;
   note: string;
@@ -73,18 +69,12 @@ export interface PanelState {
   /** Every language, the likely ones first; the panel shows the selected one on its pill and the rest in a menu. */
   languages: PanelLanguage[];
   selectedLanguage: string;
-  /** Set while hash matches wait: the one button that takes them all. */
-  takeAll: { label: string; busy: boolean } | null;
-  /** "N files already have the language", or empty. */
-  skippedLine: string;
-  /** Shown when no job exists: every file subtitled, or nothing to search; empty otherwise. */
-  emptyLine: string;
   queryPlaceholder: string;
   searchLabel: string;
   closeLabel: string;
   /** False while the video plays under the panel in the player: the screen behind stays sharp. */
   blurBehind: boolean;
-  jobs: PanelJob[];
+  job: PanelJob;
 }
 
 export interface PanelHandlers {
@@ -95,8 +85,6 @@ export interface PanelHandlers {
   onShift: (trackId: number, deltaMs: number | null) => void;
   /** The sync button: match that track to the audio. */
   onSync: (trackId: number) => void;
-  /** The take-all button: every hash match and lone result at once. */
-  onTakeAll: () => void;
   onDismissed: () => void;
 }
 
@@ -151,7 +139,6 @@ export function listenToSubtitlePanel(handlers: PanelHandlers): () => void {
     emitter.addListener("onSubtitlePanelPick", (event: { jobId: string; id: string }) => handlers.onPick(event.jobId, event.id)),
     emitter.addListener("onSubtitlePanelShift", (event: { trackId: number; deltaMs: number | null }) => handlers.onShift(event.trackId, typeof event.deltaMs === "number" ? event.deltaMs : null)),
     emitter.addListener("onSubtitlePanelSync", (event: { trackId: number }) => handlers.onSync(event.trackId)),
-    emitter.addListener("onSubtitlePanelTakeAll", () => handlers.onTakeAll()),
     emitter.addListener("onSubtitlePanelDismissed", () => handlers.onDismissed()),
   ];
   return () => subscriptions.forEach((subscription) => subscription.remove());
