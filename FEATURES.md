@@ -123,7 +123,9 @@ Every feature needs a Jellyfin server. The Notes column says when a feature also
 | Offline channels are marked, and can be hidden                  | Yes      | Yes          | Yes |                                                |
 | Hide a channel from every list                                  | Yes      | Yes          | Yes | From its info panel; Channel Settings restores |
 | Rename a channel                                                | Yes      | Yes          | Yes | From its info panel                            |
-| Resize the guide's channel column                               | No       | Yes          | Yes |                                                |
+| Resize the guide's channel column                               | No       | Yes          | Yes | Logos only, cards or wide cards                |
+| Watch a channel pinned above the guide while you browse         | No       | Yes          | Yes | Tap its picture for full screen                |
+| A larger pinned picture                                         | No       | Yes          | Yes | Its button, or a swipe down                    |
 | Recordings and the schedule                                     | Yes      | Yes          | Yes |                                                |
 | Record a program or a series                                    | Yes      | Yes          | Yes | Accounts allowed to manage recordings          |
 | Record from the player controls                                 | Yes      | No           | No  |                                                |

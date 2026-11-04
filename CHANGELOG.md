@@ -6,6 +6,7 @@ All notable changes to Tomo TV are documented here.
 
 ### Added
 
+- Live TV on iPhone, iPad and Mac: a tapped channel in the guide plays with sound in a band pinned above the guide's two lists, where it opened the player before. Scrolling never moves it; a tap on its picture, or on the programme it airs, opens the full-screen player with no new open, and its close button stops it. Another channel's tap switches the band, which shows that channel's own clip while it opens, and the other channels' cards dim while one is pinned. A glass button beside the close button, a swipe down on the band, or a pull on the tab under it gives a larger picture: the guide's full width at 16:9 on iPhone, with the name and buttons on a black scrim over it, and up to 640 pt beside the name on iPad and Mac, never taller than half the window; a swipe up or the button returns it, and the size holds across channel switches. While the pinned channel plays, the channels above and below it in the guide start in the engine for 30 s after each switch, except on a provider set to one connection, so a tap on one takes a running session. Apple TV is unchanged
 - An item page reads the player's details as it opens, and after 2 s on the page opens the engine session that Play then takes, so playback starts without waiting for either. The session opens only for a copy with a quality ladder on a link remembered to carry the source by 1.2 times, so no server encode starts for an item nobody plays; it cuts 2 segments until the player asks, is taken only when the item, audio track, resume point and subtitle match, and is stopped 5 s after the page closes, when something else starts playing, or when the app goes to the background. A Continue Watching card reads the details on focus. Channels get neither, since their read opens a tuner (`@keiver/tomo-engine@1.8.0`)
 - Live channels start faster: a live session answers the player after 2 s of output instead of 15, on 1 s segments instead of 2. Measured with AVPlayer on a source arriving in real time: press to picture took about 7.3 s on 2 s segments and 3.3 s on 1 s segments with keyframes every second (`@keiver/tomo-engine@1.8.0`)
 - A live channel that stalls in its first minute holds its picture while the engine cuts the next start buffer, then plays, so one wait replaces repeated stalls; a play or pause ends the hold. The channel's start buffer steps up from 2 s to 6, then 15 s, after each such stall, and back down after a minute with no stall, for the app run (`@keiver/tomo-live@1.6.0`)
@@ -28,10 +29,14 @@ All notable changes to Tomo TV are documented here.
 - On iPhone and iPad the bare video, with no controls, could show while the player opened and after a return from Picture in Picture: the black cover over it went up only once the player was on screen and came down when Picture in Picture started. It now covers the whole session
 - The Find Subtitles panel on iPhone, iPad and Mac had no close button; it has one now, and on Mac Escape closes it
 - A malformed ZIP subtitle download could freeze the app in the unzip (fflate 0.8.3)
+- A live channel reopened from Now Playing opened the player without its live flag, so the player showed the subtitle search button; it keeps the flag now
+- Guide download log lines named the guide's URL, which can carry the provider's username and password; they name its host and port now (`@keiver/tomo-live@1.6.0`)
 
 ### Changed
 
 - On Mac a video plays in the system's presented player, sized to the app's window, where it played inline; a double click still toggles the letterbox
+- On iPhone, iPad and Mac the guide's channel column drags between three widths, logos only, cards, and wide cards (240 pt, or 90% of a narrower guide), where it resized freely; the cards and rows grow with it, a drag ticks at each width, and the width is kept on the device. Its grip is a glass circle with accent arrows that VoiceOver steps as an adjustable control
+- The Favorites group chip leads with the guide cards' accent heart
 
 ## [2.2.14]
 

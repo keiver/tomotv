@@ -108,9 +108,10 @@ Tomo TV ships no media, channels, playlists or guides. It plays what your Jellyf
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
 ```
 
-### What's New (2.2.15), macOS (779 / 4000)
+### What's New (2.2.15), macOS (914 / 4000)
 
 ```text
+- Live TV: click a channel to watch it pinned above the guide as you keep browsing, and make the picture bigger with its expand button
 - Videos start sooner after you open an item's page
 - Live channels start faster
 - A live channel that stutters as it starts pauses once to catch up, instead of stopping again and again
@@ -124,9 +125,10 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 - The Find Subtitles panel has a close button, and Escape closes it
 ```
 
-### What's New (2.2.15), iOS (701 / 4000)
+### What's New (2.2.15), iOS (822 / 4000)
 
 ```text
+- Live TV: tap a channel to watch it pinned above the guide as you keep browsing, and swipe it down for a bigger picture
 - Videos start sooner after you open an item's page
 - Live channels start faster
 - A live channel that stutters as it starts pauses once to catch up, instead of stopping again and again
@@ -624,9 +626,10 @@ Tomo TV enthält keine Medien, Kanäle, Wiedergabelisten oder Fernsehprogramme. 
 Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin und steht in keiner Verbindung zum Jellyfin-Projekt und wird von ihm nicht unterstützt. Jellyfin ist eine Marke des jeweiligen Inhabers.
 ```
 
-#### What's New (2.2.15), macOS (890 / 4000)
+#### What's New (2.2.15), macOS (1057 / 4000)
 
 ```text
+- Live-TV: Klicke auf einen Kanal, um ihn über dem Fernsehprogramm angeheftet zu sehen, während du weiterstöberst, und vergrößere das Bild mit seiner Vergrößern-Taste
 - Videos starten schneller, nachdem du die Seite eines Titels geöffnet hast
 - Live-Kanäle starten schneller
 - Ein Live-Kanal, der beim Start stockt, hält einmal kurz an, statt immer wieder zu stoppen
@@ -640,9 +643,10 @@ Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin
 - Das Fenster „Untertitel suchen“ hat eine Schließen-Taste, und Esc schließt es
 ```
 
-#### What's New (2.2.15), iOS (810 / 4000 chars)
+#### What's New (2.2.15), iOS (972 / 4000 chars)
 
 ```text
+- Live-TV: Tippe auf einen Kanal, um ihn über dem Fernsehprogramm angeheftet zu sehen, während du weiterstöberst, und wische ihn für ein größeres Bild nach unten
 - Videos starten schneller, nachdem du die Seite eines Titels geöffnet hast
 - Live-Kanäle starten schneller
 - Ein Live-Kanal, der beim Start stockt, hält einmal kurz an, statt immer wieder zu stoppen
@@ -1118,9 +1122,10 @@ Tomo TV ne fournit aucun média, chaîne, liste de lecture ni guide. L'app lit c
 Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'est ni affilié au projet Jellyfin ni approuvé par lui. Jellyfin est une marque de son détenteur respectif.
 ```
 
-#### What's New (2.2.15), macOS (929 / 4000)
+#### What's New (2.2.15), macOS (1109 / 4000)
 
 ```text
+- TV en direct : cliquez sur une chaîne pour la regarder épinglée au-dessus du guide pendant que vous continuez à naviguer, et agrandissez l'image avec son bouton d'agrandissement
 - Les vidéos démarrent plus vite une fois la page d'un titre ouverte
 - Les chaînes en direct démarrent plus vite
 - Une chaîne en direct qui saccade au démarrage fait une seule pause pour se rattraper, au lieu de s'arrêter encore et encore
@@ -1134,9 +1139,10 @@ Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'e
 - Le panneau Chercher des sous-titres a un bouton de fermeture, et Échap le ferme
 ```
 
-#### What's New (2.2.15), iOS (833 / 4000 chars)
+#### What's New (2.2.15), iOS (1001 / 4000 chars)
 
 ```text
+- TV en direct : touchez une chaîne pour la regarder épinglée au-dessus du guide pendant que vous continuez à naviguer, et balayez-la vers le bas pour agrandir l'image
 - Les vidéos démarrent plus vite une fois la page d'un titre ouverte
 - Les chaînes en direct démarrent plus vite
 - Une chaîne en direct qui saccade au démarrage fait une seule pause pour se rattraper, au lieu de s'arrêter encore et encore
@@ -1612,9 +1618,10 @@ Tomo TV no incluye contenido, canales, listas de reproducción ni guías. Reprod
 Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin, y no está afiliado al proyecto Jellyfin ni respaldado por él. Jellyfin es una marca de su titular correspondiente.
 ```
 
-#### What's New (2.2.15), macOS (929 / 4000)
+#### What's New (2.2.15), macOS (1068 / 4000)
 
 ```text
+- TV en vivo: haz clic en un canal para verlo fijado sobre la guía mientras sigues navegando, y amplía la imagen con su botón para ampliar
 - Los videos empiezan antes cuando abres la página de un título
 - Los canales en vivo empiezan más rápido
 - Un canal en vivo que se entrecorta al empezar hace una sola pausa para ponerse al día, en lugar de detenerse una y otra vez
@@ -1628,9 +1635,10 @@ Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin
 - El panel Buscar subtítulos tiene un botón para cerrar, y Esc lo cierra
 ```
 
-#### What's New (2.2.15), iOS (830 / 4000 chars)
+#### What's New (2.2.15), iOS (971 / 4000 chars)
 
 ```text
+- TV en vivo: toca un canal para verlo fijado sobre la guía mientras sigues navegando, y deslízalo hacia abajo para ver la imagen más grande
 - Los videos empiezan antes cuando abres la página de un título
 - Los canales en vivo empiezan más rápido
 - Un canal en vivo que se entrecorta al empezar hace una sola pausa para ponerse al día, en lugar de detenerse una y otra vez

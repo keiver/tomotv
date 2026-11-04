@@ -6,6 +6,7 @@
 - `@keiver/tomo-engine` 1.8.0 or later, whose `LIVE_BUFFER_SECONDS` (2) is the first step.
 - `LivePlayback`'s start wait passes at once for a session that serves LL-HLS (`startBufferedSeconds`), since the engine holds its own first answer.
 - `planLiveRecovery` takes `played`: a channel that has not played since the viewer chose it ends after `LIVE_UNPLAYED_REOPENS` (4) reopens instead of reopening every 5 s for as long as the viewer stays. `LiveDropCounter.played` carries it.
+- The external guide's log lines name the guide's host and port (`originKeyOf`), never its URL, which can carry the provider's username and password.
 
 ## 1.5.0
 
