@@ -62,6 +62,7 @@
     "shots:sims": "node scripts/capture-sims.mjs",
     "capture-tv": "node scripts/capture-tv.mjs",
     "meta:upload": "node scripts/appstore-upload-meta.mjs",
+    "meta:a11y": "node scripts/appstore-accessibility.mjs",
     "test:shots": "node scripts/appstore-shots.mjs --self-check",
     "test:release": "node --test scripts/release-tests/*.test.mjs",
     "test:watch": "jest --watch",

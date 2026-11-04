@@ -179,6 +179,7 @@ npm run lint              # ESLint and Prettier checks
 npm run test:release      # Project and release script tests
 npm run test:engine       # Every Swift test, release-final only (about 10 minutes)
 npm run probe:codecs      # What the FFmpeg build registers
+npm run meta:a11y         # Accessibility labels per live version from scripts/appstore/accessibility.json (archive --upload runs it)
 ```
 
 The user runs `npm run clear`, `npm run clearmac`, the `prebuild` scripts and `npm run archive -- <next-build>`. Schemes: `TomoTV-iOS`, `TomoTV-macOS`, `TomoTV-tvOS`; the Mac uses **My Mac (Mac Catalyst)**.

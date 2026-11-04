@@ -230,3 +230,53 @@ document holds and calls nothing.
 nothing is billed. It checks each draft against the glossary, the register and
 the store limit, and hands a failing one back to the model with what was wrong.
 A draft it accepts still needs a native reader.
+
+## Accessibility labels
+
+The product page's Accessibility Nutrition Labels are set per device in App Store Connect, not in
+the binary, and they go live the moment they are published. So they follow the version customers
+already have: [`scripts/appstore/accessibility.json`](../scripts/appstore/accessibility.json) keeps
+one entry per app version, and each device shows the entry of the version live on its platform
+(iPhone and iPad follow iOS, Mac follows macOS, Apple TV follows tvOS).
+
+```json
+{
+  "2.2.15": {
+    "IPHONE": { "supportsCaptions": true, "supportsVoiceover": false, ... },
+    "IPAD": { ... },
+    "MAC": { ... },
+    "APPLE_TV": { ... }
+  }
+}
+```
+
+Every device lists every feature Apple offers on it, true or false. Apple offers no Voice Control on
+Apple TV and no Larger Text on Mac, so those two keys are left out there. A feature is true only when
+every common task works with it on that device (Apple's evaluation criteria, App Store Connect Help >
+Manage app accessibility).
+
+`npm run archive -- <build> --upload` does the rest:
+
+1. Before building, `--prepare` checks the file. If app.json's version has no entry yet, it copies
+   the newest one under that version and says so. A broken file stops the run.
+2. After the listing text, step 10 reads each platform's live version, and for each device whose
+   live version has an entry, creates or updates the draft and publishes it. A device whose live
+   version has no entry is skipped. A failure here does not stop the archive; the summary says to
+   run `npm run meta:a11y -- --publish`.
+
+When a release changes accessibility, edit that version's entry and commit the file with the build
+bump. The store shows the change after the version goes live and the next archive runs.
+
+By hand:
+
+```bash
+npm run meta:a11y -- --check      # check the file, offline
+npm run meta:a11y -- --prepare    # give app.json's version an entry, offline
+npm run meta:a11y -- --dry-run    # what would be created, updated and published; writes nothing
+npm run meta:a11y                 # write the drafts, publish nothing
+npm run meta:a11y -- --publish    # write the drafts and publish them
+```
+
+Apple publishes only for devices that have a live version, and its API reference does not say
+whether a new draft is accepted for a device that already has a published declaration; a refusal is
+printed with Apple's own error, per device.

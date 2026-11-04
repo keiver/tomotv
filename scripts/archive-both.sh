@@ -9,7 +9,9 @@
 #                                               #  screenshots and the listing text, every
 #                                               #  store language, and sets each build's
 #                                               #  TestFlight What to Test from the English
-#                                               #  What's New)
+#                                               #  What's New, and publishes each device's
+#                                               #  accessibility labels from the entry of the
+#                                               #  version live on its platform)
 #   npm run archive -- <buildNumber> --upload --notes
 #                                               # and translate missing release notes first
 #   npm run archive -- <buildNumber> --upload --no-testflight
@@ -207,6 +209,7 @@ if [[ $UPLOAD -eq 1 ]]; then
     node scripts/appstore-upload-meta.mjs --check-online
   fi
   node scripts/appstore-shots.mjs --check-captures
+  node scripts/appstore-accessibility.mjs --prepare
   echo ""
 fi
 
@@ -362,7 +365,7 @@ build_platform() {
 
 # ---------------------------------------------------------------- pipeline
 
-STEPS=$([[ $UPLOAD -eq 1 ]] && echo 9 || echo 5)
+STEPS=$([[ $UPLOAD -eq 1 ]] && echo 10 || echo 5)
 
 echo "[1/$STEPS] Stamping build number $BUILD_NUMBER into app.json"
 node -e 'const fs=require("fs");const n=process.argv[1];const s=fs.readFileSync("app.json","utf8");const out=s.replace(/("buildNumber":\s*")[^"]*(")/,"$1"+n+"$2");if(!out.includes(`"buildNumber": "${n}"`))throw new Error("buildNumber not stamped in app.json");fs.writeFileSync("app.json",out);' "$BUILD_NUMBER"
@@ -447,6 +450,15 @@ if [[ $UPLOAD -eq 1 ]]; then
   echo "[9/$STEPS] Build $BUILD_NUMBER on the $VERSION versions"
   node scripts/appstore-attach-build.mjs "$BUILD_NUMBER" || { echo "Selecting the build failed; everything is uploaded, pick build $BUILD_NUMBER in App Store Connect." >&2; exit 1; }
   RESULTS+=("build $BUILD_NUMBER | selected on the open $VERSION versions, platforms held by a review skipped (see above)")
+
+  # Labels go live at once, so each device gets the entry of the version live on its platform.
+  echo "[10/$STEPS] Accessibility labels"
+  if node scripts/appstore-accessibility.mjs --publish; then
+    RESULTS+=("accessibility | each device carries its live version's entry (see above)")
+  else
+    echo "Accessibility labels failed; everything else is uploaded. Run npm run meta:a11y -- --publish." >&2
+    RESULTS+=("accessibility | FAILED, run npm run meta:a11y -- --publish")
+  fi
 fi
 
 echo "Done. TomoTV $VERSION ($BUILD_NUMBER)"
@@ -455,4 +467,4 @@ for r in "${RESULTS[@]}"; do
 done
 echo ""
 echo "Archives are in Xcode Organizer. Working tree is in tvOS state."
-echo "Remember to commit the app.json build number bump."
+echo "Remember to commit the app.json build number bump$([[ $UPLOAD -eq 1 ]] && echo ' and scripts/appstore/accessibility.json')."

@@ -2667,6 +2667,18 @@ has no `CFBundleLocalizations` and its store languages match its `.lproj` folder
 
 ---
 
+## Accessibility
+
+The Accessibility Nutrition Labels are App Store Connect data, one declaration per device. They go
+live the moment they are published, not with a version, so `scripts/appstore/accessibility.json`
+keeps one entry per app version and each device gets the entry of the version live on its platform
+(iPhone and iPad follow iOS, Mac follows macOS, Apple TV follows tvOS). A live version without an
+entry is skipped. `npm run archive -- <build> --upload` keeps them in step; usage and the manual
+commands are in `docs/RELEASING.md` ("Accessibility labels"). Apple's evaluation criteria decide
+each value: a feature is true only when every common task works with it on that device.
+
+---
+
 ## App Store Optimization (ASO) Strategy
 
 **Primary Goal:** Reach Jellyfin users searching for Apple TV clients
