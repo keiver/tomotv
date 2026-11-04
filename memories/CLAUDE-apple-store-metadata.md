@@ -2655,7 +2655,11 @@ Check App Store Connect for the last uploaded build before choosing the next num
 ## Localization
 
 **Current:** English, German, French and Spanish, since 2.2.6, following the device language
-(`services/i18n`). The bundle declares no `CFBundleLocalizations`.
+(`services/i18n`). The store's Languages line comes from the `.lproj` folders in the binary,
+not from the listing: `expo.locales` in `app.json` writes one per language at prebuild. A new
+language needs an entry there as well as its catalogue. Measured 2026-11-03: Apple's Developer.app
+has no `CFBundleLocalizations` and its store languages match its `.lproj` folders exactly.
+
 **Priority languages for a future release:**
 
 1. Japanese (ja)

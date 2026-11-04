@@ -8,6 +8,12 @@
     "icon": "./assets/brand/tomo-tv.png",
     "scheme": "tomotv",
     "userInterfaceStyle": "dark",
+    "locales": {
+      "en": { "ios": { "CFBundleDisplayName": "Tomo TV" } },
+      "de": { "ios": { "CFBundleDisplayName": "Tomo TV" } },
+      "fr": { "ios": { "CFBundleDisplayName": "Tomo TV" } },
+      "es": { "ios": { "CFBundleDisplayName": "Tomo TV" } }
+    },
     "ios": {
       "supportsTablet": true,
       "appleTeamId": "64QR53M8C9",
