@@ -77,6 +77,8 @@
   "liveTv.recordingStartedFor": "Grabación iniciada durante {duration}",
   "liveTv.recordingStopped": "Grabación detenida",
   "liveTv.waitingForConnection": "Esperando la conexión",
+  "liveTv.recordConfirm": "¿Grabar {name}?",
+  "liveTv.recordTakesOnlySlot": "Tu proveedor permite una sola emisión a la vez. Esta grabación la usará hasta que termine.",
   "liveTv.recordingCanceled": "Grabación cancelada",
   "liveTv.recordingFailed": "La acción de grabación falló",
   "liveTv.noManagement": "No tienes permisos de gestión de Televisión en vivo en este servidor.",

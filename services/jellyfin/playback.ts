@@ -5,6 +5,7 @@
  */
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { cachedRequest } from "@/services/requestCache";
+import { withoutRefusedRecordings } from "@/services/refusedRecordings";
 import { CACHE } from "@/constants/app";
 import { logger } from "@/utils/logger";
 import { fetchWithTimeout } from "./http";
@@ -229,7 +230,7 @@ export async function fetchResumeItems(limit = 20): Promise<JellyfinVideoItem[] 
           }
 
           const data = await response.json();
-          return (data.Items ?? []) as JellyfinVideoItem[];
+          return withoutRefusedRecordings((data.Items ?? []) as JellyfinVideoItem[]);
         } catch (error) {
           throw error;
         }
@@ -304,7 +305,7 @@ export async function fetchRecentlyPlayed(limit = 12): Promise<JellyfinVideoItem
           }
 
           const data = await response.json();
-          return (data.Items ?? []) as JellyfinVideoItem[];
+          return withoutRefusedRecordings((data.Items ?? []) as JellyfinVideoItem[]);
         } catch (error) {
           throw error;
         }

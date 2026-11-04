@@ -77,6 +77,8 @@
   "liveTv.recordingStartedFor": "Aufnahme gestartet für {duration}",
   "liveTv.recordingStopped": "Aufnahme beendet",
   "liveTv.waitingForConnection": "Warte auf die Verbindung",
+  "liveTv.recordConfirm": "{name} aufnehmen?",
+  "liveTv.recordTakesOnlySlot": "Dein Anbieter erlaubt nur einen Stream gleichzeitig. Diese Aufnahme nutzt ihn, bis sie endet.",
   "liveTv.recordingCanceled": "Aufnahme abgebrochen",
   "liveTv.recordingFailed": "Aufnahmeaktion fehlgeschlagen",
   "liveTv.noManagement": "Du hast auf diesem Server keine Berechtigung zur Live-TV-Verwaltung.",

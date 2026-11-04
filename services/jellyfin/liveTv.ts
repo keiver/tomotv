@@ -9,9 +9,10 @@ import { engineCodecAllowlists } from "@keiver/tomo-engine";
 import { activeGuideUrls, fetchExternalAiringPrograms } from "@/services/externalGuide";
 import { channelListKey, favoriteKey, getLiveTvPreferences, type ChannelFavorite, type LiveTvCategory } from "@/services/liveTvPreferences";
 import { setPlaybackStage } from "@/services/playbackStage";
+import { withoutRefusedRecordings } from "@/services/refusedRecordings";
 import { cachedRequest } from "@/services/requestCache";
 import { logger } from "@/utils/logger";
-import { invalidateRecordingReads } from "./cacheKeys";
+import { invalidateItemRemoved, invalidateRecordingReads } from "./cacheKeys";
 import { applyChannelEdits } from "./channelEdits";
 import * as SecureStore from "expo-secure-store";
 import { getSavedAccounts } from "./accountIndex";
@@ -656,7 +657,7 @@ export async function fetchRecordings(): Promise<{ items: JellyfinItem[]; total?
     `/LiveTv/Recordings?${await userQuery({ enableImages: "true", enableUserData: "true", fields: "PrimaryImageAspectRatio,Overview", sortBy: "StartDate", sortOrder: "Descending" })}`,
   );
   const json = await response.json();
-  return { items: (json.Items ?? []) as JellyfinItem[], total: json.TotalRecordCount };
+  return { items: withoutRefusedRecordings((json.Items ?? []) as JellyfinItem[]), total: json.TotalRecordCount };
 }
 
 /** The recording a timer is writing now; null while it has none. */
@@ -670,6 +671,7 @@ export async function fetchInProgressRecording(timerId: string): Promise<Jellyfi
 export async function deleteRecording(itemId: string): Promise<void> {
   await liveTvRequest(`/LiveTv/Recordings/${encodeURIComponent(itemId)}`, { method: "DELETE" });
   await invalidateAfterTimerWrite(itemId);
+  invalidateItemRemoved((await getConfig()).userId, itemId);
 }
 
 /** The first bytes of a recording's file as written so far; empty while nothing has reached disk (the server answers 416). */

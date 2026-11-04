@@ -18,8 +18,6 @@ const PLAYING_REFRESH_MS = 60_000;
 const DRAIN_TIMEOUT_MS = 10_000;
 const PENDING_TTL_MS = 120_000;
 const POLL_MS = 250;
-/** Reads of a stopped recording before its file counts as flushed. */
-const FLUSH_READS = 40;
 /** MPEG-TS sync byte: the first byte of a recording that got the stream. */
 const TS_SYNC = 0x47;
 /** Cancels that found video, not a refusal: after this many the provider is slow to send, not refusing. */
@@ -91,6 +89,11 @@ export function nextHoldEdge(timers: JellyfinTimer[], nowMs: number): number | n
     consider(endMs);
   }
   return next;
+}
+
+/** Whether a recording on the channel takes its provider's only connection. */
+export function recordsOnOneConnection(channelId: string): Promise<boolean> {
+  return oneConnection(channelId);
 }
 
 /** Each provider's limit as its account API stated it this session. */
@@ -517,7 +520,7 @@ export async function cancelRecording(timerId: string): Promise<void> {
 
 async function clearIfRefused(itemId: string, timerId: string): Promise<void> {
   try {
-    for (let read = 0; read < FLUSH_READS && (await fetchInProgressRecording(timerId)); read++) await wait(POLL_MS);
+    while (await fetchInProgressRecording(timerId)) await wait(POLL_MS);
     if (!(await readsVideo(itemId))) await clearRefusedRecording(itemId);
   } catch (error) {
     logger.warn("Stopped recording read failed", error, { service: "RecordingHold" });

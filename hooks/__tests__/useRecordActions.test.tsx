@@ -1,9 +1,10 @@
 /** Record writes: a write that landed stands even when the re-read fails, and a cancel on that stand-in reads first. */
 import { useRecordActions, type RecordTarget } from "@/hooks/useRecordActions";
 import { cancelSeriesTimer, cancelTimer, createSeriesTimer, createTimer, fetchSeriesTimers, fetchTimerDefaults, fetchTimers } from "@/services/jellyfinApi";
-import { cancelRecording, checkNewRecording, reserveForRecording } from "@/services/recordingHold";
+import { cancelRecording, checkNewRecording, recordsOnOneConnection, reserveForRecording } from "@/services/recordingHold";
 import { showToast } from "@/services/toast";
 import React, { forwardRef, useImperativeHandle } from "react";
+import { Alert } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 
 jest.mock("@/services/jellyfinApi", () => ({
@@ -24,8 +25,14 @@ jest.mock("@/services/recordingHold", () => ({
   reserveForRecording: jest.fn(async () => ({ free: true, release: mockRelease })),
   checkNewRecording: jest.fn(async () => undefined),
   cancelRecording: jest.fn(async () => undefined),
+  recordsOnOneConnection: jest.fn(async () => false),
   stopRecordingCheck: jest.fn(),
 }));
+// The confirmation answers with the button named here; Record unless a test says otherwise.
+let mockConfirmAnswer = "liveTv.record";
+const alertSpy = jest.spyOn(Alert, "alert").mockImplementation((_title, _message, buttons) => {
+  buttons?.find((button) => button.text === mockConfirmAnswer)?.onPress?.();
+});
 
 type Actions = ReturnType<typeof useRecordActions>;
 const Harness = forwardRef<{ get: () => Actions }, { target: RecordTarget }>(({ target }, ref) => {
@@ -53,6 +60,42 @@ describe("useRecordActions", () => {
     jest.clearAllMocks();
     jest.mocked(fetchTimers).mockResolvedValue([]);
     jest.mocked(fetchSeriesTimers).mockResolvedValue([]);
+    mockConfirmAnswer = "liveTv.record";
+  });
+
+  it("asks before recording and says a recording that starts now takes a one-connection provider's only stream", async () => {
+    jest.mocked(recordsOnOneConnection).mockResolvedValueOnce(true);
+    const ref = await mount();
+    await act(async () => {
+      await ref.current!.get().record();
+    });
+    expect(recordsOnOneConnection).toHaveBeenCalledWith("ch1");
+    expect(alertSpy).toHaveBeenCalledWith("liveTv.recordConfirm", "liveTv.recordTakesOnlySlot", expect.any(Array), expect.any(Object));
+    expect(createTimer).toHaveBeenCalledTimes(1);
+  });
+
+  it("writes nothing when the viewer cancels the confirmation, and says nothing of the provider for a later program", async () => {
+    mockConfirmAnswer = "common.cancel";
+    const ref = await mount();
+    let landed: boolean | undefined;
+    await act(async () => {
+      landed = await ref.current!.get().record();
+    });
+    expect(landed).toBe(false);
+    expect(createTimer).not.toHaveBeenCalled();
+    expect(reserveForRecording).not.toHaveBeenCalled();
+    mockConfirmAnswer = "liveTv.record";
+    const later = { StartDate: new Date(now + 3_600_000).toISOString(), EndDate: new Date(now + 7_200_000).toISOString() };
+    const laterRef = React.createRef<{ get: () => Actions }>();
+    await act(async () => {
+      TestRenderer.create(<Harness ref={laterRef} target={{ programId: "p2", channelId: "ch1", channelName: "News", program: later }} />);
+    });
+    jest.mocked(recordsOnOneConnection).mockClear();
+    await act(async () => {
+      await laterRef.current!.get().record();
+    });
+    expect(recordsOnOneConnection).not.toHaveBeenCalled();
+    expect(alertSpy).toHaveBeenLastCalledWith("liveTv.recordConfirm", undefined, expect.any(Array), expect.any(Object));
   });
 
   it("a later program on a channel recording another offers Record, never the other's Stop", async () => {

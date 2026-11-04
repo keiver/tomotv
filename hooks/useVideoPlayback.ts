@@ -20,7 +20,7 @@ import {
   readRecordingStart,
   type MediaSegmentWindow,
 } from "@/services/jellyfinApi";
-import { EMPTY_RECORDING_MESSAGE, mayHoldNoVideo, startsWithVideo } from "@/hooks/videoPlayback/emptyRecording";
+import { EMPTY_RECORDING_MESSAGE, holdsNoVideo, mayHoldNoVideo } from "@/hooks/videoPlayback/emptyRecording";
 import { alignSubtitleTiming as engineAlignSubtitleTiming, playerSourceUrl, setSubtitleTimeOffset, type SubtitleAlignment } from "@keiver/tomo-engine";
 import { LIVE_POOR_START_WINDOW_MS, LivePlayback, noteLiveCleanStart, noteLiveStall } from "@keiver/tomo-live";
 import { linkRungsAllowed, serverTranscodeAllowed, serverTranscodeBlock, type ServerTranscodeBlock } from "@/services/transcodePolicy";
@@ -716,8 +716,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       if (wasPlayedAtStartRef.current === null) {
         wasPlayedAtStartRef.current = playedAtStart ?? details.UserData?.Played ?? false;
       }
-      // An unreadable start (no download permission) leaves the lanes to try it.
-      if (!live && !playsFromDisk(videoId) && mayHoldNoVideo(details) && !startsWithVideo(await readRecordingStart(videoId).catch(() => new Uint8Array([0x47])))) {
+      if (!live && !playsFromDisk(videoId) && mayHoldNoVideo(details) && holdsNoVideo(details, await readRecordingStart(videoId).catch(() => null))) {
         fail(EMPTY_RECORDING_MESSAGE);
       }
 

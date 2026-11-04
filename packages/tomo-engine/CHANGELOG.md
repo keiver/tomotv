@@ -2,6 +2,7 @@
 
 ## 1.8.0
 
+- `learnOriginConnectionBudget` (`learnOriginBudget`): a provider's own stated connection limit is held as a learned budget, never above a lower one already known and never as the viewer's limit (`originConnectionLimit` is unchanged). Learned at 1 while a recording is pushed for the provider, every read on it is revoked. `LiveConnectionBrokerTests`.
 - Copied files are now cut into segments at their own keyframes (issue 115). Before, every segment was 6 s long, so most started mid-picture-group and showed nothing until the next keyframe after a jump. Each segment now starts at the first keyframe after its 6 s mark, the way Jellyfin cuts a remux. Applies to MKV, MP4, MOV and AVI; MPEG-TS and MKV without a keyframe index keep 6 s segments. Measured: segments of a film with a keyframe every 10 s decoded 0 to 93 of about 145 frames on their own before, all of them after; after a jump, AVPlayer showed the target picture at once instead of 6 s later. `CopySegmentIndependenceTests`.
 - A session that offers server rungs and whose link carries the original now plays the original alone, cut at its keyframes, for the whole session. Rungs and the original cannot share segment boundaries (the rungs are cut every 6 s), and Jellyfin never offers the two together either. On a slower link the rungs play as before (issue 115).
 - MP4 and MPEG-TS files with B-frames keep their first keyframe; before, segment 0 of such an MP4 decoded no frames on its own. Their timeline now starts at that keyframe's decode time, about 0.08 s earlier (issue 115).

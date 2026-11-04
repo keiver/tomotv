@@ -14,3 +14,13 @@ export function mayHoldNoVideo(details: { MediaSources?: { Container?: string | 
 export function startsWithVideo(bytes: Uint8Array): boolean {
   return bytes[0] === TS_SYNC;
 }
+
+/** One MPEG-TS packet: a file smaller than this holds no video. */
+const TS_PACKET_BYTES = 188;
+
+/** From the file's first bytes, or from its size when they could not be read (no download permission). */
+export function holdsNoVideo(details: { MediaSources?: { Size?: number | null }[] | null }, start: Uint8Array | null): boolean {
+  if (start) return !startsWithVideo(start);
+  const size = details.MediaSources?.[0]?.Size;
+  return typeof size === "number" && size < TS_PACKET_BYTES;
+}

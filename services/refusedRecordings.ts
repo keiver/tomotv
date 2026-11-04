@@ -24,6 +24,12 @@ export function hiddenRefusedRecordings(): ReadonlySet<string> {
   return new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : []);
 }
 
+/** A list read from the server without the refused recordings hidden on it. */
+export function withoutRefusedRecordings<T extends { Id: string }>(items: T[]): T[] {
+  const hidden = hiddenRefusedRecordings();
+  return hidden.size === 0 ? items : items.filter((item) => !hidden.has(item.Id));
+}
+
 export function hideRefusedRecording(itemId: string): void {
   const { server } = getCachedConfig();
   if (!server || !itemId) return;

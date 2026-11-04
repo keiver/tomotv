@@ -1,5 +1,15 @@
 /** A recording's file read for video: only a TS source the server found no streams in is read, and 0x47 first is video. */
-import { mayHoldNoVideo, startsWithVideo } from "@/hooks/videoPlayback/emptyRecording";
+import { holdsNoVideo, mayHoldNoVideo, startsWithVideo } from "@/hooks/videoPlayback/emptyRecording";
+
+describe("holdsNoVideo", () => {
+  it("reads the first bytes when it has them, else a file smaller than one TS packet", () => {
+    expect(holdsNoVideo({ MediaSources: [{ Size: 65 }] }, new Uint8Array([0x47]))).toBe(false);
+    expect(holdsNoVideo({ MediaSources: [{ Size: 5_000_000 }] }, new Uint8Array([0x7b]))).toBe(true);
+    expect(holdsNoVideo({ MediaSources: [{ Size: 65 }] }, null)).toBe(true);
+    expect(holdsNoVideo({ MediaSources: [{ Size: 188 }] }, null)).toBe(false);
+    expect(holdsNoVideo({ MediaSources: [{}] }, null)).toBe(false);
+  });
+});
 
 describe("mayHoldNoVideo", () => {
   it("is a TS source with no streams", () => {

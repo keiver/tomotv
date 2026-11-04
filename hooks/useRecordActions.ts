@@ -1,13 +1,34 @@
 import { t } from "@/services/i18n";
 import { cancelSeriesTimer, cancelTimer, createSeriesTimer, createTimer, fetchSeriesTimers, fetchTimerDefaults, fetchTimers } from "@/services/jellyfinApi";
 import { getLiveTvPreferences } from "@/services/liveTvPreferences";
-import { cancelRecording, checkNewRecording, reserveForRecording, stopRecordingCheck } from "@/services/recordingHold";
+import { cancelRecording, checkNewRecording, recordsOnOneConnection, reserveForRecording, stopRecordingCheck } from "@/services/recordingHold";
 import { reportRecordingTimers } from "@/services/recordingStatus";
 import { showToast } from "@/services/toast";
 import type { JellyfinProgram, JellyfinSeriesTimer, JellyfinTimer } from "@/types/jellyfin";
+import { cleanLabel } from "@/utils/cleanLabel";
 import { activeRecordTimer, durationLabel, isActiveTimer, isAiring, programTimes } from "@/utils/guide";
 import { logger } from "@/utils/logger";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Alert } from "react-native";
+
+/**
+ * The confirmation before a recording is made: it names what records, and a recording that starts now on a
+ * one-connection provider says it takes that connection. Resolves whether the viewer chose Record.
+ */
+export async function confirmRecord(name: string, startsNowOn: string | null): Promise<boolean> {
+  const takesOnlySlot = startsNowOn ? await recordsOnOneConnection(startsNowOn).catch(() => false) : false;
+  return new Promise((resolve) => {
+    Alert.alert(
+      t("liveTv.recordConfirm").replace("{name}", name),
+      takesOnlySlot ? t("liveTv.recordTakesOnlySlot") : undefined,
+      [
+        { text: t("common.cancel"), style: "cancel", onPress: () => resolve(false) },
+        { text: t("liveTv.record"), onPress: () => resolve(true) },
+      ],
+      { cancelable: true, onDismiss: () => resolve(false) },
+    );
+  });
+}
 
 /** "waiting": a recording that starts now waits for its provider's only connection to be free. */
 export type RecordBusy = "waiting" | "record" | "series" | "cancel" | "cancelSeries" | null;
@@ -143,7 +164,7 @@ export function useRecordActions(target: RecordTarget | null) {
   }, []);
   const cancelWaiting = useCallback(() => waitingRef.current?.abort(), []);
 
-  const record = useCallback(() => {
+  const writeRecord = useCallback(() => {
     // A program records to its end; the toast names the running length, a future program is scheduled.
     if (programId) {
       const airing = !!program && isAiring(program, Date.now());
@@ -192,6 +213,13 @@ export function useRecordActions(target: RecordTarget | null) {
       { ...standIn(endMs, airing), Name: timerName, StartDate: new Date(startMs).toISOString() },
     );
   }, [run, standIn, reserveOptions, programId, program, channelId, channelName]);
+  /** Record, once the viewer confirms it. */
+  const record = useCallback(async () => {
+    const startMs = Date.parse(program?.StartDate ?? "");
+    const startsNow = !Number.isFinite(startMs) || startMs <= Date.now();
+    if (!(await confirmRecord(cleanLabel(program?.Name || channelName), startsNow && channelId ? channelId : null))) return false;
+    return writeRecord();
+  }, [program, channelName, channelId, writeRecord]);
   const recordSeries = useCallback(() => {
     const airing = !!program && isAiring(program, Date.now());
     const endMs = program ? programTimes(program).endMs : Date.now();

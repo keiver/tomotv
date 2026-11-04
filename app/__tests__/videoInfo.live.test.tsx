@@ -1,5 +1,6 @@
 /** The info panel on a guide programme or a channel: Watch while it airs, the record controls, the channel's Groups. */
 import React from "react";
+import { Alert } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 import { useLocalSearchParams } from "expo-router";
 import { Image } from "expo-image";
@@ -147,6 +148,8 @@ const press = async (tree: TestRenderer.ReactTestRenderer, title: string) => {
 describe("Video info: live items", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // The record confirmation answers Record.
+    jest.spyOn(Alert, "alert").mockImplementation((_title, _message, buttons) => buttons?.find((button) => button.style !== "cancel")?.onPress?.());
     (fetchTimerDefaults as jest.Mock).mockResolvedValue({ ProgramId: "p1", Name: "Football Live" });
     (createTimer as jest.Mock).mockResolvedValue(undefined);
     (createSeriesTimer as jest.Mock).mockResolvedValue(undefined);
