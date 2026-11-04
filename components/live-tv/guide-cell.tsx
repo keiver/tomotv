@@ -190,7 +190,7 @@ function GuideCellComponent({
           </View>
           {/* Grabbed frames lead the slot line with their clock time; the slot follows unchanged. */}
           {reelShown ? (
-            <Text style={[styles.meta, past && styles.textPast]} numberOfLines={1}>
+            <Text style={styles.meta} numberOfLines={1}>
               {seenLead}
               {seenClock}
               {seenTail}
@@ -198,7 +198,7 @@ function GuideCellComponent({
               {meta}
             </Text>
           ) : (
-            <Text style={[styles.meta, past && styles.textPast]} numberOfLines={1}>
+            <Text style={styles.meta} numberOfLines={1}>
               {meta}
             </Text>
           )}
@@ -403,8 +403,9 @@ const styles = StyleSheet.create({
     fontSize: IS_TV ? 17 : 10,
     fontWeight: "400",
   },
+  // A colour, not an opacity: the trailing show name keeps its own 4.5:1 grey.
   textPast: {
-    opacity: 0.5,
+    color: COLORS.TEXT_SECONDARY,
   },
   cellQuiet: {
     backgroundColor: COLORS.SURFACE_SUNKEN,

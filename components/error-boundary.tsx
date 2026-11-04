@@ -114,7 +114,7 @@ const styles = StyleSheet.create({
     marginTop: Platform.isTV ? 20 : 16,
     fontSize: Platform.isTV ? 22 : 18,
     fontWeight: "400",
-    color: COLORS.TEXT_SECONDARY,
+    color: COLORS.TEXT_DIM,
     textAlign: "center",
     lineHeight: Platform.isTV ? 32 : 26,
     paddingHorizontal: Platform.isTV ? 40 : 20,

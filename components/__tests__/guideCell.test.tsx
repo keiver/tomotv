@@ -2,6 +2,7 @@ import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { Animated, StyleSheet, Text } from "react-native";
 import { GuideCell } from "@/components/live-tv/guide-cell";
+import { COLORS } from "@/constants/colors";
 import { clearChannelHealth, noteChannelAlive, noteChannelOpenFailure } from "@/services/channelHealth";
 import * as guideChannelFocus from "@/services/guideChannelFocus";
 import { formatClock, MINUTE_MS, NO_GUIDE_PREFIX } from "@/utils/guide";
@@ -57,6 +58,14 @@ describe("GuideCell", () => {
     expect(shown).toContain("Channel One  ·  Episode 9  ·  Evening News");
     expect(shown.some((text) => text.includes(" – ") && text.includes("news"))).toBe(true);
     expect(flatText(render({ program: { ...program, Id: "p15", EpisodeTitle: undefined } }).root.findAllByType(Text)[0])).toBe("Channel One  ·  Evening News");
+  });
+
+  it("a past programme greys its title with a colour and leaves the slot line at full contrast", () => {
+    const nodes = render({ past: true, airing: false, program: { ...program, Id: "p40" } }).root.findAllByType(Text);
+    const style = (node: TestRenderer.ReactTestInstance) => StyleSheet.flatten(node.props.style);
+    expect(style(nodes[0]).color).toBe(COLORS.TEXT_SECONDARY);
+    for (const node of nodes) expect(style(node).opacity).toBeUndefined();
+    expect(style(nodes[nodes.length - 1]).color).toBe(COLORS.TEXT_TERTIARY);
   });
 
   it("shows the channel name once when the programme carries the same title", () => {

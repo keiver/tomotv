@@ -36,7 +36,8 @@ export const COLORS = {
   TEXT_BODY: "#D1D1D6",
   TEXT_DIM: "#C4C4C4",
   TEXT_SECONDARY: "#98989D",
-  TEXT_TERTIARY: "#8E8E93",
+  /** 4.56:1 on SURFACE, the lightest card the text sits on. */
+  TEXT_TERTIARY: "#939398",
   TEXT_QUATERNARY: "#6E6E73",
 
   DESTRUCTIVE: "#FF3B30",

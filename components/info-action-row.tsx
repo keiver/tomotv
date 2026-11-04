@@ -369,6 +369,6 @@ const styles = StyleSheet.create({
     color: COLORS.SUCCESS,
   },
   captionFailed: {
-    color: COLORS.DESTRUCTIVE,
+    color: COLORS.DESTRUCTIVE_SOFT,
   },
 });

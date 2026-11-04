@@ -1570,7 +1570,7 @@ const styles = StyleSheet.create({
   // rather than truncating, so a file can always be located from what is shown.
   filePath: {
     fontSize: IS_TV ? 18 : 12,
-    color: COLORS.TEXT_QUATERNARY,
+    color: COLORS.TEXT_TERTIARY,
     marginTop: 4,
   },
   detailTable: {
