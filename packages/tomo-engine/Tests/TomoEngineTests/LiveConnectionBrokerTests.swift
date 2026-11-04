@@ -117,6 +117,30 @@ final class LiveConnectionBrokerTests: XCTestCase {
         XCTAssertTrue(playbackRevoked)
     }
 
+    func testALimitTheProviderStatesIsKeptBelowAHigherOneAndNeverAboveALowerOne() {
+        let broker = LiveConnectionBroker()
+        broker.learnBudget(2, for: "k")
+        XCTAssertEqual(broker.budget(for: "k"), 2)
+        broker.learnBudget(1, for: "k")
+        XCTAssertEqual(broker.budget(for: "k"), 1)
+        broker.learnBudget(3, for: "k")
+        XCTAssertEqual(broker.budget(for: "k"), 1)
+        broker.learnBudget(0, for: "none")
+        XCTAssertNil(broker.budget(for: "none"))
+    }
+
+    func testALimitOfOneTheProviderStatesWhileARecordingWaitsRevokesPlayback() {
+        let broker = LiveConnectionBroker()
+        var revoked = false
+        let playback = broker.tryAcquire(key: "k", priority: .playback) { revoked = true }
+        XCTAssertNotNil(playback)
+        broker.setRecording(true, for: "k")
+        XCTAssertFalse(revoked)
+        broker.learnBudget(1, for: "k")
+        XCTAssertTrue(revoked)
+        XCTAssertTrue(broker.isHeld("k"))
+    }
+
     func testAPreviewThePlayerAdoptedKeepsItsSlotFromTheRing() {
         let broker = LiveConnectionBroker()
         broker.setBudget(2, for: "k")

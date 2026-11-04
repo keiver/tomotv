@@ -237,6 +237,18 @@ export async function setOriginConnectionBudget(originKey: string, connections: 
   }
 }
 
+/** A provider's own stated limit, held by the engine as learned (never above a lower one), not as the viewer's. False without the method. */
+export async function learnOriginConnectionBudget(originKey: string, connections: number): Promise<boolean> {
+  if (!isLocalRemuxAvailable() || !originKey || !(connections >= 1) || typeof engineModule().learnOriginBudget !== "function") return false;
+  try {
+    await engineModule().learnOriginBudget(originKey, Math.floor(connections));
+    return true;
+  } catch (error) {
+    engineLog().warn("Failed to learn an origin's connection budget", error, { service: "LocalRemux" });
+    return false;
+  }
+}
+
 /** The limit setOriginConnectionBudget last gave the engine for a provider; null when none is set. */
 export function originConnectionLimit(originKey: string | null | undefined): number | null {
   return (originKey && setLimits.get(originKey)) || null;

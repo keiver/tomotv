@@ -959,6 +959,17 @@ class LocalRemuxer: RCTEventEmitter {
         resolve(nil)
     }
 
+    /// A provider's own limit read from its account, held like one its refusals taught; never above a lower one known.
+    @objc func learnOriginBudget(
+        _ key: NSString,
+        budget: NSNumber,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter _: @escaping RCTPromiseRejectBlock
+    ) {
+        LiveConnectionBroker.shared.learnBudget(budget.intValue, for: key as String)
+        resolve(nil)
+    }
+
     /// The limit in force for a provider, set or learned from its refusals, and the connections held on it now:
     /// `{budget, active, held}`, budget null while nothing has set or shown one.
     @objc func originBudget(

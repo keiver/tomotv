@@ -124,6 +124,12 @@ RCT_EXTERN_METHOD(setOriginBudget
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(learnOriginBudget
+                  : (nonnull NSString *)key budget
+                  : (nonnull NSNumber *)budget resolver
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(originBudget
                   : (nonnull NSString *)key resolver
                   : (RCTPromiseResolveBlock)resolve rejecter

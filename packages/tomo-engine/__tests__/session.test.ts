@@ -30,6 +30,7 @@ import {
   inputSubtitleRenditions,
   isConnectionBudgetFailure,
   isRecordingHoldFailure,
+  learnOriginConnectionBudget,
   liveSessionConfig,
   liveSubtitleRenditions,
   localRemuxToken,
@@ -344,6 +345,29 @@ describe("setOriginConnectionBudget", () => {
   it("is false when the engine refuses", async () => {
     mockRemuxer!.setOriginBudget = jest.fn().mockRejectedValue(new Error("x"));
     await expect(setOriginConnectionBudget("provider-a", 1)).resolves.toBe(false);
+  });
+});
+
+describe("learnOriginConnectionBudget", () => {
+  it("is false on a binary without the method, for an empty key and for no connections", async () => {
+    await expect(learnOriginConnectionBudget("provider-l", 1)).resolves.toBe(false);
+    mockRemuxer!.learnOriginBudget = jest.fn().mockResolvedValue(undefined);
+    await expect(learnOriginConnectionBudget("", 1)).resolves.toBe(false);
+    await expect(learnOriginConnectionBudget("provider-l", 0)).resolves.toBe(false);
+    await expect(learnOriginConnectionBudget("provider-l", Number.NaN)).resolves.toBe(false);
+    expect(mockRemuxer!.learnOriginBudget).not.toHaveBeenCalled();
+  });
+
+  it("hands the engine a whole count and leaves the viewer's limit alone", async () => {
+    mockRemuxer!.learnOriginBudget = jest.fn().mockResolvedValue(undefined);
+    await expect(learnOriginConnectionBudget("provider-l", 1.6)).resolves.toBe(true);
+    expect(mockRemuxer!.learnOriginBudget.mock.calls).toEqual([["provider-l", 1]]);
+    expect(originConnectionLimit("provider-l")).toBeNull();
+  });
+
+  it("is false when the engine refuses", async () => {
+    mockRemuxer!.learnOriginBudget = jest.fn().mockRejectedValue(new Error("x"));
+    await expect(learnOriginConnectionBudget("provider-l", 1)).resolves.toBe(false);
   });
 });
 
