@@ -16,6 +16,10 @@ struct TextPage {
 }
 
 final class TextPaginator {
+    /// A dark page (the app's #141414 canvas) with light text, 13.9:1.
+    static let paper = CGColor(gray: 20.0 / 255.0, alpha: 1)
+    static let ink = CGColor(gray: 224.0 / 255.0, alpha: 1)
+
     let pageSize: CGSize
     let column: CGRect
 
@@ -46,6 +50,8 @@ final class TextPaginator {
     func render(_ framesetter: CTFramesetter, range: CFRange, scale: CGFloat) -> CGImage? {
         let width = Int((pageSize.width * scale).rounded()), height = Int((pageSize.height * scale).rounded())
         guard let context = BookRender.makeContext(width: width, height: height) else { return nil }
+        context.setFillColor(Self.paper)
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
         context.scaleBy(x: scale, y: scale)
         let frame = CTFramesetterCreateFrame(framesetter, range, CGPath(rect: column, transform: nil), nil)
         CTFrameDraw(frame, context)
@@ -68,6 +74,9 @@ final class TextPaginator {
                 var position = CGPoint.zero
                 CTRunGetPositions(run, CFRange(location: 0, length: 1), &position)
                 let rect = CGRect(x: column.minX + origin.x + position.x, y: column.minY + origin.y, width: ref.size.width, height: ref.size.height)
+                // Transparent line art is drawn for white paper.
+                context.setFillColor(CGColor(gray: 1, alpha: 1))
+                context.fill(rect)
                 context.draw(image, in: rect)
             }
         }

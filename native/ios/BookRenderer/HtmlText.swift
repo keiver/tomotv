@@ -304,7 +304,7 @@ final class HtmlTextBuilder {
         }
         var attributes: [NSAttributedString.Key: Any] = [
             kCTFontAttributeName as NSAttributedString.Key: font,
-            kCTForegroundColorAttributeName as NSAttributedString.Key: CGColor(gray: 0.08, alpha: 1),
+            kCTForegroundColorAttributeName as NSAttributedString.Key: TextPaginator.ink,
         ]
         if underline > 0 { attributes[kCTUnderlineStyleAttributeName as NSAttributedString.Key] = CTUnderlineStyle.single.rawValue }
         if superscript > 0 { attributes[kCTBaselineOffsetAttributeName as NSAttributedString.Key] = options.fontSize * 0.35 }
