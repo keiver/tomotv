@@ -15,3 +15,15 @@ export async function tapFeedback(): Promise<void> {
     logger.debug("Haptics unavailable", { service: "Haptics", error: String(error) });
   }
 }
+
+/** The tick of a value passing a detent, UIKit's selection feedback: the guide's column reaching one of its stops. */
+export async function selectionFeedback(): Promise<void> {
+  if (Platform.isTV) return;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const Haptics = require("expo-haptics") as typeof import("expo-haptics");
+    await Haptics.selectionAsync();
+  } catch (error) {
+    logger.debug("Haptics unavailable", { service: "Haptics", error: String(error) });
+  }
+}

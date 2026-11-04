@@ -61,6 +61,7 @@ jest.mock("@/contexts/PlayerSessionContext", () => ({
     },
     publish: jest.fn(),
     handlersRef,
+    inlineScale: { get: () => 1, set: jest.fn(), value: 1 },
   }),
 }));
 

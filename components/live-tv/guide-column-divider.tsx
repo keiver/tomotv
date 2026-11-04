@@ -1,10 +1,11 @@
 import { GRID_LINE } from "@/components/live-tv/guide-cell";
 import { GuideGrip } from "@/components/live-tv/guide-grip";
-import { columnDragWidth, type ColumnStop, settleColumnStop, wideColumnWidth } from "@/utils/guide";
+import { t } from "@/services/i18n";
+import { columnDragWidth, type ColumnStop, columnStopAt, columnStopStep, settleColumnStop, wideColumnWidth } from "@/utils/guide";
 import React, { useCallback, useMemo, useRef } from "react";
 import { type LayoutChangeEvent, StyleSheet, View, useWindowDimensions } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
-import Animated, { runOnJS, type SharedValue, useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
+import Animated, { runOnJS, runOnUI, type SharedValue, useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
 
 const GRIP_WIDTH = 48;
 const HIT_HEIGHT = 64;
@@ -35,11 +36,15 @@ interface ColumnResizeOptions {
   onRest: (width: number) => void;
   /** Fires when a drag commits to resizing the column. */
   onResizeStart: () => void;
+  /** Fires each time a drag carries the column past halfway to another stop: the detent's tick. */
+  onDetent: () => void;
 }
 
 /** The seam grip's pan: drag across between the closed, default and wide stops, along the line to move the grip. */
-export function useColumnResize({ columnW, canvasW, minWidth, defaultWidth, onSettle, onRest, onResizeStart }: ColumnResizeOptions) {
+export function useColumnResize({ columnW, canvasW, minWidth, defaultWidth, onSettle, onRest, onResizeStart, onDetent }: ColumnResizeOptions) {
   const start = useSharedValue(0);
+  // The stop the drag is nearest, so the tick fires once per stop passed.
+  const passing = useSharedValue<ColumnStop | null>(null);
   // The seam grip also slides along its line: its offset from the band's centre, and the band's height.
   const gripY = useSharedValue(0);
   const gripStartY = useSharedValue(0);
@@ -52,13 +57,35 @@ export function useColumnResize({ columnW, canvasW, minWidth, defaultWidth, onSe
     };
     const resize = (translationX: number) => {
       "worklet";
-      columnW.set(columnDragWidth(start.get(), translationX, stops()));
+      const widths = stops();
+      const width = columnDragWidth(start.get(), translationX, widths);
+      columnW.set(width);
+      const near = columnStopAt(width, widths);
+      if (near !== passing.get()) {
+        passing.set(near);
+        runOnJS(onDetent)();
+      }
+    };
+    // VoiceOver's adjustable swipe: one stop wider or narrower, with the same spring and callbacks as a drag.
+    const step = (direction: 1 | -1) => {
+      "worklet";
+      const widths = stops();
+      const stop = columnStopStep(columnStopAt(columnW.get(), widths), direction);
+      const width = widths[stop];
+      columnW.set(
+        withSpring(width, STOP_SPRING, (finished) => {
+          "worklet";
+          if (finished) runOnJS(onRest)(width);
+        }),
+      );
+      runOnJS(onSettle)(stop, width);
     };
     // One axis per drag, picked by the first movement, so sliding the grip never nudges the width.
     const seam = Gesture.Pan()
       .onBegin(() => {
         "worklet";
         start.set(columnW.get());
+        passing.set(columnStopAt(columnW.get(), stops()));
         gripStartY.set(gripY.get());
         axis.set(null);
       })
@@ -91,8 +118,9 @@ export function useColumnResize({ columnW, canvasW, minWidth, defaultWidth, onSe
         );
         runOnJS(onSettle)(stop, width);
       });
-    return { seam, gripY, bandH };
-  }, [columnW, canvasW, minWidth, defaultWidth, start, onSettle, onRest, onResizeStart, gripY, gripStartY, bandH, axis]);
+    const stepOnUI = (direction: 1 | -1) => runOnUI(step)(direction);
+    return { seam, gripY, bandH, step: stepOnUI };
+  }, [columnW, canvasW, minWidth, defaultWidth, start, passing, onSettle, onRest, onResizeStart, onDetent, gripY, gripStartY, bandH, axis]);
 }
 
 interface GuideColumnDividerProps {
@@ -104,10 +132,17 @@ interface GuideColumnDividerProps {
   gesture: ReturnType<typeof Gesture.Pan>;
   gripY: SharedValue<number>;
   bandH: SharedValue<number>;
+  /** The stop the column rests on, read to VoiceOver as the grip's value. */
+  stop: ColumnStop;
+  /** VoiceOver's swipe up (+1) or down (-1) on the grip. */
+  onStep: (direction: 1 | -1) => void;
 }
 
+const STOP_LABEL: Record<ColumnStop, Parameters<typeof t>[0]> = { closed: "liveTv.columnClosed", default: "liveTv.columnDefault", wide: "liveTv.columnWide" };
+const STEP_ACTIONS = [{ name: "increment" }, { name: "decrement" }];
+
 /** A grip on the column/grid seam: drag across to resize, along the line to move it. Phone only. */
-export function GuideColumnDivider({ columnW, topInset, bottomInset, gesture, gripY, bandH }: GuideColumnDividerProps) {
+export function GuideColumnDivider({ columnW, topInset, bottomInset, gesture, gripY, bandH, stop, onStep }: GuideColumnDividerProps) {
   // The seat straddles the seam; the line and grip share its centre, so the grip can never drift
   // off the line. Follows the column's live width.
   const seatStyle = useAnimatedStyle(() => ({ left: columnW.get() - GRIP_WIDTH / 2 }));
@@ -139,8 +174,15 @@ export function GuideColumnDivider({ columnW, topInset, bottomInset, gesture, gr
         <View style={styles.line} pointerEvents="none" />
         <View ref={bandRef} style={[styles.gripWrap, { top: topInset, bottom: bottomInset }]} pointerEvents="box-none" onLayout={handleBandLayout}>
           <GestureDetector gesture={gesture}>
-            <Animated.View style={[styles.hit, gripStyle]}>
-              <GuideGrip size={36} arrowSize={16} />
+            <Animated.View
+              style={[styles.hit, gripStyle]}
+              accessible
+              accessibilityRole="adjustable"
+              accessibilityLabel={t("liveTv.columnWidth")}
+              accessibilityValue={{ text: t(STOP_LABEL[stop]) }}
+              accessibilityActions={STEP_ACTIONS}
+              onAccessibilityAction={(event) => onStep(event.nativeEvent.actionName === "increment" ? 1 : -1)}>
+              <GuideGrip size={40} arrowSize={18} />
             </Animated.View>
           </GestureDetector>
         </View>
@@ -150,12 +192,14 @@ export function GuideColumnDivider({ columnW, topInset, bottomInset, gesture, gr
 }
 
 const styles = StyleSheet.create({
+  // Over the pinned band too, which lifts above the lists.
   root: {
     position: "absolute",
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
+    zIndex: 2,
   },
   seat: {
     position: "absolute",

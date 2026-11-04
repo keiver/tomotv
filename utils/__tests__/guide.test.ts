@@ -43,6 +43,9 @@ import {
   standInChannelId,
   trimPrograms,
   wideColumnWidth,
+  bandVideoStops,
+  settleStop,
+  stopDragValue,
 } from "../guide";
 import { __setLocaleForTests } from "@/services/i18n";
 
@@ -569,6 +572,32 @@ describe("columnDragWidth", () => {
   it("follows at most 16pt past the closed and wide stops", () => {
     expect(columnDragWidth(176, 500, stops)).toBe(256);
     expect(columnDragWidth(176, -500, stops)).toBe(58);
+  });
+});
+
+describe("bandVideoStops", () => {
+  it("runs from the row's picture to the guide's width at 16:9, with a stop halfway", () => {
+    expect(bandVideoStops(99, 352, 874)).toEqual([99, 148.5, 198]);
+  });
+
+  it("holds the largest picture to half the window's height, as in landscape", () => {
+    expect(bandVideoStops(99, 900, 402)).toEqual([99, 150, 201]);
+  });
+
+  it("never offers a stop under the row's own picture", () => {
+    expect(bandVideoStops(99, 100, 874)).toEqual([99, 99, 99]);
+  });
+});
+
+describe("stopDragValue and settleStop over the band's heights", () => {
+  const stops = [99, 149, 198];
+
+  it("stops a flick from the row's size at the middle stop, however fast", () => {
+    expect(settleStop(140, 3000, 99, stops)).toBe(1);
+  });
+
+  it("holds a drag back past the middle stop when it began at the row's size", () => {
+    expect(stopDragValue(99, 100, stops)).toBeCloseTo(149 + 50 * 0.3);
   });
 });
 

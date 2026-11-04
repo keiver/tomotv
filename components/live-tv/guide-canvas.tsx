@@ -14,7 +14,7 @@ import { COLORS } from "@/constants/colors";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import type { GuideRow as GuideRowData, GuideState } from "@/hooks/useGuide";
 import type { useLivePreview } from "@/hooks/useLivePreview";
-import { tapFeedback } from "@/services/haptics";
+import { selectionFeedback } from "@/services/haptics";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
 import {
@@ -143,14 +143,16 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   );
   const handleColumnSettle = useCallback(
     (stop: ColumnStop) => {
+      // VoiceOver's step moves the column with no drag to say so.
+      setResizing(true);
       if (stop !== columnStop) {
-        void tapFeedback();
         setColumnStop(stop);
         updateLiveTvPreferences({ columnStop: stop });
       }
     },
     [columnStop],
   );
+  const handleDetent = useCallback(() => void selectionFeedback(), []);
   const resize = useColumnResize({
     columnW,
     canvasW,
@@ -159,6 +161,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
     onSettle: handleColumnSettle,
     onRest: commitWidth,
     onResizeStart: handleResizeStart,
+    onDetent: handleDetent,
   });
   const [canvasHeight, setCanvasHeight] = useState(0);
   const handleCanvasLayout = useCallback((event: LayoutChangeEvent) => {
@@ -626,6 +629,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
           onFirstHandle={onEntryHandle}
           onCardNode={IS_TV ? handleCardNode : undefined}
           cardScale={IS_TV ? undefined : cardScale}
+          dimmed={pinnedId !== null}
           onEndReached={loadMoreRows}
         />
         <TVFocusGuideView style={styles.scrollHost} onLayout={handleCanvasLayout} onFocusEnter={IS_TV ? handleCellsEnter : undefined} onFocusLeave={IS_TV ? handleCellsLeave : undefined}>
@@ -684,6 +688,8 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
           gesture={resize.seam}
           gripY={resize.gripY}
           bandH={resize.bandH}
+          stop={columnStop}
+          onStep={resize.step}
         />
       )}
       {/* After the divider: the red mark sits on top of the seam line. */}

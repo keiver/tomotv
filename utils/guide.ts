@@ -425,31 +425,66 @@ export function wideColumnWidth(guideWidth: number, defaultWidth: number): numbe
   return Math.max(defaultWidth, Math.min(WIDE_COLUMN_MAX, guideWidth * WIDE_COLUMN_RATIO));
 }
 const COLUMN_STOPS: readonly ColumnStop[] = ["closed", "default", "wide"];
-/** A fling carries the column this many seconds of its speed past where the finger let go. */
-const COLUMN_FLING_S = 0.15;
-/** Past the stops either side of where a drag began, the column follows the finger at this fraction: those stops hold it back. */
-const COLUMN_PULL = 0.3;
-/** How far the column follows past the closed and wide stops at most. */
-const COLUMN_OVERPULL = 16;
+/** A fling carries a dragged size this many seconds of its speed past where the finger let go. */
+const STOP_FLING_S = 0.15;
+/** Past the stops either side of where a drag began, the size follows the finger at this fraction: those stops hold it back. */
+const STOP_PULL = 0.3;
+/** How far a size follows past its outermost stops at most. */
+const STOP_OVERPULL = 16;
 
-function nearestStopIndex(width: number, stops: Record<ColumnStop, number>): number {
+/** The index of the value in `stops` (ascending) nearest `value`. */
+export function nearestStop(value: number, stops: readonly number[]): number {
   "worklet";
   let best = 0;
-  for (let index = 1; index < COLUMN_STOPS.length; index++) {
-    if (Math.abs(stops[COLUMN_STOPS[index]] - width) < Math.abs(stops[COLUMN_STOPS[best]] - width)) best = index;
+  for (let index = 1; index < stops.length; index++) {
+    if (Math.abs(stops[index] - value) < Math.abs(stops[best] - value)) best = index;
   }
   return best;
+}
+
+/** A dragged size for a drag of `translation` from `start` over ascending `stops`: the finger's own up to the stops either side of the one it began on, held back past them. */
+export function stopDragValue(start: number, translation: number, stops: readonly number[]): number {
+  "worklet";
+  const from = nearestStop(start, stops);
+  const lower = stops[Math.max(0, from - 1)];
+  const upper = stops[Math.min(stops.length - 1, from + 1)];
+  const raw = start + translation;
+  const held = raw > upper ? upper + (raw - upper) * STOP_PULL : raw < lower ? lower - (lower - raw) * STOP_PULL : raw;
+  return Math.min(stops[stops.length - 1] + STOP_OVERPULL, Math.max(stops[0] - STOP_OVERPULL, held));
+}
+
+/** The stop a dragged size rests on: a fling moves it at most to the stop beside the one the drag began on; a pull past that one lands where it was let go. */
+export function settleStop(value: number, velocity: number, start: number, stops: readonly number[]): number {
+  "worklet";
+  const from = nearestStop(start, stops);
+  const at = nearestStop(value, stops);
+  if (Math.abs(at - from) > 1) return at;
+  const flung = nearestStop(value + velocity * STOP_FLING_S, stops);
+  return Math.min(from + 1, Math.max(from - 1, flung));
+}
+
+function columnWidths(stops: Record<ColumnStop, number>): number[] {
+  "worklet";
+  return [stops.closed, stops.default, stops.wide];
+}
+
+/** The stop nearest a width: the one a drag is passing, and the one the column rests on. */
+export function columnStopAt(width: number, stops: Record<ColumnStop, number>): ColumnStop {
+  "worklet";
+  return COLUMN_STOPS[nearestStop(width, columnWidths(stops))];
+}
+
+/** The stop one step from `stop` toward `direction` (+1 wider, -1 narrower), held at the ends. */
+export function columnStopStep(stop: ColumnStop, direction: 1 | -1): ColumnStop {
+  "worklet";
+  const index = COLUMN_STOPS.indexOf(stop) + direction;
+  return COLUMN_STOPS[Math.min(COLUMN_STOPS.length - 1, Math.max(0, index))];
 }
 
 /** The column's width for a drag of `translationX` from `startWidth`: the finger's own up to the stops either side of the one it began on, held back past them. */
 export function columnDragWidth(startWidth: number, translationX: number, stops: Record<ColumnStop, number>): number {
   "worklet";
-  const from = nearestStopIndex(startWidth, stops);
-  const lower = stops[COLUMN_STOPS[Math.max(0, from - 1)]];
-  const upper = stops[COLUMN_STOPS[Math.min(COLUMN_STOPS.length - 1, from + 1)]];
-  const raw = startWidth + translationX;
-  const held = raw > upper ? upper + (raw - upper) * COLUMN_PULL : raw < lower ? lower - (lower - raw) * COLUMN_PULL : raw;
-  return Math.min(stops.wide + COLUMN_OVERPULL, Math.max(stops.closed - COLUMN_OVERPULL, held));
+  return stopDragValue(startWidth, translationX, columnWidths(stops));
 }
 
 /**
@@ -458,9 +493,18 @@ export function columnDragWidth(startWidth: number, translationX: number, stops:
  */
 export function settleColumnStop(width: number, velocityX: number, startWidth: number, stops: Record<ColumnStop, number>): ColumnStop {
   "worklet";
-  const from = nearestStopIndex(startWidth, stops);
-  const at = nearestStopIndex(width, stops);
-  if (Math.abs(at - from) > 1) return COLUMN_STOPS[at];
-  const flung = nearestStopIndex(width + velocityX * COLUMN_FLING_S, stops);
-  return COLUMN_STOPS[Math.min(from + 1, Math.max(from - 1, flung))];
+  return COLUMN_STOPS[settleStop(width, velocityX, startWidth, columnWidths(stops))];
+}
+
+/** The pinned band's video can grow to at most this share of the window's height, so some guide stays in view. */
+const BAND_MAX_HEIGHT_RATIO = 0.5;
+
+/**
+ * The pinned band's video heights, ascending: its row's own, the guide's full width at 16:9 (held to half the window's
+ * height), and halfway between. A video never grows wider than the guide.
+ */
+export function bandVideoStops(rowVideoHeight: number, guideWidth: number, windowHeight: number): number[] {
+  "worklet";
+  const full = Math.max(rowVideoHeight, Math.min(guideWidth / GRID.LIVE_RATIO, windowHeight * BAND_MAX_HEIGHT_RATIO));
+  return [rowVideoHeight, (rowVideoHeight + full) / 2, full];
 }
