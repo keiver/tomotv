@@ -182,9 +182,8 @@ final class SparseSyncTableSeekTests: XCTestCase {
         XCTAssertTrue(reason?.contains("landed") == true, "the session failed naming the short landing: \(reason ?? "no failure")")
     }
 
-    /// Keyframes at 0, 25 and 50 s with a healthy sync table: the seek for segment 8 (48 s) lands at 25 s,
-    /// the read looks for a keyframe around 48 s, finds the one at 50 s in segment 8, and the lookback
-    /// restarts a segment earlier, where the landing is within the slack and reads forward as before.
+    /// Keyframes at 0, 25 and 50 s with a healthy sync table: the copy cuts on them, and a resume at 48 s is
+    /// served from the segment that opens on the 25 s keyframe without a read from byte 0.
     func testAHealthyMP4WithKeyframesFurtherApartThanTheSlackStillServesItsResume() throws {
         guard FileManager.default.isExecutableFile(atPath: Self.ffmpeg) else { throw XCTSkip("no ffmpeg at \(Self.ffmpeg)") }
         let bytes = try Data(contentsOf: try XCTUnwrap(Self.longGopFixture, "libx264 produced no fixture"))
@@ -192,8 +191,9 @@ final class SparseSyncTableSeekTests: XCTestCase {
         defer { server?.stop() }
         session.start()
         defer { session.stop() }
+        _ = session.mediaPlaylist()
         let started = Date()
-        XCTAssertNotNil(session.segmentURL(8))
+        XCTAssertNotNil(session.segmentURL(session.segmentIndex(atSeconds: 48)))
         XCTAssertLessThan(Date().timeIntervalSince(started), 19)
     }
 
@@ -207,13 +207,14 @@ final class SparseSyncTableSeekTests: XCTestCase {
         defer { server?.stop() }
         session.start()
         defer { session.stop() }
+        _ = session.mediaPlaylist()
         let started = Date()
-        XCTAssertNotNil(session.segmentURL(7))
+        XCTAssertNotNil(session.segmentURL(session.segmentIndex(atSeconds: 42)))
         XCTAssertLessThan(Date().timeIntervalSince(started), 12)
         session.stateLock.lock()
         let restarts = session.seekRestarts
         session.stateLock.unlock()
-        XCTAssertEqual(restarts, 1, "the index seek lands 2 s short of segment 7 and reads forward to it")
+        XCTAssertEqual(restarts, 1, "one index seek lands on the segment's own keyframe")
     }
 
     /// The same file with its sync table cut to one entry: every index seek lands on byte 0 and the

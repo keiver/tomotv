@@ -152,6 +152,19 @@ extension RemuxSession {
         }
     }
 
+    /// Blocks (bounded) until a copy without rungs has settled its grid at the opening keyframe.
+    /// Serving threads only: the pipeline decides it and must never wait here. A timeout lets the
+    /// fixed grid be named; the pipeline keeps it once a playlist has.
+    func awaitCopyGrid(deadline: TimeInterval) {
+        guard !config.isLive, config.tiers.isEmpty else { return }
+        _ = waitUntil(deadline: deadline) { [weak self] in
+            guard let self else { return true }
+            self.stateLock.lock()
+            defer { self.stateLock.unlock() }
+            return self.copyGridDecided || self.failed || self.cancelled || self.sourceReleased
+        }
+    }
+
     var tierOffered: Bool {
         stateLock.lock()
         defer { stateLock.unlock() }
@@ -235,6 +248,7 @@ extension RemuxSession {
 
     func masterPlaylist() -> String {
         awaitGrid()
+        awaitCopyGrid(deadline: masterBudgetLeft())
         // Live and self-described: the tracks and the captions come off the open input, not from a probe.
         if config.isLive || config.describesInput {
             _ = waitUntil(deadline: 40) { [weak self] in
@@ -678,6 +692,7 @@ extension RemuxSession {
     func mediaPlaylist(prefix: String = "") -> String {
         if config.isLive { return livePlaylist(prefix: prefix) }
         awaitGrid()
+        awaitCopyGrid(deadline: Self.subtitleSegmentWaitSeconds)
         stateLock.lock()
         gridPublished = true
         stateLock.unlock()
@@ -920,6 +935,7 @@ extension RemuxSession {
     /// AVFoundation takes four at load then one just ahead of each video segment,
     /// which is where the demux already is. Everything else stays one segment.
     func subtitlePlaylist(streamIndex: Int) -> String? {
+        awaitCopyGrid(deadline: Self.subtitleSegmentWaitSeconds)
         guard let sub = sessionSubtitles().first(where: { $0.index == streamIndex }) else { return nil }
         // Measured: selecting a rendition leaves the item's tracks unchanged, and its playlist is
         // refreshed while selected and never after. The request is the selection.

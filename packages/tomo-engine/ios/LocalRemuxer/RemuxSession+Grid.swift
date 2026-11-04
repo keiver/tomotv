@@ -20,6 +20,10 @@ extension RemuxSession {
             if n < adoptedStarts.count { return adoptedStarts[n] }
             return adoptedStarts[adoptedStarts.count - 1] + adoptedDurations[adoptedDurations.count - 1]
         }
+        if !keyframeStarts.isEmpty {
+            if n <= 0 { return 0 }
+            return n < keyframeStarts.count ? keyframeStarts[n] : durationSeconds
+        }
         return Double(n) * Self.segmentDuration
     }
 
@@ -31,6 +35,10 @@ extension RemuxSession {
             return liveDurations[n] ?? config.liveSegmentSeconds
         }
         if !adoptedDurations.isEmpty { return adoptedDurations[min(max(n, 0), adoptedDurations.count - 1)] }
+        if !keyframeStarts.isEmpty {
+            let k = min(max(n, 0), keyframeStarts.count - 1)
+            return max(0.001, segmentStartSeconds(k + 1) - segmentStartSeconds(k))
+        }
         let count = segmentCount
         return n == count - 1 ? max(0.001, durationSeconds - Double(n) * Self.segmentDuration) : Self.segmentDuration
     }
@@ -38,18 +46,39 @@ extension RemuxSession {
     /// Segment index containing second `s` (clamped into the grid).
     func segmentIndex(atSeconds s: Double) -> Int {
         if config.isLive { return max(0, Int(s / config.liveSegmentSeconds)) }
-        if !adoptedStarts.isEmpty {
-            // Last start <= s. adoptedStarts is sorted; linear scan is fine at
-            // playlist scale, but binary search keeps seeks O(log n).
-            var lo = 0
-            var hi = adoptedStarts.count - 1
-            while lo < hi {
-                let mid = (lo + hi + 1) / 2
-                if adoptedStarts[mid] <= s { lo = mid } else { hi = mid - 1 }
-            }
-            return lo
-        }
+        if !adoptedStarts.isEmpty { return Self.lastStart(atOrBefore: s, in: adoptedStarts) }
+        if !keyframeStarts.isEmpty { return Self.lastStart(atOrBefore: s, in: keyframeStarts) }
         return max(0, Int(s / Self.segmentDuration))
+    }
+
+    /// Index of the last start <= s in a sorted list (0 when s precedes them all).
+    static func lastStart(atOrBefore s: Double, in starts: [Double]) -> Int {
+        var lo = 0
+        var hi = starts.count - 1
+        while lo < hi {
+            let mid = (lo + hi + 1) / 2
+            if starts[mid] <= s { lo = mid } else { hi = mid - 1 }
+        }
+        return lo
+    }
+
+    /// Segment starts on a keyframe grid, as Jellyfin's `ComputeSegments` cuts a copy: the first
+    /// keyframe, then a keyframe at or past each mark, the mark moving on `segmentDuration` per cut.
+    /// `keyframes` are output seconds, sorted. As on the fixed grid (`segmentCount`), a remainder shorter
+    /// than `segmentDuration` folds into the last segment. Returns indices into `keyframes`, nil when
+    /// fewer than two segments remain.
+    static func keyframeGridStarts(keyframes: [Double], durationSeconds: Double) -> [Int]? {
+        var picked: [Int] = []
+        var mark = segmentDuration
+        for (i, seconds) in keyframes.enumerated() where seconds >= 0 && (picked.isEmpty || seconds <= durationSeconds - segmentDuration) {
+            if picked.isEmpty {
+                picked.append(i)
+            } else if seconds >= mark {
+                picked.append(i)
+                mark += segmentDuration
+            }
+        }
+        return picked.count >= 2 ? picked : nil
     }
 
     /// Delete session directories that no live session owns: what a crash or a

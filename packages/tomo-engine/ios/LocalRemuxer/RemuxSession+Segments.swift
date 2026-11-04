@@ -262,11 +262,11 @@ extension RemuxSession {
     @discardableResult
     func seekForStrandedLocked(_ n: Int, prefix: String, producing: Int) -> Bool {
         let behind = n < producing
-        let ahead = n > producing + Self.seekAheadSegments
+        let ahead = n > producing + seekAheadWindow
         guard behind || ahead else { return false }
         // A segment cut and still landing on disk is made, not missing: the wait sees it complete.
         if behind, renditions.first(where: { $0.prefix == prefix })?.writing.contains(n) == true { return false }
-        if ahead, activationGeneration, n <= activationSpanEnd + Self.seekAheadSegments { return false }
+        if ahead, activationGeneration, n <= activationSpanEnd + seekAheadWindow { return false }
         // A jump empties AVPlayer's buffer; refilling it is a start, not a drain.
         playerBufferFilled = false
         if behind, !prefix.isEmpty, renditions.first.map({ $0.completed.contains(n) || $0.writing.contains(n) }) == true {

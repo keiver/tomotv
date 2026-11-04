@@ -136,12 +136,15 @@ final class RemuxSession {
     /// Keep producing this many segments past the one AVPlayer last asked for,
     /// then idle. Bounds eager download of the source; the JS side passes a
     /// deeper cushion so a stalling remote feed can be absorbed.
-    let aheadWindow: Int
+    /// The keyframe grid rescales it to the same seconds, before any playlist names the grid.
+    var aheadWindow: Int
     /// Half-width of the on-disk window kept around the playhead. Segments
     /// outside it are deleted; the producer can always regenerate them with a
     /// seek-restart, so this only bounds disk use. Must stay >= aheadWindow or
     /// the pruner deletes fresh segments before they are ever served.
-    let keepWindow: Int
+    var keepWindow: Int
+    /// `seekAheadSegments`, rescaled with the windows above.
+    var seekAheadWindow = RemuxSession.seekAheadSegments
     /// Live: segments listed and kept on disk, under stateLock. A hot neighbour starts short and
     /// widens when a player adopts it.
     var liveKeepSegments: Int
@@ -407,6 +410,13 @@ final class RemuxSession {
     var adoptedStarts: [Double] = []
     /// Segment durations of the shared grid (from the canonical rung).
     var adoptedDurations: [Double] = []
+    /// A copy without rungs, on a source that indexes its keyframes: each segment starts on a keyframe
+    /// (output seconds), and the index timestamp a seek to that keyframe takes. Empty = fixed grid.
+    /// Written once on the pipeline thread, before any playlist names the grid.
+    var keyframeStarts: [Double] = []
+    var keyframeSeekTimestamps: [Int64] = []
+    /// The grid of a copy without rungs is settled, keyframe or fixed; its playlists wait for it. Under stateLock.
+    var copyGridDecided = false
     var tierSegments: [Int: [TierSegment]] = [:]
     /// Per rung id, tier segment indices with a rewrapped file on disk (prune).
     var tierMaterialized: [Int: Set<Int>] = [:]
@@ -516,6 +526,7 @@ final class RemuxSession {
     var segmentCount: Int {
         if config.isLive { return Int.max }
         if !adoptedStarts.isEmpty { return adoptedStarts.count }
+        if !keyframeStarts.isEmpty { return keyframeStarts.count }
         return max(1, Int(durationSeconds / Self.segmentDuration))
     }
 

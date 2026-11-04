@@ -289,11 +289,14 @@ tx_bytes`) sent 43 then 106 Mb/s during a TV probe that read 89.3, and Cloudflar
 ## Segments and the grid
 
 - The grid is the SERVER'S segment list, adopted from the canonical rung's
-  playlist: Jellyfin cuts at the source's keyframes, ignores the requested
-  SegmentLength, and cold random access is byte-identical (16/16 in
+  playlist, and cold random access is byte-identical (16/16 in
   `scripts/probe-slipstream.mjs`, which is kept for re-proving that against a
-  hardware-encoder server). Stream copy cuts at those same keyframes, so both
-  variants are IDR-aligned by construction.
+  hardware-encoder server). Jellyfin lists a transcode on equal SegmentLength
+  segments (measured on 12.2.0: 235 x 6.000 s; `DynamicHlsPlaylistGenerator`
+  keeps keyframe segments for a remux only), so the copy beside the rungs cuts
+  on that grid and its segments open mid-GOP wherever the source has no
+  keyframe on a 6 s mark (Apple 8.22 needs one grid across variants). A copy
+  with no rungs cuts on the source's own keyframes instead (issue 115).
 - Only the canonical rung's playlist is fetched before the master. Every other rung is listed
   unfetched and adopted when AVPlayer asks for it (`adoptRung`): each playlist is 48 KB, and two
   of them are 1.3s of a 0.6 Mb/s first frame. One cut on another grid is retired then and answers

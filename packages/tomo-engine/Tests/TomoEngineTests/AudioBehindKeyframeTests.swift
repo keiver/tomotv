@@ -36,17 +36,31 @@ final class AudioBehindKeyframeTests: XCTestCase {
     func testASeekOntoAKeyframeWithAudioBehindItServesTheSegment() throws {
         guard FileManager.default.isExecutableFile(atPath: Self.ffmpeg) else { throw XCTSkip("no ffmpeg at \(Self.ffmpeg)") }
         let bytes = try Data(contentsOf: try XCTUnwrap(Self.fixture, "libx264 produced no fixture"))
-        // Four times realtime: the forward read needs 10s to reach segment 7, so the request seeks instead.
+        // Four times realtime: the forward read needs 10s to reach 42 s, and the segment there is reached by a seek.
         let server = try ThrottledFileServer(data: bytes, bytesPerSecond: Int(Double(bytes.count) / (Self.seconds / 4)))
         defer { server.stop() }
         let session = try RemuxSession(config: makeConfig(durationSeconds: Self.seconds, inputUrl: "http://127.0.0.1:\(server.port)/key.mkv",
                                                           codecs: "avc1.64000D,mp4a.40.2", width: 320, height: 180, frameRate: 24))
         session.start()
         defer { session.stop() }
-        XCTAssertNotNil(session.segmentURL(7), "segment 7 is served after the seek, not an abort in the muxer")
+        _ = session.mediaPlaylist()
+        // Seeks wait for the timeline's anchor; queued once it exists, the read is still near the start.
+        let anchored = Date().addingTimeInterval(10)
+        while Date() < anchored {
+            session.stateLock.lock()
+            let anchor = session.sessionAnchorSeconds
+            session.stateLock.unlock()
+            if anchor != nil { break }
+            usleep(50_000)
+        }
+        let target = session.segmentIndex(atSeconds: 42)
+        session.stateLock.lock()
+        session.pendingSeekSegment = target
+        session.stateLock.unlock()
+        XCTAssertNotNil(session.segmentURL(target), "the segment at 42 s is served after the seek, not an abort in the muxer")
         session.stateLock.lock()
         let restarts = session.seekRestarts
         session.stateLock.unlock()
-        XCTAssertGreaterThanOrEqual(restarts, 1, "the request reached segment 7 through a seek")
+        XCTAssertGreaterThanOrEqual(restarts, 1, "the request reached the segment at 42 s through a seek")
     }
 }

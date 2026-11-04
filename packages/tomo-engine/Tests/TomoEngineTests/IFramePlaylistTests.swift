@@ -456,12 +456,20 @@ final class IFramePlaylistTests: XCTestCase {
             let rendition = try IFrameOracle.rendition(master: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/master.m3u8")))
             let source = try XCTUnwrap(IFrameOracle.decode(try XCTUnwrap(Self.file(key)).path), "the source does not decode").frames
             let keys = source.filter(\.key)
-            let anchor = try XCTUnwrap(keys.first).seconds
+            // The output timeline's zero in source seconds: the opening keyframe's decode time, which an MP4
+            // with B-frames sets before its presentation.
+            session.stateLock.lock()
+            let sessionAnchor = session.sessionAnchorSeconds
+            session.stateLock.unlock()
+            let anchor = try XCTUnwrap(sessionAnchor)
             let starts = rendition.entries.map(\.start)
+            // Where each indexed keyframe presents on the output timeline. The playlist's first entry runs from
+            // zero (IFrameEntries.durations), so its picture plays at the first of these, not at its start.
+            let presents = keys.map { $0.seconds - anchor }.filter { $0 < Self.seconds }
             if fixture.exact {
-                let expected = keys.map { $0.seconds - anchor }.filter { $0 < Self.seconds }
-                XCTAssertEqual(starts.count, expected.count, "entries at \(starts), source keyframes at \(expected)")
-                for (start, keyframe) in zip(starts, expected) { XCTAssertEqual(start, keyframe, accuracy: 0.002) }
+                XCTAssertEqual(starts.count, presents.count, "entries at \(starts), source keyframes at \(presents)")
+                XCTAssertEqual(starts.first, 0)
+                for (start, keyframe) in zip(starts.dropFirst(), presents.dropFirst()) { XCTAssertEqual(start, keyframe, accuracy: 0.002) }
             } else {
                 XCTAssertEqual(starts, (0..<Int(Self.seconds / fixture.spacing)).map { Double($0) * fixture.spacing })
             }
@@ -488,12 +496,15 @@ final class IFramePlaylistTests: XCTestCase {
                     continue
                 }
                 XCTAssertTrue(picture.key, "entry \(k)")
-                XCTAssertEqual(picture.seconds, entry.start, accuracy: 0.5 / 24, "entry \(k) plays at its start")
+                let playsAt = fixture.exact && k == 0 ? (presents.first ?? entry.start) : entry.start
+                XCTAssertEqual(picture.seconds, playsAt, accuracy: 0.5 / 24, "entry \(k) plays at its start")
                 // Tone-mapped luma is not the PQ source's, so an HDR entry is held to its time alone.
                 guard !fixture.hdr else { continue }
                 let match = try XCTUnwrap(source.min { $0.distance(to: picture) < $1.distance(to: picture) })
-                let at = entry.start + anchor
-                let expected = fixture.exact ? at : try XCTUnwrap(keys.last { $0.seconds <= at + 0.002 }).seconds
+                let at = playsAt + anchor
+                // A grid entry shows the last keyframe at or before its time plus the grabber's tolerance; one before
+                // the opening keyframe, that keyframe.
+                let expected = fixture.exact ? at : try XCTUnwrap(keys.last { $0.seconds <= at + FrameGrabber.gridTolerance } ?? keys.first).seconds
                 XCTAssertEqual(match.seconds, expected, accuracy: 0.002, "entry \(k) at \(at) shows the source's frame at \(match.seconds)")
                 if !fixture.codecs.isEmpty, !fixture.hdr { XCTAssertEqual(match.distance(to: picture), 0, "entry \(k) is the copied keyframe") }
             }
