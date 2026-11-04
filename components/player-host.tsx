@@ -171,6 +171,7 @@ export function PlayerHost() {
   // An inline session plays in the frame its screen reports (the pinned band), parked with sound while it reports none,
   // and in AVKit's presented player when asked.
   const [inlineFrame, setInlineFrame] = useState<InlineFrame | null>(null);
+  const [inlineOverlay, setInlineOverlay] = useState<React.ReactNode>(null);
   // Full screen was asked for while the inline channel was still opening.
   const fullscreenWhenLoadedRef = useRef(false);
 
@@ -944,6 +945,7 @@ export function PlayerHost() {
       togglePlay,
       toggleVideoFill,
       setInlineFrame,
+      setInlineOverlay,
       presentFullscreen: () => {
         if (!PRESENTS_NATIVE_FULLSCREEN || !sessionRef.current?.inline || presentationRef.current !== "none" || pipRef.current !== "none") return;
         // Still opening: the presented player comes up once the item shows.
@@ -1004,7 +1006,7 @@ export function PlayerHost() {
   }, [hostVisible, inline, videoRef]);
 
   return (
-    <DismissPan onDismiss={handleDismissGesture} style={stageStyle} pointerEvents={onStage ? "auto" : "none"}>
+    <DismissPan onDismiss={handleDismissGesture} style={stageStyle} pointerEvents={onStage ? "auto" : inlineShown && inlineOverlay ? "box-none" : "none"} enabled={!inline}>
       {session !== null && shownSource && (
         <Video
           // Remount on every stream change (direct play to transcoding), except a live channel,
@@ -1101,6 +1103,7 @@ export function PlayerHost() {
 
       {/* Phone: the inline player (the one the lib re-embeds after every dismissal) is never shown; the presented player is the only picture. An inline session is the exception. */}
       {PRESENTS_NATIVE_FULLSCREEN && session !== null && !inline && <View style={styles.closingCurtain} pointerEvents="none" testID="player-curtain" />}
+      {inlineShown ? inlineOverlay : null}
     </DismissPan>
   );
 }

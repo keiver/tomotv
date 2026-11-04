@@ -22,6 +22,7 @@ function makeBridge(): jest.Mocked<PlayerHostBridge> {
     togglePlay: jest.fn(),
     toggleVideoFill: jest.fn(),
     setInlineFrame: jest.fn(),
+    setInlineOverlay: jest.fn(),
     presentFullscreen: jest.fn(),
   };
 }
@@ -195,6 +196,14 @@ describe("PlayerSessionContext handoff", () => {
 
     expect(bridge.setInlineFrame).toHaveBeenCalledWith(frame);
     expect(bridge.requestSession.mock.invocationCallOrder[0]).toBeLessThan(bridge.setInlineFrame.mock.invocationCallOrder[0]);
+  });
+
+  it("hands an inline overlay set before the host registered to the host once it does", () => {
+    const bridge = makeBridge();
+    const overlay = <></>;
+    renderColdLaunch(bridge, (session) => session.setInlineOverlay(overlay));
+
+    expect(bridge.setInlineOverlay).toHaveBeenCalledWith(overlay);
   });
 
   it("hands a cleared inline frame to the host too", () => {

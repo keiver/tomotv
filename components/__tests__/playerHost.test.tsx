@@ -7,7 +7,7 @@
  * not what the hook does with it.
  */
 import React from "react";
-import { StyleSheet } from "react-native";
+import { StyleSheet, View } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 import Video from "react-native-video";
 import { DismissPan } from "@/components/dismiss-pan";
@@ -1101,6 +1101,33 @@ describe("PlayerHost", () => {
       expect(stage().props.pointerEvents).toBe("none");
       expect(StyleSheet.flatten(stage().props.style)).toMatchObject({ position: "absolute", left: 0, top: 300, width: 160, height: 90 });
       expect(videoRef.current.enterPictureInPicture).not.toHaveBeenCalled();
+    });
+
+    it("draws the band's overlay over the inline picture and takes touches only for it, with the drag to leave off", async () => {
+      await playInline();
+      expect(stage().props.enabled).toBe(false);
+      await act(async () => {
+        bridge().setInlineOverlay(<View testID="band-overlay" />);
+      });
+
+      expect(renderer.root.findAll((node) => node.props.testID === "band-overlay").length).toBeGreaterThan(0);
+      expect(stage().props.pointerEvents).toBe("box-none");
+
+      await act(async () => {
+        bridge().setInlineOverlay(null);
+      });
+      expect(stage().props.pointerEvents).toBe("none");
+    });
+
+    it("draws no overlay while the inline player is parked", async () => {
+      await playInline();
+      await act(async () => {
+        bridge().setInlineOverlay(<View testID="band-overlay" />);
+        bridge().setInlineFrame(null);
+      });
+
+      expect(renderer.root.findAll((node) => node.props.testID === "band-overlay")).toHaveLength(0);
+      expect(stage().props.pointerEvents).toBe("none");
     });
 
     it("parks through a channel switch, keeping the session, and comes back to the slot once the new channel plays", async () => {

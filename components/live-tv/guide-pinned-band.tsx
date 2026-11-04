@@ -3,7 +3,8 @@ import { GlassIconButton } from "@/components/glass-icon-button";
 import { GuideChannelCard } from "@/components/live-tv/guide-channel-card";
 import { GuideChannelTile } from "@/components/live-tv/guide-channel-tile";
 import { COLORS } from "@/constants/colors";
-import type { InlineFrame } from "@/contexts/PlayerSessionContext";
+import { GuidePinnedOverlay } from "@/components/live-tv/guide-pinned-overlay";
+import { usePlayerSession, type InlineFrame } from "@/contexts/PlayerSessionContext";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { tapFeedback } from "@/services/haptics";
 import { t } from "@/services/i18n";
@@ -11,7 +12,7 @@ import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
 import { bandExtendedSize, formatClockRange, type GuideMetrics } from "@/utils/guide";
 import { THIS_DEVICE } from "@/utils/hostEnvironment";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, type LayoutChangeEvent, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import Animated, { LinearTransition, type SharedValue, useAnimatedStyle } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -19,9 +20,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 const OPENING_DIM = 0.3;
 /** The band's bottom edge, in the theme's accent and heavier than the rows' grid line below it. */
 const BAND_EDGE = 3;
-/** iPhone's larger picture takes the screen's width, so its name and buttons move to a bar under it. */
-const BAR_UNDER = THIS_DEVICE === "iPhone";
-const BAR_HEIGHT = 48;
+/** iPhone's larger picture takes the screen's width, so its name and buttons move onto the picture. */
+const ON_PICTURE = THIS_DEVICE === "iPhone";
 const SIZE_MS = 260;
 /** The picture's height from which the programme beside it gets a second line under the buttons. */
 const TWO_LINE_HEIGHT = 130;
@@ -60,6 +60,7 @@ interface GuidePinnedBandProps {
  */
 export function GuidePinnedBand({ channel, program, metrics, compact, bare, columnWidth, cardScale, resizing, opening, onSlot, onOpen, onClose, onHeight }: GuidePinnedBandProps) {
   const { accent } = useCardPalette();
+  const { setInlineOverlay } = usePlayerSession();
   const insets = useSafeAreaInsets();
   const { height: windowH } = useWindowDimensions();
   const [bandW, setBandW] = useState(0);
@@ -69,11 +70,11 @@ export function GuidePinnedBand({ channel, program, metrics, compact, bare, colu
   const [sizing, setSizing] = useState(false);
 
   const rowVideoH = metrics.rowHeight - 1;
-  const large = bandExtendedSize(Math.max(0, bandW - insets.right), windowH, !BAR_UNDER);
+  const large = bandExtendedSize(Math.max(0, bandW - insets.right), windowH, !ON_PICTURE);
   const showTile = compact && !extended;
   const videoW = extended ? large.width : compact ? metrics.compactColumnWidth : metrics.channelColumnWidth;
   const videoH = extended ? large.height : rowVideoH;
-  const barUnder = extended && BAR_UNDER;
+  const onPicture = extended && ON_PICTURE;
 
   const slotRef = useRef<View>(null);
   const measure = useCallback(() => {
@@ -107,6 +108,15 @@ export function GuidePinnedBand({ channel, program, metrics, compact, bare, colu
     setExtended((was) => !was);
   }, []);
 
+  const name = cleanLabel(channel.Name);
+  const overlay = useMemo(
+    () => (onPicture ? <GuidePinnedOverlay name={name} extended onToggleSize={toggleSize} onOpen={onOpen} onClose={onClose} /> : null),
+    [onPicture, name, toggleSize, onOpen, onClose],
+  );
+  // The player draws above the guide, so the copy over the playing picture is the host's.
+  useEffect(() => setInlineOverlay(overlay), [overlay, setInlineOverlay]);
+  useEffect(() => () => setInlineOverlay(null), [setInlineOverlay]);
+
   const cropStyle = useAnimatedStyle(() => {
     if (extended || showTile) return { width: videoW };
     return { width: Math.min(columnWidth.get(), Math.max(videoW * cardScale.get(), videoW)) };
@@ -120,9 +130,9 @@ export function GuidePinnedBand({ channel, program, metrics, compact, bare, colu
   const info = (
     <View style={styles.info} pointerEvents="none">
       <Text style={styles.channelName} numberOfLines={1}>
-        {cleanLabel(channel.Name)}
+        {name}
       </Text>
-      {program && !barUnder ? (
+      {program ? (
         <Text style={styles.program} numberOfLines={videoH < TWO_LINE_HEIGHT ? 1 : 2}>
           {cleanLabel(program.Name)}
           {slot ? <Text style={styles.slot}>{`  ${slot.start} – ${slot.end}`}</Text> : null}
@@ -148,8 +158,8 @@ export function GuidePinnedBand({ channel, program, metrics, compact, bare, colu
   return (
     // The band's own layout too: a rotation moves the slot in the window without changing the slot's size.
     <Animated.View style={styles.lift} layout={sizeTransition} onLayout={handleBandLayout} testID="guide-pinned-band">
-      <Animated.View style={[styles.band, { borderBottomColor: accent, paddingRight: barUnder ? 0 : insets.right }]} layout={sizeTransition}>
-        <View style={barUnder ? undefined : styles.row}>
+      <Animated.View style={[styles.band, { borderBottomColor: accent, paddingRight: insets.right }]} layout={sizeTransition}>
+        <View style={styles.row}>
           <Animated.View style={[styles.crop, { height: videoH }, cropStyle]}>
             <Animated.View ref={slotRef} style={[styles.grow, { width: videoW, height: videoH }, growStyle]} onLayout={measure} collapsable={false}>
               <View style={[opening ? styles.dimmed : styles.fill, showTile && styles.tileSeat]}>
@@ -165,20 +175,15 @@ export function GuidePinnedBand({ channel, program, metrics, compact, bare, colu
                 <ActivityIndicator size="small" color={accent} />
               </View>
             ) : null}
+            {overlay}
           </Animated.View>
-          {barUnder ? null : (
+          {onPicture ? null : (
             <View style={styles.side}>
               {buttons}
               {bare ? null : info}
             </View>
           )}
         </View>
-        {barUnder ? (
-          <View style={[styles.bar, { paddingRight: insets.right }]}>
-            {info}
-            {buttons}
-          </View>
-        ) : null}
       </Animated.View>
     </Animated.View>
   );
@@ -261,11 +266,5 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     gap: 12,
     marginHorizontal: 12,
-  },
-  // iPhone's larger picture: the name and buttons under the full-width picture.
-  bar: {
-    height: BAR_HEIGHT,
-    flexDirection: "row",
-    alignItems: "center",
   },
 });

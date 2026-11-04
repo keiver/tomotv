@@ -127,6 +127,8 @@ export interface PlayerHostBridge {
   toggleVideoFill: () => void;
   /** Where an inline session plays; null parks it, still playing, while the screen shows none. */
   setInlineFrame: (frame: InlineFrame | null) => void;
+  /** Drawn over an inline session's picture, never over the presented player; null draws nothing. */
+  setInlineOverlay: (overlay: ReactNode | null) => void;
   /** An inline session goes to AVKit's presented player. */
   presentFullscreen: () => void;
 }
@@ -174,7 +176,7 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
    * that describe INTENT are held here and replayed at registration; the rest need a live
    * host by definition. Nothing in this file may depend on mount order.
    */
-  const pendingRef = useRef<{ request?: PlayerSessionRequest; tvConfig?: PlayerTvConfig; routePresented?: boolean; inlineFrame?: InlineFrame | null }>({});
+  const pendingRef = useRef<{ request?: PlayerSessionRequest; tvConfig?: PlayerTvConfig; routePresented?: boolean; inlineFrame?: InlineFrame | null; inlineOverlay?: ReactNode | null }>({});
 
   const registerHost = useCallback((bridge: PlayerHostBridge | null) => {
     bridgeRef.current = bridge;
@@ -186,6 +188,7 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
     if (pending.tvConfig) bridge.setTvConfig(pending.tvConfig);
     if (pending.routePresented) bridge.signalRoutePresented();
     if (pending.inlineFrame !== undefined) bridge.setInlineFrame(pending.inlineFrame);
+    if (pending.inlineOverlay !== undefined) bridge.setInlineOverlay(pending.inlineOverlay);
   }, []);
 
   /** Commands that only mean something while a host is live. A miss is a bug, not a state. */
@@ -272,6 +275,14 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
     }
     bridge.setInlineFrame(frame);
   }, []);
+  const setInlineOverlay = useCallback((overlay: ReactNode | null) => {
+    const bridge = bridgeRef.current;
+    if (!bridge) {
+      pendingRef.current.inlineOverlay = overlay;
+      return;
+    }
+    bridge.setInlineOverlay(overlay);
+  }, []);
   const presentFullscreen = useCallback(() => withHost("presentFullscreen", (bridge) => bridge.presentFullscreen()), [withHost]);
 
   const value = useMemo(
@@ -292,6 +303,7 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
       togglePlay,
       toggleVideoFill,
       setInlineFrame,
+      setInlineOverlay,
       presentFullscreen,
       setHandlers,
       clearHandlers,
@@ -313,6 +325,7 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
       togglePlay,
       toggleVideoFill,
       setInlineFrame,
+      setInlineOverlay,
       presentFullscreen,
       setHandlers,
       clearHandlers,
