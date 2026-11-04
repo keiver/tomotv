@@ -188,8 +188,9 @@ export function GuidePinnedBand({
   const recordButton = useMemo<PinnedRecordButton | null>(() => {
     if (recordTimer === undefined) return null;
     return {
-      icon: recordTimer ? (recordingNow ? "stop-circle-outline" : "close-circle-outline") : "radio-button-on",
+      icon: recordTimer ? (recordingNow ? "stop" : "close-circle-outline") : "radio-button-on",
       label: t(recordTimer ? (recordingNow ? "liveTv.stopRecording" : "liveTv.cancelRecording") : "liveTv.record"),
+      text: recordingNow ? t("liveTv.stopRecording") : undefined,
       onPress: pressRecord,
     };
   }, [recordTimer, recordingNow, pressRecord]);
@@ -245,7 +246,15 @@ export function GuidePinnedBand({
     <View style={styles.buttons}>
       {recordButton ? (
         <View testID="guide-pinned-record">
-          <GlassIconButton icon={recordButton.icon} iconSize={SIDE_ICON} size={SIDE_BUTTON} color={COLORS.DESTRUCTIVE} onPress={recordButton.onPress} accessibilityLabel={recordButton.label} />
+          <GlassIconButton
+            icon={recordButton.icon}
+            iconSize={SIDE_ICON}
+            size={SIDE_BUTTON}
+            color={COLORS.DESTRUCTIVE}
+            label={ON_PICTURE ? undefined : recordButton.text}
+            onPress={recordButton.onPress}
+            accessibilityLabel={recordButton.label}
+          />
         </View>
       ) : null}
       <GlassIconButton

@@ -18,6 +18,8 @@ const SCRIM =
 export interface PinnedRecordButton {
   icon: React.ComponentProps<typeof Ionicons>["name"];
   label: string;
+  /** Shown beside the glyph while a recording runs: Stop Recording. */
+  text?: string;
   onPress: () => void;
 }
 
@@ -64,7 +66,7 @@ export function GuidePinnedOverlay({ name, mark, record, extended, bar, accent, 
           </Text>
           {record ? (
             <View testID="guide-pinned-record">
-              <GlassIconButton icon={record.icon} iconSize={20} size={GRIP_SIZE} color={COLORS.DESTRUCTIVE} onPress={record.onPress} accessibilityLabel={record.label} />
+              <GlassIconButton icon={record.icon} iconSize={20} size={GRIP_SIZE} color={COLORS.DESTRUCTIVE} label={record.text} onPress={record.onPress} accessibilityLabel={record.label} />
             </View>
           ) : null}
           <GlassIconButton
