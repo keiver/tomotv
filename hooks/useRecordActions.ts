@@ -74,9 +74,9 @@ export function useRecordActions(target: RecordTarget | null) {
     };
   }, [enabled, readState]);
 
-  /** A write, then a re-read; a write that landed stands even when the re-read fails, as `landed` (and `landedSeries` when given). */
+  /** A write, then a re-read; a write that landed stands even when the re-read fails, as `landed` (and `landedSeries` when given). Resolves whether the write landed. */
   const run = useCallback(
-    async (kind: Exclude<RecordBusy, null>, action: () => Promise<void>, doneToast: string, landed: JellyfinTimer | null, landedSeries?: string | null) => {
+    async (kind: Exclude<RecordBusy, null>, action: () => Promise<void>, doneToast: string, landed: JellyfinTimer | null, landedSeries?: string | null): Promise<boolean> => {
       setBusy(kind);
       try {
         await action();
@@ -84,7 +84,7 @@ export function useRecordActions(target: RecordTarget | null) {
         logger.error("Recording action failed", err, { hook: "useRecordActions", kind });
         showToast(t("liveTv.recordingFailed"), "error");
         setBusy(null);
-        return;
+        return false;
       }
       showToast(doneToast, "success");
       try {
@@ -96,6 +96,7 @@ export function useRecordActions(target: RecordTarget | null) {
       } finally {
         setBusy(null);
       }
+      return true;
     },
     [loadTimer],
   );

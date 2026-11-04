@@ -611,6 +611,8 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
           onSlot={pinned.setSlot}
           onOpen={pinned.open}
           onClose={pinned.close}
+          onRecordStart={pinned.expectRecording}
+          onRecordSettled={pinned.recordingSettled}
           onHeight={setPinnedBandHeight}
         />
       ) : null}

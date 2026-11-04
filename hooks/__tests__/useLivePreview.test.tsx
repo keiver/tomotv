@@ -25,10 +25,17 @@ const mockDismissToast = jest.fn();
 jest.mock("@/services/toast", () => ({ showToast: (options: unknown) => mockShowToast(options), dismissToast: (id: string) => mockDismissToast(id) }));
 jest.mock("@/services/i18n", () => ({ t: (key: string) => key }));
 const mockHold = { held: false, holdingTimer: null as object | null, reason: null as string | null, stopping: false, opening: false, stopAndPlay: jest.fn(), watch: jest.fn() };
-jest.mock("@/hooks/useRecordingHoldChoices", () => ({ useRecordingHoldChoices: () => mockHold }));
+let mockOpenRecording: (item: { Id: string; Name: string }) => void = () => {};
+jest.mock("@/hooks/useRecordingHoldChoices", () => ({
+  useRecordingHoldChoices: (_channelId: string, _state: unknown, _retry: unknown, openRecording: typeof mockOpenRecording) => {
+    mockOpenRecording = openRecording;
+    return mockHold;
+  },
+}));
 
 let mockFocused = true;
-jest.mock("expo-router", () => ({ useIsFocused: () => mockFocused, useRouter: () => ({ push: jest.fn() }) }));
+const mockPush = jest.fn();
+jest.mock("expo-router", () => ({ useIsFocused: () => mockFocused, useRouter: () => ({ push: mockPush }) }));
 
 const one = { Id: "c1", Name: "One", Type: "TvChannel" };
 const two = { Id: "c2", Name: "Two", Type: "TvChannel" };
@@ -210,6 +217,95 @@ describe("useLivePreview", () => {
     expect(title).toBe("One");
     expect(message).toBe("held by the recording");
     expect((buttons ?? []).map((button) => button.text)).toEqual(["common.cancel", "liveTv.stopRecordingAndPlay", "liveTv.watchRecording"]);
+    alert.mockRestore();
+  });
+
+  /** The band's record press on a one-connection provider: the live read ends and the recording holds it. */
+  async function recordHere() {
+    await mount();
+    await act(async () => latest().pin(one as never));
+    await hostShows("c1", "video");
+    await act(async () => latest().expectRecording());
+    Object.assign(mockHold, { held: true, holdingTimer: { Id: "t1" }, reason: "held by the recording" });
+    mockHold.watch.mockImplementationOnce(() => {
+      mockHold.opening = true;
+    });
+    await hostShows("c1", "error");
+  }
+
+  it("plays the recording the band started in the band once it has the stream, asking nothing", async () => {
+    const alert = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
+    await recordHere();
+    const key = mockSession.requestSession.mock.calls[0][0].sessionKey;
+
+    expect(mockHold.watch).toHaveBeenCalledTimes(1);
+    expect(alert).not.toHaveBeenCalled();
+    expect(mockShowToast).not.toHaveBeenCalledWith(expect.objectContaining({ title: "player.unableToPlay" }));
+    await act(async () => mockOpenRecording({ Id: "r1", Name: "One recording" }));
+
+    expect(mockSession.requestSession).toHaveBeenLastCalledWith({ videoId: "r1", videoName: "One recording", inline: true, sessionKey: key });
+    expect(mockPush).not.toHaveBeenCalled();
+    expect(latest().channel?.Id).toBe("c1");
+    alert.mockRestore();
+  });
+
+  it("shows the band opening while it waits for the recording", async () => {
+    await mount();
+    await act(async () => latest().pin(one as never));
+    await hostShows("c1", "video");
+    await act(async () => latest().expectRecording());
+    await hostShows("c1", "error");
+    expect(latest().opening).toBe(true);
+  });
+
+  it("keeps the pin on the channel while its recording plays: its own card does nothing, another starts a live session, its programme goes full screen", async () => {
+    await recordHere();
+    await act(async () => mockOpenRecording({ Id: "r1", Name: "One recording" }));
+    Object.assign(mockHold, { held: false, holdingTimer: null, reason: null, opening: false });
+    await hostShows("r1", "video");
+    mockTapFeedback.mockClear();
+
+    await act(async () => latest().pin(one as never));
+    expect(mockTapFeedback).not.toHaveBeenCalled();
+
+    let handled = false;
+    await act(async () => {
+      handled = latest().fullscreen("c1");
+    });
+    expect(handled).toBe(true);
+    expect(mockSession.presentFullscreen).toHaveBeenCalledTimes(1);
+
+    await act(async () => latest().pin(two as never));
+    expect(mockSession.switchLiveChannel).not.toHaveBeenCalled();
+    expect(mockSession.requestSession).toHaveBeenLastCalledWith(expect.objectContaining({ videoId: "c2", isLive: true, inline: true }));
+  });
+
+  it("brings the channel back when the record write failed", async () => {
+    await mount();
+    await act(async () => latest().pin(one as never));
+    await hostShows("c1", "video");
+    await act(async () => latest().expectRecording());
+    await hostShows("c1", "error");
+
+    await act(async () => latest().recordingSettled(false));
+
+    expect(mockSession.retry).toHaveBeenCalledTimes(1);
+    expect(latest().opening).toBe(false);
+  });
+
+  it("plays on when the recording took no connection from this device", async () => {
+    await mount();
+    await act(async () => latest().pin(one as never));
+    await hostShows("c1", "video");
+    await act(async () => latest().expectRecording());
+    await act(async () => latest().recordingSettled(true));
+    Object.assign(mockHold, { held: true, holdingTimer: { Id: "t1" }, reason: "held by the recording" });
+    const alert = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
+    await hostShows("c1", "error");
+
+    expect(mockSession.retry).not.toHaveBeenCalled();
+    expect(mockHold.watch).not.toHaveBeenCalled();
+    expect(alert).toHaveBeenCalledTimes(1);
     alert.mockRestore();
   });
 

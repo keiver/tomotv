@@ -3,6 +3,7 @@ import { GlassIconButton } from "@/components/glass-icon-button";
 import { GRIP_SIZE } from "@/components/live-tv/guide-grip";
 import { COLORS } from "@/constants/colors";
 import { t } from "@/services/i18n";
+import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { GestureDetector, type GestureType } from "react-native-gesture-handler";
@@ -13,8 +14,16 @@ export const PINNED_TEXT_INSET = 12;
 const SCRIM =
   "linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.08) 15%, rgba(0, 0, 0, 0.22) 30%, rgba(0, 0, 0, 0.42) 45%, rgba(0, 0, 0, 0.62) 60%, rgba(0, 0, 0, 0.8) 75%, rgba(0, 0, 0, 0.92) 90%, rgba(0, 0, 0, 0.96) 100%)";
 
+export interface PinnedRecordButton {
+  icon: React.ComponentProps<typeof Ionicons>["name"];
+  label: string;
+  onPress: () => void;
+}
+
 interface GuidePinnedOverlayProps {
   name: string;
+  /** Record or stop, when the account may record this channel. */
+  record?: PinnedRecordButton | null;
   extended: boolean;
   /** The name and buttons sit on the picture: iPhone's larger picture. */
   bar: boolean;
@@ -31,7 +40,7 @@ interface GuidePinnedOverlayProps {
  * Over the pinned channel's picture: the tap to full screen and the band's swipe, and on iPhone's larger picture the
  * name and buttons on a black scrim. Drawn by the player host over the inline video, and by the band over the clip.
  */
-export function GuidePinnedOverlay({ name, extended, bar, accent, swipe, onToggleSize, onOpen, onClose }: GuidePinnedOverlayProps) {
+export function GuidePinnedOverlay({ name, record, extended, bar, accent, swipe, onToggleSize, onOpen, onClose }: GuidePinnedOverlayProps) {
   const body = (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none" testID="guide-pinned-overlay">
       <Pressable style={StyleSheet.absoluteFill} onPress={onOpen} accessibilityRole="button" accessibilityLabel={name} />
@@ -40,6 +49,11 @@ export function GuidePinnedOverlay({ name, extended, bar, accent, swipe, onToggl
           <Text style={styles.name} numberOfLines={1} pointerEvents="none">
             {name}
           </Text>
+          {record ? (
+            <View testID="guide-pinned-record">
+              <GlassIconButton icon={record.icon} iconSize={20} size={GRIP_SIZE} color={COLORS.DESTRUCTIVE} onPress={record.onPress} accessibilityLabel={record.label} />
+            </View>
+          ) : null}
           <GlassIconButton
             icon={extended ? "contract-outline" : "expand-outline"}
             iconSize={20}

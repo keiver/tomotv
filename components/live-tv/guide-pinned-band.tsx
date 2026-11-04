@@ -4,14 +4,16 @@ import { GuideChannelCard } from "@/components/live-tv/guide-channel-card";
 import { GuideChannelTile } from "@/components/live-tv/guide-channel-tile";
 import { COLORS } from "@/constants/colors";
 import { GuidePinnedTab } from "@/components/live-tv/guide-pinned-tab";
-import { GuidePinnedOverlay, PINNED_TEXT_INSET } from "@/components/live-tv/guide-pinned-overlay";
+import { GuidePinnedOverlay, PINNED_TEXT_INSET, type PinnedRecordButton } from "@/components/live-tv/guide-pinned-overlay";
 import { usePlayerSession, type InlineFrame } from "@/contexts/PlayerSessionContext";
 import { useCardPalette } from "@/hooks/useCardPalette";
+import { useLiveTvManagement } from "@/hooks/useLiveTvManagement";
+import { useRecordActions } from "@/hooks/useRecordActions";
 import { tapFeedback } from "@/services/haptics";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
-import { bandExtendedSize, bandSwipeToggles, formatClockRange, type GuideMetrics } from "@/utils/guide";
+import { bandExtendedSize, bandSwipeToggles, EXTERNAL_GUIDE_PREFIX, formatClockRange, type GuideMetrics } from "@/utils/guide";
 import { THIS_DEVICE } from "@/utils/hostEnvironment";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, type LayoutChangeEvent, StyleSheet, Text, useWindowDimensions, View } from "react-native";
@@ -51,6 +53,10 @@ interface GuidePinnedBandProps {
   /** A tap on the player or its card: the presented player, with AVKit's controls. */
   onOpen: () => void;
   onClose: () => void;
+  /** The record button is about to start a recording on the channel. */
+  onRecordStart: () => void;
+  /** The record write answered, whether it landed. */
+  onRecordSettled: (landed: boolean) => void;
   /** The band's laid-out height, bottom edge included. */
   onHeight: (height: number) => void;
 }
@@ -60,7 +66,23 @@ interface GuidePinnedBandProps {
  * it airs, a button between the card's size and a larger picture, and a close button. Outside both lists, so scrolling
  * never moves the player. Phone, iPad and Mac.
  */
-export function GuidePinnedBand({ channel, program, metrics, compact, bare, columnWidth, cardScale, resizing, opening, onSlot, onOpen, onClose, onHeight }: GuidePinnedBandProps) {
+export function GuidePinnedBand({
+  channel,
+  program,
+  metrics,
+  compact,
+  bare,
+  columnWidth,
+  cardScale,
+  resizing,
+  opening,
+  onSlot,
+  onOpen,
+  onClose,
+  onRecordStart,
+  onRecordSettled,
+  onHeight,
+}: GuidePinnedBandProps) {
   const { accent } = useCardPalette();
   const { setInlineOverlay } = usePlayerSession();
   const insets = useSafeAreaInsets();
@@ -127,11 +149,49 @@ export function GuidePinnedBand({ channel, program, metrics, compact, bare, colu
   const tabSwipe = useMemo(() => swipe().hitSlop({ vertical: 12, horizontal: 12 }), [swipe]);
 
   const name = cleanLabel(channel.Name);
-  const overlay = showTile ? null : <GuidePinnedOverlay name={name} extended={extended} bar={onPicture} accent={accent} onToggleSize={toggleSize} onOpen={onOpen} onClose={onClose} />;
+  const startMs = Date.parse(program?.StartDate ?? "");
+  const endMs = Date.parse(program?.EndDate ?? "");
+  const timed = Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs;
+
+  // The info panel's rule: an external programme records by its times, and a channel the server has not ingested not at all.
+  const canManage = useLiveTvManagement();
+  const externalProgram = !!program?.Id?.startsWith(EXTERNAL_GUIDE_PREFIX);
+  const recording = useRecordActions(
+    canManage && !channel.playlistPending && (!externalProgram || timed)
+      ? { programId: program && !externalProgram ? program.Id : undefined, channelId: channel.Id, channelName: name, program: program ?? null }
+      : null,
+  );
+  const { timer: recordTimer, busy: recordBusy, record, cancel: cancelRecording } = recording;
+  const pressRecord = useCallback(() => {
+    if (recordBusy !== null) return;
+    void tapFeedback();
+    if (recordTimer) {
+      void cancelRecording();
+      return;
+    }
+    onRecordStart();
+    void Promise.resolve(record()).then((landed) => onRecordSettled(landed === true));
+  }, [recordBusy, recordTimer, cancelRecording, record, onRecordStart, onRecordSettled]);
+  const recordButton = useMemo<PinnedRecordButton | null>(() => {
+    if (recordTimer === undefined) return null;
+    const inProgress = recordTimer?.Status === "InProgress";
+    return {
+      icon: recordTimer ? (inProgress ? "stop-circle-outline" : "close-circle-outline") : "radio-button-on",
+      label: t(recordTimer ? (inProgress ? "liveTv.stopRecording" : "liveTv.cancelRecording") : "liveTv.record"),
+      onPress: pressRecord,
+    };
+  }, [recordTimer, pressRecord]);
+
+  const overlay = showTile ? null : (
+    <GuidePinnedOverlay name={name} record={recordButton} extended={extended} bar={onPicture} accent={accent} onToggleSize={toggleSize} onOpen={onOpen} onClose={onClose} />
+  );
   // The player draws above the guide, so the copy over the playing picture is the host's, and it takes the swipe there.
   const hostOverlay = useMemo(
-    () => (showTile ? null : <GuidePinnedOverlay name={name} extended={extended} bar={onPicture} accent={accent} swipe={overlaySwipe} onToggleSize={toggleSize} onOpen={onOpen} onClose={onClose} />),
-    [showTile, name, extended, onPicture, accent, overlaySwipe, toggleSize, onOpen, onClose],
+    () =>
+      showTile ? null : (
+        <GuidePinnedOverlay name={name} record={recordButton} extended={extended} bar={onPicture} accent={accent} swipe={overlaySwipe} onToggleSize={toggleSize} onOpen={onOpen} onClose={onClose} />
+      ),
+    [showTile, name, recordButton, extended, onPicture, accent, overlaySwipe, toggleSize, onOpen, onClose],
   );
   useEffect(() => setInlineOverlay(hostOverlay), [hostOverlay, setInlineOverlay]);
   useEffect(() => () => setInlineOverlay(null), [setInlineOverlay]);
@@ -142,8 +202,6 @@ export function GuidePinnedBand({ channel, program, metrics, compact, bare, colu
   });
   const growStyle = useAnimatedStyle(() => ({ transform: [{ scale: extended ? 1 : cardScale.get() }] }));
 
-  const startMs = Date.parse(program?.StartDate ?? "");
-  const endMs = Date.parse(program?.EndDate ?? "");
   const slot = Number.isFinite(startMs) && Number.isFinite(endMs) ? formatClockRange(startMs, endMs) : null;
 
   const info = (
@@ -161,6 +219,11 @@ export function GuidePinnedBand({ channel, program, metrics, compact, bare, colu
   );
   const buttons = (
     <View style={styles.buttons}>
+      {recordButton ? (
+        <View testID="guide-pinned-record">
+          <GlassIconButton icon={recordButton.icon} iconSize={16} size={32} color={COLORS.DESTRUCTIVE} onPress={recordButton.onPress} accessibilityLabel={recordButton.label} />
+        </View>
+      ) : null}
       <GlassIconButton
         icon={extended ? "contract-outline" : "expand-outline"}
         iconSize={16}
