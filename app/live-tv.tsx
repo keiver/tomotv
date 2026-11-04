@@ -211,7 +211,7 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
                 tintColor: accent,
                 onPress: openChannels,
               },
-              { type: "button", label: t("liveTv.recordings"), icon: { type: "sfSymbol", name: "record.circle" }, tintColor: accent, onPress: openRecordings },
+              { type: "button", label: t("liveTv.recordings"), icon: { type: "sfSymbol", name: "recordingtape" }, tintColor: accent, onPress: openRecordings },
               // Badged and red while a recording runs: the Schedule screen behind it is where it stops.
               {
                 type: "button",
