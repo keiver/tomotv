@@ -536,24 +536,24 @@ describe("guideRowHeight", () => {
 });
 
 describe("wideColumnWidth", () => {
-  it("is 352pt wherever the guide has room, leaving the rest to the rows", () => {
-    expect(wideColumnWidth(402, 176)).toBe(352);
-    expect(wideColumnWidth(1366, 176)).toBe(352);
+  it("is 240pt wherever the guide has room, leaving the rest to the rows", () => {
+    expect(wideColumnWidth(402, 176)).toBe(240);
+    expect(wideColumnWidth(1366, 176)).toBe(240);
   });
 
   it("is 90% of a guide narrower than that, and never under the default card", () => {
-    expect(wideColumnWidth(375, 176)).toBe(337.5);
+    expect(wideColumnWidth(250, 176)).toBe(225);
     expect(wideColumnWidth(150, 176)).toBe(176);
   });
 });
 
 describe("nearestColumnStop", () => {
-  const stops = { closed: 74, default: 176, wide: 352 };
+  const stops = { closed: 74, default: 176, wide: 240 };
 
   it("rests on the stop nearest where the column was let go", () => {
     expect(nearestColumnStop(100, 0, stops)).toBe("closed");
-    expect(nearestColumnStop(200, 0, stops)).toBe("default");
-    expect(nearestColumnStop(300, 0, stops)).toBe("wide");
+    expect(nearestColumnStop(190, 0, stops)).toBe("default");
+    expect(nearestColumnStop(220, 0, stops)).toBe("wide");
   });
 
   it("carries a fling on to the stop it heads for", () => {

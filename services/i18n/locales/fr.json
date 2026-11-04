@@ -43,7 +43,6 @@
   "liveTv.stopRecordingAndPlay": "Arrêter l'enregistrement et lire",
   "liveTv.watchRecording": "Regarder l'enregistrement",
   "liveTv.tuningIn": "Connexion à la chaîne…",
-  "liveTv.playingPinned": "En lecture en haut",
   "liveTv.recordingSoon": "Un enregistrement sur {channel} commence dans 1 minute.",
   "liveTv.stopAllRecordings": "Arrêter tous les enregistrements",
   "liveTv.stopAllRecordingsConfirm": "Tous les enregistrements en cours s'arrêtent. Ce qui a été enregistré jusqu'ici est conservé.",

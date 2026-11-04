@@ -1,7 +1,7 @@
 import { FocusableButton } from "@/components/FocusableButton";
 import { LoadingRow } from "@/components/loading-row";
 import { GRID_LINE } from "@/components/live-tv/guide-cell";
-import { GuideChannelColumn } from "@/components/live-tv/guide-channel-column";
+import { GuideChannelColumn, PIN_SHIFT } from "@/components/live-tv/guide-channel-column";
 import { HUD_BAR_HEIGHT } from "@/components/live-tv/guide-hud";
 import { GuideColumnDivider, useColumnResize } from "@/components/live-tv/guide-column-divider";
 import { GuideDayStrip } from "@/components/live-tv/guide-day-strip";
@@ -66,7 +66,6 @@ const ART_ROW_VIEWABILITY = { itemVisiblePercentThreshold: 1, minimumViewTime: A
 const NO_ROWS: ReadonlySet<string> = new Set();
 /** The pinned band names its channel and programme only with this much width beside the player. */
 const PINNED_INFO_MIN_WIDTH = 160;
-
 interface GuideCanvasProps {
   guide: GuideState;
   /** The picked channel group: a change rewinds the rows to the top. */
@@ -144,15 +143,14 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
     [canvasW, committedW, scrollY, sized.rowHeight],
   );
   const handleColumnSettle = useCallback(
-    (stop: ColumnStop, width: number) => {
+    (stop: ColumnStop) => {
       if (stop !== columnStop) {
         void tapFeedback();
         setColumnStop(stop);
         updateLiveTvPreferences({ columnStop: stop });
       }
-      commitWidth(width);
     },
-    [columnStop, commitWidth],
+    [columnStop],
   );
   const resize = useColumnResize({
     columnW,
@@ -160,6 +158,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
     minWidth: METRICS.compactColumnWidth,
     defaultWidth: METRICS.channelColumnWidth,
     onSettle: handleColumnSettle,
+    onRest: commitWidth,
   });
   const [canvasHeight, setCanvasHeight] = useState(0);
   const handleCanvasLayout = useCallback((event: LayoutChangeEvent) => {
@@ -457,7 +456,10 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
     (restoreFocusNode(source, cellNodesRef.current, cardNodesRef.current) as { requestTVFocus?: () => void } | undefined)?.requestTVFocus?.();
   }, [isScreenFocused]);
 
-  const channels = useMemo(() => rows.map((row) => row.channel), [rows]);
+  // The pinned channel moves out of both lists into the band above them, so it is never listed twice.
+  const pinnedId = pinned?.channel?.Id ?? null;
+  const listRows = useMemo(() => (pinnedId ? rows.filter((row) => row.channel.Id !== pinnedId) : rows), [rows, pinnedId]);
+  const channels = useMemo(() => listRows.map((row) => row.channel), [listRows]);
   // TV: the focused row lands as the lowest whole row, so every focus scroll rests on a row edge, the last row's too.
   const snap = rowSnap(canvasHeight, METRICS.rowHeight);
   const rowSnapOffset = IS_TV ? snap.offset : undefined;
@@ -513,7 +515,6 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   const getItemLayout = useCallback((_data: ArrayLike<GuideRowData> | null | undefined, index: number) => ({ length: rowHeight, offset: rowHeight * index, index }), [rowHeight]);
   const rowsScaleStyle = useAnimatedStyle(() => ({ transform: [{ scale: listScale.get() }] }));
   // The pinned channel's airing programme, for its band.
-  const pinnedId = pinned?.channel?.Id ?? null;
   const pinnedProgram = useMemo(() => {
     if (!pinnedId) return undefined;
     return rows.find((row) => row.channel.Id === pinnedId)?.programs.find((program) => isAiring(program, nowMs));
@@ -622,7 +623,6 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
           onChannelFocus={handleChannelFocus}
           onFirstHandle={onEntryHandle}
           onCardNode={IS_TV ? handleCardNode : undefined}
-          playingId={pinnedId}
           listScale={IS_TV ? undefined : listScale}
           onEndReached={loadMoreRows}
         />
@@ -638,8 +638,9 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
             contentContainerStyle={{ width: spanPx + SEAM_REACH }}>
             <Animated.FlatList
               ref={rowsRef}
-              data={rows}
+              data={listRows}
               renderItem={renderRow}
+              itemLayoutAnimation={IS_TV ? undefined : PIN_SHIFT}
               keyExtractor={keyExtractor}
               getItemLayout={getItemLayout}
               snapToAlignment={IS_TV ? "item" : undefined}

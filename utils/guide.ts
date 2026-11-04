@@ -414,12 +414,12 @@ export function guideRowHeight(columnWidth: number): number {
 
 export type ColumnStop = "closed" | "default" | "wide";
 
-/** The wide stop's card: twice the default card, a multiple of 16 like it. */
-const WIDE_COLUMN_MAX = 352;
+/** The wide stop's card, a multiple of 16 like the default one. */
+const WIDE_COLUMN_MAX = 240;
 /** On a guide narrower than that, the wide stop leaves this share of it to the rows. */
 const WIDE_COLUMN_RATIO = 0.9;
 
-/** The wide stop's width: 352pt, or 90% of a narrower guide, never under the default card. */
+/** The wide stop's width: 240pt, or 90% of a narrower guide, never under the default card. */
 export function wideColumnWidth(guideWidth: number, defaultWidth: number): number {
   "worklet";
   return Math.max(defaultWidth, Math.min(WIDE_COLUMN_MAX, guideWidth * WIDE_COLUMN_RATIO));

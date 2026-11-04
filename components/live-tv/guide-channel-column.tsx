@@ -1,7 +1,6 @@
 import { GuideChannelCard } from "@/components/live-tv/guide-channel-card";
 import { GRID_LINE } from "@/components/live-tv/guide-cell";
 import { GuideChannelTile } from "@/components/live-tv/guide-channel-tile";
-import { GuideLiveMark } from "@/components/live-tv/guide-live-mark";
 import { COLORS } from "@/constants/colors";
 import { useLiveFrameViewport } from "@/hooks/useLiveFrameViewport";
 import { clearFocusedGuideChannel, setFocusedGuideChannel } from "@/services/guideChannelFocus";
@@ -12,11 +11,13 @@ import type { JellyfinItem } from "@/types/jellyfin";
 import { guideMetrics, type GuideMetrics } from "@/utils/guide";
 import React, { useCallback, type ComponentProps } from "react";
 import { findNodeHandle, Platform, StyleSheet, View } from "react-native";
-import Animated, { type AnimatedRef, Extrapolation, interpolate, type ScrollHandlerProcessed, type SharedValue, useAnimatedStyle } from "react-native-reanimated";
+import Animated, { type AnimatedRef, Extrapolation, interpolate, LinearTransition, type ScrollHandlerProcessed, type SharedValue, useAnimatedStyle } from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
 /** The default stop's width: the card and the logo tile cross-fade between the closed stop and this. */
 const DEFAULT_COLUMN_WIDTH = guideMetrics(IS_TV).channelColumnWidth;
+/** Both lists' rows close over a channel leaving for the pinned band, and open for one coming back. */
+export const PIN_SHIFT = LinearTransition.duration(260);
 const channelIds = (channel: JellyfinItem) => [channel.Id];
 const favoriteMark = (preferences: LiveTvPreferences, channel: JellyfinItem) => (isFavoriteChannel(preferences, channel) ? ("heart" as const) : undefined);
 
@@ -47,8 +48,6 @@ interface GuideChannelColumnProps {
   /** TV: each card's node by channel, to hand Left focus out of a scrolled grid. */
   onCardNode?: ComponentProps<typeof GuideChannelCard>["onNode"];
   onEndReached?: () => void;
-  /** Phone: the pinned channel, marked on its own card in the list. */
-  playingId?: string | null;
   /** Phone: the list's scale from its top-left corner while the column is dragged wider, 1 at rest. */
   listScale?: SharedValue<number>;
 }
@@ -74,7 +73,6 @@ export function GuideChannelColumn({
   onFirstHandle,
   onCardNode,
   onEndReached,
-  playingId = null,
   listScale,
 }: GuideChannelColumnProps) {
   const preferences = useLiveTvPreferences();
@@ -136,10 +134,9 @@ export function GuideChannelColumn({
             onLongPress={onChannelLongPress}
           />
         )}
-        {playingId === item.Id && !compact ? <GuideLiveMark /> : null}
       </View>
     ),
-    [metrics, rowSnapOffset, columnWidth, compact, preferences, recordingChannelIds, onChannelPress, onChannelLongPress, cardFocus, cardBlur, firstCardRef, onCardNode, visibleChannelIds, playingId],
+    [metrics, rowSnapOffset, columnWidth, compact, preferences, recordingChannelIds, onChannelPress, onChannelLongPress, cardFocus, cardBlur, firstCardRef, onCardNode, visibleChannelIds],
   );
   const getItemLayout = useCallback(
     (_data: ArrayLike<JellyfinItem> | null | undefined, index: number) => ({ length: metrics.rowHeight, offset: metrics.rowHeight * index, index }),
@@ -155,7 +152,7 @@ export function GuideChannelColumn({
         ref={listRef}
         data={channels}
         renderItem={renderItem}
-        extraData={playingId}
+        itemLayoutAnimation={IS_TV ? undefined : PIN_SHIFT}
         keyExtractor={(item) => item.Id}
         getItemLayout={getItemLayout}
         snapToAlignment={IS_TV ? "item" : undefined}
