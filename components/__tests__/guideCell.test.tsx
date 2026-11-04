@@ -3,6 +3,7 @@ import TestRenderer, { act } from "react-test-renderer";
 import { Animated, StyleSheet, Text } from "react-native";
 import { GuideCell } from "@/components/live-tv/guide-cell";
 import { COLORS } from "@/constants/colors";
+import { t } from "@/services/i18n";
 import { clearChannelHealth, noteChannelAlive, noteChannelOpenFailure } from "@/services/channelHealth";
 import * as guideChannelFocus from "@/services/guideChannelFocus";
 import { formatClock, MINUTE_MS, NO_GUIDE_PREFIX } from "@/utils/guide";
@@ -66,6 +67,17 @@ describe("GuideCell", () => {
     expect(style(nodes[0]).color).toBe(COLORS.TEXT_SECONDARY);
     for (const node of nodes) expect(style(node).opacity).toBeUndefined();
     expect(style(nodes[nodes.length - 1]).color).toBe(COLORS.TEXT_TERTIARY);
+  });
+
+  it("the cell VoiceOver reaches is a labelled button that offers Details, which runs the long press", () => {
+    const onLongPress = jest.fn();
+    const tree = render({ onLongPress, program: { ...program, Id: "p41" } });
+    const cell = tree.root.find((node) => typeof node.props.onAccessibilityAction === "function" && node.props.isTVSelectable === false);
+    expect(cell.props.accessibilityRole).toBe("button");
+    expect(cell.props.accessibilityLabel).toBe("Episode 9, Evening News");
+    expect(cell.props.accessibilityActions).toEqual([{ name: "details", label: t("info.details") }]);
+    act(() => cell.props.onAccessibilityAction({ nativeEvent: { actionName: "details" } }));
+    expect(onLongPress).toHaveBeenCalledWith(expect.objectContaining({ Id: "p41" }));
   });
 
   it("shows the channel name once when the programme carries the same title", () => {
@@ -264,7 +276,7 @@ describe("GuideCell", () => {
     const line = (index: number) => flatText(tree.root.findAllByType(Text)[index]);
     expect(line(0)).toBe("Channel One");
     expect(line(1)).toBe("No listings");
-    const pressable = tree.root.findByProps({ accessibilityRole: "button" });
+    const pressable = tree.root.findByProps({ accessibilityRole: "button", isTVSelectable: true });
     act(() => pressable.props.onFocus());
     expect(line(0)).toBe("Channel One  ·  Select to watch");
     act(() => pressable.props.onBlur());

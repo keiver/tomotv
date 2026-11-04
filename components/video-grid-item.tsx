@@ -21,6 +21,7 @@ import { LIVE_FRAME_TRANSITION_MS, type LiveFrame } from "@/services/liveFrames"
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
 import { formatClock, formatDayLabel } from "@/utils/guide";
+import { namedAction } from "@/utils/namedAction";
 import { formatIndexBadge } from "@/utils/seasonEpisode";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -335,6 +336,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
         hasProgress ? { min: 0, max: 100, now: watchedPercent, text: t("a11y.percentWatched").replace("{percent}", String(watchedPercent)) } : offline ? { text: t("liveTv.offline") } : undefined
       }
       accessibilityRole="button"
+      {...(onLongPress && !inert ? namedAction("details", t("info.details"), handleLongPress) : null)}
       accessibilityHint={IS_TV ? (hasProgress ? t("a11y.pressToResume") : t("a11y.pressToPlay")) : hasProgress ? t("a11y.doubleTapResume") : t("a11y.doubleTapPlay")}
       style={[
         styles.container,

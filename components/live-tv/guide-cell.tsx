@@ -6,6 +6,7 @@ import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import type { JellyfinProgram } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
+import { namedAction } from "@/utils/namedAction";
 import { pinOffset, visibleSpan } from "@/components/live-tv/guide-pin";
 import { formatClock, formatClockRange, programCategory, standInChannelId } from "@/utils/guide";
 import { liveFrameReel, subscribeLiveFrame } from "@/services/liveFrames";
@@ -163,6 +164,7 @@ function GuideCellComponent({
   }, [onBlur, program]);
   const press = useCallback(() => onPress(program), [onPress, program]);
   const longPress = useCallback(() => onLongPress(program), [onLongPress, program]);
+  const detailsAction = useMemo(() => namedAction("details", t("info.details"), longPress), [longPress]);
 
   const cellStyle = [styles.cell, standIn && styles.cellQuiet, { left, width, height }];
   const accessibilityLabel = episodeTitle ? `${episodeTitle}, ${programName}` : programName;
@@ -264,6 +266,7 @@ function GuideCellComponent({
             tvParallaxProperties={{ enabled: false }}
             accessibilityRole="button"
             accessibilityLabel={accessibilityLabel}
+            {...detailsAction}
             style={[styles.focusable, spanStyle]}
             testID="guide-cell-focusable"
           />
@@ -277,7 +280,7 @@ function GuideCellComponent({
       {body}
     </View>
   ) : (
-    <Pressable isTVSelectable={false} onPress={press} onLongPress={longPress} style={cellStyle}>
+    <Pressable isTVSelectable={false} onPress={press} onLongPress={longPress} accessibilityRole="button" accessibilityLabel={accessibilityLabel} {...detailsAction} style={cellStyle}>
       {body}
     </Pressable>
   );

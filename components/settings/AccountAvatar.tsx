@@ -5,6 +5,7 @@ import { COLORS } from "@/constants/colors";
 import { themedStyles, useCardPalette } from "@/hooks/useCardPalette";
 import { t } from "@/services/i18n";
 import { withAlpha } from "@/utils/color";
+import { namedAction } from "@/utils/namedAction";
 import { Ionicons } from "@expo/vector-icons";
 import { forwardRef, useEffect, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
@@ -85,7 +86,8 @@ export const AccountAvatar = forwardRef<View, AccountAvatarProps>(function Accou
       ]}
       accessibilityRole="button"
       accessibilityLabel={icon ? label : [t("settings.continueAs").replace("{label}", label), sublabel].filter(Boolean).join(", ")}
-      accessibilityState={{ selected: connected, disabled, busy: loading }}>
+      accessibilityState={{ selected: connected, disabled, busy: loading }}
+      {...(onLongPress && !disabled ? namedAction("options", t("common.options"), onLongPress) : null)}>
       {({ focused }) => {
         // Marks sit on gold only while the cell is at rest there; focus paints it dark again.
         const inkOnGold = onGold && !focused;

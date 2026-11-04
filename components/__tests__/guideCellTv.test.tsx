@@ -46,6 +46,15 @@ function render(overrides: Partial<React.ComponentProps<typeof GuideCell>> = {})
 const hostById = (tree: TestRenderer.ReactTestRenderer, id: string) => tree.root.find((node) => node.props.testID === id && typeof node.type === "string");
 
 describe("GuideCell on TV", () => {
+  it("the focusable body offers Details, which runs the long press", () => {
+    const onLongPress = jest.fn();
+    const tree = render({ onLongPress });
+    const focusable = tree.root.find((node) => node.props.isTVSelectable === true && typeof node.type !== "string");
+    expect(focusable.props.accessibilityActions).toEqual([{ name: "details", label: "Details" }]);
+    act(() => focusable.props.onAccessibilityAction({ nativeEvent: { actionName: "details" } }));
+    expect(onLongPress).toHaveBeenCalledWith(program);
+  });
+
   it("focuses an empty 1pt body that spans the cell's stretch on screen, laid over the label", () => {
     const tree = render();
     const focusable = tree.root.find((node) => node.props.isTVSelectable === true && typeof node.type !== "string");

@@ -3,6 +3,7 @@ import { ListRow } from "@/components/settings/ListRow";
 import { COLORS } from "@/constants/colors";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { t } from "@/services/i18n";
+import { namedAction } from "@/utils/namedAction";
 import { Ionicons } from "@expo/vector-icons";
 import { forwardRef } from "react";
 import { StyleSheet, View } from "react-native";
@@ -39,7 +40,7 @@ interface ServerRowProps {
   flushRight?: boolean;
   /**
    * tvOS focus arrival. Only used by rows at the ends of a capped, internally-scrolling list,
-   * which pin the scroll offset so focus can leave it — see NotConnectedSection.
+   * which pin the scroll offset so focus can leave it (NotConnectedSection).
    */
   onFocus?: () => void;
   onBlur?: () => void;
@@ -92,6 +93,7 @@ export const ServerRow = forwardRef<View, ServerRowProps>(function ServerRow(
       selected={selected}
       onPress={onPress}
       onLongPress={onLongPress}
+      {...(onLongPress ? namedAction("options", t("common.options"), onLongPress) : null)}
       onFocus={onFocus}
       onBlur={onBlur}
       // Pressability follows `disabled` alone. `isLoading` only drives the spinner,

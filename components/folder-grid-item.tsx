@@ -26,6 +26,7 @@ import { useViewItemCount } from "@/hooks/useViewItemCount";
 import { folderPosterSource } from "@/services/itemArtwork";
 import { locale, t } from "@/services/i18n";
 import { cleanLabel } from "@/utils/cleanLabel";
+import { namedAction } from "@/utils/namedAction";
 import { folderWatchedProgress } from "@/utils/resumeProgress";
 import { JellyfinItem } from "@/types/jellyfin";
 import { Image } from "expo-image";
@@ -188,6 +189,7 @@ const FolderGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpac
             ? { width: (cardHeight - 2 * CARD_PADDING) * cardRatio + 2 * CARD_PADDING }
             : { width: `${100 / (numColumns ?? slotColumns(slotOrientation, IS_TV))}%` },
       ]}
+      {...(onLongPress ? namedAction("details", t("info.details"), handleLongPress) : null)}
       accessibilityLabel={folderName || t("a11y.folder")}
       accessibilityRole="button"
       accessibilityHint={

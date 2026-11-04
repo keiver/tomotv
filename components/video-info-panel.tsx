@@ -350,6 +350,12 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
       { text: t("info.startOver"), onPress: () => void handleStartOver() },
     ]);
   }, [details, handleStartOver]);
+  const onStartOverAction = useCallback(
+    (event: { nativeEvent: { actionName: string } }) => {
+      if (event.nativeEvent.actionName === "startOver") confirmStartOver();
+    },
+    [confirmStartOver],
+  );
 
   // Play everything of one kind under a container. Same phone/TV rule as handlePlay.
   const handlePlayFolder = useCallback(
@@ -968,6 +974,8 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
             icon={<Ionicons name={photo ? "expand" : book ? "book-outline" : "play"} size={IS_TV ? 34 : 22} color={palette.onAccent} />}
             onPress={handlePlay}
             onLongPress={startOver ? confirmStartOver : undefined}
+            accessibilityActions={startOver ? [{ name: "startOver", label: t("info.startOver") }] : undefined}
+            onAccessibilityAction={startOver ? onStartOverAction : undefined}
             accessibilityHint={startOver ? t("info.startOverHint") : undefined}
             progress={cardResumeProgress(details)}
           />
