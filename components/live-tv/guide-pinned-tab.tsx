@@ -34,7 +34,8 @@ export function GuidePinnedTab({ left, extended, swipe }: GuidePinnedTabProps) {
 const styles = StyleSheet.create({
   seat: {
     position: "absolute",
-    bottom: -TAB_HEIGHT,
+    // 1pt into the band's edge, so the tab joins it with no seam.
+    bottom: 1 - TAB_HEIGHT,
     width: TAB_WIDTH,
     height: TAB_HEIGHT,
   },
