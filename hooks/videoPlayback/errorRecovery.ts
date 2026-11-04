@@ -12,7 +12,13 @@ export class ServerTranscodeOffError extends IdentifiedError {
 }
 
 /** Failures a server transcode would not have answered: the server, the item or the account is the problem. */
-const SERVER_WOULD_NOT_HELP: readonly PlaybackErrorType[] = [PlaybackErrorType.UNAUTHORIZED, PlaybackErrorType.NOT_FOUND, PlaybackErrorType.PROTECTED, PlaybackErrorType.NETWORK];
+const SERVER_WOULD_NOT_HELP: readonly PlaybackErrorType[] = [
+  PlaybackErrorType.UNAUTHORIZED,
+  PlaybackErrorType.NOT_FOUND,
+  PlaybackErrorType.PROTECTED,
+  PlaybackErrorType.NETWORK,
+  PlaybackErrorType.EMPTY_RECORDING,
+];
 
 /** What the error screen says about the server lane: who turned it off, when it was the rung this failure skipped. */
 export function serverOffForError(error: unknown, errorType: PlaybackErrorType, by: ServerTranscodeBlock | null, heldOnDisk: boolean): ServerOff | undefined {
@@ -35,6 +41,7 @@ export function shouldAutomaticallyRetry(input: { live: boolean; heldOnDisk: boo
     case PlaybackErrorType.NOT_FOUND:
     case PlaybackErrorType.PROTECTED:
     case PlaybackErrorType.RECORDING_HOLD:
+    case PlaybackErrorType.EMPTY_RECORDING:
       return false;
     // A corrupt-looking message can still be one lane's fault, until every lane has said it.
     case PlaybackErrorType.CORRUPT:

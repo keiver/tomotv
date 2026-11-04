@@ -316,6 +316,12 @@ describe("isPermanentLiveError", () => {
     expect(shouldAutomaticallyRetry({ live: false, heldOnDisk: false, errorType, ladderSpent: true, retryingForMs: 0 })).toBe(false);
   });
 
+  it("never retries a recording whose file holds no video, on any lane", () => {
+    const errorType = classifyError(new Error("Recording has no video"));
+    expect(errorType).toBe(PlaybackErrorType.EMPTY_RECORDING);
+    expect(shouldAutomaticallyRetry({ live: false, heldOnDisk: false, errorType, ladderSpent: false, retryingForMs: 0 })).toBe(false);
+  });
+
   it("opens a channel again on the provider's refusal only after its recording was stopped", () => {
     expect(reopensUntilAdmitted({ reopening: false, errorType: PlaybackErrorType.PROVIDER_LIMIT, admitting: true })).toBe(true);
     expect(reopensUntilAdmitted({ reopening: false, errorType: PlaybackErrorType.PROVIDER_LIMIT, admitting: false })).toBe(false);
