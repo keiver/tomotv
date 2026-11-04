@@ -8,8 +8,8 @@ const TAB_WIDTH = 56;
 const TAB_HEIGHT = 14;
 
 interface GuidePinnedTabProps {
-  /** The tab's centre, from the band's left. */
-  centerX: number;
+  /** The tab's left edge, from the band's left: under the start of the name on the larger picture. */
+  left: number;
   /** The larger picture: the chevron points up, the way back. */
   extended: boolean;
   /** The band's swipe between sizes. */
@@ -17,11 +17,11 @@ interface GuidePinnedTabProps {
 }
 
 /** A pull tab hanging from the pinned band's bottom edge: the handle for its swipe, pointing the way it goes. */
-export function GuidePinnedTab({ centerX, extended, swipe }: GuidePinnedTabProps) {
+export function GuidePinnedTab({ left, extended, swipe }: GuidePinnedTabProps) {
   const { accent, onAccent } = useCardPalette();
   return (
     // Placed by the root view's own style: its default is flex 1.
-    <GestureHandlerRootView style={[styles.seat, { left: centerX - TAB_WIDTH / 2 }]}>
+    <GestureHandlerRootView style={[styles.seat, { left }]}>
       <GestureDetector gesture={swipe}>
         <View style={[styles.tab, { backgroundColor: accent }]} testID="guide-pinned-tab">
           <Ionicons name={extended ? "chevron-up" : "chevron-down"} size={15} color={onAccent} />

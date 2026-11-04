@@ -4,7 +4,7 @@ import { GuideChannelCard } from "@/components/live-tv/guide-channel-card";
 import { GuideChannelTile } from "@/components/live-tv/guide-channel-tile";
 import { COLORS } from "@/constants/colors";
 import { GuidePinnedTab } from "@/components/live-tv/guide-pinned-tab";
-import { GuidePinnedOverlay } from "@/components/live-tv/guide-pinned-overlay";
+import { GuidePinnedOverlay, PINNED_TEXT_INSET } from "@/components/live-tv/guide-pinned-overlay";
 import { usePlayerSession, type InlineFrame } from "@/contexts/PlayerSessionContext";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { tapFeedback } from "@/services/haptics";
@@ -209,7 +209,7 @@ export function GuidePinnedBand({ channel, program, metrics, compact, bare, colu
           </Animated.View>
         </GestureDetector>
       </GestureHandlerRootView>
-      {bandW > 0 ? <GuidePinnedTab centerX={bandW / 2} extended={extended} swipe={tabSwipe} /> : null}
+      <GuidePinnedTab left={PINNED_TEXT_INSET} extended={extended} swipe={tabSwipe} />
     </Animated.View>
   );
 }
@@ -274,7 +274,7 @@ const styles = StyleSheet.create({
   info: {
     flex: 1,
     justifyContent: "flex-end",
-    paddingHorizontal: 12,
+    paddingHorizontal: PINNED_TEXT_INSET,
     gap: 2,
   },
   channelName: {

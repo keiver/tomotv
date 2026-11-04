@@ -7,6 +7,8 @@ import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { GestureDetector, type GestureType } from "react-native-gesture-handler";
 
+/** The channel's name, here and beside the picture, starts this far in; the band's pull tab lines up with it. */
+export const PINNED_TEXT_INSET = 12;
 const SCRIM = "linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.85) 35%, rgba(0, 0, 0, 1) 100%)";
 
 interface GuidePinnedOverlayProps {
@@ -66,7 +68,7 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingTop: 36,
     paddingBottom: 12,
-    paddingHorizontal: 12,
+    paddingHorizontal: PINNED_TEXT_INSET,
     experimental_backgroundImage: SCRIM,
   },
   name: {
