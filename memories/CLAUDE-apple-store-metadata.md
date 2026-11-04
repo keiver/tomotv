@@ -19,6 +19,7 @@ Complete App Store metadata including app name, description, keywords, screensho
 - Naming "Tomo TV, a Jellyfin Client" is the branding doc's own example: never propose a rename or logo change.
 - App Review Notes must be filled for any new platform submission; adding a platform is a new-app review.
 - What's New: a few short lines, one user benefit each, in the viewer's words. No internals (engine, codecs, M3U/playlist, focus targets, row counts, timings) and no niche fixes; those stay in CHANGELOG.
+- A new What's New line goes at the top of its version's block, in every language: the English block is each build's TestFlight What to Test, so testers read the latest change first.
 - iOS 27 Generated Subtitles stay out of copy until approved.
 
 ---
