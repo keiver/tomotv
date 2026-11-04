@@ -1125,6 +1125,21 @@ describe("useVideoPlayback (mounted)", () => {
         expect(mockTranscodeUrl).not.toHaveBeenCalled();
       });
 
+      it("at Only for files, ends at the error once a round adds no bytes, with no device verdict and no server", async () => {
+        updateUiPreferences({ serverTranscoding: "fileOnly" });
+        mockDetails.mockResolvedValue(videoItem({ MediaSources: [{ Id: "source-1", Container: "mkv", Bitrate: 6_000_000 }] }));
+        mockProgress = () => ({ alive: true, bytesRead: 5_000_000, readSeconds: 19, elapsedSeconds: 20 });
+        const { ref } = await mount({ videoId: "video-1" });
+        await act(async () => jest.advanceTimersByTime(20_000));
+        await act(flush);
+        expect(ref.current!.get().state.type).toBe("CREATING_STREAM");
+        await act(async () => jest.advanceTimersByTime(20_000));
+        await act(flush);
+        expect(ref.current!.get().state).toMatchObject({ type: "ERROR", ref: { id: "PB-ENGINE-NOSEG", lane: "ENG" } });
+        expect(recordTimeoutVerdict).not.toHaveBeenCalled();
+        expect(mockTranscodeUrl).not.toHaveBeenCalled();
+      });
+
       it("records no verdict for a session that read nothing", async () => {
         mockProgress = () => ({ alive: true, bytesRead: 0, readSeconds: 0, elapsedSeconds: 20 });
         const { ref } = await mount({ videoId: "video-1" });

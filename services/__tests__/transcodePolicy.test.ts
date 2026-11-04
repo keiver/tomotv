@@ -10,7 +10,13 @@ const item = (supportsTranscoding?: boolean) => ({ Id: "a", MediaSources: [{ Id:
 describe("transcodePolicy", () => {
   afterEach(() => updateUiPreferences({ serverTranscoding: "linkOrFile" }));
 
-  it("allows everything the server allows at the default level, and nothing the server forbids", () => {
+  it("starts at Only for unsupported files: the server for files, never for the link", () => {
+    expect(serverTranscodeAllowed(item(true))).toBe(true);
+    expect(linkRungsAllowed(item(true))).toBe(false);
+  });
+
+  it("allows everything the server allows at When needed, and nothing the server forbids", () => {
+    updateUiPreferences({ serverTranscoding: "linkOrFile" });
     expect(serverTranscodeAllowed(item(true))).toBe(true);
     expect(linkRungsAllowed(item(true))).toBe(true);
     expect(serverTranscodeAllowed(item(undefined))).toBe(true);

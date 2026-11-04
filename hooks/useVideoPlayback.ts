@@ -1078,6 +1078,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
         // Empty until a lane builds it; the guard below the branch is what catches a lane that did not.
         let url = "";
         let preparedMode = mode;
+        let linkStoppedAtOpen = false;
         let preparedTransport: PlaybackTransport = mode === "localRemux" ? "gateway" : mode === "transcode" ? "server" : "direct";
         let preparedMultiAudio = false;
         let preparedMapping: number[] = [];
@@ -1300,6 +1301,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               if (outcome !== null || (!linkHeld && waitedMs >= ENGINE_PREFLIGHT_CAP_MS)) break;
               const progress = await engineProgress(token);
               readNothing = progress != null && progress.bytesRead === 0;
+              linkStoppedAtOpen = linkHeld && !serverVideoOnly && progress != null && progress.alive && progress.bytesRead > 0 && progress.bytesRead <= bytesSeen;
               const keepsReading = serverDenied ? engineStillReading(progress, bytesSeen) : stillPullingInput(progress, bytesSeen, READ_BOUND_SHARE);
               if (!keepsReading || progress == null) break;
               bytesSeen = progress.bytesRead;
@@ -1365,9 +1367,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
               });
             } else if (!sample || belowRealtime(sample)) {
               // A channel, or a session that read nothing, says nothing about the device: no verdict.
-              // Nor does one the server-off wait ended, which stops only when the reads stop.
+              // Nor does a wait that ended because the reads stopped, with the server off or the link no reason to ask it.
               const remembered =
-                isLiveRef.current || (!sample && (readNothing || serverDenied))
+                isLiveRef.current || (!sample && (readNothing || serverDenied || linkStoppedAtOpen))
                   ? false
                   : sample
                     ? await recordVerdict(details, sample, "below realtime at start", { busy: deviceBusy() })
@@ -1746,7 +1748,7 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
             // A run the viewer already left: its session is torn down, and every ref below belongs
             // to the item that replaced it.
             if (requestIdRef.current !== currentRequestId) return false;
-            if (serverDenied) throw remuxError;
+            if (serverDenied || linkStoppedAtOpen) throw remuxError;
             if (remuxError instanceof EngineInputMissingError) {
               // The server has no file at the path; the transcode lane would read the same path.
               logger.error("The server could not find the file", remuxError, { service: "useVideoPlayback", videoId });

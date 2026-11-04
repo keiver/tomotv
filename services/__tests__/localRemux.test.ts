@@ -133,6 +133,7 @@ function item(overrides: Partial<JellyfinVideoItem> & { streams?: any[] } = {}):
 
 beforeEach(() => {
   jest.clearAllMocks();
+  updateUiPreferences({ serverTranscoding: "linkOrFile" });
   (getCachedConfig as jest.Mock).mockReturnValue({ server: "http://server:8096", apiKey: "k", userId: "u" });
   mockDecodeSupport.mockResolvedValue({ hevc: true, hevcMain10: true, av1: false, h264MaxHeight: null, hevcMaxHeight: null });
   mockStartRemux.mockResolvedValue("http://127.0.0.1:5000/token/master.m3u8");
