@@ -48,8 +48,8 @@ interface GuideChannelColumnProps {
   /** TV: each card's node by channel, to hand Left focus out of a scrolled grid. */
   onCardNode?: ComponentProps<typeof GuideChannelCard>["onNode"];
   onEndReached?: () => void;
-  /** Phone: the list's scale from its top-left corner while the column is dragged wider, 1 at rest. */
-  listScale?: SharedValue<number>;
+  /** Phone: each card's growth from its left edge while the column is dragged wider, 1 at rest. */
+  cardScale?: SharedValue<number>;
 }
 
 /**
@@ -73,7 +73,7 @@ export function GuideChannelColumn({
   onFirstHandle,
   onCardNode,
   onEndReached,
-  listScale,
+  cardScale,
 }: GuideChannelColumnProps) {
   const preferences = useLiveTvPreferences();
   const { viewabilityPairs, visibleChannelIds } = useLiveFrameViewport("guide", preferences.autoUpdate, channels, channelIds);
@@ -132,11 +132,12 @@ export function GuideChannelColumn({
             recording={recordingChannelIds.has(item.Id)}
             onPress={onChannelPress}
             onLongPress={onChannelLongPress}
+            cardScale={cardScale}
           />
         )}
       </View>
     ),
-    [metrics, rowSnapOffset, columnWidth, compact, preferences, recordingChannelIds, onChannelPress, onChannelLongPress, cardFocus, cardBlur, firstCardRef, onCardNode, visibleChannelIds],
+    [metrics, rowSnapOffset, columnWidth, compact, preferences, recordingChannelIds, onChannelPress, onChannelLongPress, cardFocus, cardBlur, firstCardRef, onCardNode, visibleChannelIds, cardScale],
   );
   const getItemLayout = useCallback(
     (_data: ArrayLike<JellyfinItem> | null | undefined, index: number) => ({ length: metrics.rowHeight, offset: metrics.rowHeight * index, index }),
@@ -144,7 +145,6 @@ export function GuideChannelColumn({
   );
 
   const widthStyle = useAnimatedStyle(() => ({ width: columnWidth.get() }));
-  const scaleStyle = useAnimatedStyle(() => ({ transform: [{ scale: listScale?.get() ?? 1 }] }));
 
   return (
     <Animated.View style={[styles.column, widthStyle]}>
@@ -169,7 +169,7 @@ export function GuideChannelColumn({
         maxToRenderPerBatch={4}
         updateCellsBatchingPeriod={16}
         windowSize={7}
-        style={[styles.list, { height: listHeight }, scaleStyle]}
+        style={{ height: listHeight }}
         contentContainerStyle={{ paddingBottom: contentBottomPad }}
       />
     </Animated.View>
@@ -192,11 +192,13 @@ function ChannelMorph({
   recording,
   onPress,
   onLongPress,
+  cardScale,
 }: {
   channel: JellyfinItem;
   index: number;
   metrics: GuideMetrics;
   columnWidth: SharedValue<number>;
+  cardScale?: SharedValue<number>;
   compact: boolean;
   inView: boolean;
   titleIcon?: "heart";
@@ -207,7 +209,7 @@ function ChannelMorph({
   const range = [metrics.compactColumnWidth, DEFAULT_COLUMN_WIDTH];
   const cardStyle = useAnimatedStyle(() => {
     const t = interpolate(columnWidth.get(), range, [0, 1], Extrapolation.CLAMP);
-    return { opacity: t, transform: [{ scale: 0.8 + 0.2 * t }] };
+    return { opacity: t, transform: [{ scale: (0.8 + 0.2 * t) * (cardScale?.get() ?? 1) }] };
   });
   const tileStyle = useAnimatedStyle(() => {
     const t = interpolate(columnWidth.get(), range, [0, 1], Extrapolation.CLAMP);
@@ -244,11 +246,9 @@ const styles = StyleSheet.create({
   column: {
     overflow: "hidden",
   },
-  list: {
-    transformOrigin: "left top",
-  },
-  // The program rows' grid line, so the card above it reads as the row's first cell.
+  // The program rows' grid line, so the card above it reads as the row's first cell. A card grown by a drag is cropped to it.
   row: {
+    overflow: "hidden",
     justifyContent: "center",
     borderBottomWidth: 1,
     borderBottomColor: GRID_LINE,

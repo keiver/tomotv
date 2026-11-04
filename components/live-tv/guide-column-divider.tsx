@@ -32,10 +32,12 @@ interface ColumnResizeOptions {
   onSettle: (stop: ColumnStop, width: number) => void;
   /** Fires once the column has sprung to rest at that width, so the lists lay out at it with no scale left over. */
   onRest: (width: number) => void;
+  /** Fires when a drag commits to resizing the column. */
+  onResizeStart: () => void;
 }
 
 /** The seam grip's pan: drag across between the closed, default and wide stops, along the line to move the grip. */
-export function useColumnResize({ columnW, canvasW, minWidth, defaultWidth, onSettle, onRest }: ColumnResizeOptions) {
+export function useColumnResize({ columnW, canvasW, minWidth, defaultWidth, onSettle, onRest, onResizeStart }: ColumnResizeOptions) {
   const start = useSharedValue(0);
   // The seam grip also slides along its line: its offset from the band's centre, and the band's height.
   const gripY = useSharedValue(0);
@@ -64,6 +66,7 @@ export function useColumnResize({ columnW, canvasW, minWidth, defaultWidth, onSe
         if (axis.get() === null) {
           if (Math.max(Math.abs(event.translationX), Math.abs(event.translationY)) < AXIS_LOCK) return;
           axis.set(Math.abs(event.translationX) >= Math.abs(event.translationY) ? "x" : "y");
+          if (axis.get() === "x") runOnJS(onResizeStart)();
         }
         if (axis.get() === "x") {
           resize(event.translationX);
@@ -87,7 +90,7 @@ export function useColumnResize({ columnW, canvasW, minWidth, defaultWidth, onSe
         runOnJS(onSettle)(stop, width);
       });
     return { seam, gripY, bandH };
-  }, [columnW, canvasW, minWidth, defaultWidth, start, onSettle, onRest, gripY, gripStartY, bandH, axis]);
+  }, [columnW, canvasW, minWidth, defaultWidth, start, onSettle, onRest, onResizeStart, gripY, gripStartY, bandH, axis]);
 }
 
 interface GuideColumnDividerProps {

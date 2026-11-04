@@ -1,5 +1,4 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
-import { useSharedValue, type SharedValue } from "react-native-reanimated";
 import type { ReactVideoProps } from "react-native-video";
 
 import type { SubtitleAlignment } from "@keiver/tomo-engine";
@@ -136,8 +135,6 @@ interface PlayerSessionContextValue extends PlayerSessionSnapshot, PlayerHostBri
   setHandlers: (handlers: PlayerSessionHandlers | null) => void;
   /** Unregisters these handlers, and only these: a screen that took over keeps its own. */
   clearHandlers: (handlers: PlayerSessionHandlers) => void;
-  /** The inline frame's scale from its top-left corner while the screen resizes it, 1 at rest. */
-  inlineScale: SharedValue<number>;
 }
 
 const IDLE_SNAPSHOT: PlayerSessionSnapshot = {
@@ -155,7 +152,6 @@ interface PlayerSessionHostValue {
   registerHost: (bridge: PlayerHostBridge | null) => void;
   publish: React.Dispatch<React.SetStateAction<PlayerSessionSnapshot>>;
   handlersRef: React.RefObject<PlayerSessionHandlers | null>;
-  inlineScale: SharedValue<number>;
 }
 
 const PlayerSessionHostContext = createContext<PlayerSessionHostValue | undefined>(undefined);
@@ -167,7 +163,6 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
   // never re-render this provider, which sits above the whole navigator.
   const bridgeRef = useRef<PlayerHostBridge | null>(null);
   const handlersRef = useRef<PlayerSessionHandlers | null>(null);
-  const inlineScale = useSharedValue(1);
 
   /**
    * The route can command the host before the host exists.
@@ -300,7 +295,6 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
       presentFullscreen,
       setHandlers,
       clearHandlers,
-      inlineScale,
     }),
     [
       snapshot,
@@ -322,11 +316,10 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
       presentFullscreen,
       setHandlers,
       clearHandlers,
-      inlineScale,
     ],
   );
 
-  const hostValue = useMemo(() => ({ registerHost, publish: setSnapshot, handlersRef, inlineScale }), [registerHost, inlineScale]);
+  const hostValue = useMemo(() => ({ registerHost, publish: setSnapshot, handlersRef }), [registerHost]);
 
   return (
     <PlayerSessionContext.Provider value={value}>

@@ -54,8 +54,6 @@ let registeredBridge: PlayerHostBridge | null = null;
 const handlersRef = {
   current: null as { onPlaybackEnd: () => void; onLiveChannelFailed?: (fallbackId: string) => boolean; onPipStarted?: () => void; onRequestBack?: () => void } | null,
 };
-/** The band's drag scale the host's inline stage follows; 1 at rest. */
-const mockInlineScale = { get: () => 1, set: jest.fn(), value: 1 };
 jest.mock("@/contexts/PlayerSessionContext", () => ({
   usePlayerSessionHost: () => ({
     registerHost: (bridge: PlayerHostBridge | null) => {
@@ -63,7 +61,6 @@ jest.mock("@/contexts/PlayerSessionContext", () => ({
     },
     publish: jest.fn(),
     handlersRef,
-    inlineScale: mockInlineScale,
   }),
 }));
 

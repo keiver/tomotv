@@ -52,10 +52,11 @@ describe("useColumnResize", () => {
   const drag = async (translationX: number, translationY = 0, velocityX = 0) => {
     const onSettle = jest.fn();
     lastRest.mockClear();
+    resizeStart.mockClear();
     const columnW = shared(176);
     let seam!: { handlers: Record<string, PanHandler> };
     function Probe() {
-      seam = useColumnResize({ columnW: columnW as never, canvasW: shared(400) as never, minWidth: 74, defaultWidth: 176, onSettle, onRest: lastRest }).seam as never;
+      seam = useColumnResize({ columnW: columnW as never, canvasW: shared(400) as never, minWidth: 74, defaultWidth: 176, onSettle, onRest: lastRest, onResizeStart: resizeStart }).seam as never;
       return null;
     }
     await act(async () => {
@@ -67,6 +68,14 @@ describe("useColumnResize", () => {
     return onSettle;
   };
   const lastRest = jest.fn();
+  const resizeStart = jest.fn();
+
+  it("says a resize started once the drag commits across, and never for a slide along the seam", async () => {
+    await drag(50);
+    expect(resizeStart).toHaveBeenCalledTimes(1);
+    await drag(0, 40);
+    expect(resizeStart).not.toHaveBeenCalled();
+  });
 
   it("settles on the closed stop when let go nearer the logo width", async () => {
     expect(await drag(-80)).toHaveBeenCalledWith("closed", 74);

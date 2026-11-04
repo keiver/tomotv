@@ -11,7 +11,6 @@ import { GuideSeamMark } from "@/components/live-tv/guide-seam-mark";
 import { GuideTimeRuler, useRulerScrub } from "@/components/live-tv/guide-time-ruler";
 import { sideInsets } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
-import { usePlayerSession } from "@/contexts/PlayerSessionContext";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import type { GuideRow as GuideRowData, GuideState } from "@/hooks/useGuide";
 import type { useLivePreview } from "@/hooks/useLivePreview";
@@ -42,7 +41,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import { LayoutChangeEvent, Platform, Animated as RNAnimated, StyleSheet, Text, TVFocusGuideView, useAnimatedValue, useTVEventHandler, View, type ViewToken } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Animated, { runOnJS, runOnUI, scrollTo, useAnimatedReaction, useAnimatedRef, useAnimatedScrollHandler, useAnimatedStyle, useDerivedValue, useSharedValue } from "react-native-reanimated";
+import Animated, { runOnJS, runOnUI, scrollTo, useAnimatedRef, useAnimatedScrollHandler, useAnimatedStyle, useDerivedValue, useSharedValue } from "react-native-reanimated";
 
 import { setFocusedGuideRow } from "@/services/guideChannelFocus";
 import { setLiveFrameFocus } from "@/services/liveFrames";
@@ -111,18 +110,17 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   const columnW = useSharedValue(compact ? METRICS.compactColumnWidth : METRICS.channelColumnWidth);
   const canvasW = useSharedValue(0);
   const scrollY = useSharedValue(0);
-  // The width the rows are laid out for; between stops the two lists scale from it on the UI thread.
+  // The width the rows are laid out for; the rows take a new height only once a drag has sprung to rest.
   const [committedWidth, setCommittedWidth] = useState(compact ? METRICS.compactColumnWidth : METRICS.channelColumnWidth);
   const committedW = useSharedValue(committedWidth);
   // Past the default stop the card grows with the column and the row with the card; below it the card keeps its size.
   const cardWidth = Math.max(committedWidth, METRICS.channelColumnWidth);
   const sized = useMemo(() => (IS_TV ? METRICS : { ...METRICS, channelColumnWidth: cardWidth, rowHeight: guideRowHeight(cardWidth) }), [cardWidth]);
-  const listScale = useDerivedValue(() => Math.max(columnW.get(), METRICS.channelColumnWidth) / Math.max(committedW.get(), METRICS.channelColumnWidth));
-  const { inlineScale } = usePlayerSession();
-  useAnimatedReaction(
-    () => listScale.get(),
-    (scale) => inlineScale.set(scale),
-  );
+  // While dragging wider, each card grows from its left edge, cropped by its row; dragging narrower crops it at the seam.
+  const cardScale = useDerivedValue(() => Math.max(1, Math.max(columnW.get(), METRICS.channelColumnWidth) / Math.max(committedW.get(), METRICS.channelColumnWidth)));
+  // The pinned player parks, still playing, from the drag until the band is measured at the new width.
+  const [resizing, setResizing] = useState(false);
+  const handleResizeStart = useCallback(() => setResizing(true), []);
   const [viewportWidth, setViewportWidth] = useState(0);
   // The window never holds less than GUIDE_SPAN_MINUTES, so this density keeps every state of the
   // grid, loading and no-listings rows included, at least as wide as the viewport.
@@ -138,6 +136,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
       keepRowRef.current = Math.round(scrollY.get() / sized.rowHeight);
       committedW.set(width);
       setCommittedWidth(width);
+      setResizing(false);
       setViewportWidth(canvasW.get() - width + SEAM_REACH);
     },
     [canvasW, committedW, scrollY, sized.rowHeight],
@@ -159,6 +158,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
     defaultWidth: METRICS.channelColumnWidth,
     onSettle: handleColumnSettle,
     onRest: commitWidth,
+    onResizeStart: handleResizeStart,
   });
   const [canvasHeight, setCanvasHeight] = useState(0);
   const handleCanvasLayout = useCallback((event: LayoutChangeEvent) => {
@@ -513,7 +513,6 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   );
   const rowHeight = sized.rowHeight;
   const getItemLayout = useCallback((_data: ArrayLike<GuideRowData> | null | undefined, index: number) => ({ length: rowHeight, offset: rowHeight * index, index }), [rowHeight]);
-  const rowsScaleStyle = useAnimatedStyle(() => ({ transform: [{ scale: listScale.get() }] }));
   // The pinned channel's airing programme, for its band.
   const pinnedProgram = useMemo(() => {
     if (!pinnedId) return undefined;
@@ -600,7 +599,9 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
           metrics={sized}
           compact={compact}
           bare={viewportWidth > 0 && viewportWidth < PINNED_INFO_MIN_WIDTH}
-          listScale={listScale}
+          columnWidth={columnW}
+          cardScale={cardScale}
+          resizing={resizing}
           opening={pinned.opening}
           onSlot={pinned.setSlot}
           onClose={pinned.close}
@@ -623,7 +624,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
           onChannelFocus={handleChannelFocus}
           onFirstHandle={onEntryHandle}
           onCardNode={IS_TV ? handleCardNode : undefined}
-          listScale={IS_TV ? undefined : listScale}
+          cardScale={IS_TV ? undefined : cardScale}
           onEndReached={loadMoreRows}
         />
         <TVFocusGuideView style={styles.scrollHost} onLayout={handleCanvasLayout} onFocusEnter={IS_TV ? handleCellsEnter : undefined} onFocusLeave={IS_TV ? handleCellsLeave : undefined}>
@@ -660,7 +661,7 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
               maxToRenderPerBatch={4}
               updateCellsBatchingPeriod={16}
               windowSize={5}
-              style={[styles.rowsList, { height: listHeight, width: spanPx + SEAM_REACH }, IS_TV ? null : rowsScaleStyle]}
+              style={{ height: listHeight, width: spanPx + SEAM_REACH }}
               contentContainerStyle={{ paddingBottom: listBottomPad, paddingLeft: SEAM_REACH }}
             />
           </Animated.ScrollView>
@@ -709,9 +710,6 @@ const styles = StyleSheet.create({
   bandRow: {
     flex: 1,
     flexDirection: "row",
-  },
-  rowsList: {
-    transformOrigin: "left top",
   },
   loadingOverlay: {
     alignItems: "center",
