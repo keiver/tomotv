@@ -10,6 +10,7 @@ import { useCardPalette } from "@/hooks/useCardPalette";
 import { useLiveTvManagement } from "@/hooks/useLiveTvManagement";
 import { useRecordActions } from "@/hooks/useRecordActions";
 import { tapFeedback } from "@/services/haptics";
+import { runningTimers } from "@/services/recordingStatus";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
@@ -48,6 +49,10 @@ interface GuidePinnedBandProps {
   resizing: boolean;
   /** The channel is still opening: its own clip shows in the slot, dimmed under the spinner, until the player takes it. */
   opening: boolean;
+  /** The band plays the channel's recording in progress, not the channel. */
+  playsRecording: boolean;
+  /** The guide's clock. */
+  nowMs: number;
   /** Where the player draws, in window coordinates; null parks it. */
   onSlot: (frame: InlineFrame | null) => void;
   /** A tap on the player or its card: the presented player, with AVKit's controls. */
@@ -76,6 +81,8 @@ export function GuidePinnedBand({
   cardScale,
   resizing,
   opening,
+  playsRecording,
+  nowMs,
   onSlot,
   onOpen,
   onClose,
@@ -172,26 +179,39 @@ export function GuidePinnedBand({
     onRecordStart();
     void Promise.resolve(record()).then((landed) => onRecordSettled(landed === true));
   }, [recordBusy, recordTimer, cancelRecording, record, onRecordStart, onRecordSettled]);
+  // Recording now by the shared status's rule: InProgress, or its span covers the clock before the server says so.
+  const recordingNow = !!recordTimer && runningTimers([recordTimer], nowMs).length > 0;
   const recordButton = useMemo<PinnedRecordButton | null>(() => {
     if (recordTimer === undefined) return null;
-    const inProgress = recordTimer?.Status === "InProgress";
     return {
-      icon: recordTimer ? (inProgress ? "stop-circle-outline" : "close-circle-outline") : "radio-button-on",
-      label: t(recordTimer ? (inProgress ? "liveTv.stopRecording" : "liveTv.cancelRecording") : "liveTv.record"),
+      icon: recordTimer ? (recordingNow ? "stop-circle-outline" : "close-circle-outline") : "radio-button-on",
+      label: t(recordTimer ? (recordingNow ? "liveTv.stopRecording" : "liveTv.cancelRecording") : "liveTv.record"),
       onPress: pressRecord,
     };
-  }, [recordTimer, pressRecord]);
+  }, [recordTimer, recordingNow, pressRecord]);
+  const mark = playsRecording ? t("liveTv.playingRecording") : recordingNow ? t("liveTv.recordingNow") : null;
 
   const overlay = showTile ? null : (
-    <GuidePinnedOverlay name={name} record={recordButton} extended={extended} bar={onPicture} accent={accent} onToggleSize={toggleSize} onOpen={onOpen} onClose={onClose} />
+    <GuidePinnedOverlay name={name} mark={mark} record={recordButton} extended={extended} bar={onPicture} accent={accent} onToggleSize={toggleSize} onOpen={onOpen} onClose={onClose} />
   );
   // The player draws above the guide, so the copy over the playing picture is the host's, and it takes the swipe there.
   const hostOverlay = useMemo(
     () =>
       showTile ? null : (
-        <GuidePinnedOverlay name={name} record={recordButton} extended={extended} bar={onPicture} accent={accent} swipe={overlaySwipe} onToggleSize={toggleSize} onOpen={onOpen} onClose={onClose} />
+        <GuidePinnedOverlay
+          name={name}
+          mark={mark}
+          record={recordButton}
+          extended={extended}
+          bar={onPicture}
+          accent={accent}
+          swipe={overlaySwipe}
+          onToggleSize={toggleSize}
+          onOpen={onOpen}
+          onClose={onClose}
+        />
       ),
-    [showTile, name, recordButton, extended, onPicture, accent, overlaySwipe, toggleSize, onOpen, onClose],
+    [showTile, name, mark, recordButton, extended, onPicture, accent, overlaySwipe, toggleSize, onOpen, onClose],
   );
   useEffect(() => setInlineOverlay(hostOverlay), [hostOverlay, setInlineOverlay]);
   useEffect(() => () => setInlineOverlay(null), [setInlineOverlay]);

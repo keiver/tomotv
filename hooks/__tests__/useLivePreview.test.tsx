@@ -246,6 +246,7 @@ describe("useLivePreview", () => {
     expect(mockSession.requestSession).toHaveBeenLastCalledWith({ videoId: "r1", videoName: "One recording", inline: true, sessionKey: key });
     expect(mockPush).not.toHaveBeenCalled();
     expect(latest().channel?.Id).toBe("c1");
+    expect(latest().playsRecording).toBe(true);
     alert.mockRestore();
   });
 

@@ -608,6 +608,8 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
           cardScale={cardScale}
           resizing={resizing}
           opening={pinned.opening}
+          playsRecording={pinned.playsRecording}
+          nowMs={nowMs}
           onSlot={pinned.setSlot}
           onOpen={pinned.open}
           onClose={pinned.close}

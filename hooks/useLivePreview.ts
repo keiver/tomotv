@@ -31,6 +31,7 @@ export function useLivePreview() {
   const inlineWatchRef = useRef(false);
   // The band plays the pinned channel's recording, not the channel.
   const playsRecordingRef = useRef(false);
+  const [playsRecording, setPlaysRecording] = useState(false);
   const hostModeRef = useRef(hostMode);
   useEffect(() => {
     hostModeRef.current = hostMode;
@@ -63,6 +64,7 @@ export function useLivePreview() {
     channelIdRef.current = null;
     playsRecordingRef.current = false;
     inlineWatchRef.current = false;
+    setPlaysRecording(false);
     setRecordingFor(null);
     setChannel(null);
     dismissToast(TOAST_ID);
@@ -93,6 +95,7 @@ export function useLivePreview() {
         keyRef.current = key;
         channelIdRef.current = tapped.Id;
         playsRecordingRef.current = false;
+        setPlaysRecording(false);
         setChannel(tapped);
         setHandlers(handlers);
         requestSession({ videoId: tapped.Id, videoName: tapped.Name, isLive: true, inline: true, sessionKey: key });
@@ -131,6 +134,7 @@ export function useLivePreview() {
       if (key && inlineWatchRef.current) {
         inlineWatchRef.current = false;
         playsRecordingRef.current = true;
+        setPlaysRecording(true);
         requestSession({ videoId: item.Id, videoName: item.Name, inline: true, sessionKey: key });
         return;
       }
@@ -201,5 +205,5 @@ export function useLivePreview() {
 
   // The pinned channel, or its recording, is opening (its band shows the card's own clip meanwhile) until it plays.
   const opening = !!channel && ((hostMode !== "error" && playbackState.type !== "PLAYING") || recordingHere || hold.opening);
-  return { channel, opening, pin, close, open, fullscreen, setSlot, expectRecording, recordingSettled };
+  return { channel, opening, playsRecording, pin, close, open, fullscreen, setSlot, expectRecording, recordingSettled };
 }
