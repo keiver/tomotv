@@ -9,7 +9,9 @@ import { GestureDetector, type GestureType } from "react-native-gesture-handler"
 
 /** The channel's name, here and beside the picture, starts this far in; the band's pull tab lines up with it. */
 export const PINNED_TEXT_INSET = 12;
-const SCRIM = "linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.85) 35%, rgba(0, 0, 0, 1) 100%)";
+// Eased stops: the fade starts at the scrim's top edge and deepens gradually, with no visible line.
+const SCRIM =
+  "linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.08) 15%, rgba(0, 0, 0, 0.22) 30%, rgba(0, 0, 0, 0.42) 45%, rgba(0, 0, 0, 0.62) 60%, rgba(0, 0, 0, 0.8) 75%, rgba(0, 0, 0, 0.92) 90%, rgba(0, 0, 0, 0.96) 100%)";
 
 interface GuidePinnedOverlayProps {
   name: string;
@@ -66,7 +68,7 @@ const styles = StyleSheet.create({
     // The name's line sits on the buttons' base.
     alignItems: "flex-end",
     gap: 12,
-    paddingTop: 36,
+    paddingTop: 96,
     paddingBottom: 12,
     paddingHorizontal: PINNED_TEXT_INSET,
     experimental_backgroundImage: SCRIM,
