@@ -31,7 +31,8 @@ import {
   MINUTE_MS,
   mountSpanFor,
   NO_GUIDE_PREFIX,
-  nearestColumnStop,
+  columnDragWidth,
+  settleColumnStop,
   pinTapAction,
   programCategory,
   restoreFocusNode,
@@ -547,17 +548,54 @@ describe("wideColumnWidth", () => {
   });
 });
 
-describe("nearestColumnStop", () => {
+describe("columnDragWidth", () => {
+  const stops = { closed: 74, default: 176, wide: 240 };
+
+  it("follows the finger between the stops either side of where the drag began", () => {
+    expect(columnDragWidth(74, 60, stops)).toBe(134);
+    expect(columnDragWidth(176, 40, stops)).toBe(216);
+    expect(columnDragWidth(176, -80, stops)).toBe(96);
+  });
+
+  it("holds the column back past the default stop on a drag from closed, so it takes a pull to go wider", () => {
+    expect(columnDragWidth(74, 152, stops)).toBeCloseTo(176 + 50 * 0.3);
+    expect(columnDragWidth(74, 166, stops)).toBeLessThan(208);
+  });
+
+  it("holds it back the same way past the default stop on a drag from wide", () => {
+    expect(columnDragWidth(240, -114, stops)).toBeCloseTo(176 - 50 * 0.3);
+  });
+
+  it("follows at most 16pt past the closed and wide stops", () => {
+    expect(columnDragWidth(176, 500, stops)).toBe(256);
+    expect(columnDragWidth(176, -500, stops)).toBe(58);
+  });
+});
+
+describe("settleColumnStop", () => {
   const stops = { closed: 74, default: 176, wide: 240 };
 
   it("rests on the stop nearest where the column was let go", () => {
-    expect(nearestColumnStop(100, 0, stops)).toBe("closed");
-    expect(nearestColumnStop(190, 0, stops)).toBe("default");
-    expect(nearestColumnStop(220, 0, stops)).toBe("wide");
+    expect(settleColumnStop(100, 0, 176, stops)).toBe("closed");
+    expect(settleColumnStop(190, 0, 176, stops)).toBe("default");
+    expect(settleColumnStop(220, 0, 176, stops)).toBe("wide");
   });
 
-  it("carries a fling on to the stop it heads for", () => {
-    expect(nearestColumnStop(200, 1200, stops)).toBe("wide");
-    expect(nearestColumnStop(160, -800, stops)).toBe("closed");
+  it("carries a fling on to the next stop", () => {
+    expect(settleColumnStop(200, 1200, 176, stops)).toBe("wide");
+    expect(settleColumnStop(160, -800, 176, stops)).toBe("closed");
+  });
+
+  it("stops a flick from closed on the default stop, however fast", () => {
+    expect(settleColumnStop(150, 3000, 74, stops)).toBe("default");
+    expect(settleColumnStop(190, 3000, 74, stops)).toBe("default");
+  });
+
+  it("goes from closed to wide only when pulled past the default stop to nearer wide", () => {
+    expect(settleColumnStop(212, 0, 74, stops)).toBe("wide");
+  });
+
+  it("stops a flick from wide on the default stop too", () => {
+    expect(settleColumnStop(150, -3000, 240, stops)).toBe("default");
   });
 });

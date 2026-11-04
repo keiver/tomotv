@@ -1,6 +1,6 @@
 import { GRID_LINE } from "@/components/live-tv/guide-cell";
 import { GuideGrip } from "@/components/live-tv/guide-grip";
-import { type ColumnStop, nearestColumnStop, wideColumnWidth } from "@/utils/guide";
+import { columnDragWidth, type ColumnStop, settleColumnStop, wideColumnWidth } from "@/utils/guide";
 import React, { useCallback, useMemo, useRef } from "react";
 import { type LayoutChangeEvent, StyleSheet, View, useWindowDimensions } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
@@ -8,7 +8,8 @@ import Animated, { runOnJS, type SharedValue, useAnimatedStyle, useSharedValue, 
 
 const GRIP_WIDTH = 48;
 const HIT_HEIGHT = 64;
-const STOP_SPRING = { damping: 22, stiffness: 220, mass: 0.8 };
+/** Damped to the edge of bouncing and clamped at the stop: the column decelerates into it and stays, never swinging past. */
+const STOP_SPRING = { damping: 32, stiffness: 260, mass: 1, overshootClamping: true };
 /** The grip opens 20% up from the screen's bottom: the one-handed thumb's natural zone, clear of the corner. */
 const REST_FROM_BOTTOM = 0.2;
 /** Movement before a seam drag commits to resizing or to sliding the grip. */
@@ -51,7 +52,7 @@ export function useColumnResize({ columnW, canvasW, minWidth, defaultWidth, onSe
     };
     const resize = (translationX: number) => {
       "worklet";
-      columnW.set(clamp(start.get() + translationX, minWidth, stops().wide));
+      columnW.set(columnDragWidth(start.get(), translationX, stops()));
     };
     // One axis per drag, picked by the first movement, so sliding the grip never nudges the width.
     const seam = Gesture.Pan()
@@ -79,10 +80,11 @@ export function useColumnResize({ columnW, canvasW, minWidth, defaultWidth, onSe
         "worklet";
         if (axis.get() !== "x") return;
         const widths = stops();
-        const stop = nearestColumnStop(columnW.get(), event.velocityX, widths);
+        const stop = settleColumnStop(columnW.get(), event.velocityX, start.get(), widths);
         const width = widths[stop];
+        // The spring takes over at the finger's own speed, so the column carries on rather than starting from rest.
         columnW.set(
-          withSpring(width, STOP_SPRING, (finished) => {
+          withSpring(width, { ...STOP_SPRING, velocity: event.velocityX }, (finished) => {
             "worklet";
             if (finished) runOnJS(onRest)(width);
           }),

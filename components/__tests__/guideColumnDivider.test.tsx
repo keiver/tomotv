@@ -49,11 +49,11 @@ describe("GuideColumnDivider", () => {
 });
 
 describe("useColumnResize", () => {
-  const drag = async (translationX: number, translationY = 0, velocityX = 0) => {
+  const drag = async (translationX: number, translationY = 0, velocityX = 0, startWidth = 176) => {
     const onSettle = jest.fn();
     lastRest.mockClear();
     resizeStart.mockClear();
-    const columnW = shared(176);
+    const columnW = shared(startWidth);
     let seam!: { handlers: Record<string, PanHandler> };
     function Probe() {
       seam = useColumnResize({ columnW: columnW as never, canvasW: shared(400) as never, minWidth: 74, defaultWidth: 176, onSettle, onRest: lastRest, onResizeStart: resizeStart }).seam as never;
@@ -87,6 +87,15 @@ describe("useColumnResize", () => {
 
   it("follows a fling to the next stop even when let go nearer the last one", async () => {
     expect(await drag(10, 0, 1500)).toHaveBeenCalledWith("wide", 240);
+  });
+
+  it("stops a hard flick from closed on the default stop", async () => {
+    expect(await drag(90, 0, 3000, 74)).toHaveBeenCalledWith("default", 176);
+  });
+
+  it("opens from closed to wide only when pulled well past the default stop", async () => {
+    expect(await drag(110, 0, 0, 74)).toHaveBeenCalledWith("default", 176);
+    expect(await drag(260, 0, 0, 74)).toHaveBeenCalledWith("wide", 240);
   });
 
   it("lays the lists out at the new width only once the column has sprung to rest there", async () => {

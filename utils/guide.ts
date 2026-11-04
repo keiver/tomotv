@@ -424,21 +424,43 @@ export function wideColumnWidth(guideWidth: number, defaultWidth: number): numbe
   "worklet";
   return Math.max(defaultWidth, Math.min(WIDE_COLUMN_MAX, guideWidth * WIDE_COLUMN_RATIO));
 }
+const COLUMN_STOPS: readonly ColumnStop[] = ["closed", "default", "wide"];
 /** A fling carries the column this many seconds of its speed past where the finger let go. */
 const COLUMN_FLING_S = 0.15;
+/** Past the stops either side of where a drag began, the column follows the finger at this fraction: those stops hold it back. */
+const COLUMN_PULL = 0.3;
+/** How far the column follows past the closed and wide stops at most. */
+const COLUMN_OVERPULL = 16;
 
-/** Where the column rests after a drag: the stop nearest the release width carried on by the fling. */
-export function nearestColumnStop(width: number, velocityX: number, stops: Record<ColumnStop, number>): ColumnStop {
+function nearestStopIndex(width: number, stops: Record<ColumnStop, number>): number {
   "worklet";
-  const projected = width + velocityX * COLUMN_FLING_S;
-  let best: ColumnStop = "default";
-  let distance = Infinity;
-  for (const stop of ["closed", "default", "wide"] as const) {
-    const gap = Math.abs(stops[stop] - projected);
-    if (gap < distance) {
-      best = stop;
-      distance = gap;
-    }
+  let best = 0;
+  for (let index = 1; index < COLUMN_STOPS.length; index++) {
+    if (Math.abs(stops[COLUMN_STOPS[index]] - width) < Math.abs(stops[COLUMN_STOPS[best]] - width)) best = index;
   }
   return best;
+}
+
+/** The column's width for a drag of `translationX` from `startWidth`: the finger's own up to the stops either side of the one it began on, held back past them. */
+export function columnDragWidth(startWidth: number, translationX: number, stops: Record<ColumnStop, number>): number {
+  "worklet";
+  const from = nearestStopIndex(startWidth, stops);
+  const lower = stops[COLUMN_STOPS[Math.max(0, from - 1)]];
+  const upper = stops[COLUMN_STOPS[Math.min(COLUMN_STOPS.length - 1, from + 1)]];
+  const raw = startWidth + translationX;
+  const held = raw > upper ? upper + (raw - upper) * COLUMN_PULL : raw < lower ? lower - (lower - raw) * COLUMN_PULL : raw;
+  return Math.min(stops.wide + COLUMN_OVERPULL, Math.max(stops.closed - COLUMN_OVERPULL, held));
+}
+
+/**
+ * Where the column rests after a drag that began at `startWidth`: a fling moves it at most to the stop beside the one it
+ * began on, so closed to wide takes a pull past the default stop, never a flick.
+ */
+export function settleColumnStop(width: number, velocityX: number, startWidth: number, stops: Record<ColumnStop, number>): ColumnStop {
+  "worklet";
+  const from = nearestStopIndex(startWidth, stops);
+  const at = nearestStopIndex(width, stops);
+  if (Math.abs(at - from) > 1) return COLUMN_STOPS[at];
+  const flung = nearestStopIndex(width + velocityX * COLUMN_FLING_S, stops);
+  return COLUMN_STOPS[Math.min(from + 1, Math.max(from - 1, flung))];
 }
