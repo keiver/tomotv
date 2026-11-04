@@ -45,7 +45,16 @@ export function GuideHud({ cornerWidth, cornerActions, onSelectedHandle }: Guide
     <HudBand cornerWidth={cornerWidth} cornerActions={cornerActions}>
       {choices.map((choice) => {
         const selected = choice.filter === filter;
-        return <GuideGroupCell key={choice.filter} ref={selected ? selectedRef : undefined} label={choice.label} selected={selected} onPress={() => select(choice.filter)} />;
+        return (
+          <GuideGroupCell
+            key={choice.filter}
+            ref={selected ? selectedRef : undefined}
+            label={choice.label}
+            selected={selected}
+            onPress={() => select(choice.filter)}
+            favorite={choice.filter === "favorites"}
+          />
+        );
       })}
     </HudBand>
   );

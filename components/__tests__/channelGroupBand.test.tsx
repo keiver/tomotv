@@ -112,6 +112,14 @@ describe("ChannelGroupBand", () => {
     expect(radii()).toEqual(square);
   });
 
+  it("marks only the Favorites cell with the heart", () => {
+    let tree!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      tree = TestRenderer.create(<ChannelGroupBand channel={channel} />);
+    });
+    expect(tree.root.findAllByType(GuideGroupCell).map((cell) => cell.props.favorite)).toEqual([true, ...Array(7).fill(false)]);
+  });
+
   it("adds the channel to an unticked group on press", () => {
     let tree!: TestRenderer.ReactTestRenderer;
     act(() => {

@@ -16,6 +16,8 @@ interface GuideGroupCellProps {
   label: string;
   selected: boolean;
   onPress: () => void;
+  /** Leads the label with the guide cards' favorite heart. */
+  favorite?: boolean;
   /** Rounds the bottom-right corner to the card's it ends in; the focus ring follows. */
   bottomRightRadius?: number;
 }
@@ -25,7 +27,7 @@ interface GuideGroupCellProps {
  * so the row reads as one surface split by the grid's lines. The picked group wears a green wash and a checkmark;
  * focus draws the program cells' accent ring.
  */
-export const GuideGroupCell = forwardRef<View, GuideGroupCellProps>(function GuideGroupCell({ label, selected, onPress, bottomRightRadius }, ref) {
+export const GuideGroupCell = forwardRef<View, GuideGroupCellProps>(function GuideGroupCell({ label, selected, onPress, favorite, bottomRightRadius }, ref) {
   const [focused, setFocused] = useState(false);
   const { accent } = useCardPalette();
   const rounded = bottomRightRadius !== undefined && { borderBottomRightRadius: bottomRightRadius };
@@ -45,6 +47,7 @@ export const GuideGroupCell = forwardRef<View, GuideGroupCellProps>(function Gui
         {focused ? <View style={[styles.focusRing, rounded, { borderColor: accent }]} pointerEvents="none" /> : null}
         {/* Kept in the native tree: flattened, the optional checkmark renumbers the focusable's children. */}
         <View style={styles.content} collapsable={false}>
+          {favorite ? <Ionicons name="heart" size={IS_TV ? 20 : 13} color={accent} testID="guide-group-favorite" /> : null}
           <Text style={styles.label} numberOfLines={1}>
             {label}
           </Text>

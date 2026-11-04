@@ -41,7 +41,14 @@ export function ChannelGroupBand({ channel, nextFocusUp, cornerRadius = CARD_RAD
         />
       }>
       {choices.map((choice, index) => (
-        <GuideGroupCell key={choice.key} label={choice.label} selected={choice.member} onPress={choice.toggle} bottomRightRadius={filled && index === choices.length - 1 ? cornerRadius : undefined} />
+        <GuideGroupCell
+          key={choice.key}
+          label={choice.label}
+          selected={choice.member}
+          onPress={choice.toggle}
+          favorite={choice.kind === "favorites"}
+          bottomRightRadius={filled && index === choices.length - 1 ? cornerRadius : undefined}
+        />
       ))}
     </HudBand>
   );
