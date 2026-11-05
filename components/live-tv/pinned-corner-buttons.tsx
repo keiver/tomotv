@@ -1,5 +1,6 @@
 import { CloseOverlayButton } from "@/components/close-overlay-button";
 import { GlassIconButton } from "@/components/glass-icon-button";
+import { CARD_FOCUS } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { t } from "@/services/i18n";
 import { Ionicons } from "@expo/vector-icons";
@@ -8,6 +9,11 @@ import { StyleSheet, View } from "react-native";
 
 export const PINNED_CORNER_BUTTON = 38;
 const CORNER_ICON = 19;
+
+/** The accent glow round a playing channel's buttons: on a view with no fill, iOS draws the shadow from its buttons. */
+export function pinnedButtonGlow(accent: string) {
+  return { shadowColor: accent, shadowOffset: { width: 0, height: 0 }, shadowOpacity: CARD_FOCUS.GLOW_OPACITY, shadowRadius: CARD_FOCUS.GLOW_RADIUS.phone };
+}
 
 export interface PinnedRecordButton {
   icon: React.ComponentProps<typeof Ionicons>["name"];
@@ -29,12 +35,14 @@ interface PinnedCornerButtonsProps {
   onClose?: () => void;
   /** From the picture's top and right edges. */
   inset: { top: number; right: number };
+  /** The accent glow round the buttons, where nothing around them draws it already. */
+  glow?: boolean;
 }
 
 /** The buttons in a playing channel's top corner: mute, record, and where the picture has them, its size and close. */
-export function PinnedCornerButtons({ accent, muted, onToggleMute, record, size, onClose, inset }: PinnedCornerButtonsProps) {
+export function PinnedCornerButtons({ accent, muted, onToggleMute, record, size, onClose, inset, glow }: PinnedCornerButtonsProps) {
   return (
-    <View style={[styles.corner, inset]} pointerEvents="box-none">
+    <View style={[styles.corner, inset, glow && pinnedButtonGlow(accent)]} pointerEvents="box-none">
       <GlassIconButton
         icon={muted ? "volume-mute-outline" : "volume-high-outline"}
         iconSize={CORNER_ICON}

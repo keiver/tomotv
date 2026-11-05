@@ -5,6 +5,7 @@ import { GuideChannelTile } from "@/components/live-tv/guide-channel-tile";
 import { COLORS } from "@/constants/colors";
 import { GuidePinnedTab, PINNED_EDGE } from "@/components/live-tv/guide-pinned-tab";
 import { GuidePinnedOverlay, PINNED_TEXT_INSET } from "@/components/live-tv/guide-pinned-overlay";
+import { pinnedButtonGlow } from "@/components/live-tv/pinned-corner-buttons";
 import { usePlayerSession, type InlineFrame } from "@/contexts/PlayerSessionContext";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { usePinnedRecordButton } from "@/hooks/usePinnedRecordButton";
@@ -228,7 +229,7 @@ export function GuidePinnedBand({
     </View>
   );
   const buttons = (
-    <View style={styles.buttons}>
+    <View style={[styles.buttons, pinnedButtonGlow(accent)]}>
       <GlassIconButton
         icon={muted ? "volume-mute-outline" : "volume-high-outline"}
         iconSize={SIDE_ICON}

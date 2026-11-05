@@ -45,6 +45,7 @@ export function GuidePinnedOverlay({ name, mark, record, extended, bar, accent, 
           size={{ extended, onToggle: onToggleSize }}
           onClose={onClose}
           inset={{ top: 8, right: PINNED_TEXT_INSET }}
+          glow
         />
       ) : null}
     </View>
