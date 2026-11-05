@@ -1,4 +1,4 @@
-/** Multiview: a fixed layout of live spots, the viewer's picture spots and a strip row, kept per user; the sound spot full screen on select, the layout picker on Play/Pause, and queued programmes taking the sound spot when they start. */
+/** Multiview: a fixed layout of live spots, the viewer's picture spots and a strip row, kept per user; the sound spot in the player on select, the layout picker on Play/Pause, and queued programmes taking the sound spot when they start. */
 import React from "react";
 import { Alert, Platform, ScrollView, View } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
@@ -256,27 +256,18 @@ describe("Multiview", () => {
     expect(mockPlayer.open).toHaveBeenCalledTimes(1);
   });
 
-  it("on Apple TV fills the screen with the spot with the sound under the full screen route, the same tile playing on bare, and brings the layout back when it returns", () => {
+  it("on Apple TV opens the spot with the sound in the player route as a live channel, leaving the layout and its sessions as they are", () => {
     const tv = jest.spyOn(Platform, "isTV", "get").mockReturnValue(true);
     mockParams = { channelId: "c10" };
     mount();
     const sessions = mockSetLiveTiles.mock.calls.length;
-    mockMounts.length = 0;
     act(() => spots()[0].onSelect("c10"));
-    expect(mockPush).toHaveBeenCalledWith("/multiview-full");
-    // The full screen route covers Multiview: it is no longer focused, and the spot keeps its player.
-    mockFocused = false;
-    act(() => tree.update(<MultiviewScreen />));
-    expect(spots()).toHaveLength(1);
-    expect(strip()).toHaveLength(0);
-    expect(spots()[0]).toMatchObject({ main: true, visible: true, bare: true, rect: { x: 0, y: 0, width: STAGE.width, height: STAGE.height } });
-    expect(mockMounts).toEqual([]);
-    expect(mockSetLiveTiles.mock.calls.length).toBe(sessions);
-    mockFocused = true;
-    act(() => tree.update(<MultiviewScreen />));
+    expect(mockLoader).toHaveBeenCalledTimes(1);
+    expect(mockPush).toHaveBeenCalledWith({ pathname: "/player", params: { videoId: "c10", videoName: "Channel 10", live: "1" } });
+    expect(mockPlayer.open).not.toHaveBeenCalled();
     expect(spots()).toHaveLength(4);
-    expect(spots().every((tile) => !tile.bare)).toBe(true);
     expect(strip().length).toBeGreaterThan(0);
+    expect(mockSetLiveTiles.mock.calls.length).toBe(sessions);
     tv.mockRestore();
   });
 

@@ -32,8 +32,6 @@ interface MultiviewTileProps {
   failed?: boolean;
   /** False while the screen is covered: the tile lets its player go. */
   visible: boolean;
-  /** Full screen: the picture alone, no label and no focus ring. */
-  bare?: boolean;
   /** The programme airing, for the label; past its end it is not shown. */
   program?: Pick<JellyfinProgram, "Name" | "StartDate" | "EndDate"> | null;
   nowMs: number;
@@ -57,7 +55,7 @@ export function airingLine(program: Pick<JellyfinProgram, "Name" | "StartDate" |
 }
 
 /** One multiview spot: its live session when it has one, else its clip, else its picture, else the channel's logo, under its name and programme. */
-function MultiviewTileComponent({ channel, rect, main, liveUrl, failed, visible, bare, program, nowMs, hasTVPreferredFocus, onSelect, onFailed, onLongPress, inPlayer, overlay }: MultiviewTileProps) {
+function MultiviewTileComponent({ channel, rect, main, liveUrl, failed, visible, program, nowMs, hasTVPreferredFocus, onSelect, onFailed, onLongPress, inPlayer, overlay }: MultiviewTileProps) {
   const { accent, ink } = useCardPalette();
   const frame = useLiveFrame(channel.Id);
   const clip = useLiveClip(channel.Id);
@@ -76,7 +74,7 @@ function MultiviewTileComponent({ channel, rect, main, liveUrl, failed, visible,
   const sounding = main && live && (played ? !!inPlayer?.playing || !!overlay : playingUri === uri);
   const airing = airingLine(program, nowMs);
   // Touch screens have no focus: the spot with the sound wears the ring Apple TV gives the focused spot.
-  const ringed = (focused || (!IS_TV && main)) && !bare;
+  const ringed = focused || (!IS_TV && main);
   const logo = frame ? undefined : posterSource(channel, 300);
   return (
     <TouchableOpacity
@@ -109,27 +107,25 @@ function MultiviewTileComponent({ channel, rect, main, liveUrl, failed, visible,
           </View>
         </View>
       ) : null}
-      {bare ? null : <View style={[styles.edge, ringed && styles.edgeFocused]} pointerEvents="none" />}
+      <View style={[styles.edge, ringed && styles.edgeFocused]} pointerEvents="none" />
       {ringed ? <View style={[styles.focusRing, { borderColor: accent }]} pointerEvents="none" /> : null}
-      {bare ? null : (
-        <View style={[styles.label, ringed && { backgroundColor: accent }]} pointerEvents="none">
-          {sounding ? (
-            <Ionicons name="volume-high" size={LABEL_TEXT} color={ringed ? ink : COLORS.TEXT_PRIMARY} />
-          ) : main && live ? (
-            <View style={styles.loading} testID="multiview-tile-loading">
-              <ActivityIndicator size="small" color={ringed ? ink : COLORS.TEXT_PRIMARY} style={styles.spinner} />
-            </View>
-          ) : null}
-          {recording ? (
-            <RecordingPulse active>
-              <View style={styles.recordingDot} testID="multiview-tile-recording" />
-            </RecordingPulse>
-          ) : null}
-          <Text style={[styles.labelText, ringed && { color: ink }]} numberOfLines={1}>
-            {[cleanLabel(channel.Name ?? ""), main ? airing : null].filter(Boolean).join(" · ")}
-          </Text>
-        </View>
-      )}
+      <View style={[styles.label, ringed && { backgroundColor: accent }]} pointerEvents="none">
+        {sounding ? (
+          <Ionicons name="volume-high" size={LABEL_TEXT} color={ringed ? ink : COLORS.TEXT_PRIMARY} />
+        ) : main && live ? (
+          <View style={styles.loading} testID="multiview-tile-loading">
+            <ActivityIndicator size="small" color={ringed ? ink : COLORS.TEXT_PRIMARY} style={styles.spinner} />
+          </View>
+        ) : null}
+        {recording ? (
+          <RecordingPulse active>
+            <View style={styles.recordingDot} testID="multiview-tile-recording" />
+          </RecordingPulse>
+        ) : null}
+        <Text style={[styles.labelText, ringed && { color: ink }]} numberOfLines={1}>
+          {[cleanLabel(channel.Name ?? ""), main ? airing : null].filter(Boolean).join(" · ")}
+        </Text>
+      </View>
     </TouchableOpacity>
   );
 }
