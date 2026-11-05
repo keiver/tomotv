@@ -53,7 +53,7 @@ import { useLiveClip, useLiveFrame, useLiveFrameSeenAt } from "@/hooks/useLiveFr
 import { useChannelHealth } from "@/hooks/useChannelHealth";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { invalidateChannelListReads, withChannelEdits } from "@/services/jellyfin/channelEdits";
-import { hideChannel, renameChannel } from "@/services/liveTvPreferences";
+import { getLiveTvPreferences, hideChannel, renameChannel, updateLiveTvPreferences } from "@/services/liveTvPreferences";
 import { usePlaybackHeld } from "@/hooks/usePlaybackHeld";
 import { LIVE_FRAME_TRANSITION_MS } from "@/services/liveFrames";
 import { folderPosterSource, heroArtBoxed, heroArtFrame, heroBoxFrame } from "@/services/itemArtwork";
@@ -91,6 +91,7 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { t } from "@/services/i18n";
+import { showToast } from "@/services/toast";
 
 const IS_TV = Platform.isTV;
 // iPad and Mac centre the panel's card and stack its CTAs content-sized; iPhone's card sits on the bottom edge.
@@ -582,6 +583,15 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   const recordTimer = recording.timer;
   const programAiring = !!liveProgram && detailsAtMs > 0 && isAiring(liveProgram, detailsAtMs);
   const programEnded = !!liveProgram && detailsAtMs > 0 && programTimes(liveProgram).endMs <= detailsAtMs;
+  // A programme still to come can be queued to take Multiview's sound spot when it starts.
+  const programUpcoming = !!liveProgram && !!liveChannelId && !!liveTimes && detailsAtMs > 0 && liveTimes.startMs > detailsAtMs;
+  const handleMultiviewWhenStarts = () => {
+    if (!liveProgram || !liveTimes) return;
+    const entry = { channelId: liveChannelId, name: liveProgram.Name ?? "", startMs: liveTimes.startMs, endMs: liveTimes.endMs };
+    const others = getLiveTvPreferences().multiviewQueue.filter((queued) => !(queued.channelId === entry.channelId && queued.startMs === entry.startMs));
+    updateLiveTvPreferences({ multiviewQueue: [...others, entry] });
+    showToast(t("liveTv.multiviewQueued"));
+  };
   const watchable = !!liveChannelId && (liveChannel || programAiring);
   // While the channel airs, its last grabbed picture and preview clip outrank its art.
   const liveArtChannel = watchable ? liveChannelId : "";
@@ -837,6 +847,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
     ...(shareable && folderInRow ? [{ key: "share", icon: "share-outline" as const, label: t("common.share"), word: t("info.word.share"), onPress: () => void handleShare() }] : []),
     ...(canDownloadFolder ? [{ key: "downloadAll", icon: "arrow-down" as const, label: t("info.downloadAll"), word: t("info.word.download"), onPress: handleDownloadFolder }] : []),
     ...(canFindSubtitles ? [{ key: "subtitles", icon: "text-outline" as const, label: t("info.findSubtitles"), word: t("info.word.subtitles"), onPress: handleFindSubtitles }] : []),
+    ...(programUpcoming ? [{ key: "multiviewQueue", icon: "alarm-outline" as const, label: t("liveTv.multiviewWhenStarts"), word: t("info.word.multiview"), onPress: handleMultiviewWhenStarts }] : []),
     ...(liveChannel
       ? [
           { key: "multiview", icon: "grid-outline" as const, label: t("liveTv.watchInMultiview"), word: t("info.word.multiview"), onPress: () => void handleWatchInMultiview() },

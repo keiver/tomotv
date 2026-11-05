@@ -1,6 +1,6 @@
-/** A multiview tile: its live session with sound only on the main, else its clip, else its picture; held on its last frame while frozen. */
+/** A multiview spot: its live session with sound only on the main, else its clip, else its picture, else the channel's logo; its programme and time left; held on its last frame while frozen. */
 import React from "react";
-import { TouchableOpacity } from "react-native";
+import { Text, TouchableOpacity } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 
 let mockFrame: { uri: string; cacheKey: string } | undefined;
@@ -8,13 +8,17 @@ let mockClip: { uri: string; cacheKey: string } | undefined;
 jest.mock("@keiver/tomo-live/src/clip", () => ({ LiveClipView: (props: object) => require("react").createElement("LiveClipView", props) }));
 jest.mock("@/hooks/useLiveFrame", () => ({ useLiveFrame: () => mockFrame, useLiveClip: () => mockClip }));
 jest.mock("@/hooks/useCardPalette", () => ({ useCardPalette: () => ({ accent: "#FFC312" }) }));
+jest.mock("@/services/jellyfinApi", () => ({ getPosterUrl: (id: string) => `https://jf/Items/${id}/Images/Primary` }));
+jest.mock("@/services/i18n", () => ({ t: (key: string) => (key === "liveTv.timeLeft" ? "{time} left" : key === "common.durationMinutes" ? "{minutes}m" : key) }));
 jest.mock("expo-image", () => ({ Image: (props: object) => require("react").createElement("Image", props) }));
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 
-import { MultiviewTile } from "@/components/live-tv/multiview-tile";
+import { airingLine, MultiviewTile } from "@/components/live-tv/multiview-tile";
 
+const NOW = Date.parse("2026-11-05T20:00:00Z");
 const channel = { Id: "c1", Name: "Channel One", Type: "TvChannel" } as never;
 const rect = { x: 0, y: 0, width: 320, height: 180 };
+const program = { Name: "Evening News", StartDate: "2026-11-05T19:30:00Z", EndDate: "2026-11-05T20:45:00Z" };
 type ClipProps = { uri: string | null; live: boolean; muted: boolean; frozen: boolean; onFrozen: () => void; onFailed: () => void };
 
 function render(props: Partial<React.ComponentProps<typeof MultiviewTile>> = {}) {
@@ -24,7 +28,7 @@ function render(props: Partial<React.ComponentProps<typeof MultiviewTile>> = {})
   let tree!: TestRenderer.ReactTestRenderer;
   act(() => {
     tree = TestRenderer.create(
-      <MultiviewTile channel={channel} rect={rect} main={false} liveUrl={null} frozen={false} visible onSelect={onSelect} onFrozen={onFrozen} onFailed={onFailed} {...props} />,
+      <MultiviewTile channel={channel} rect={rect} main={false} liveUrl={null} frozen={false} visible nowMs={NOW} onSelect={onSelect} onFrozen={onFrozen} onFailed={onFailed} {...props} />,
     );
   });
   const clips = tree.root.findAllByType("LiveClipView" as never);
@@ -37,7 +41,7 @@ beforeEach(() => {
 });
 
 describe("MultiviewTile", () => {
-  it("plays its live session with sound when it is the main, muted when a satellite", () => {
+  it("plays its live session with sound when it is the main, muted otherwise", () => {
     const url = "http://127.0.0.1:5000/t/master.m3u8";
     expect(render({ main: true, liveUrl: url }).clip).toMatchObject({ uri: url, live: true, muted: false });
     expect(render({ liveUrl: url }).clip).toMatchObject({ uri: url, live: true, muted: true });
@@ -46,9 +50,25 @@ describe("MultiviewTile", () => {
   it("loops its clip when not live, over its picture, and shows only the picture with no clip", () => {
     const withClip = render();
     expect(withClip.clip).toMatchObject({ uri: mockClip!.uri, live: false });
-    expect(withClip.tree.root.findByType("Image" as never).props.source).toEqual(mockFrame);
+    expect(withClip.tree.root.findAllByType("Image" as never).map((image) => image.props.source)).toEqual([mockFrame]);
     mockClip = undefined;
     expect(render().clip).toBeUndefined();
+  });
+
+  it("shows the channel's logo, never black, until a picture arrives", () => {
+    mockFrame = undefined;
+    mockClip = undefined;
+    const images = render().tree.root.findAllByType("Image" as never);
+    expect(images.map((image) => image.props.source)).toEqual([{ uri: "https://jf/Items/c1/Images/Primary" }]);
+  });
+
+  it("names the programme airing and its time left, and nothing outside its slot", () => {
+    expect(airingLine(program, NOW)).toBe("Evening News · 45m left");
+    expect(airingLine(program, Date.parse("2026-11-05T21:00:00Z"))).toBeNull();
+    const texts = render({ program })
+      .tree.root.findAllByType(Text)
+      .map((node) => node.props.children);
+    expect(texts).toContain("Evening News · 45m left");
   });
 
   it("keeps its player, live and holding its frame, while frozen with no session, and reports the hold", () => {
@@ -62,15 +82,14 @@ describe("MultiviewTile", () => {
     expect(render({ liveUrl: "http://127.0.0.1:5000/t/master.m3u8", visible: false }).clip).toBeUndefined();
   });
 
-  it("names its channel when its player fails", () => {
-    const { clip, onFailed } = render({ liveUrl: "http://127.0.0.1:5000/t/master.m3u8" });
+  it("names its channel when its player fails, when selected and when held", () => {
+    const onLongPress = jest.fn();
+    const { tree, clip, onFailed, onSelect } = render({ liveUrl: "http://127.0.0.1:5000/t/master.m3u8", onLongPress });
     clip!.onFailed();
     expect(onFailed).toHaveBeenCalledWith("c1");
-  });
-
-  it("names its channel to the select handler", () => {
-    const { tree, onSelect } = render();
     act(() => tree.root.findByType(TouchableOpacity).props.onPress());
     expect(onSelect).toHaveBeenCalledWith("c1");
+    act(() => tree.root.findByType(TouchableOpacity).props.onLongPress());
+    expect(onLongPress).toHaveBeenCalledWith("c1");
   });
 });

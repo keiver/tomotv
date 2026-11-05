@@ -64,7 +64,20 @@ describe("live TV preferences", () => {
       hideOffline: false,
       columnStop: "default",
       connectionLimits: {},
+      multiview: { layout: "onePlusThree", spots: [], chosen: [], strip: true },
+      multiviewQueue: [],
     });
+    // Multiview keeps a known layout, as many spots as it has, and picks only for channels in a spot.
+    expect(parseLiveTvPreferences({ multiview: { layout: "two", spots: ["a", "", "c"], chosen: ["a", "z", 3], strip: false } }).multiview).toEqual({
+      layout: "two",
+      spots: ["a", null],
+      chosen: ["a"],
+      strip: false,
+    });
+    expect(parseLiveTvPreferences({ multiview: { layout: "grid9", spots: "a" } }).multiview).toEqual({ layout: "onePlusThree", spots: [], chosen: [], strip: true });
+    // A queued programme survives whole and not yet over.
+    const ahead = { channelId: "c", name: "Match", startMs: Date.now() + 60_000, endMs: Date.now() + 3_600_000 };
+    expect(parseLiveTvPreferences({ multiviewQueue: [ahead, { ...ahead, endMs: Date.now() - 1 }, { ...ahead, name: 7 }, null] }).multiviewQueue).toEqual([ahead]);
     // A connection limit survives only as a listed number under a host; anything else is dropped.
     expect(parseLiveTvPreferences({ connectionLimits: { "iptv.example": 1, "two.example": 5, "six.example": 6, "text.example": "2", "": 1 } }).connectionLimits).toEqual({
       "iptv.example": 1,
@@ -378,6 +391,19 @@ describe("favorites and groups per user", () => {
     again.signIn("a");
     expect(again.preferences.getLiveTvPreferences().hidden).toEqual([{ id: "x", number: "9.1", name: "KQED" }]);
     expect(again.preferences.getLiveTvPreferences().renames).toEqual([{ name: "Al Jazeera English", displayName: "AJE" }]);
+  });
+
+  it("keeps each user's Multiview spots and queue apart, and reads them back after a relaunch", () => {
+    const { preferences, signIn } = load();
+    const arrangement = { layout: "two" as const, spots: ["x", "y"], chosen: ["x"], strip: false };
+    const queued = { channelId: "y", name: "Match", startMs: Date.now() + 60_000, endMs: Date.now() + 3_600_000 };
+    signIn("a");
+    preferences.updateLiveTvPreferences({ multiview: arrangement, multiviewQueue: [queued] });
+    signIn("b");
+    expect(preferences.getLiveTvPreferences()).toMatchObject({ multiview: DEFAULT_LIVE_TV_PREFERENCES.multiview, multiviewQueue: [] });
+    const again = load();
+    again.signIn("a");
+    expect(again.preferences.getLiveTvPreferences()).toMatchObject({ multiview: arrangement, multiviewQueue: [queued] });
   });
 });
 

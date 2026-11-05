@@ -340,6 +340,21 @@ function RootLayoutInner() {
                     }
                   />
                   <Stack.Screen
+                    name="multiview-pick"
+                    options={
+                      Platform.isTV
+                        ? { headerShown: false, animation: "fade" }
+                        : {
+                            headerShown: true,
+                            headerTransparent: true,
+                            headerShadowVisible: false,
+                            headerTitle: t("liveTv.multiviewChange"),
+                            headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                            headerBackTitle: t("liveTv.multiview"),
+                          }
+                    }
+                  />
+                  <Stack.Screen
                     name="channel-settings"
                     options={
                       Platform.isTV

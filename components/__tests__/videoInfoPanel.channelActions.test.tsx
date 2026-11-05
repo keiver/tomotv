@@ -3,7 +3,8 @@ import { VideoInfoPanel } from "@/components/video-info-panel";
 import { InfoActionRow, type InfoExtraAction } from "@/components/info-action-row";
 import { fetchItemDetails, fetchVideoDetails } from "@/services/jellyfinApi";
 import { invalidateChannelListReads } from "@/services/jellyfin/channelEdits";
-import { hideChannel, renameChannel } from "@/services/liveTvPreferences";
+import { getLiveTvPreferences, hideChannel, renameChannel } from "@/services/liveTvPreferences";
+import { showToast } from "@/services/toast";
 import type { JellyfinItem } from "@/types/jellyfin";
 import React from "react";
 import { Alert } from "react-native";
@@ -49,6 +50,7 @@ jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 jest.mock("@/services/i18n", () => ({ t: (key: string) => key }));
 jest.mock("@/services/jellyfin/channelEdits", () => ({ invalidateChannelListReads: jest.fn(), withChannelEdits: (item: unknown) => item }));
 jest.mock("@/services/liveTvPreferences", () => ({ ...jest.requireActual("@/services/liveTvPreferences"), hideChannel: jest.fn(), renameChannel: jest.fn() }));
+jest.mock("@/services/toast", () => ({ showToast: jest.fn() }));
 jest.mock("@/services/jellyfinApi", () => ({
   subscribeAuthChange: jest.fn(() => () => {}),
   subscribeSubtitlesChanged: jest.fn(() => () => {}),
@@ -103,6 +105,27 @@ describe("Video info panel: hide and rename a channel", () => {
     expect(mockRouter.back).toHaveBeenCalledTimes(1);
     expect(mockRouter.push).toHaveBeenCalledWith({ pathname: "/multiview", params: { channelId: "ch-1", channelName: "Channel One" } });
     expect(mockRouter.back.mock.invocationCallOrder[0]).toBeLessThan(mockRouter.push.mock.invocationCallOrder[0]);
+  });
+
+  it("queues a programme still to come for Multiview's sound spot once, and offers nothing for one airing", async () => {
+    const hour = 3_600_000;
+    const program = (startMs: number) =>
+      ({
+        Id: "p-1",
+        Name: "Match",
+        Type: "Program",
+        ChannelId: "ch-1",
+        ChannelName: "Channel One",
+        StartDate: new Date(startMs).toISOString(),
+        EndDate: new Date(startMs + hour).toISOString(),
+      }) as unknown as JellyfinItem;
+    expect((await extrasFor(program(Date.now() - 60_000))).map((action) => action.key)).not.toContain("multiviewQueue");
+    const later = program(Date.now() + hour);
+    const queue = (await extrasFor(later)).find((action) => action.key === "multiviewQueue")!;
+    queue.onPress();
+    queue.onPress();
+    expect(getLiveTvPreferences().multiviewQueue).toEqual([{ channelId: "ch-1", name: "Match", startMs: Date.parse(later.StartDate!), endMs: Date.parse(later.StartDate!) + hour }]);
+    expect(showToast).toHaveBeenCalledWith("liveTv.multiviewQueued");
   });
 
   it("fetches a film's playback details before Play, and never a channel's, whose fetch opens a tuner", async () => {

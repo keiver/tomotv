@@ -8,6 +8,7 @@ import { getCachedConfig } from "@/services/jellyfin/session";
 import type { JellyfinItem } from "@/types/jellyfin";
 import type { ColumnStop } from "@/utils/guide";
 import { logger } from "@/utils/logger";
+import { MULTIVIEW_LAYOUTS, multiviewSpotCount, type MultiviewLayoutName } from "@keiver/tomo-live/src/multiviewLayout";
 import { Settings } from "react-native";
 
 export const LIVE_TV_PREFERENCES_KEY = "app_live_tv_preferences";
@@ -69,6 +70,24 @@ export interface LiveTvPreferences {
   columnStop: ColumnStop;
   /** Streams a tuner playlist's provider allows this device at once, by playlist URL; a playlist left out is learned from its provider. */
   connectionLimits: Record<string, ConnectionLimit>;
+  /** Multiview's layout, the channel in each spot (null for an empty one, the viewer's own picks in `chosen`) and the strip. */
+  multiview: MultiviewArrangement;
+  /** Programmes to bring into Multiview's sound spot when they start. */
+  multiviewQueue: MultiviewQueued[];
+}
+
+export interface MultiviewArrangement {
+  layout: MultiviewLayoutName;
+  spots: (string | null)[];
+  chosen: string[];
+  strip: boolean;
+}
+
+export interface MultiviewQueued {
+  channelId: string;
+  name: string;
+  startMs: number;
+  endMs: number;
 }
 /** The limits a viewer can set; 0 ("Auto") removes the host's entry. */
 export const CONNECTION_LIMIT_OPTIONS = [1, 2, 3, 4, 5] as const;
@@ -92,6 +111,8 @@ export const DEFAULT_LIVE_TV_PREFERENCES: LiveTvPreferences = {
   hideOffline: false,
   columnStop: "default",
   connectionLimits: {},
+  multiview: { layout: "onePlusThree", spots: [], chosen: [], strip: true },
+  multiviewQueue: [],
 };
 
 let current: LiveTvPreferences | null = null;
@@ -194,7 +215,28 @@ export function parseLiveTvPreferences(raw: unknown): LiveTvPreferences {
     hideOffline: typeof source.hideOffline === "boolean" ? source.hideOffline : DEFAULT_LIVE_TV_PREFERENCES.hideOffline,
     columnStop: parseColumnStop(source.columnStop, source.compactColumn),
     connectionLimits: parseConnectionLimits(source.connectionLimits),
+    multiview: parseMultiview(source.multiview),
+    multiviewQueue: parseMultiviewQueue(source.multiviewQueue),
   };
+}
+
+function parseMultiview(raw: unknown): MultiviewArrangement {
+  const fallback = DEFAULT_LIVE_TV_PREFERENCES.multiview;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return fallback;
+  const source = raw as Record<string, unknown>;
+  const layout = (MULTIVIEW_LAYOUTS as readonly unknown[]).includes(source.layout) ? (source.layout as MultiviewLayoutName) : fallback.layout;
+  const spots = Array.isArray(source.spots) ? source.spots.slice(0, multiviewSpotCount(layout)).map((id) => (typeof id === "string" && id ? id : null)) : [];
+  const chosen = Array.isArray(source.chosen) ? source.chosen.filter((id): id is string => typeof id === "string" && spots.includes(id)) : [];
+  return { layout, spots, chosen, strip: typeof source.strip === "boolean" ? source.strip : fallback.strip };
+}
+
+/** Queued programmes, those already over left out. */
+function parseMultiviewQueue(raw: unknown, nowMs = Date.now()): MultiviewQueued[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((entry): entry is MultiviewQueued => {
+    const item = entry as Partial<MultiviewQueued> | null;
+    return !!item && typeof item.channelId === "string" && typeof item.name === "string" && Number.isFinite(item.startMs) && Number.isFinite(item.endMs) && item.endMs! > nowMs;
+  });
 }
 
 /** A document from before the three stops saved only whether the column was collapsed. */
@@ -248,10 +290,9 @@ function usersOf(doc: Record<string, unknown>): Record<string, unknown> {
 function write(preferences: LiveTvPreferences, userId: string): void {
   try {
     const stored = readDocument();
-    const { favorites, groups, hidden, renames, playlistEdits, categoryEdits, ...shared } = preferences;
-    const doc = userId
-      ? { ...shared, users: { ...usersOf(stored), [userId]: { favorites, groups, hidden, renames, playlistEdits, categoryEdits } } }
-      : { ...shared, favorites, groups, hidden, renames, playlistEdits, categoryEdits, ...(stored.users === undefined ? {} : { users: stored.users }) };
+    const { favorites, groups, hidden, renames, playlistEdits, categoryEdits, multiview, multiviewQueue, ...shared } = preferences;
+    const own = { favorites, groups, hidden, renames, playlistEdits, categoryEdits, multiview, multiviewQueue };
+    const doc = userId ? { ...shared, users: { ...usersOf(stored), [userId]: own } } : { ...shared, ...own, ...(stored.users === undefined ? {} : { users: stored.users }) };
     Settings.set({ [LIVE_TV_PREFERENCES_KEY]: JSON.stringify(doc) });
   } catch (error) {
     logger.warn("Live TV preferences write failed", error, { service: "LiveTvPreferences" });
@@ -275,6 +316,8 @@ export function getLiveTvPreferences(): LiveTvPreferences {
     renames: lists.renames,
     playlistEdits: lists.playlistEdits,
     categoryEdits: lists.categoryEdits,
+    multiview: lists.multiview,
+    multiviewQueue: lists.multiviewQueue,
   });
   currentUserId = userId;
   if (claiming) write(current, userId);
