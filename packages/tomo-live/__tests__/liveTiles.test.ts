@@ -383,6 +383,29 @@ describe("liveTiles", () => {
       setPlaybackHold(MULTIVIEW_PLAYBACK_OWNER, false);
     });
 
+    it("waits for the player to hand back the channel it played when the sound moves, never opening it a second time", async () => {
+      setLiveTiles(["a", "b"], { mainInPlayer: true });
+      await openAll(2);
+      setLiveTiles(["b", "a"], { mainInPlayer: true });
+      await openAll(2);
+      expect(started.map(([id]) => id)).toEqual(["b"]);
+      expect(retainLiveTile({ channelId: "a", details: { Id: "a" }, url: "http://127.0.0.1/t-player/master.m3u8", token: "t-player" })).toBe(true);
+      expect(liveTileUrl("a")).toBe("http://127.0.0.1/t-player/master.m3u8");
+      await openAll(2);
+      expect(started.map(([id]) => id)).toEqual(["b"]);
+    });
+
+    it("opens the channel the player played as a tile once the handoff grace passes without it", async () => {
+      setLiveTiles(["a", "b"], { mainInPlayer: true });
+      await openAll(2);
+      setLiveTiles(["b", "a"], { mainInPlayer: true });
+      await openAll(1);
+      expect(started.map(([id]) => id)).toEqual(["b"]);
+      await advance(LIVE_TILE_HANDOFF_GRACE_MS);
+      await openAll(1);
+      expect(started.map(([id]) => id)).toEqual(["b", "a"]);
+    });
+
     it("holds the sampler off a one-connection provider while the player plays the main there", async () => {
       mockLimits.set("one.example", 1);
       setLiveTiles(["pl-a", "pl-b"], { mainInPlayer: true });

@@ -59,6 +59,9 @@ let chosen = new Set<string>();
 /** The player plays the main: it is never opened as a tile, and a main tile waits only for the player to take it. */
 let mainInPlayer = false;
 let mainGrace: ReturnType<typeof setTimeout> | null = null;
+/** The channel the player played until the sound moved: it hands that session back, so no tile opens it meanwhile. */
+let handingBack: string | null = null;
+let handBackGrace: ReturnType<typeof setTimeout> | null = null;
 /** Playback other than multiview's own player holds the link. */
 let linkHeld = false;
 /** Each channel's provider, read off its resolve, so a provider with no room is known before the next open. */
@@ -107,7 +110,7 @@ function wanted(): string[] {
   const head = main()!;
   // A spot the viewer filled is theirs to spend a server open or a tuner on; the others never are.
   const mayOpen = (channelId: string) => chosen.has(channelId) || (!unavailable.has(channelId) && !isTunerChannel(channelId));
-  const satellites = order.slice(1).filter((channelId) => live(channelId) && !dropped.has(channelId) && mayOpen(channelId) && !noRoomForSatellite(channelId));
+  const satellites = order.slice(1).filter((channelId) => live(channelId) && !dropped.has(channelId) && mayOpen(channelId) && !noRoomForSatellite(channelId) && channelId !== handingBack);
   return (live(head) && !mainInPlayer ? [head] : []).concat(satellites);
 }
 
@@ -312,6 +315,20 @@ function clearMainGrace(): void {
   mainGrace = null;
 }
 
+/** Waits the handoff grace for the player to hand `channelId` back; a channel it never returns then opens as a tile. */
+function awaitHandBack(channelId: string | null): void {
+  if (handBackGrace) clearTimeout(handBackGrace);
+  handBackGrace = null;
+  handingBack = channelId;
+  if (channelId === null) return;
+  handBackGrace = setTimeout(() => {
+    handBackGrace = null;
+    if (handingBack !== channelId) return;
+    handingBack = null;
+    reconcile();
+  }, LIVE_TILE_HANDOFF_GRACE_MS);
+}
+
 function stopAll(why: string, keep?: string): void {
   generation += 1;
   for (const tile of [...tiles.values()]) if (tile.channelId !== keep) endTile(tile, why);
@@ -380,6 +397,9 @@ export function setLiveTiles(channelIds: readonly string[], options: { chosen?: 
   }
   const mainChanged = next[0] !== order[0];
   if (mainChanged || next.length === 0) clearMainGrace();
+  // The sound moved off the channel the player plays, which stays on screen: the player hands its session back.
+  const previous = order[0];
+  if (mainChanged) awaitHandBack(mainInPlayer && playerChanged === false && previous !== undefined && next.includes(previous) ? previous : null);
   const setChanged = next.length !== order.length || next.some((channelId) => !order.includes(channelId));
   if (mainChanged || next.length === 0) clearMainRetry();
   order = next;
@@ -446,6 +466,7 @@ export function takeLiveTile<Item = unknown>(channelId: string): RingSession<Ite
 /** A channel the player leaves while multiview shows it plays on in its tile. False: stop it. */
 export function retainLiveTile<Item = unknown>(channel: HotChannel<Item>): boolean {
   if (!order.includes(channel.channelId) || tiles.has(channel.channelId)) return false;
+  if (handingBack === channel.channelId) awaitHandBack(null);
   adopt(channel.channelId, channel.details, channel.url, channel.token);
   void setLiveWindow(channel.token, LIVE_TILE_WINDOW_SECONDS);
   void setLiveSessionPriority(channel.token, priorityOf(channel.channelId));

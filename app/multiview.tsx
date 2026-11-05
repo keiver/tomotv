@@ -43,7 +43,7 @@ const GAP = 2;
 const STRIP_LIMIT = 30;
 const CLOCK_MS = 30_000;
 /** The buttons over the spot with the sound, from its top and right edges. */
-const ACTIONS_INSET = { top: 6, right: 6 };
+const ACTIONS_INSET = { top: 12, right: 12 };
 const ignore = () => {};
 
 /**
