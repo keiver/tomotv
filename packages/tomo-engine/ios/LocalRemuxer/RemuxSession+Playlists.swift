@@ -161,7 +161,7 @@ extension RemuxSession {
             guard let self else { return true }
             self.stateLock.lock()
             defer { self.stateLock.unlock() }
-            return self.copyGridDecided || self.failed || self.cancelled || self.sourceReleased
+            return !self.pipelineStarted || self.copyGridDecided || self.failed || self.cancelled || self.sourceReleased
         }
     }
 
