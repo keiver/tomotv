@@ -2,17 +2,28 @@
 
 ## 1.6.0
 
-- A channel only a hardware tuner carries is never opened for a picture or a neighbour: `resolveOrigin` may answer `"tuner"` (the app's `LiveChannels` contract), the sampler then never grabs it, the focused card warms no preview for it, the ring heats no tuner neighbour and keeps no tuner channel the player left. `noteTunerChannel`, `isTunerChannel`, `tunerChannelKnown` and `clearTunerChannels` (cleared with `clearLiveFrames`).
-- `refreshLiveFrameWhilePlaying(channelId, sessionUrl)`: a tuner channel the player plays gets its card's picture read off the player's own engine session, now and every `LIVE_FRAME_REFRESH_MS`, never a second tuner open; a channel not yet known to be a tuner is asked again after `LIVE_FRAME_TUNER_UNKNOWN_RETRY_MS` (5 s). A tuner card no longer holds back the rows partly on screen.
-- Multiview: `setLiveTiles(channelIds, { chosen })` keeps the main at playback priority, opened as the player opens it, and the satellites at preview priority without a server open, one open a second apart; a channel in `chosen` (a spot the viewer filled) opens on the server as the player opens it, a hardware tuner included, and is never skipped as unavailable. A satellite falls back to its clip and picture when its provider has no room (refused, or a known limit of 1, or 2 beside the main), for a read-bound segment (the furthest first, one per `LIVE_TILE_DROP_SPACING_MS`), on a memory warning, or when its player fails or finds none free (`noteLiveTileFailed`). A main on a one-connection provider holds the sampler off that provider (`setLiveFrameOriginHold`). The player takes the main's session through `takeLiveTile` and hands it back through `retainLiveTile`; `liveTileUrl`, `liveTileUnavailable`, `subscribeLiveTiles`, `liveTilesVersion`.
-- `MULTIVIEW_LAYOUTS`, `multiviewSpots(layout, space)`, `multiviewSpotCount`, `multiviewFeatured`, `multiviewSpotsBottom`, `multiviewChannels(list, mainId, count, skip)` and `keepMultiviewOrder`: five fixed layouts of up to four spots that fill the stage edge to edge with a `gap` line between spots, each in its wide or tall shape, whichever crops the 16:9 pictures least, and the channels around the main in the list.
+- Requires `@keiver/tomo-engine` 1.8.0 or later, whose `LIVE_BUFFER_SECONDS` (2) is the first start step.
+
+### Hardware tuners
+
+- A channel only a hardware tuner carries opens only to play it. `resolveOrigin` may answer `"tuner"` (the app's `LiveChannels` contract); for such a channel the sampler never grabs a picture, the focused card warms no preview, and the ring warms no neighbour and keeps none the player left. `noteTunerChannel`, `isTunerChannel`, `tunerChannelKnown`, `clearTunerChannels` (cleared by `clearLiveFrames`).
+- `refreshLiveFrameWhilePlaying(channelId, sessionUrl)`: a playing tuner channel's card picture is read from the player's own engine session, now and every `LIVE_FRAME_REFRESH_MS`, never from a second tuner open. A channel not yet known to be a tuner is checked again after `LIVE_FRAME_TUNER_UNKNOWN_RETRY_MS` (5 s). A tuner card no longer holds back the rows partly on screen.
+
+### Multiview
+
+- `setLiveTiles(channelIds, { chosen })`: the main tile opens as the player opens a channel, at playback priority. The other tiles open at preview priority without a server open, one a second. A channel in `chosen` (a spot the viewer filled) opens on the server as the player would, a hardware tuner included, and is never skipped as unavailable.
+- A secondary tile falls back to its clip and picture when its provider has no room (a refusal, a known limit of 1, or 2 beside the main), when its reading falls behind (furthest tile first, one per `LIVE_TILE_DROP_SPACING_MS`), on a memory warning, or when its player fails (`noteLiveTileFailed`). A main tile on a one-connection provider keeps the sampler off that provider (`setLiveFrameOriginHold`).
+- The player takes the main tile's session with `takeLiveTile` and hands it back with `retainLiveTile`. Also `liveTileUrl`, `liveTileUnavailable`, `subscribeLiveTiles`, `liveTilesVersion`.
+- Layouts: `MULTIVIEW_LAYOUTS`, `multiviewSpots(layout, space)`, `multiviewSpotCount`, `multiviewFeatured`, `multiviewSpotsBottom`, `multiviewChannels(list, mainId, count, skip)`, `keepMultiviewOrder`. Five fixed layouts of up to four spots fill the space edge to edge with a `gap` line between them, each in the wide or tall shape that crops 16:9 pictures least.
 - `LiveClipView` takes `live`, `muted` and `onFailed`: a live tile plays an engine session through `LowLatencyPlayerAsset`, with sound only when unmuted. The `LiveClip` pod depends on `TomoEngine`.
-- The `multiview` surface for the sampler. `startChannelSession` opens a channel's session for the preview and the tiles.
-- A channel's start buffer steps through `LIVE_START_STEPS` (2, 6, then 15 s): `noteLiveStall(channelId, playedMs)` steps it up one on a stall within `LIVE_POOR_START_WINDOW_MS` (60 s) of the picture coming up and returns the seconds to hold the picture for, the gap to the next step; `noteLiveCleanStart(channelId)` steps it back down one after a clean minute; `liveStartBufferSeconds(channelId)` is what the channel's next session builds. Kept in memory for the app run. `LivePlayback` waits for the channel's step, at most 20 s past it.
-- `@keiver/tomo-engine` 1.8.0 or later, whose `LIVE_BUFFER_SECONDS` (2) is the first step.
-- `LivePlayback`'s start wait passes at once for a session that serves LL-HLS (`startBufferedSeconds`), since the engine holds its own first answer.
-- `planLiveRecovery` takes `played`: a channel that has not played since the viewer chose it ends after `LIVE_UNPLAYED_REOPENS` (4) reopens instead of reopening every 5 s for as long as the viewer stays. `LiveDropCounter.played` carries it.
-- The external guide's log lines name the guide's host and port (`originKeyOf`), never its URL, which can carry the provider's username and password.
+- The `multiview` surface for the sampler, and `startChannelSession`, which opens a channel's session for previews and tiles.
+
+### Start and recovery
+
+- Start buffer steps, `LIVE_START_STEPS` (2, 6, then 15 s). `noteLiveStall(channelId, playedMs)` steps a channel up after a stall within `LIVE_POOR_START_WINDOW_MS` (60 s) of its first picture and returns how long to hold the picture. `noteLiveCleanStart(channelId)` steps it back down after a clean minute. `liveStartBufferSeconds(channelId)` is the buffer its next session uses. Kept in memory until the app quits. `LivePlayback` waits for the channel's step, at most 20 s past it.
+- `LivePlayback`'s start wait passes at once for a session serving low-latency HLS (`startBufferedSeconds`), since the engine holds back its own first answer.
+- `planLiveRecovery` takes `played`: a channel that hasn't played since the viewer chose it stops after `LIVE_UNPLAYED_REOPENS` (4) reopens instead of reopening every 5 s. `LiveDropCounter.played` carries it.
+- External guide log lines name the guide's host and port (`originKeyOf`), never its URL, which can contain the provider's username and password.
 
 ## 1.5.0
 
