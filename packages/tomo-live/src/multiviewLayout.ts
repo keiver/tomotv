@@ -1,8 +1,11 @@
-/** Video tiles are 16:9; the layouts are drawn for that picture, then stretched to fill the stage. */
+/** Video tiles are 16:9; every spot and strip card is exactly that picture. */
 export const MULTIVIEW_ASPECT = 16 / 9;
 
-/** The fixed layouts, by how they place their spots; the first spot of a featured layout is the big one. */
-export const MULTIVIEW_LAYOUTS = ["two", "twoFeatured", "onePlusTwo", "onePlusThree", "grid4"] as const;
+/**
+ * The fixed layouts. Each cuts a 16:9 screen into a grid of 16:9 cells, and a spot is a square block of cells, so every
+ * picture is whole and the screen is filled: squashed by 9/16 it is a square cut into squares.
+ */
+export const MULTIVIEW_LAYOUTS = ["bigThree", "bigTwo", "grid4", "rowThree", "halvesTwo", "halvesThree"] as const;
 export type MultiviewLayoutName = (typeof MULTIVIEW_LAYOUTS)[number];
 
 export interface MultiviewRect {
@@ -15,134 +18,196 @@ export interface MultiviewRect {
 export interface MultiviewSpace {
   width: number;
   height: number;
-  /** The line between spots; the stage's own edges get none. */
+  /** The line between spots; the screen's own edges get none. */
   gap: number;
 }
 
-const A = MULTIVIEW_ASPECT;
-type Unit = [x: number, y: number, width: number, height?: number];
-
-/** Each layout in units of a satellite's width (height `width / A` unless given), side by side (`wide`), stacked under
- *  the big spot (`tall`), and for the equal grid one column as well. The shape its stretch crops least is used. */
-const SHAPES: Record<MultiviewLayoutName, { wide: Unit[]; tall: Unit[]; column?: Unit[] }> = {
-  two: {
-    wide: [
-      [0, 0, 1],
-      [1, 0, 1],
-    ],
-    tall: [
-      [0, 0, 1],
-      [0, 1 / A, 1],
-    ],
-  },
-  twoFeatured: {
-    wide: [
-      [0, 0, 7],
-      [7, 0, 3, 7 / A],
-    ],
-    tall: [
-      [0, 0, 7],
-      [0, 7 / A, 7, 3 / A],
-    ],
-  },
-  onePlusTwo: {
-    wide: [
-      [0, 0, 2],
-      [2, 0, 1],
-      [2, 1 / A, 1],
-    ],
-    tall: [
-      [0, 0, 2],
-      [0, 2 / A, 1],
-      [1, 2 / A, 1],
-    ],
-  },
-  onePlusThree: {
-    wide: [
-      [0, 0, 3],
-      [3, 0, 1],
-      [3, 1 / A, 1],
-      [3, 2 / A, 1],
-    ],
-    tall: [
-      [0, 0, 3],
-      [0, 3 / A, 1],
-      [1, 3 / A, 1],
-      [2, 3 / A, 1],
-    ],
-  },
-  grid4: {
-    wide: [
-      [0, 0, 1],
-      [1, 0, 1],
-      [0, 1 / A, 1],
-      [1, 1 / A, 1],
-    ],
-    tall: [
-      [0, 0, 1],
-      [1, 0, 1],
-      [0, 1 / A, 1],
-      [1, 1 / A, 1],
-    ],
-    column: [
-      [0, 0, 1],
-      [0, 1 / A, 1],
-      [0, 2 / A, 1],
-      [0, 3 / A, 1],
-    ],
-  },
-};
-
-/** How many spots a layout holds. */
-export function multiviewSpotCount(layout: MultiviewLayoutName): number {
-  return SHAPES[layout].wide.length;
+/** A spot as a block of `size` x `size` cells at column `x`, row `y`; `live` spots may play their channel live. */
+export interface MultiviewCell {
+  x: number;
+  y: number;
+  size: number;
+  live: boolean;
 }
 
-/** Whether the layout's first spot is larger than the rest. */
+export interface MultiviewCut {
+  /** Cells across and down. */
+  grid: number;
+  /** The live spots first, the first of them the large one in a layout that has one; then the viewer's picture spots. */
+  spots: readonly MultiviewCell[];
+  /** The row the channel strip scrolls in, or null for none. */
+  strip: number | null;
+}
+
+const live = (x: number, y: number, size = 1): MultiviewCell => ({ x, y, size, live: true });
+const own = (x: number, y: number): MultiviewCell => ({ x, y, size: 1, live: false });
+
+const CUTS: Record<MultiviewLayoutName, MultiviewCut> = {
+  bigThree: { grid: 4, spots: [live(0, 0, 3), live(3, 0), live(3, 1), live(3, 2)], strip: 3 },
+  bigTwo: { grid: 3, spots: [live(0, 0, 2), live(2, 0), live(2, 1)], strip: 2 },
+  grid4: { grid: 2, spots: [live(0, 0), live(1, 0), live(0, 1), live(1, 1)], strip: null },
+  rowThree: { grid: 3, spots: [live(0, 0), live(1, 0), live(2, 0), own(0, 1), own(1, 1), own(2, 1)], strip: 2 },
+  halvesTwo: { grid: 4, spots: [live(0, 0, 2), live(2, 0, 2), live(0, 2), live(1, 2), own(2, 2), own(3, 2)], strip: 3 },
+  halvesThree: { grid: 4, spots: [live(0, 0, 2), live(2, 0, 2), live(0, 2, 2), live(2, 2), own(3, 2), own(2, 3), own(3, 3)], strip: null },
+};
+
+/** The same spots in the same order for a screen taller than wide, stacked down it; `group` is the cards across below them. */
+const TALL: Record<MultiviewLayoutName, { grid: number; spots: readonly MultiviewCell[]; group: number }> = {
+  bigThree: { grid: 3, spots: [live(0, 0, 3), live(0, 3), live(1, 3), live(2, 3)], group: 3 },
+  bigTwo: { grid: 2, spots: [live(0, 0, 2), live(0, 2), live(1, 2)], group: 2 },
+  grid4: { grid: 2, spots: [live(0, 0), live(1, 0), live(0, 1), live(1, 1)], group: 2 },
+  rowThree: { grid: 3, spots: [live(0, 0, 3), live(0, 3, 3), live(0, 6, 3), own(0, 9), own(1, 9), own(2, 9)], group: 3 },
+  halvesTwo: { grid: 2, spots: [live(0, 0, 2), live(0, 2, 2), live(0, 4), live(1, 4), own(0, 5), own(1, 5)], group: 2 },
+  halvesThree: { grid: 4, spots: [live(0, 0, 4), live(0, 4, 4), live(0, 8, 4), live(0, 12), own(1, 12), own(2, 12), own(3, 12)], group: 2 },
+};
+
+export function multiviewCut(layout: MultiviewLayoutName): MultiviewCut {
+  return CUTS[layout];
+}
+
+/** How many spots a layout holds, live and picture spots both. */
+export function multiviewSpotCount(layout: MultiviewLayoutName): number {
+  return CUTS[layout].spots.length;
+}
+
+/** How many of its spots may play live: they come first in the spots. */
+export function multiviewLiveCount(layout: MultiviewLayoutName): number {
+  return CUTS[layout].spots.filter((spot) => spot.live).length;
+}
+
+/** Whether the layout's first spot is larger than every other. */
 export function multiviewFeatured(layout: MultiviewLayoutName): boolean {
-  return layout !== "two" && layout !== "grid4";
+  const [first, ...rest] = CUTS[layout].spots;
+  return rest.every((spot) => spot.size < first.size);
+}
+
+export interface MultiviewPlacement {
+  /** One rect per spot, in the cut's order. */
+  spots: MultiviewRect[];
+  /** Where the channel strip scrolls, or null. */
+  strip: MultiviewRect | null;
+  /** One cell's width: a strip card's step. */
+  cell: number;
 }
 
 const EDGE = 0.001;
 
-/** The span from `from` to `to` along a stage side of `size`, short half a line at each end that meets another spot. */
-function inset(from: number, to: number, size: number, half: number): [number, number] {
-  return [from <= EDGE ? 0 : from + half, to >= size - EDGE ? size : to - half];
+/** A span from `from` to `to` inside `[start, end]`, short half a line at each end that meets another span. */
+function inset(from: number, to: number, start: number, end: number, half: number): [number, number] {
+  return [from <= start + EDGE ? from : from + half, to >= end - EDGE ? to : to - half];
 }
 
-function place(units: Unit[], space: MultiviewSpace): { rects: MultiviewRect[]; crop: number } {
-  const height = ([, , w, h]: Unit) => h ?? w / A;
-  const boxWidth = Math.max(...units.map(([x, , w]) => x + w));
-  const boxHeight = Math.max(...units.map((unit) => unit[1] + height(unit)));
-  const sx = space.width / boxWidth;
-  const sy = space.height / boxHeight;
+/**
+ * The layout placed in the largest 16:9 box the stage holds, centred across and from the top, with a `gap` line between
+ * spots and none at the box's edges. Empty for an empty stage.
+ */
+export function multiviewSpots(layout: MultiviewLayoutName, space: MultiviewSpace): MultiviewPlacement {
+  if (space.width <= 0 || space.height <= 0) return { spots: [], strip: null, cell: 0 };
+  const { grid, spots, strip } = CUTS[layout];
+  const width = Math.min(space.width, space.height * MULTIVIEW_ASPECT);
+  const height = width / MULTIVIEW_ASPECT;
+  const left = (space.width - width) / 2;
+  const cell = width / grid;
+  const row = height / grid;
   const half = space.gap / 2;
-  let crop = 0;
-  const rects = units.map((unit) => {
-    const [x, y, w] = unit;
-    const [left, right] = inset(x * sx, (x + w) * sx, space.width, half);
-    const [top, bottom] = inset(y * sy, (y + height(unit)) * sy, space.height, half);
-    const width = Math.max(0, right - left);
-    const tall = Math.max(0, bottom - top);
-    // How far the 16:9 picture is cut to cover the spot, weighted by the spot's size.
-    if (width > 0 && tall > 0) crop += width * tall * Math.abs(Math.log(width / tall / A));
-    return { x: left, y: top, width, height: tall };
-  });
-  return { rects, crop };
+  const rect = (x: number, y: number, size: number): MultiviewRect => {
+    const [x0, x1] = inset(left + x * cell, left + (x + size) * cell, left, left + width, half);
+    const [y0, y1] = inset(y * row, (y + size) * row, 0, height, half);
+    return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+  };
+  const row0 = strip === null ? null : rect(0, strip, 1);
+  return { spots: spots.map((spot) => rect(spot.x, spot.y, spot.size)), strip: row0 && { ...row0, x: left, width }, cell };
 }
 
-/** One rect per spot, the first spot first, filling the stage edge to edge with a `gap` line between spots, in the
- *  layout's shape that crops the pictures least. Empty for an empty stage. */
-export function multiviewSpots(layout: MultiviewLayoutName, space: MultiviewSpace): MultiviewRect[] {
-  if (space.width <= 0 || space.height <= 0) return [];
-  const { wide, tall, column } = SHAPES[layout];
-  const placed = [wide, tall, ...(column ? [column] : [])].map((units) => place(units, space));
-  return placed.reduce((best, next) => (next.crop < best.crop ? next : best)).rects;
+/**
+ * The strip card at `index`, across its strip: the cards on screen at rest sit exactly on the grid's columns, and those
+ * scrolled in after them keep a `gap` line on both sides.
+ */
+export function multiviewStripCard(index: number, grid: number, cell: number, gap: number): { x: number; width: number } {
+  const half = gap / 2;
+  const x0 = index * cell + (index > 0 ? half : 0);
+  const x1 = (index + 1) * cell - (index === grid - 1 ? 0 : half);
+  return { x: x0, width: x1 - x0 };
 }
 
-/** Bottom edge of the spots, so what sits under them (the channel strip) can follow straight after. */
-export function multiviewSpotsBottom(rects: readonly MultiviewRect[], gap: number): number {
-  return rects.reduce((bottom, rect) => Math.max(bottom, rect.y + rect.height + gap / 2), 0);
+/**
+ * Where the group's other channels go: a grid of 16:9 cards from (`x`, `y`), `columns` across `width`, scrolling down
+ * with the screen. The spots hold the first `skip.columns` cells of its first `skip.rows` rows; the cards fill the rest.
+ */
+export interface MultiviewGroup {
+  x: number;
+  y: number;
+  width: number;
+  columns: number;
+  skip: { columns: number; rows: number };
+}
+
+export interface MultiviewFit {
+  /** One rect per spot, in the cut's order. */
+  spots: MultiviewRect[];
+  group: MultiviewGroup;
+}
+
+/**
+ * The layout fit to a screen of any shape, every spot a whole 16:9 picture. Taller than wide: the tall cut across the
+ * width, the group in rows below. Wider than the cut: the screen is one grid of group cards, the cut in its top-left
+ * block with at least one column of cards beside it, and the cards fill every cell the spots leave, beside them and
+ * below. Otherwise: the cut across the width, the group in rows below.
+ */
+export function multiviewFit(layout: MultiviewLayoutName, space: MultiviewSpace): MultiviewFit {
+  const { width: w, height: h } = space;
+  const tall = w < h;
+  const { grid, spots } = tall ? TALL[layout] : CUTS[layout];
+  const rows = Math.max(...spots.map((spot) => spot.y + spot.size));
+  const aspect = (grid / rows) * MULTIVIEW_ASPECT;
+  const wide = !tall && w / h > aspect;
+  // A group card's width: a cell of the cut, or half of one in the 2x2.
+  const across = tall ? TALL[layout].group : grid === 2 ? 4 : grid;
+  const card = wide ? Math.min(w / (across + 1), (h * aspect) / across) : w / across;
+  const width = card * across;
+  const beside = wide ? Math.max(1, Math.floor((w - width) / card + EDGE)) : 0;
+  const left = wide ? (w - (across + beside) * card) / 2 : 0;
+  const height = width / aspect;
+  const cell = width / grid;
+  const half = space.gap / 2;
+  const rect = (x: number, y: number, size: number): MultiviewRect => {
+    const [x0, x1] = inset(left + x * cell, left + (x + size) * cell, left, wide ? Infinity : left + width, half);
+    const [y0, y1] = inset((y * cell) / MULTIVIEW_ASPECT, ((y + size) * cell) / MULTIVIEW_ASPECT, 0, Infinity, half);
+    return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+  };
+  const group: MultiviewGroup = wide
+    ? { x: left, y: 0, width: (across + beside) * card, columns: across + beside, skip: { columns: across, rows: Math.round(height / (card / MULTIVIEW_ASPECT)) } }
+    : { x: 0, y: height, width: w, columns: tall ? TALL[layout].group : across, skip: { columns: 0, rows: 0 } };
+  return { spots: spots.map((spot) => rect(spot.x, spot.y, spot.size)), group };
+}
+
+/** How many group cards the group's first `rows` rows hold. */
+export function multiviewGroupCount(group: MultiviewGroup, rows: number): number {
+  const beside = group.columns - group.skip.columns;
+  return Math.min(rows, group.skip.rows) * beside + Math.max(0, rows - group.skip.rows) * group.columns;
+}
+
+/** How many rows of the group `count` cards take. */
+export function multiviewGroupRows(group: MultiviewGroup, count: number): number {
+  const beside = (group.columns - group.skip.columns) * group.skip.rows;
+  if (count <= beside) return group.skip.rows > 0 && beside > 0 ? Math.ceil(count / (group.columns - group.skip.columns)) : 0;
+  return group.skip.rows + Math.ceil((count - beside) / group.columns);
+}
+
+/** The group card at `index`, from the group's corner: a line between cards and between the cards and the spots. */
+export function multiviewGroupCard(index: number, group: MultiviewGroup, gap: number): MultiviewRect {
+  const half = gap / 2;
+  const cell = group.width / group.columns;
+  const tall = cell / MULTIVIEW_ASPECT;
+  const perRow = group.columns - group.skip.columns;
+  const besideCount = perRow * group.skip.rows;
+  const row = index < besideCount ? Math.floor(index / perRow) : group.skip.rows + Math.floor((index - besideCount) / group.columns);
+  const column = index < besideCount ? group.skip.columns + (index % perRow) : (index - besideCount) % group.columns;
+  const x0 = column * cell + (column > 0 ? half : 0);
+  const x1 = (column + 1) * cell - (column < group.columns - 1 ? half : 0);
+  const y0 = row * tall + (row > 0 || group.y > 0 ? half : 0);
+  const y1 = (row + 1) * tall - half;
+  return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
 }
 
 /**

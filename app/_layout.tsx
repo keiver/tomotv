@@ -354,6 +354,21 @@ function RootLayoutInner() {
                           }
                     }
                   />
+                  <Stack.Screen
+                    name="multiview-layout"
+                    options={
+                      Platform.isTV
+                        ? { headerShown: false, animation: "fade" }
+                        : {
+                            headerShown: true,
+                            headerTransparent: true,
+                            headerShadowVisible: false,
+                            headerTitle: t("liveTv.multiviewLayout"),
+                            headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                            headerBackTitle: t("liveTv.multiview"),
+                          }
+                    }
+                  />
                   {/* A transparent modal on every platform, Apple TV included, so Multiview stays drawn under it. */}
                   <Stack.Screen name="multiview-full" options={{ headerShown: false, presentation: "transparentModal", animation: "fade", contentStyle: { backgroundColor: "transparent" } }} />
                   <Stack.Screen

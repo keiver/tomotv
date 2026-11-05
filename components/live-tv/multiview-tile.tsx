@@ -1,9 +1,9 @@
-import { CARD_FOCUS } from "@/constants/app";
+import { CARD_CHROME, CARD_FOCUS, RAISED_EDGE, STAND_HEIGHT } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { useLiveClip, useLiveFrame } from "@/hooks/useLiveFrame";
 import { t } from "@/services/i18n";
-import { getPosterUrl } from "@/services/jellyfinApi";
+import { posterSource } from "@/services/itemArtwork";
 import { LIVE_FRAME_TRANSITION_MS } from "@/services/liveFrames";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
@@ -15,6 +15,9 @@ import React, { memo, useCallback, useState } from "react";
 import { Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 const IS_TV = Platform.isTV;
+/** The channel's name: a thin square label half the height of a card's name tab. */
+const LABEL_HEIGHT = STAND_HEIGHT / 2;
+const LABEL_TEXT = IS_TV ? 12 : 8;
 
 interface MultiviewTileProps {
   channel: JellyfinItem;
@@ -47,7 +50,7 @@ export function airingLine(program: Pick<JellyfinProgram, "Name" | "StartDate" |
 
 /** One multiview spot: its live session when it has one, else its clip, else its picture, else the channel's logo, under its name and programme. */
 function MultiviewTileComponent({ channel, rect, main, liveUrl, visible, bare, program, nowMs, hasTVPreferredFocus, onSelect, onFailed, onLongPress }: MultiviewTileProps) {
-  const { accent } = useCardPalette();
+  const { accent, ink } = useCardPalette();
   const frame = useLiveFrame(channel.Id);
   const clip = useLiveClip(channel.Id);
   const [focused, setFocused] = useState(false);
@@ -57,7 +60,9 @@ function MultiviewTileComponent({ channel, rect, main, liveUrl, visible, bare, p
   const live = !!liveUrl;
   const uri = visible ? (liveUrl ?? clip?.uri ?? null) : null;
   const airing = airingLine(program, nowMs);
-  const ringed = focused && !bare;
+  // Touch screens have no focus: the spot with the sound wears the ring Apple TV gives the focused spot.
+  const ringed = (focused || (!IS_TV && main)) && !bare;
+  const logo = frame ? undefined : posterSource(channel, 300);
   return (
     <TouchableOpacity
       onPress={handlePress}
@@ -69,23 +74,23 @@ function MultiviewTileComponent({ channel, rect, main, liveUrl, visible, bare, p
       accessibilityRole="button"
       accessibilityLabel={[cleanLabel(channel.Name ?? ""), airing].filter(Boolean).join(", ")}
       style={[styles.tile, { left: rect.x, top: rect.y, width: rect.width, height: rect.height }, ringed && [styles.focused, { shadowColor: accent }]]}>
-      {frame ? null : <Image source={{ uri: getPosterUrl(channel.Id, 300) }} style={styles.logo} contentFit="contain" cachePolicy="memory-disk" />}
+      {frame ? null : logo ? (
+        <Image source={logo} style={styles.logo} contentFit="contain" cachePolicy="memory-disk" />
+      ) : (
+        <View style={[styles.logo, styles.glyph]} pointerEvents="none">
+          <Ionicons name="tv-outline" size={IS_TV ? 64 : 28} color={COLORS.TEXT_SECONDARY} />
+        </View>
+      )}
       {frame ? <Image source={frame} style={StyleSheet.absoluteFill} contentFit="cover" transition={LIVE_FRAME_TRANSITION_MS} cachePolicy="none" /> : null}
       {uri !== null ? <LiveClipView uri={uri} live={live} muted={!main} onFailed={handleFailed} style={StyleSheet.absoluteFill} /> : null}
+      {bare ? null : <View style={[styles.edge, ringed && styles.edgeFocused]} pointerEvents="none" />}
       {ringed ? <View style={[styles.focusRing, { borderColor: accent }]} pointerEvents="none" /> : null}
       {bare ? null : (
-        <View style={styles.label} pointerEvents="none">
-          <View style={styles.nameRow}>
-            {main ? <Ionicons name="volume-high" size={IS_TV ? 26 : 16} color={COLORS.TEXT_PRIMARY} /> : null}
-            <Text style={[styles.name, !main && styles.nameSmall]} numberOfLines={1}>
-              {cleanLabel(channel.Name ?? "")}
-            </Text>
-          </View>
-          {airing ? (
-            <Text style={[styles.airing, !main && styles.airingSmall]} numberOfLines={1}>
-              {airing}
-            </Text>
-          ) : null}
+        <View style={[styles.label, ringed && { backgroundColor: accent }]} pointerEvents="none">
+          {main ? <Ionicons name="volume-high" size={LABEL_TEXT} color={ringed ? ink : COLORS.TEXT_PRIMARY} /> : null}
+          <Text style={[styles.labelText, ringed && { color: ink }]} numberOfLines={1}>
+            {[cleanLabel(channel.Name ?? ""), main ? airing : null].filter(Boolean).join(" · ")}
+          </Text>
         </View>
       )}
     </TouchableOpacity>
@@ -101,6 +106,32 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.MEDIA_BACKGROUND,
   },
   // Over the picture, inside the spot: focus takes no space, so the lines between spots stay 2 pt.
+  // The Live TV grid card's lit edge, square; under the focus ring it would read as a second ring.
+  edge: {
+    ...StyleSheet.absoluteFill,
+    boxShadow: RAISED_EDGE,
+  },
+  edgeFocused: {
+    boxShadow: "none",
+  },
+  label: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    maxWidth: "100%",
+    height: LABEL_HEIGHT,
+    paddingHorizontal: IS_TV ? 6 : 4,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: IS_TV ? 4 : 2,
+    backgroundColor: CARD_CHROME,
+  },
+  labelText: {
+    flexShrink: 1,
+    color: COLORS.TEXT_PRIMARY,
+    fontSize: LABEL_TEXT,
+    fontWeight: "600",
+  },
   focusRing: {
     ...StyleSheet.absoluteFill,
     borderWidth: CARD_FOCUS.BORDER_WIDTH_FOCUSED,
@@ -117,38 +148,8 @@ const styles = StyleSheet.create({
     top: "20%",
     bottom: "35%",
   },
-  label: {
-    position: "absolute",
-    left: IS_TV ? 16 : 8,
-    right: IS_TV ? 16 : 8,
-    bottom: IS_TV ? 12 : 6,
-    gap: IS_TV ? 2 : 1,
-  },
-  nameRow: {
-    flexDirection: "row",
+  glyph: {
     alignItems: "center",
-    gap: IS_TV ? 8 : 4,
-  },
-  name: {
-    flexShrink: 1,
-    color: COLORS.TEXT_PRIMARY,
-    fontSize: IS_TV ? 26 : 15,
-    fontWeight: "600",
-    textShadowColor: COLORS.TEXT_SHADOW,
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
-  },
-  nameSmall: {
-    fontSize: IS_TV ? 20 : 12,
-  },
-  airing: {
-    color: COLORS.TEXT_BRIGHT,
-    fontSize: IS_TV ? 20 : 12,
-    textShadowColor: COLORS.TEXT_SHADOW,
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
-  },
-  airingSmall: {
-    fontSize: IS_TV ? 17 : 10,
+    justifyContent: "center",
   },
 });

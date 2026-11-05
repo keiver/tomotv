@@ -1,6 +1,6 @@
-/** Multiview: a fixed layout of spots the viewer fills and Tomo keeps, the sound spot full screen on select, a strip of the group's other channels, and queued programmes taking the sound spot when they start. */
+/** Multiview: a fixed layout of live spots, the viewer's picture spots and a strip row, kept per user; the sound spot full screen on select, the layout picker on Play/Pause, and queued programmes taking the sound spot when they start. */
 import React from "react";
-import { Alert, View } from "react-native";
+import { Alert, Platform, ScrollView } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 import type { MultiviewArrangement, MultiviewQueued } from "@/services/liveTvPreferences";
 
@@ -18,7 +18,14 @@ const mockInfoPanel = jest.fn();
 const mockWindow = jest.fn();
 const mockUnavailable = new Set<string>();
 const mockLiveUrls = new Map<string, string>();
+let mockTvHandler: ((event: { eventType: string }) => void) | null = null;
 
+jest.mock("react-native/Libraries/Components/TV/useTVEventHandler", () => ({
+  __esModule: true,
+  default: (handler: (event: { eventType: string }) => void) => {
+    mockTvHandler = handler;
+  },
+}));
 jest.mock("expo-router", () => ({
   useRouter: () => ({ push: mockPush }),
   useLocalSearchParams: () => mockParams,
@@ -34,6 +41,8 @@ jest.mock("expo-router", () => ({
 jest.mock("expo-router/react-navigation", () => ({ useHeaderHeight: () => 0 }));
 jest.mock("@/hooks/useCardPalette", () => ({ useCardPalette: () => ({ accent: "#FFC312" }) }));
 jest.mock("@/hooks/useItemLongPress", () => ({ useItemLongPress: () => mockInfoPanel }));
+const mockLoader = jest.fn();
+jest.mock("@/contexts/LoadingContext", () => ({ useLoadingActions: () => ({ showGlobalLoader: mockLoader }) }));
 jest.mock("@/services/i18n", () => ({ t: (key: string) => key }));
 const mockWall = Array.from({ length: 20 }, (_, i) => ({ Id: `c${i}`, Name: `Channel ${i}`, Type: "TvChannel" }));
 jest.mock("@/hooks/useChannelWall", () => ({ useChannelWall: () => ({ wall: mockWall }) }));
@@ -85,17 +94,17 @@ import { MultiviewTile } from "@/components/live-tv/multiview-tile";
 
 type TileProps = React.ComponentProps<typeof MultiviewTile>;
 type Button = { text?: string; onPress?: () => void };
-/** A landscape phone window. */
-const STAGE = { width: 852, height: 393 };
+/** A 16:9 window, so the layout fills it. */
+const STAGE = { width: 1280, height: 720 };
 const NOW = Date.parse("2026-11-05T20:00:00Z");
 
 let tree: TestRenderer.ReactTestRenderer;
-function mount() {
+function mount(layout: { width: number; height: number } = STAGE) {
   act(() => {
     tree = TestRenderer.create(<MultiviewScreen />);
   });
-  const stage = tree.root.findAll((node) => node.type === View && typeof node.props.onLayout === "function")[0];
-  act(() => stage.props.onLayout({ nativeEvent: { layout: STAGE } }));
+  const stage = tree.root.findAll((node) => node.type === ScrollView && typeof node.props.onLayout === "function")[0];
+  act(() => stage.props.onLayout({ nativeEvent: { layout } }));
 }
 const tiles = () => tree.root.findAllByType(MultiviewTile).map((node) => node.props as TileProps);
 const spots = () => tiles().filter((tile) => tile.onLongPress);
@@ -113,7 +122,7 @@ const press = (alert: jest.SpyInstance, text: string) => {
 beforeEach(() => {
   jest.clearAllMocks();
   jest.useFakeTimers({ now: NOW });
-  mockPrefs = { autoUpdate: true, multiview: { layout: "onePlusThree", spots: [], chosen: [], strip: true }, multiviewQueue: [] };
+  mockPrefs = { autoUpdate: true, multiview: { layout: "bigThree", spots: [], chosen: [] }, multiviewQueue: [] };
   mockListeners.clear();
   mockParams = {};
   mockFocused = true;
@@ -131,7 +140,7 @@ describe("Multiview", () => {
   it("puts the chosen channel in the big spot and the channels around it in the others, stores them, and opens a viewer-chosen session only for it", () => {
     mockParams = { channelId: "c10" };
     mount();
-    expect(mockPrefs.multiview).toMatchObject({ layout: "onePlusThree", spots: ["c10", "c9", "c11", "c12"], chosen: ["c10"] });
+    expect(mockPrefs.multiview).toMatchObject({ layout: "bigThree", spots: ["c10", "c9", "c11", "c12"], chosen: ["c10"] });
     expect(lastLive()).toEqual([["c10", "c9", "c11", "c12"], { chosen: ["c10"] }]);
     const [big, ...small] = spots();
     expect(big.main).toBe(true);
@@ -153,11 +162,11 @@ describe("Multiview", () => {
   });
 
   it("opens from the bar on the stored arrangement, and on the group's first channel when nothing is stored", () => {
-    store({ layout: "two", spots: ["c5", "c6"], chosen: ["c5"] });
+    store({ layout: "bigTwo", spots: ["c5", "c6", null], chosen: ["c5"] });
     mount();
     expect(lastLive()).toEqual([["c5", "c6"], { chosen: ["c5"] }]);
     act(() => tree.unmount());
-    store({ layout: "onePlusThree", spots: [], chosen: [] });
+    store({ layout: "bigThree", spots: [], chosen: [] });
     mount();
     expect(mockPrefs.multiview.spots).toEqual(["c0", "c19", "c1", "c2"]);
   });
@@ -180,7 +189,28 @@ describe("Multiview", () => {
     expect(spots().map((tile) => tile.main)).toEqual([false, false, true, false]);
   });
 
-  it("fills the screen with the spot with the sound under the full screen route, the same tile playing on bare, and brings the layout back when it returns", () => {
+  it("opens no session for a picture spot, and brings its channel into the spot with the sound when selected", () => {
+    store({ layout: "rowThree", spots: ["c1", "c2", "c3", "c7", null, null], chosen: ["c7"] });
+    mockLiveUrls.set("c7", "http://127.0.0.1/t/master.m3u8");
+    mount();
+    expect(lastLive()?.[0]).toEqual(["c1", "c2", "c3"]);
+    expect(spots()[3]).toMatchObject({ main: false, liveUrl: null });
+    expect(tree.root.findAllByType(MultiviewEmptySpot)).toHaveLength(2);
+    act(() => spots()[3].onSelect("c7"));
+    expect(mockPrefs.multiview.spots).toEqual(["c7", "c2", "c3", "c1", null, null]);
+    expect(lastLive()?.[0]).toEqual(["c7", "c2", "c3"]);
+  });
+
+  it("on iPhone, iPad and Mac opens the channel with the sound in the player when its spot is selected", () => {
+    mockParams = { channelId: "c10" };
+    mount();
+    act(() => spots()[0].onSelect("c10"));
+    expect(mockLoader).toHaveBeenCalledTimes(1);
+    expect(mockPush).toHaveBeenCalledWith({ pathname: "/player", params: { videoId: "c10", videoName: "Channel 10", live: "1" } });
+  });
+
+  it("on Apple TV fills the screen with the spot with the sound under the full screen route, the same tile playing on bare, and brings the layout back when it returns", () => {
+    const tv = jest.spyOn(Platform, "isTV", "get").mockReturnValue(true);
     mockParams = { channelId: "c10" };
     mount();
     const sessions = mockSetLiveTiles.mock.calls.length;
@@ -200,30 +230,19 @@ describe("Multiview", () => {
     expect(spots()).toHaveLength(4);
     expect(spots().every((tile) => !tile.bare)).toBe(true);
     expect(strip().length).toBeGreaterThan(0);
-  });
-
-  it("fills a longer layout with no channel that cannot fill a spot on its own when the spot with the sound is empty", () => {
-    const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
-    store({ layout: "two", spots: [null, "c3"], chosen: ["c3"] });
-    mockUnavailable.add("c0");
-    mount();
-    act(() => spots()[0].onLongPress?.("c3"));
-    press(alert, "liveTv.multiviewLayout");
-    press(alert, "liveTv.layoutOnePlusThree");
-    expect(mockPrefs.multiview.spots).toEqual([null, "c3", "c1", "c2"]);
-    alert.mockRestore();
+    tv.mockRestore();
   });
 
   it("shows an empty spot as a plus that opens the channel picker for that spot", () => {
-    store({ layout: "two", spots: ["c5", null], chosen: ["c5"] });
+    store({ layout: "bigTwo", spots: ["c5", "c6", null], chosen: ["c5"] });
     mount();
     const empty = tree.root.findAllByType(MultiviewEmptySpot);
     expect(empty).toHaveLength(1);
     act(() => empty[0].props.onPress());
-    expect(mockPush).toHaveBeenCalledWith({ pathname: "/multiview-pick", params: { spot: "1" } });
+    expect(mockPush).toHaveBeenCalledWith({ pathname: "/multiview-pick", params: { spot: "2" } });
   });
 
-  it("offers Change channel, Clear, Record and Layout on a spot's long press", () => {
+  it("offers Change channel, Clear, Record and Layout on a spot's long press, Layout opening the layout picker", () => {
     const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
     mockParams = { channelId: "c10" };
     mount();
@@ -233,28 +252,20 @@ describe("Multiview", () => {
     expect(mockPush).toHaveBeenLastCalledWith({ pathname: "/multiview-pick", params: { spot: "1" } });
     press(alert, "liveTv.record");
     expect(mockInfoPanel).toHaveBeenCalledWith(expect.objectContaining({ Id: "c9" }));
+    press(alert, "liveTv.multiviewLayout");
+    expect(mockPush).toHaveBeenLastCalledWith("/multiview-layout");
     press(alert, "liveTv.multiviewClear");
     expect(mockPrefs.multiview.spots).toEqual(["c10", null, "c11", "c12"]);
-    act(() => spots()[0].onLongPress?.("c10"));
-    press(alert, "liveTv.multiviewLayout");
-    press(alert, "liveTv.layoutGrid4");
-    expect(mockPrefs.multiview).toMatchObject({ layout: "grid4", spots: ["c10", null, "c11", "c12"] });
     alert.mockRestore();
   });
 
-  it("changes the layout keeping the spots in order, filling a longer one from around the sound spot", () => {
-    const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
-    store({ layout: "two", spots: ["c10", "c3"], chosen: ["c10", "c3"] });
+  it("opens the layout picker on Play/Pause", () => {
     mount();
-    act(() => spots()[0].onLongPress?.("c10"));
-    press(alert, "liveTv.multiviewLayout");
-    press(alert, "liveTv.layoutOnePlusThree");
-    expect(mockPrefs.multiview).toMatchObject({ layout: "onePlusThree", spots: ["c10", "c3", "c9", "c11"], chosen: ["c10", "c3"] });
-    alert.mockRestore();
+    act(() => mockTvHandler?.({ eventType: "playPause" }));
+    expect(mockPush).toHaveBeenCalledWith("/multiview-layout");
   });
 
-  it("strips the group's other channels under the spots, puts a selected one in the sound spot, and hides on request", () => {
-    const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+  it("scrolls the group's other channels in the layout's strip row, opening no stream for them, and puts a selected one in the sound spot", () => {
     mockParams = { channelId: "c10" };
     mount();
     expect(strip().map((tile) => tile.channel.Id)).toEqual(mockWall.map((channel) => channel.Id).filter((id) => !["c10", "c9", "c11", "c12"].includes(id)));
@@ -262,11 +273,37 @@ describe("Multiview", () => {
     act(() => strip()[0].onSelect("c0"));
     expect(mockPrefs.multiview.spots).toEqual(["c0", "c9", "c11", "c12"]);
     expect(lastLive()?.[1]).toEqual({ chosen: ["c0"] });
-    act(() => spots()[0].onLongPress?.("c0"));
-    press(alert, "liveTv.multiviewLayout");
-    press(alert, "liveTv.multiviewStripHide");
-    expect(strip()).toHaveLength(0);
-    alert.mockRestore();
+  });
+
+  it("on a portrait phone stacks the spots down the screen, the big one full width, and the group in rows below", () => {
+    mockParams = { channelId: "c10" };
+    mount({ width: 393, height: 700 });
+    const [big, ...small] = spots().map((tile) => tile.rect);
+    expect(big).toMatchObject({ x: 0, y: 0, width: 393 });
+    expect(small.every((rect) => rect.y > big.y + big.height)).toBe(true);
+    const lowest = Math.max(...small.map((rect) => rect.y + rect.height));
+    expect(strip().every((tile) => tile.rect.y > lowest)).toBe(true);
+  });
+
+  it("on a screen wider than the layout runs the group down the side of the spots and on in rows under them, in the one scrolling stage", () => {
+    store({ layout: "grid4", spots: ["c1", "c2", "c3", "c4"], chosen: [] });
+    mount({ width: 734, height: 340 });
+    const right = Math.max(...spots().map((tile) => tile.rect.x + tile.rect.width));
+    const bottom = Math.max(...spots().map((tile) => tile.rect.y + tile.rect.height));
+    const cards = strip().map((tile) => tile.rect);
+    expect(cards.slice(0, 4).every((rect) => rect.x > right && rect.x + rect.width <= 734 + 0.01)).toBe(true);
+    expect(cards[4].x).toBe(0);
+    expect(cards[4].y).toBeGreaterThan(bottom);
+    expect(tree.root.findAll((node) => node.type === ScrollView && !node.props.horizontal && !node.props.onLayout)).toHaveLength(0);
+  });
+
+  it("lays the strip's cards on the grid's columns, the line between them 2 pt", () => {
+    mockParams = { channelId: "c10" };
+    mount();
+    const column = spots()[1].rect;
+    const cards = strip().map((tile) => tile.rect);
+    expect(cards[3]).toMatchObject({ x: column.x, width: column.width });
+    expect(cards[1].x - (cards[0].x + cards[0].width)).toBeCloseTo(2, 5);
   });
 
   it("labels each spot with the programme airing on its channel", async () => {
@@ -297,20 +334,8 @@ describe("Multiview", () => {
     mockLiveUrls.set("c11", "http://127.0.0.1/t/master.m3u8");
     mount();
     expect(mockActive).toHaveBeenCalledWith("multiview", true);
-    expect(mockViewable).toHaveBeenLastCalledWith("multiview", ["c9", "c12", "c0", "c1", "c2", "c3", "c4", "c5", "c6"]);
+    expect(mockViewable.mock.calls.at(-1)?.[1].slice(0, 6)).toEqual(["c9", "c12", "c0", "c1", "c2", "c3"]);
     expect(spots()[2].liveUrl).toBe("http://127.0.0.1/t/master.m3u8");
-  });
-
-  it("sizes the strip's cards so a whole number of them spans the first spot, their lines meeting the spots' lines", () => {
-    mockParams = { channelId: "c10" };
-    mount();
-    const big = spots()[0].rect;
-    const cards = strip().map((tile) => tile.rect);
-    const ends = cards.map((card) => card.x + card.width);
-    expect(ends.some((end) => Math.abs(end - (big.x + big.width)) < 0.01)).toBe(true);
-    const next = cards.find((card) => card.x > big.x + big.width)!;
-    expect(next.x).toBeCloseTo(spots()[1].rect.x, 5);
-    expect(cards[1].x - (cards[0].x + cards[0].width)).toBeCloseTo(2, 5);
   });
 
   it("hands a failed player to the tile sessions", () => {

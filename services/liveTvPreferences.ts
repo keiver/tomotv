@@ -70,7 +70,7 @@ export interface LiveTvPreferences {
   columnStop: ColumnStop;
   /** Streams a tuner playlist's provider allows this device at once, by playlist URL; a playlist left out is learned from its provider. */
   connectionLimits: Record<string, ConnectionLimit>;
-  /** Multiview's layout, the channel in each spot (null for an empty one, the viewer's own picks in `chosen`) and the strip. */
+  /** Multiview's layout and the channel in each spot (null for an empty one, the viewer's own picks in `chosen`). */
   multiview: MultiviewArrangement;
   /** Programmes to bring into Multiview's sound spot when they start. */
   multiviewQueue: MultiviewQueued[];
@@ -80,7 +80,6 @@ export interface MultiviewArrangement {
   layout: MultiviewLayoutName;
   spots: (string | null)[];
   chosen: string[];
-  strip: boolean;
 }
 
 export interface MultiviewQueued {
@@ -111,7 +110,7 @@ export const DEFAULT_LIVE_TV_PREFERENCES: LiveTvPreferences = {
   hideOffline: false,
   columnStop: "default",
   connectionLimits: {},
-  multiview: { layout: "onePlusThree", spots: [], chosen: [], strip: true },
+  multiview: { layout: "bigThree", spots: [], chosen: [] },
   multiviewQueue: [],
 };
 
@@ -227,7 +226,7 @@ function parseMultiview(raw: unknown): MultiviewArrangement {
   const layout = (MULTIVIEW_LAYOUTS as readonly unknown[]).includes(source.layout) ? (source.layout as MultiviewLayoutName) : fallback.layout;
   const spots = Array.isArray(source.spots) ? source.spots.slice(0, multiviewSpotCount(layout)).map((id) => (typeof id === "string" && id ? id : null)) : [];
   const chosen = Array.isArray(source.chosen) ? source.chosen.filter((id): id is string => typeof id === "string" && spots.includes(id)) : [];
-  return { layout, spots, chosen, strip: typeof source.strip === "boolean" ? source.strip : fallback.strip };
+  return { layout, spots, chosen };
 }
 
 /** Queued programmes, those already over left out. */

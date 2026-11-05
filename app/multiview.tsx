@@ -1,12 +1,12 @@
 import { MultiviewEmptySpot } from "@/components/live-tv/multiview-empty-spot";
 import { MultiviewTile } from "@/components/live-tv/multiview-tile";
 import { COLORS } from "@/constants/colors";
+import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { useChannelWall } from "@/hooks/useChannelWall";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { t } from "@/services/i18n";
-import type { StringKey } from "@/services/i18n/strings";
 import { fetchChannelWindow } from "@/services/jellyfinApi";
 import { setLiveFramesActive, setLiveFrameViewable } from "@/services/liveFrames";
 import { liveTilesVersion, liveTileUnavailable, liveTileUrl, noteLiveTileFailed, setLiveTiles, subscribeLiveTiles } from "@/services/liveTiles";
@@ -14,33 +14,35 @@ import { updateLiveTvPreferences, type MultiviewArrangement } from "@/services/l
 import type { JellyfinItem } from "@/types/jellyfin";
 import { programTimes } from "@/utils/guide";
 import { logger } from "@/utils/logger";
-import { clearSpot, dueQueue, liveOrder, placeChannel, promoteSpot, resizeArrangement, seedArrangement } from "@/utils/multiviewArrangement";
-import { MULTIVIEW_ASPECT, MULTIVIEW_LAYOUTS, multiviewChannels, multiviewFeatured, multiviewSpots, multiviewSpotsBottom, type MultiviewLayoutName } from "@keiver/tomo-live";
+import { clearSpot, dueQueue, liveOrder, placeChannel, promoteSpot, seedArrangement } from "@/utils/multiviewArrangement";
+import {
+  MULTIVIEW_ASPECT,
+  multiviewCut,
+  multiviewFeatured,
+  multiviewFit,
+  multiviewGroupCard,
+  multiviewGroupCount,
+  multiviewGroupRows,
+  multiviewLiveCount,
+  multiviewSpots,
+  multiviewStripCard,
+  type MultiviewRect,
+} from "@keiver/tomo-live";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import { Stack, useFocusEffect, useIsFocused, useLocalSearchParams, useRouter, type NativeStackNavigationOptions } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Alert, Platform, ScrollView, StyleSheet, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
+import { Alert, Platform, ScrollView, StyleSheet, useTVEventHandler, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 
 const IS_TV = Platform.isTV;
 /** The line between channels. */
 const GAP = 2;
-/** The channel strip's card height. */
-const STRIP_HEIGHT = IS_TV ? 200 : 90;
-const STRIP_WIDTH = STRIP_HEIGHT * MULTIVIEW_ASPECT;
 /** Channels the strip offers past the spots. */
 const STRIP_LIMIT = 30;
 const CLOCK_MS = 30_000;
-const LAYOUT_LABEL: Record<MultiviewLayoutName, StringKey> = {
-  two: "liveTv.layoutTwo",
-  twoFeatured: "liveTv.layoutTwoFeatured",
-  onePlusTwo: "liveTv.layoutOnePlusTwo",
-  onePlusThree: "liveTv.layoutOnePlusThree",
-  grid4: "liveTv.layoutGrid4",
-};
 
 /**
- * Multiview: a fixed layout of up to four spots, the one with the sound the large one in a featured layout, the
- * viewer's arrangement kept per user. Under it, a strip of the group's other channels as clips, which open no stream.
+ * Multiview: a fixed layout of whole 16:9 spots, its live spots first, then the viewer's picture spots, and in most
+ * layouts a row where the group's other channels scroll as clips. The arrangement is kept per user.
  */
 export default function MultiviewScreen() {
   const router = useRouter();
@@ -57,7 +59,8 @@ export default function MultiviewScreen() {
     const { width, height } = event.nativeEvent.layout;
     setSize((prev) => (prev && prev.width === width && prev.height === height ? prev : { width, height }));
   }, []);
-  const [soundAt, setSoundAt] = useState(0);
+  // The spot with the sound, for the layout it was picked in; another layout starts at its first spot.
+  const [soundPick, setSoundPick] = useState({ layout: arrangement.layout, at: 0 });
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNowMs(Date.now()), CLOCK_MS);
@@ -74,7 +77,7 @@ export default function MultiviewScreen() {
     seeded.current = true;
     const list = channelId && !ids.includes(channelId) ? [channelId, ...ids] : ids;
     const main = channelId ?? (arrangement.spots.some(Boolean) ? null : ids.find((id) => !liveTileUnavailable(id)));
-    if (main) save(seedArrangement(arrangement.layout, list, main, liveTileUnavailable, arrangement.strip));
+    if (main) save(seedArrangement(arrangement.layout, list, main, liveTileUnavailable));
   }, [ids, channelId, arrangement, save]);
 
   // The spots' channels with the programme airing, re-read when one ends.
@@ -105,8 +108,10 @@ export default function MultiviewScreen() {
     return map;
   }, [wall, airing, channelId, channelName]);
 
-  // The sessions follow the spots; the sound spot is the main.
-  const sound = Math.min(soundAt, Math.max(0, arrangement.spots.length - 1));
+  // The sessions follow the live spots; the sound spot is the main.
+  const liveCount = multiviewLiveCount(arrangement.layout);
+  const sound = soundPick.layout === arrangement.layout ? Math.min(soundPick.at, liveCount - 1) : 0;
+  const setSoundAt = useCallback((at: number) => setSoundPick({ layout: arrangement.layout, at }), [arrangement.layout]);
   useEffect(() => {
     setLiveTiles(liveOrder(arrangement, sound), { chosen: arrangement.chosen });
   }, [arrangement, sound]);
@@ -133,37 +138,32 @@ export default function MultiviewScreen() {
   const full = fullAsked && !!arrangement.spots[sound];
   useFocusEffect(useCallback(() => setFullAsked(false), []));
   const pick = useCallback((index: number) => router.push({ pathname: "/multiview-pick", params: { spot: String(index) } }), [router]);
-  const select = useCallback(
-    (index: number) => {
-      const id = arrangement.spots[index];
-      if (!id) return pick(index);
-      if (index === sound) {
+  const openLayouts = useCallback(() => router.push("/multiview-layout"), [router]);
+  // Apple TV: the spot fills the screen in place. iPhone, iPad and Mac: the channel opens in the player.
+  const { showGlobalLoader } = useLoadingActions();
+  const openFull = useCallback(
+    (id: string) => {
+      if (Platform.isTV) {
         setFullAsked(true);
         router.push("/multiview-full");
         return;
       }
-      const promoted = promoteSpot(arrangement, index);
+      showGlobalLoader();
+      router.push({ pathname: "/player", params: { videoId: id, videoName: byId.get(id)?.Name, live: "1" } });
+    },
+    [router, showGlobalLoader, byId],
+  );
+  const select = useCallback(
+    (index: number) => {
+      const id = arrangement.spots[index];
+      if (!id) return pick(index);
+      if (index === sound) return openFull(id);
+      const promoted = promoteSpot(arrangement, index, sound);
       if (promoted.arrangement !== arrangement) save(promoted.arrangement);
       setSoundAt(promoted.soundAt);
     },
-    [arrangement, sound, pick, save, router],
+    [arrangement, sound, pick, save, openFull, setSoundAt],
   );
-  const changeLayout = useCallback(
-    (layout: MultiviewLayoutName) => {
-      const main = arrangement.spots[sound];
-      const fresh = main ? multiviewChannels(ids, main, 4, liveTileUnavailable) : ids.filter((id) => !liveTileUnavailable(id));
-      save(resizeArrangement(arrangement, layout, fresh));
-      setSoundAt(0);
-    },
-    [arrangement, sound, ids, save],
-  );
-  const layoutSheet = useCallback(() => {
-    Alert.alert(t("liveTv.multiviewLayout"), undefined, [
-      ...MULTIVIEW_LAYOUTS.map((layout) => ({ text: t(LAYOUT_LABEL[layout]), onPress: () => changeLayout(layout) })),
-      { text: t(arrangement.strip ? "liveTv.multiviewStripHide" : "liveTv.multiviewStripShow"), onPress: () => save({ ...arrangement, strip: !arrangement.strip }) },
-      { text: t("common.cancel"), style: "cancel" },
-    ]);
-  }, [arrangement, changeLayout, save]);
   const spotSheet = useCallback(
     (index: number) => {
       const channel = byId.get(arrangement.spots[index] ?? "");
@@ -172,13 +172,13 @@ export default function MultiviewScreen() {
         { text: t("liveTv.multiviewChange"), onPress: () => pick(index) },
         { text: t("liveTv.multiviewClear"), onPress: () => save(clearSpot(arrangement, index)) },
         { text: t("liveTv.record"), onPress: () => openInfoPanel(channel) },
-        { text: t("liveTv.multiviewLayout"), onPress: layoutSheet },
+        { text: t("liveTv.multiviewLayout"), onPress: openLayouts },
         { text: t("common.cancel"), style: "cancel" },
       ]);
     },
-    [arrangement, byId, pick, save, openInfoPanel, layoutSheet],
+    [arrangement, byId, pick, save, openInfoPanel, openLayouts],
   );
-  // Phone, iPad and Mac: the layout sheet also sits in the native bar; Apple TV reaches it from a spot's long press.
+  // Phone, iPad and Mac: the layouts open from the native bar; Apple TV opens them with Play/Pause.
   const { accent } = useCardPalette();
   const screenOptions = useMemo<NativeStackNavigationOptions>(
     () =>
@@ -187,24 +187,33 @@ export default function MultiviewScreen() {
         : {
             headerShown: !full,
             unstable_headerRightItems: () => [
-              { type: "button" as const, label: t("liveTv.multiviewLayout"), icon: { type: "sfSymbol" as const, name: "rectangle.split.2x2" as const }, tintColor: accent, onPress: layoutSheet },
+              { type: "button" as const, label: t("liveTv.multiviewLayout"), icon: { type: "sfSymbol" as const, name: "rectangle.split.2x2" as const }, tintColor: accent, onPress: openLayouts },
             ],
           },
-    [accent, layoutSheet, full],
+    [accent, openLayouts, full],
   );
-  // The strip: the group's other channels, the sampler reading those in view.
+  useTVEventHandler((event) => {
+    if (isFocused && event.eventType === "playPause") openLayouts();
+  });
+
+  // Apple TV: the 16:9 cut with its strip row. Elsewhere: the cut fit to the screen's shape, the group below or beside.
+  const placement = IS_TV && size ? multiviewSpots(arrangement.layout, { width: size.width, height: size.height, gap: GAP }) : null;
+  const fit = !IS_TV && size ? multiviewFit(arrangement.layout, { width: size.width, height: size.height, gap: GAP }) : null;
+  const grid = multiviewCut(arrangement.layout).grid;
+  // The group's other channels, the sampler reading those in view.
   const stripIds = useMemo(() => ids.filter((id) => !arrangement.spots.includes(id)).slice(0, STRIP_LIMIT), [ids, arrangement.spots]);
-  const stripShown = !full && arrangement.strip && stripIds.length > 0;
-  const stage = size ? { width: size.width, height: size.height - (stripShown ? STRIP_HEIGHT + GAP : 0), gap: GAP } : null;
-  const rects = stage ? multiviewSpots(arrangement.layout, stage) : [];
-  // A whole number of strip cards spans the first spot exactly, so the strip's lines meet the spots' lines.
-  const lead = rects[0]?.width ?? 0;
-  const perLead = Math.max(1, Math.round((lead + GAP) / (STRIP_WIDTH + GAP)));
-  const stripCard = lead > 0 ? (lead - (perLead - 1) * GAP) / perLead : STRIP_WIDTH;
-  const stripStep = stripCard + GAP;
+  const strip = !full && placement?.strip ? placement.strip : null;
+  const cell = placement?.cell ?? 0;
   const [stripFrom, setStripFrom] = useState(0);
-  const onStripScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => setStripFrom(Math.max(0, Math.floor(event.nativeEvent.contentOffset.x / stripStep))), [stripStep]);
-  const stripVisible = useMemo(() => (stripShown && size ? stripIds.slice(stripFrom, stripFrom + Math.ceil(size.width / stripStep) + 1) : []), [stripShown, size, stripIds, stripFrom, stripStep]);
+  const onStripScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => setStripFrom(cell > 0 ? Math.max(0, Math.floor(event.nativeEvent.contentOffset.x / cell)) : 0);
+  const [stageY, setStageY] = useState(0);
+  const onStageScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => setStageY(event.nativeEvent.contentOffset.y);
+  const group = !full && fit ? fit.group : null;
+  const groupCardHeight = group ? group.width / group.columns / MULTIVIEW_ASPECT : 0;
+  const groupFrom = group && groupCardHeight > 0 ? multiviewGroupCount(group, Math.max(0, Math.floor((stageY - group.y) / groupCardHeight))) : 0;
+  const groupTo = group && groupCardHeight > 0 && size ? multiviewGroupCount(group, Math.floor((stageY - group.y + size.height) / groupCardHeight) + 1) : 0;
+  const stripVisible = strip && cell > 0 ? stripIds.slice(stripFrom, stripFrom + Math.ceil(strip.width / cell) + 1) : group ? stripIds.slice(groupFrom, groupTo) : [];
+  const stripKey = stripVisible.join(",");
   const toSound = useCallback((id: string) => save(placeChannel(arrangement, sound, id)), [arrangement, sound, save]);
 
   const autoUpdate = preferences.autoUpdate;
@@ -215,20 +224,51 @@ export default function MultiviewScreen() {
   }, [autoUpdate, isFocused]);
   useEffect(() => {
     const spots = full ? [] : arrangement.spots.filter((id, index): id is string => !!id && index !== sound && !liveTileUrl(id));
-    setLiveFrameViewable("multiview", [...spots, ...stripVisible]);
-  }, [arrangement.spots, sound, stripVisible, version, full]);
+    setLiveFrameViewable("multiview", [...spots, ...(stripKey ? stripKey.split(",") : [])]);
+  }, [arrangement.spots, sound, stripKey, version, full]);
   useEffect(() => () => setLiveFrameViewable("multiview", []), []);
 
-  const stripTop = multiviewSpotsBottom(rects, GAP) + GAP / 2;
   const featured = multiviewFeatured(arrangement.layout);
+  const lastCard = stripIds.length > 0 ? multiviewStripCard(stripIds.length - 1, grid, cell, GAP) : null;
+  const groupTile = (id: string, rect: MultiviewRect) => {
+    const channel = byId.get(id);
+    if (!channel) return null;
+    return (
+      <MultiviewTile
+        key={id}
+        channel={channel}
+        rect={rect}
+        main={false}
+        liveUrl={null}
+        visible={isFocused}
+        program={channel.CurrentProgram}
+        nowMs={nowMs}
+        onSelect={toSound}
+        onFailed={noteLiveTileFailed}
+      />
+    );
+  };
+  const stageHeight = group && size ? Math.max(size.height, group.y + multiviewGroupRows(group, stripIds.length) * groupCardHeight) : (size?.height ?? 0);
+  const Stage = IS_TV ? View : ScrollView;
+  const stageProps = IS_TV
+    ? {}
+    : {
+        scrollEnabled: !full,
+        contentContainerStyle: { height: stageHeight },
+        onScroll: onStageScroll,
+        onScrollEndDrag: onStageScroll,
+        onMomentumScrollEnd: onStageScroll,
+        scrollEventThrottle: 250,
+        showsVerticalScrollIndicator: false,
+      };
   return (
     <View style={[styles.container, { paddingTop: IS_TV || full ? 0 : headerHeight }]}>
       <Stack.Screen options={screenOptions} />
-      <View style={styles.stage} onLayout={onLayout}>
-        {rects.map((spotRect, index) => {
-          // Full: only the spot with the sound, at the stage's size; the others keep their sessions off screen.
+      <Stage style={styles.stage} onLayout={onLayout} {...stageProps}>
+        {(placement?.spots ?? fit?.spots ?? []).map((spotRect, index) => {
+          // Full: only the spot with the sound, at the stage's size where the stage stands; the others keep their sessions off screen.
           if (full && index !== sound) return null;
-          const rect = full && size ? { x: 0, y: 0, width: size.width, height: size.height } : spotRect;
+          const rect = full && size ? { x: 0, y: IS_TV ? 0 : stageY, width: size.width, height: size.height } : spotRect;
           const id = arrangement.spots[index];
           const channel = id ? byId.get(id) : undefined;
           if (!id) return <MultiviewEmptySpot key={`empty-${index}`} rect={rect} onPress={() => pick(index)} />;
@@ -239,7 +279,7 @@ export default function MultiviewScreen() {
               channel={channel}
               rect={rect}
               main={index === sound}
-              liveUrl={liveTileUrl(id)}
+              liveUrl={index < liveCount ? liveTileUrl(id) : null}
               visible={isFocused || full}
               bare={full}
               program={channel.CurrentProgram}
@@ -251,35 +291,27 @@ export default function MultiviewScreen() {
             />
           );
         })}
-        {stripShown && rects.length > 0 ? (
+        {strip && lastCard ? (
           <ScrollView
             horizontal
-            style={[styles.strip, { top: stripTop, height: STRIP_HEIGHT }]}
-            contentContainerStyle={{ width: stripIds.length * stripStep - GAP, height: STRIP_HEIGHT }}
+            style={[styles.strip, { left: strip.x, top: strip.y, width: strip.width, height: strip.height }]}
+            contentContainerStyle={{ width: lastCard.x + lastCard.width, height: strip.height }}
             onScroll={onStripScroll}
             scrollEventThrottle={250}
             showsHorizontalScrollIndicator={false}>
             {stripIds.map((id, index) => {
-              const channel = byId.get(id);
-              if (!channel) return null;
-              return (
-                <MultiviewTile
-                  key={id}
-                  channel={channel}
-                  rect={{ x: index * stripStep, y: 0, width: stripCard, height: STRIP_HEIGHT }}
-                  main={false}
-                  liveUrl={null}
-                  visible={isFocused}
-                  program={channel.CurrentProgram}
-                  nowMs={nowMs}
-                  onSelect={toSound}
-                  onFailed={noteLiveTileFailed}
-                />
-              );
+              const card = multiviewStripCard(index, grid, cell, GAP);
+              return groupTile(id, { x: card.x, y: 0, width: card.width, height: strip.height });
             })}
           </ScrollView>
         ) : null}
-      </View>
+        {group
+          ? stripIds.map((id, index) => {
+              const card = multiviewGroupCard(index, group, GAP);
+              return groupTile(id, { ...card, x: group.x + card.x, y: group.y + card.y });
+            })
+          : null}
+      </Stage>
     </View>
   );
 }
@@ -294,7 +326,5 @@ const styles = StyleSheet.create({
   },
   strip: {
     position: "absolute",
-    left: 0,
-    right: 0,
   },
 });

@@ -64,17 +64,18 @@ describe("live TV preferences", () => {
       hideOffline: false,
       columnStop: "default",
       connectionLimits: {},
-      multiview: { layout: "onePlusThree", spots: [], chosen: [], strip: true },
+      multiview: { layout: "bigThree", spots: [], chosen: [] },
       multiviewQueue: [],
     });
     // Multiview keeps a known layout, as many spots as it has, and picks only for channels in a spot.
-    expect(parseLiveTvPreferences({ multiview: { layout: "two", spots: ["a", "", "c"], chosen: ["a", "z", 3], strip: false } }).multiview).toEqual({
-      layout: "two",
-      spots: ["a", null],
+    expect(parseLiveTvPreferences({ multiview: { layout: "bigTwo", spots: ["a", "", "c", "d"], chosen: ["a", "z", 3] } }).multiview).toEqual({
+      layout: "bigTwo",
+      spots: ["a", null, "c"],
       chosen: ["a"],
-      strip: false,
     });
-    expect(parseLiveTvPreferences({ multiview: { layout: "grid9", spots: "a" } }).multiview).toEqual({ layout: "onePlusThree", spots: [], chosen: [], strip: true });
+    expect(parseLiveTvPreferences({ multiview: { layout: "grid9", spots: "a" } }).multiview).toEqual({ layout: "bigThree", spots: [], chosen: [] });
+    // A layout from an earlier build reads as the default, its spots kept up to the default's count.
+    expect(parseLiveTvPreferences({ multiview: { layout: "two", spots: ["a", "b"], chosen: ["a"], strip: false } }).multiview).toEqual({ layout: "bigThree", spots: ["a", "b"], chosen: ["a"] });
     // A queued programme survives whole and not yet over.
     const ahead = { channelId: "c", name: "Match", startMs: Date.now() + 60_000, endMs: Date.now() + 3_600_000 };
     expect(parseLiveTvPreferences({ multiviewQueue: [ahead, { ...ahead, endMs: Date.now() - 1 }, { ...ahead, name: 7 }, null] }).multiviewQueue).toEqual([ahead]);
@@ -395,7 +396,7 @@ describe("favorites and groups per user", () => {
 
   it("keeps each user's Multiview spots and queue apart, and reads them back after a relaunch", () => {
     const { preferences, signIn } = load();
-    const arrangement = { layout: "two" as const, spots: ["x", "y"], chosen: ["x"], strip: false };
+    const arrangement = { layout: "rowThree" as const, spots: ["x", "y", null, "p", null, null], chosen: ["x"] };
     const queued = { channelId: "y", name: "Match", startMs: Date.now() + 60_000, endMs: Date.now() + 3_600_000 };
     signIn("a");
     preferences.updateLiveTvPreferences({ multiview: arrangement, multiviewQueue: [queued] });

@@ -7,13 +7,16 @@ All notable changes to Tomo TV are documented here.
 ### Added
 
 - Multiview, on every platform: watch up to four live channels at once (`@keiver/tomo-live@1.6.0`)
-  - Five layouts: two side by side; one large with one, two or three smaller; or a 2x2 grid. The channels fill the screen with a thin line between them.
+  - Six layouts, every picture whole and never cropped: one large with three or two smaller, a 2x2 grid, three across, two large with two smaller, or three large with one smaller. The channels fill a 16:9 screen with a thin line between them.
+  - On iPhone, iPad and Mac the layout fits the screen's shape: held upright, the spots stack down the screen with the large ones the full width; on a screen wider than the layout, the group's other channels run down the side of it and on in rows under it, so no part of the screen is left empty. Below the spots, the group's other channels scroll up and down.
+  - Up to four spots play live. Some layouts add picture spots you fill yourself, which show a short clip and a picture, and most have a strip along the bottom that scrolls through the group's other channels; selecting one puts it in the spot with the sound.
+  - Pick the layout from a screen that draws each one as it fits your screen, and on iPhone, iPad and Mac also turned, with the spot with the sound boxed: the Layout button in the bar on iPhone, iPad and Mac, Play/Pause on Apple TV, or Layout in a spot's long press.
   - Open it from the Multiview button in the Channels bar, or from a channel's info panel, which puts that channel in the large spot and its neighbours in the group around it.
-  - Selecting a spot gives it the sound and moves it to the large spot. Selecting it again fills the screen with that channel; Menu, Escape, a select or a tap goes back to the layout.
+  - Selecting a spot gives it the sound and moves it to the large spot; on iPhone, iPad and Mac the spot with the sound wears the accent box Apple TV gives the focused spot. Selecting it again opens the channel in the player on iPhone, iPad and Mac, and on Apple TV fills the screen with that channel, where Menu or a select goes back to the layout.
   - A long press on a spot changes its channel, clears it, records it or changes the layout. An empty spot shows a plus that opens the channel picker.
-  - Each spot shows the programme airing and its time left. A strip under the spots shows the group's other channels; selecting one puts it in the spot with the sound.
+  - Each spot names its channel in a small square label in its top-left corner; the spot with the sound adds the programme airing and its time left. A channel with no logo shows a TV glyph until its picture arrives.
   - From the info panel of a programme that hasn't started, Multiview can switch the spot with the sound to it when it starts.
-  - The spots, the layout and the strip setting are kept per user.
+  - The spots and the layout are kept per user.
   - Every live spot uses one of the provider's connections. With N connections, the spot with the sound and N-2 others play live and one is kept for the pictures; the other spots show a short clip and a picture. On a provider set to one connection, only the spot with the sound plays.
   - Tomo never puts an HDHomeRun channel in a spot on its own; it plays only in a spot you fill.
 - Pinned channel in the Live TV guide, on iPhone, iPad and Mac: tapping a channel plays it with sound in a band above the guide instead of opening the player. Apple TV is unchanged

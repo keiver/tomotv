@@ -8,10 +8,11 @@ let mockClip: { uri: string; cacheKey: string } | undefined;
 jest.mock("@keiver/tomo-live/src/clip", () => ({ LiveClipView: (props: object) => require("react").createElement("LiveClipView", props) }));
 jest.mock("@/hooks/useLiveFrame", () => ({ useLiveFrame: () => mockFrame, useLiveClip: () => mockClip }));
 jest.mock("@/hooks/useCardPalette", () => ({ useCardPalette: () => ({ accent: "#FFC312" }) }));
-jest.mock("@/services/jellyfinApi", () => ({ getPosterUrl: (id: string) => `https://jf/Items/${id}/Images/Primary` }));
+let mockLogo: { uri: string } | undefined;
+jest.mock("@/services/itemArtwork", () => ({ posterSource: () => mockLogo }));
 jest.mock("@/services/i18n", () => ({ t: (key: string) => (key === "liveTv.timeLeft" ? "{time} left" : key === "common.durationMinutes" ? "{minutes}m" : key) }));
 jest.mock("expo-image", () => ({ Image: (props: object) => require("react").createElement("Image", props) }));
-jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
+jest.mock("@expo/vector-icons", () => ({ Ionicons: (props: object) => require("react").createElement("Ionicons", props) }));
 
 import { airingLine, MultiviewTile } from "@/components/live-tv/multiview-tile";
 
@@ -35,6 +36,7 @@ function render(props: Partial<React.ComponentProps<typeof MultiviewTile>> = {})
 beforeEach(() => {
   mockFrame = { uri: "file:///pool/c1/live-1-3.jpg", cacheKey: "live-c1-1-3" };
   mockClip = { uri: "file:///pool/c1/live-1-clip.mp4", cacheKey: "live-c1-1-clip" };
+  mockLogo = { uri: "https://jf/Items/c1/Images/Primary" };
 });
 
 describe("MultiviewTile", () => {
@@ -59,20 +61,39 @@ describe("MultiviewTile", () => {
     expect(images.map((image) => image.props.source)).toEqual([{ uri: "https://jf/Items/c1/Images/Primary" }]);
   });
 
+  it("shows a TV glyph for a channel with no logo until a picture arrives", () => {
+    mockFrame = undefined;
+    mockClip = undefined;
+    mockLogo = undefined;
+    const { tree } = render();
+    expect(tree.root.findAllByType("Image" as never)).toHaveLength(0);
+    expect(tree.root.findAllByType("Ionicons" as never).map((icon) => icon.props.name)).toEqual(["tv-outline"]);
+  });
+
   it("names the programme airing and its time left, and nothing outside its slot", () => {
     expect(airingLine(program, NOW)).toBe("Evening News · 45m left");
     expect(airingLine(program, Date.parse("2026-11-05T21:00:00Z"))).toBeNull();
-    const texts = render({ program })
-      .tree.root.findAllByType(Text)
-      .map((node) => node.props.children);
-    expect(texts).toContain("Evening News · 45m left");
+    const texts = (props: Partial<React.ComponentProps<typeof MultiviewTile>>) =>
+      render({ program, ...props })
+        .tree.root.findAllByType(Text)
+        .map((node) => node.props.children);
+    expect(texts({ main: true })).toEqual(["Channel One · Evening News · 45m left"]);
+    expect(texts({})).toEqual(["Channel One"]);
+  });
+
+  it("names the channel in a thin square label in the top-left corner, half a card tab high, over the Live TV card's lit edge", () => {
+    const { tree } = render();
+    const label = tree.root.findByType(Text).parent!;
+    expect(StyleSheet.flatten(label.props.style)).toMatchObject({ position: "absolute", top: 0, left: 0, height: 12 });
+    expect(StyleSheet.flatten(label.props.style).borderRadius).toBeUndefined();
+    expect(tree.root.findAll((node) => node.type === View && StyleSheet.flatten(node.props.style)?.boxShadow !== undefined)).toHaveLength(1);
   });
 
   it("takes no border space, so its picture meets the line, and draws focus as a ring over the picture", () => {
     const { tree } = render();
     const touch = tree.root.findByType(TouchableOpacity);
     expect(StyleSheet.flatten(touch.props.style).borderWidth).toBeUndefined();
-    const ring = () => tree.root.findAll((node) => node.type === View && StyleSheet.flatten(node.props.style)?.borderColor === "#FFC312");
+    const ring = () => tree.root.findAll((node) => node.type === View && StyleSheet.flatten(node.props.style)?.borderColor === "#FFC312" && StyleSheet.flatten(node.props.style)?.bottom === 0);
     expect(ring()).toHaveLength(0);
     act(() => touch.props.onFocus());
     expect(StyleSheet.flatten(tree.root.findByType(TouchableOpacity).props.style).borderWidth).toBeUndefined();
@@ -86,6 +107,12 @@ describe("MultiviewTile", () => {
     act(() => tree.root.findByType(TouchableOpacity).props.onFocus());
     expect(tree.root.findAllByType(Text)).toHaveLength(0);
     expect(tree.root.findAll((node) => node.type === View && StyleSheet.flatten(node.props.style)?.borderColor === "#FFC312")).toHaveLength(0);
+  });
+
+  it("on a touch screen gives the spot with the sound the accent box with no focus, and the others none", () => {
+    const ring = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAll((node) => node.type === View && StyleSheet.flatten(node.props.style)?.borderColor === "#FFC312");
+    expect(ring(render({ main: true }).tree)).toHaveLength(1);
+    expect(ring(render().tree)).toHaveLength(0);
   });
 
   it("lets its player go while the screen is covered", () => {
