@@ -133,6 +133,8 @@ export interface PlayerHostBridge {
   setInlineMuted: (muted: boolean) => void;
   /** An inline session goes to AVKit's presented player. */
   presentFullscreen: () => void;
+  /** An inline session's presented player closes and the session plays on in its frame; false when none is presented. */
+  dismissFullscreen: () => boolean;
 }
 
 interface PlayerSessionContextValue extends PlayerSessionSnapshot, PlayerHostBridge {
@@ -302,6 +304,7 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
     bridge.setInlineMuted(muted);
   }, []);
   const presentFullscreen = useCallback(() => withHost("presentFullscreen", (bridge) => bridge.presentFullscreen()), [withHost]);
+  const dismissFullscreen = useCallback(() => bridgeRef.current?.dismissFullscreen() ?? false, []);
 
   const value = useMemo(
     () => ({
@@ -324,6 +327,7 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
       setInlineOverlay,
       setInlineMuted,
       presentFullscreen,
+      dismissFullscreen,
       setHandlers,
       clearHandlers,
     }),
@@ -347,6 +351,7 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
       setInlineOverlay,
       setInlineMuted,
       presentFullscreen,
+      dismissFullscreen,
       setHandlers,
       clearHandlers,
     ],

@@ -25,6 +25,7 @@ function makeBridge(): jest.Mocked<PlayerHostBridge> {
     setInlineOverlay: jest.fn(),
     setInlineMuted: jest.fn(),
     presentFullscreen: jest.fn(),
+    dismissFullscreen: jest.fn(() => false),
   };
 }
 
@@ -236,6 +237,31 @@ describe("PlayerSessionContext handoff", () => {
       );
     });
     expect(bridge.presentFullscreen).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns the host's answer to a dismiss ask, and false when there is no host", () => {
+    const bridge = makeBridge();
+    bridge.dismissFullscreen.mockReturnValue(true);
+    let answer: boolean | null = null;
+    renderColdLaunch(bridge, (session) => {
+      answer = session.dismissFullscreen();
+    });
+    expect(answer).toBe(false);
+
+    const tree = renderColdLaunch(bridge, () => {}, false);
+    act(() => {
+      tree.update(
+        <PlayerSessionProvider>
+          <Host bridge={bridge} />
+          <Route
+            run={(session) => {
+              answer = session.dismissFullscreen();
+            }}
+          />
+        </PlayerSessionProvider>,
+      );
+    });
+    expect(answer).toBe(true);
   });
 });
 

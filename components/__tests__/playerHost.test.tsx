@@ -1284,6 +1284,59 @@ describe("PlayerHost", () => {
       expect(videoRef.current.enterPictureInPicture).not.toHaveBeenCalled();
     });
 
+    it("closes only the presented player on a dismiss ask, and the session keeps playing in its band", async () => {
+      await playInline();
+      await act(async () => {
+        bridge().presentFullscreen();
+      });
+      await act(async () => {
+        video().props.onFullscreenPlayerDidPresent();
+      });
+
+      let dismissed = false;
+      await act(async () => {
+        dismissed = bridge().dismissFullscreen();
+      });
+      expect(dismissed).toBe(true);
+      expect(videoRef.current.setFullScreen).toHaveBeenLastCalledWith(false);
+      await act(async () => {
+        video().props.onFullscreenPlayerDidDismiss();
+      });
+
+      expect(handlersRef.current?.onRequestBack).not.toHaveBeenCalled();
+      expect(requestedVideoId()).toBe("channel-1");
+    });
+
+    it("answers a dismiss ask with false when the inline session is not presented", async () => {
+      await playInline();
+
+      expect(bridge().dismissFullscreen()).toBe(false);
+      expect(videoRef.current.setFullScreen).not.toHaveBeenCalled();
+    });
+
+    it("answers a dismiss ask with false for a presented session that is not inline", async () => {
+      mockUseVideoPlayback.mockImplementation((config: { videoId: string; skip?: boolean }) => {
+        hookCalls.push({ videoId: config.videoId, skip: config.skip });
+        return { ...hookResult(), videoRef };
+      });
+      await act(async () => {
+        bridge().requestSession({ videoId: "movie-1", sessionKey: "key-1" });
+      });
+      sourceUri = "http://stream/1";
+      await act(async () => {
+        renderer.update(<PlayerHost />);
+      });
+      await act(async () => {
+        video().props.onLoad({ naturalSize: { width: 1920, height: 1080 } });
+      });
+      await act(async () => {
+        video().props.onFullscreenPlayerDidPresent();
+      });
+
+      expect(bridge().dismissFullscreen()).toBe(false);
+      expect(videoRef.current.setFullScreen).not.toHaveBeenCalledWith(false);
+    });
+
     it("ignores a full screen ask for a session that is not inline", async () => {
       await act(async () => {
         bridge().requestSession({ videoId: "movie-1", sessionKey: "key-1" });

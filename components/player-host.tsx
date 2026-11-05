@@ -959,6 +959,11 @@ export function PlayerHost() {
         presentationRef.current = "pending";
         videoRef.current?.setFullScreen(true);
       },
+      dismissFullscreen: () => {
+        if (!sessionRef.current?.inline || presentationRef.current !== "up") return false;
+        requestDismissal();
+        return true;
+      },
     }),
     [
       alignSubtitleTiming,
@@ -971,6 +976,7 @@ export function PlayerHost() {
       leaveRoute,
       pause,
       reloadAtPlayhead,
+      requestDismissal,
       retry,
       seekBy,
       setPip,
