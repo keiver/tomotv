@@ -59,6 +59,8 @@ const failed = new Set<string>();
 const dropped = new Set<string>();
 /** Never a satellite while multiview is open: the channel needs a server open, or the engine cannot take it. */
 const unavailable = new Set<string>();
+/** Spots the viewer filled: opened as the player opens a channel. */
+let chosen = new Set<string>();
 /** Each channel's provider, read off its resolve, so a provider with no room is known before the next open. */
 const knownOrigins = new Map<string, string>();
 let generation = 0;
@@ -108,7 +110,9 @@ function wanted(): string[] {
   if (order.length === 0 || isPlaybackHeld()) return [];
   const live = (channelId: string) => !failed.has(channelId) && !refused.has(channelId);
   const head = main()!;
-  const satellites = order.slice(1).filter((channelId) => live(channelId) && !dropped.has(channelId) && !unavailable.has(channelId) && !isTunerChannel(channelId) && !noRoomForSatellite(channelId));
+  // A spot the viewer filled is theirs to spend a server open or a tuner on; the others never are.
+  const mayOpen = (channelId: string) => chosen.has(channelId) || (!unavailable.has(channelId) && !isTunerChannel(channelId));
+  const satellites = order.slice(1).filter((channelId) => live(channelId) && !dropped.has(channelId) && mayOpen(channelId) && !noRoomForSatellite(channelId));
   // A main frozen for a round is off while the round lasts; before it, its frame is still being taken.
   return (round === null && live(head) ? [head] : []).concat(satellites);
 }
@@ -230,8 +234,8 @@ async function open(channelId: string, mine: number): Promise<void> {
       if (key) knownOrigins.set(channelId, key);
       return priority === "playback" || !noRoomForSatellite(channelId);
     };
-    const started = await startChannelSession(channelId, { windowSeconds: LIVE_TILE_WINDOW_SECONDS, priority, current, openOnServer: priority === "playback", allow });
-    if (started === "unavailable") (priority === "playback" ? failed : unavailable).add(channelId);
+    const started = await startChannelSession(channelId, { windowSeconds: LIVE_TILE_WINDOW_SECONDS, priority, current, openOnServer: priority === "playback" || chosen.has(channelId), allow });
+    if (started === "unavailable") (priority === "playback" || chosen.has(channelId) ? failed : unavailable).add(channelId);
     if (typeof started === "string") {
       if (channelId === main() && !tiles.has(channelId)) letMainGo(channelId);
       return;
@@ -370,11 +374,20 @@ function wire(): void {
   });
 }
 
-/** The channels multiview shows, the main first; an empty list ends every tile. A new main or set brings dropped tiles back. */
-export function setLiveTiles(channelIds: readonly string[]): void {
+/**
+ * The channels multiview shows, the main first; an empty list ends every tile. A new main or set brings dropped tiles back.
+ * `chosen`: spots the viewer filled, opened as the player opens a channel, a hardware tuner included.
+ */
+export function setLiveTiles(channelIds: readonly string[], options: { chosen?: readonly string[] } = {}): void {
   wire();
   const next = [...new Set(channelIds)];
-  if (next.join("\n") === order.join("\n")) return;
+  const nextChosen = new Set(options.chosen ?? []);
+  const chosenChanged = nextChosen.size !== chosen.size || [...nextChosen].some((channelId) => !chosen.has(channelId));
+  chosen = nextChosen;
+  if (next.join("\n") === order.join("\n")) {
+    if (chosenChanged) reconcile();
+    return;
+  }
   const mainChanged = next[0] !== order[0];
   const setChanged = next.length !== order.length || next.some((channelId) => !order.includes(channelId));
   order = next;

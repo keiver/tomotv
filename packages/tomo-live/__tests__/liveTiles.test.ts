@@ -177,6 +177,19 @@ describe("liveTiles", () => {
     expect(liveTileUnavailable("srv")).toBe(true);
   });
 
+  it("opens a spot the viewer filled the way the player opens a channel, a hardware tuner included, and never one Tomo filled", async () => {
+    noteTunerChannel("hd1");
+    noteTunerChannel("hd2");
+    setLiveTiles(["a", "hd1", "hd2"], { chosen: ["hd1"] });
+    await openAll(3);
+    expect(openedOnServer).toEqual(["a", "hd1"]);
+    expect(liveTileUrl("hd1")).not.toBeNull();
+    expect(liveTileUrl("hd2")).toBeNull();
+    setLiveTiles(["a", "hd1", "hd2"], { chosen: [] });
+    await flush();
+    expect(liveTileUrl("hd1")).toBeNull();
+  });
+
   it("closes the main's server open when its tile ends", async () => {
     setLiveTiles(["srv-a", "b"]);
     await openAll(2);

@@ -43,7 +43,7 @@ configureLive({
 
 `LiveChannels` in `src/config.ts` documents each member. `resolveOrigin` answers `"tuner"` for a
 channel only a hardware tuner carries (an HDHomeRun behind Jellyfin): the services then open it
-only to play it, never for a card picture, a preview, a warm neighbour or a multiview satellite.
+only to play it, never for a card picture, a preview, a warm neighbour or a multiview spot the viewer did not fill.
 Logging goes through the engine's `configureEngine({ log })`.
 
 ## Live playback controller

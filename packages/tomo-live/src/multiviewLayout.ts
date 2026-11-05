@@ -1,7 +1,9 @@
-/** Video tiles are 16:9; every rect here is sized for that picture. */
+/** Video tiles are 16:9; the layouts are drawn for that picture, then stretched to fill the stage. */
 export const MULTIVIEW_ASPECT = 16 / 9;
-/** No layout holds more tiles than this, whatever the window. */
-export const MULTIVIEW_MAX_TILES = 16;
+
+/** The fixed layouts, by how they place their spots; the first spot of a featured layout is the big one. */
+export const MULTIVIEW_LAYOUTS = ["two", "twoFeatured", "onePlusTwo", "onePlusThree", "grid4"] as const;
+export type MultiviewLayoutName = (typeof MULTIVIEW_LAYOUTS)[number];
 
 export interface MultiviewRect {
   x: number;
@@ -13,132 +15,134 @@ export interface MultiviewRect {
 export interface MultiviewSpace {
   width: number;
   height: number;
-  /** The narrowest a satellite may be. */
-  minTileWidth: number;
-  /** Space between tiles. */
+  /** The line between spots; the stage's own edges get none. */
   gap: number;
 }
 
-interface Candidate {
-  main: number;
-  satellite: number;
-  /** Lower wins a tie: side, then bottom, then L, each by its count. */
-  rank: number;
-  place: () => MultiviewRect[];
+const A = MULTIVIEW_ASPECT;
+type Unit = [x: number, y: number, width: number, height?: number];
+
+/** Each layout in units of a satellite's width (height `width / A` unless given), side by side (`wide`), stacked under
+ *  the big spot (`tall`), and for the equal grid one column as well. The shape its stretch crops least is used. */
+const SHAPES: Record<MultiviewLayoutName, { wide: Unit[]; tall: Unit[]; column?: Unit[] }> = {
+  two: {
+    wide: [
+      [0, 0, 1],
+      [1, 0, 1],
+    ],
+    tall: [
+      [0, 0, 1],
+      [0, 1 / A, 1],
+    ],
+  },
+  twoFeatured: {
+    wide: [
+      [0, 0, 7],
+      [7, 0, 3, 7 / A],
+    ],
+    tall: [
+      [0, 0, 7],
+      [0, 7 / A, 7, 3 / A],
+    ],
+  },
+  onePlusTwo: {
+    wide: [
+      [0, 0, 2],
+      [2, 0, 1],
+      [2, 1 / A, 1],
+    ],
+    tall: [
+      [0, 0, 2],
+      [0, 2 / A, 1],
+      [1, 2 / A, 1],
+    ],
+  },
+  onePlusThree: {
+    wide: [
+      [0, 0, 3],
+      [3, 0, 1],
+      [3, 1 / A, 1],
+      [3, 2 / A, 1],
+    ],
+    tall: [
+      [0, 0, 3],
+      [0, 3 / A, 1],
+      [1, 3 / A, 1],
+      [2, 3 / A, 1],
+    ],
+  },
+  grid4: {
+    wide: [
+      [0, 0, 1],
+      [1, 0, 1],
+      [0, 1 / A, 1],
+      [1, 1 / A, 1],
+    ],
+    tall: [
+      [0, 0, 1],
+      [1, 0, 1],
+      [0, 1 / A, 1],
+      [1, 1 / A, 1],
+    ],
+    column: [
+      [0, 0, 1],
+      [0, 1 / A, 1],
+      [0, 2 / A, 1],
+      [0, 3 / A, 1],
+    ],
+  },
+};
+
+/** How many spots a layout holds. */
+export function multiviewSpotCount(layout: MultiviewLayoutName): number {
+  return SHAPES[layout].wide.length;
 }
 
-function centered(rects: MultiviewRect[], width: number, height: number, space: MultiviewSpace): MultiviewRect[] {
-  const dx = (space.width - width) / 2;
-  const dy = (space.height - height) / 2;
-  return rects.map((r) => ({ x: r.x + dx, y: r.y + dy, width: r.width, height: r.height }));
+/** Whether the layout's first spot is larger than the rest. */
+export function multiviewFeatured(layout: MultiviewLayoutName): boolean {
+  return layout !== "two" && layout !== "grid4";
 }
 
-/** The main, then `rows` satellites per column beside it, as many columns as the satellites need. */
-function side(k: number, rows: number, space: MultiviewSpace): Candidate | null {
-  const a = MULTIVIEW_ASPECT;
-  const { gap } = space;
-  const columns = Math.ceil(k / rows);
-  const byWidth = (space.width - columns * gap + (columns * a * (rows - 1) * gap) / rows) / (1 + columns / rows);
-  const main = Math.min(byWidth, space.height * a);
-  const satellite = (main - a * (rows - 1) * gap) / rows;
-  return {
-    main,
-    satellite,
-    rank: rows,
-    place: () => {
-      const rects: MultiviewRect[] = [{ x: 0, y: 0, width: main, height: main / a }];
-      for (let i = 0; i < k; i++) {
-        const column = Math.floor(i / rows);
-        const row = i % rows;
-        rects.push({ x: main + gap + column * (satellite + gap), y: row * (satellite / a + gap), width: satellite, height: satellite / a });
-      }
-      return centered(rects, main + columns * (gap + satellite), main / a, space);
-    },
-  };
+const EDGE = 0.001;
+
+/** The span from `from` to `to` along a stage side of `size`, short half a line at each end that meets another spot. */
+function inset(from: number, to: number, size: number, half: number): [number, number] {
+  return [from <= EDGE ? 0 : from + half, to >= size - EDGE ? size : to - half];
 }
 
-/** The main, then `columns` satellites per row under it, as many rows as the satellites need. */
-function bottom(k: number, columns: number, space: MultiviewSpace): Candidate | null {
-  const a = MULTIVIEW_ASPECT;
-  const { gap } = space;
-  const rows = Math.ceil(k / columns);
-  const byHeight = (a * (space.height - rows * gap + (rows * (columns - 1) * gap) / (columns * a))) / (1 + rows / columns);
-  const main = Math.min(byHeight, space.width);
-  const satellite = (main - (columns - 1) * gap) / columns;
-  return {
-    main,
-    satellite,
-    rank: 100 + columns,
-    place: () => {
-      const rects: MultiviewRect[] = [{ x: 0, y: 0, width: main, height: main / a }];
-      for (let i = 0; i < k; i++) {
-        const row = Math.floor(i / columns);
-        const column = i % columns;
-        rects.push({ x: column * (satellite + gap), y: main / a + gap + row * (satellite / a + gap), width: satellite, height: satellite / a });
-      }
-      return centered(rects, main, main / a + rows * (gap + satellite / a), space);
-    },
-  };
+function place(units: Unit[], space: MultiviewSpace): { rects: MultiviewRect[]; crop: number } {
+  const height = ([, , w, h]: Unit) => h ?? w / A;
+  const boxWidth = Math.max(...units.map(([x, , w]) => x + w));
+  const boxHeight = Math.max(...units.map((unit) => unit[1] + height(unit)));
+  const sx = space.width / boxWidth;
+  const sy = space.height / boxHeight;
+  const half = space.gap / 2;
+  let crop = 0;
+  const rects = units.map((unit) => {
+    const [x, y, w] = unit;
+    const [left, right] = inset(x * sx, (x + w) * sx, space.width, half);
+    const [top, bottom] = inset(y * sy, (y + height(unit)) * sy, space.height, half);
+    const width = Math.max(0, right - left);
+    const tall = Math.max(0, bottom - top);
+    // How far the 16:9 picture is cut to cover the spot, weighted by the spot's size.
+    if (width > 0 && tall > 0) crop += width * tall * Math.abs(Math.log(width / tall / A));
+    return { x: left, y: top, width, height: tall };
+  });
+  return { rects, crop };
 }
 
-/** A g x g grid whose top-left (g-1) x (g-1) cells are the main; satellites run down the right edge, then along the bottom from the corner. */
-function lShape(k: number, g: number, space: MultiviewSpace): Candidate | null {
-  if (2 * g - 1 < k) return null;
-  const a = MULTIVIEW_ASPECT;
-  const { gap } = space;
-  const cell = Math.min((space.width - (g - 1) * gap) / g, ((space.height - (g - 1) * gap) * a) / g);
-  const main = (g - 1) * cell + (g - 2) * gap;
-  return {
-    main,
-    satellite: cell,
-    rank: 200 + g,
-    place: () => {
-      const step = cell / a + gap;
-      const rects: MultiviewRect[] = [{ x: 0, y: 0, width: main, height: ((g - 1) * cell) / a + (g - 2) * gap }];
-      const slots: MultiviewRect[] = [];
-      for (let row = 0; row < g - 1; row++) slots.push({ x: g - 1, y: row, width: cell, height: cell / a });
-      for (let column = g - 1; column >= 0; column--) slots.push({ x: column, y: g - 1, width: cell, height: cell / a });
-      for (const slot of slots.slice(0, k)) rects.push({ x: slot.x * (cell + gap), y: slot.y * step, width: cell, height: cell / a });
-      return centered(rects, g * cell + (g - 1) * gap, g * (cell / a) + (g - 1) * gap, space);
-    },
-  };
+/** One rect per spot, the first spot first, filling the stage edge to edge with a `gap` line between spots, in the
+ *  layout's shape that crops the pictures least. Empty for an empty stage. */
+export function multiviewSpots(layout: MultiviewLayoutName, space: MultiviewSpace): MultiviewRect[] {
+  if (space.width <= 0 || space.height <= 0) return [];
+  const { wide, tall, column } = SHAPES[layout];
+  const placed = [wide, tall, ...(column ? [column] : [])].map((units) => place(units, space));
+  return placed.reduce((best, next) => (next.crop < best.crop ? next : best)).rects;
 }
 
-function fits(candidate: Candidate | null, space: MultiviewSpace): candidate is Candidate {
-  return !!candidate && candidate.main > 0 && candidate.satellite >= space.minTileWidth && candidate.satellite <= candidate.main / 2;
-}
-
-/**
- * One rect per tile, the main first: one tile fills the window; more place the main as large as a layout allows with
- * every satellite at least `minTileWidth` and at most half the main's width. Null when `count` tiles cannot fit.
- */
-export function multiviewLayout(count: number, space: MultiviewSpace): MultiviewRect[] | null {
-  if (count < 1 || count > MULTIVIEW_MAX_TILES || space.width <= 0 || space.height <= 0) return null;
-  if (count === 1) {
-    const width = Math.min(space.width, space.height * MULTIVIEW_ASPECT);
-    return centered([{ x: 0, y: 0, width, height: width / MULTIVIEW_ASPECT }], width, width / MULTIVIEW_ASPECT, space);
-  }
-  const k = count - 1;
-  const candidates: Candidate[] = [];
-  // A column or row holds up to 3 slots for fewer satellites, so one or two satellites never stretch to half the main.
-  for (let n = 1; n <= Math.max(k, 3); n++) {
-    const s = side(k, n, space);
-    if (fits(s, space)) candidates.push(s);
-    const b = bottom(k, n, space);
-    if (fits(b, space)) candidates.push(b);
-  }
-  const l = lShape(k, Math.max(3, Math.ceil((k + 1) / 2)), space);
-  if (fits(l, space)) candidates.push(l);
-  if (candidates.length === 0) return null;
-  candidates.sort((x, y) => (Math.abs(y.main - x.main) > 0.5 ? y.main - x.main : Math.abs(y.satellite - x.satellite) > 0.5 ? y.satellite - x.satellite : x.rank - y.rank));
-  return candidates[0].place();
-}
-
-/** The most tiles this space lays out, every smaller count fitting too; at least 1. */
-export function multiviewCapacity(space: MultiviewSpace): number {
-  let most = 1;
-  while (most < MULTIVIEW_MAX_TILES && multiviewLayout(most + 1, space)) most += 1;
-  return most;
+/** Bottom edge of the spots, so what sits under them (the channel strip) can follow straight after. */
+export function multiviewSpotsBottom(rects: readonly MultiviewRect[], gap: number): number {
+  return rects.reduce((bottom, rect) => Math.max(bottom, rect.y + rect.height + gap / 2), 0);
 }
 
 /**
