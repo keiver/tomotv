@@ -129,6 +129,11 @@ describe("MultiviewTile", () => {
     expect(loading()).toBe(true);
   });
 
+  it("shows no spinner on the spot with the sound while it has no live session to wait for", () => {
+    const { tree } = render({ main: true });
+    expect(tree.root.findAll((node) => node.props.testID === "multiview-tile-loading")).toHaveLength(0);
+  });
+
   it("shows neither the spinner nor the speaker on a spot without the sound", () => {
     const { tree } = render({ liveUrl: "http://127.0.0.1:5000/t/master.m3u8" });
     expect(tree.root.findAll((node) => node.props.testID === "multiview-tile-loading")).toHaveLength(0);

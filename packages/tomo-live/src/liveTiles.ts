@@ -111,17 +111,19 @@ function releaseHold(): void {
   setLiveFrameOriginHold(key, false);
 }
 
-function endTile(tile: Tile, why: string, stop = true): void {
+/** `freed`: false for a tile that lost its connection to the budget, which frees no slot for a refused tile. */
+function endTile(tile: Tile, why: string, freed = true): void {
   if (tiles.get(tile.channelId) !== tile) return;
   tiles.delete(tile.channelId);
   tile.unsubscribe();
-  if (stop) void stopLocalRemux(tile.token);
+  // A failed pipeline stays in the engine's table until stopped, and counts against its session cap there.
+  void stopLocalRemux(tile.token);
   // A main the server opened holds that open until it is closed, its session ended or not.
   const channels = liveChannels();
   if (channels.holdsOpen(tile.details)) void channels.close(tile.details);
   if (tile.channelId === main()) releaseHold();
   // A closed session may be the slot a refused tile was waiting for.
-  refused.clear();
+  if (freed) refused.clear();
   engineLog().debug("Live tile ended", { service: "LiveTile", channel: liveChannels().name(tile.details), why });
 }
 
@@ -143,8 +145,9 @@ function watch(tile: Tile): void {
   });
   const stopFailure = subscribeEngineFailure(tile.token, (failure) => {
     if (tiles.get(tile.channelId) !== tile) return;
-    endTile(tile, failure.message, false);
-    (isConnectionBudgetFailure(failure.message) ? refused : failed).add(tile.channelId);
+    const budget = isConnectionBudgetFailure(failure.message);
+    endTile(tile, failure.message, !budget);
+    (budget ? refused : failed).add(tile.channelId);
     reconcile();
     notify();
   });

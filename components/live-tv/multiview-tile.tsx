@@ -93,7 +93,7 @@ function MultiviewTileComponent({ channel, rect, main, liveUrl, visible, bare, p
         <View style={[styles.label, ringed && { backgroundColor: accent }]} pointerEvents="none">
           {sounding ? (
             <Ionicons name="volume-high" size={LABEL_TEXT} color={ringed ? ink : COLORS.TEXT_PRIMARY} />
-          ) : main ? (
+          ) : main && live ? (
             <View style={styles.loading} testID="multiview-tile-loading">
               <ActivityIndicator size="small" color={ringed ? ink : COLORS.TEXT_PRIMARY} style={styles.spinner} />
             </View>

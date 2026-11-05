@@ -197,6 +197,27 @@ describe("liveTiles", () => {
     expect(liveTileUrl("c")).not.toBeNull();
   });
 
+  it("stops a tile session that failed, so it never counts against the engine's sessions", async () => {
+    setLiveTiles(["a", "b"]);
+    await openAll(2);
+    mockFailures.get("t-b")!({ token: "t-b", message: "input ended" });
+    await flush();
+    expect(mockStopped).toContain("t-b");
+  });
+
+  it("keeps two satellites that lost their connection to the provider's budget on their clips, never reopening each other", async () => {
+    const yielded = "live input yielded its connection to a higher-priority read";
+    setLiveTiles(["a", "b", "c"]);
+    await openAll(3);
+    mockFailures.get("t-b")!({ token: "t-b", message: yielded });
+    await flush();
+    mockFailures.get("t-c")!({ token: "t-c", message: yielded });
+    await openAll(5);
+    expect(started.filter(([id]) => id === "b")).toHaveLength(1);
+    expect(started.filter(([id]) => id === "c")).toHaveLength(1);
+    expect(liveTileUrl("a")).not.toBeNull();
+  });
+
   it("drops the satellite furthest from the main to its clip on a read-bound segment, one per spacing, until the set changes", async () => {
     setLiveTiles(["a", "b", "c", "d"]);
     await openAll(4);
