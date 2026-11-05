@@ -18,7 +18,7 @@ import {
   subscribeOriginHolds,
 } from "@keiver/tomo-engine";
 import { AppState } from "react-native";
-import { clearTunerChannels, isTunerChannel, noteTunerChannel, type ChannelOrigin } from "./channelOrigin";
+import { clearTunerChannels, isTunerChannel, noteTunerChannel, tunerChannelKnown, type ChannelOrigin } from "./channelOrigin";
 import { clearChannelHealth, healthFor, noteChannelAlive, noteChannelEmpty, noteChannelGone, noteChannelOpenFailure } from "./channelHealth";
 import { liveChannels } from "./config";
 import { showLivePreview, stopLivePreview } from "./livePreview";
@@ -64,6 +64,8 @@ export const LIVE_FRAME_CLIP_S = 5;
 export const LIVE_FRAME_FOCUS_DWELL_MS = 2_000;
 /** A clip whose focus lands this soon after the last one's is mid-scroll, and waits this long for focus to settle. */
 export const LIVE_CLIP_SCROLL_SETTLE_MS = 500;
+/** A playing channel not yet known to be a tuner is checked again this soon for its card's picture. */
+export const LIVE_FRAME_TUNER_UNKNOWN_RETRY_MS = 5_000;
 /** The promoted channel's own refresh floor, well under the ordinary one. */
 export const LIVE_FRAME_FOCUS_REFRESH_MS = 30_000;
 /**
@@ -394,7 +396,9 @@ function nextDue(now: number): { channelId: string; waitMs: number } | null {
   // A card with its picture and clip whose refresh has come.
   const refreshDue = (channelId: string) => {
     const item = entry(channelId);
-    return !down(channelId) && !grabbing.has(channelId) && !needsGrab(channelId, now) && Math.max(item.lastAt + (item.intervalMs ?? LIVE_FRAME_REFRESH_MS), waitingUntil(item)) <= now;
+    return (
+      free(channelId) && !down(channelId) && !grabbing.has(channelId) && !needsGrab(channelId, now) && Math.max(item.lastAt + (item.intervalMs ?? LIVE_FRAME_REFRESH_MS), waitingUntil(item)) <= now
+    );
   };
   // A row only partly on screen waits on the whole rows, their refreshes included; a down channel waits on every other card in view.
   const wholeBusy = viewable.some((channelId) => !partlyShown.has(channelId) && (busy(channelId) || refreshDue(channelId)));
@@ -688,7 +692,8 @@ export function refreshLiveFrameWhilePlaying(channelId: string, sessionUrl: stri
   let timer: ReturnType<typeof setTimeout> | null = null;
   let ended = false;
   const run = () => {
-    timer = setTimeout(run, LIVE_FRAME_REFRESH_MS);
+    // A channel not yet known to be a tuner is asked again soon, so its card does not wait a whole refresh for its first picture.
+    timer = setTimeout(run, tunerChannelKnown(channelId) ? LIVE_FRAME_REFRESH_MS : LIVE_FRAME_TUNER_UNKNOWN_RETRY_MS);
     if (ended || !isTunerChannel(channelId) || grabbing.has(channelId) || !appActive()) return;
     grabbing.set(channelId, generation);
     stopped.delete(channelId);

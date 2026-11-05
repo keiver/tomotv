@@ -391,11 +391,19 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
   if (!options.quiet) setPlaybackStage("opening");
   // Every open of a channel gets the same LiveStreamId, and the server keeps one stream per id: an open landing before
   // the last one's close would leave the older stream, and its tuner, past any close.
-  await closingByChannel.get(channelId);
+  // Bounded: an open the server never answers would otherwise hold every later open of the channel.
+  await waitAtMost(closingByChannel.get(channelId), API_TIMEOUTS.EXTENDED);
   // Not aborted at the deadline: the server finishes an open the device stopped waiting for, and that open is closed as it lands.
   const infoRequest = fetch(`${config.server}/Items/${channelId}/PlaybackInfo?UserId=${config.userId}`, { method: "POST", headers, body: JSON.stringify(body) });
-  // The item's failure surfaces at once; an open that still goes through beside it is released as it lands.
-  const releaseOpenWhenItLands = () => void infoRequest.then((response) => (response.ok ? closeOpenedStream(response, origin, channelId) : undefined)).catch(() => {});
+  // The item's failure surfaces at once; an open that still goes through beside it is released as it lands, and the
+  // channel's next open waits for that.
+  const releaseOpenWhenItLands = () => {
+    const released = infoRequest.then((response) => (response.ok ? closeOpenedStream(response, origin, channelId) : undefined)).catch(() => {});
+    closingByChannel.set(channelId, released);
+    void released.finally(() => {
+      if (closingByChannel.get(channelId) === released) closingByChannel.delete(channelId);
+    });
+  };
   let itemResponse: Response | null = null;
   try {
     itemResponse = item ? null : await fetchWithTimeout(`${config.server}/Items/${channelId}?userId=${config.userId}&EnableUserData=true`, { headers }, API_TIMEOUTS.NORMAL);
@@ -490,6 +498,14 @@ type LiveOrigin = { server: string; deviceId: string; apiKey: string };
 
 /** The server and credentials each open this run made went out on; a switch must not redirect its close. */
 const openOrigins = new Map<string, LiveOrigin>();
+
+function waitAtMost(work: Promise<void> | undefined, ms: number): Promise<void> {
+  if (!work) return Promise.resolve();
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  return Promise.race([work, new Promise<void>((resolve) => (timer = setTimeout(resolve, ms)))]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
 
 /** The channel each open this run made is of, so its next open waits for the close. */
 const channelOfStream = new Map<string, string>();

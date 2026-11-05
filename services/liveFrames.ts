@@ -20,6 +20,7 @@ export {
   LIVE_FRAME_RETRY_MS,
   LIVE_FRAME_SPACING_MS,
   LIVE_FRAME_TRANSITION_MS,
+  LIVE_FRAME_TUNER_UNKNOWN_RETRY_MS,
   liveClipFor,
   type LiveFrame,
   liveFrameDueAt,

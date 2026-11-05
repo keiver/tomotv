@@ -106,6 +106,7 @@ import {
   liveFrameDueAt,
   liveFrameFor,
   liveFrameReel,
+  LIVE_FRAME_TUNER_UNKNOWN_RETRY_MS,
   refreshLiveFrameWhilePlaying,
   setLiveFrameFocus,
   clearLiveFrameFocus,
@@ -118,6 +119,7 @@ import {
 import { healthFor } from "@/services/channelHealth";
 import { setOriginRecording } from "@keiver/tomo-engine";
 import { setPlaybackHold } from "@/services/playbackHold";
+import { noteTunerChannel } from "@keiver/tomo-live";
 import { AppState } from "react-native";
 
 const flush = async () => {
@@ -262,6 +264,18 @@ describe("live frames", () => {
     expect(grabs()).toEqual(["m1"]);
     await advance(LIVE_FRAME_SPACING_MS);
     expect(grabs()).toEqual(["m1", "m2"]);
+  });
+
+  it("a hardware tuner card whose picture is due a refresh holds no row partly on screen back", async () => {
+    mockResolveOrigin.mockImplementation(async (id: string) => (id.startsWith("hd") ? "tuner" : { url: `https://origin/${id}.m3u8` }));
+    mockOnDisk.mockResolvedValue({ hd1: { ...onDisk("hd1", 1_000_000 - LIVE_FRAME_REFRESH_MS - 1, 2), clip: "file:///pool/hd1/c.mp4" } });
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["hd1"], ["m2"]);
+    await advance(0);
+    await advance(LIVE_FRAME_SPACING_MS);
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m2"]);
+    expect(mockOpenChannel).not.toHaveBeenCalled();
   });
 
   it("a whole row waiting out its failures holds no row partly on screen back", async () => {
@@ -758,6 +772,17 @@ describe("live frames", () => {
       expect(listener).toHaveBeenCalledTimes(2);
       expect(liveFrameDueAt("m2")).toBe(grabbedAt + LIVE_FRAME_REFRESH_MS);
     });
+  });
+
+  it("asks again soon for a playing channel not yet known to be a tuner, so its card gets its picture within seconds", async () => {
+    setPlaybackHold("video", true);
+    const stop = refreshLiveFrameWhilePlaying("hd7", "http://127.0.0.1:5000/tok/master.m3u8");
+    await advance(0);
+    expect(grabs()).toEqual([]);
+    noteTunerChannel("hd7");
+    await advance(LIVE_FRAME_TUNER_UNKNOWN_RETRY_MS);
+    expect(grabs()).toEqual(["hd7"]);
+    stop();
   });
 
   it("takes a playing hardware tuner channel's picture off the player's session while playback holds the link, never off the tuner", async () => {

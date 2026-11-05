@@ -728,6 +728,29 @@ describe("live TV client", () => {
     }
   });
 
+  it("opens a channel again only once the open the device gave up on has landed and been closed", async () => {
+    jest.useFakeTimers();
+    try {
+      let land: (response: unknown) => void = () => {};
+      (global.fetch as jest.Mock).mockImplementationOnce(() => new Promise((resolve) => (land = resolve))).mockResolvedValue({ ok: true, json: async () => ({ MediaSources: [] }) });
+      const channel = { Id: "c92", Name: "Ninety-two", Type: "TvChannel", Path: "" };
+      const first = openChannel("c92", channel, { quiet: true }).catch((error: Error) => error.name);
+      await jest.advanceTimersByTimeAsync(30_000);
+      expect(await first).toBe("AbortError");
+      const second = openChannel("c92", channel, { quiet: true }).catch(() => "done");
+      await jest.advanceTimersByTimeAsync(0);
+      const urls = () => (global.fetch as jest.Mock).mock.calls.map(([url]) => String(url));
+      expect(urls().filter((url) => url.includes("/Items/c92/PlaybackInfo"))).toHaveLength(1);
+      land({ ok: true, json: async () => ({ MediaSources: [{ Id: "ms-92", LiveStreamId: "ls-92", Path: "/LiveTv/LiveStreamFiles/ls-92/stream.ts" }] }) });
+      await jest.advanceTimersByTimeAsync(0);
+      await second;
+      expect(urls().filter((url) => url.includes("/Items/c92/PlaybackInfo"))).toHaveLength(2);
+      expect(urls().indexOf(`${SERVER}/LiveStreams/Close?liveStreamId=ls-92`)).toBeLessThan(urls().lastIndexOf(`${SERVER}/Items/c92/PlaybackInfo?UserId=test-user-id`));
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it("opens a channel again only once its last open's close has been answered", async () => {
     const opened = {
       ok: true,
