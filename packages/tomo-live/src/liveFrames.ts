@@ -18,7 +18,7 @@ import {
   subscribeOriginHolds,
 } from "@keiver/tomo-engine";
 import { AppState } from "react-native";
-import type { ChannelOrigin } from "./channelOrigin";
+import { clearTunerChannels, isTunerChannel, noteTunerChannel, type ChannelOrigin } from "./channelOrigin";
 import { clearChannelHealth, healthFor, noteChannelAlive, noteChannelEmpty, noteChannelGone, noteChannelOpenFailure } from "./channelHealth";
 import { liveChannels } from "./config";
 import { showLivePreview, stopLivePreview } from "./livePreview";
@@ -374,7 +374,7 @@ function nextDue(now: number): { channelId: string; waitMs: number } | null {
   // The focused card first: while it reads, only a card known to read another provider reads beside it; nothing
   // else does while it is stale, except while it waits out a failure.
   // A recording holding a card's one-connection provider leaves it out until the recording ends.
-  const free = (channelId: string) => !originHeld(playlistChannelById(channelId)?.originKey);
+  const free = (channelId: string) => !isTunerChannel(channelId) && !originHeld(playlistChannelById(channelId)?.originKey);
   const focused = focusedStale(now);
   const stale = focused && free(focused) ? focused : null;
   let held: string | undefined;
@@ -454,7 +454,7 @@ export function setLiveFrameFocus(channelId: string | null): void {
  * has a picture, so a channel that never serves costs one connection, its grab's, not a second one beside it.
  */
 function warmPreview(channelId: string): void {
-  if (priority !== channelId || !running() || down(channelId) || !validBurst(channelId, Date.now())) return;
+  if (priority !== channelId || !running() || down(channelId) || isTunerChannel(channelId) || !validBurst(channelId, Date.now())) return;
   showLivePreview(channelId);
 }
 
@@ -508,6 +508,9 @@ async function inputFor(channelId: string, item: Entry): Promise<GrabInput | nul
   // Asked every grab: a guide refresh on the server can re-key the channel or move its origin.
   const channels = liveChannels();
   const resolved = await channels.resolveOrigin(channelId);
+  // A hardware tuner is the household's: no picture is worth taking one.
+  noteTunerChannel(channelId, resolved === "tuner");
+  if (resolved === "tuner") return null;
   const origin: ChannelOrigin | null = resolved === "untuned" ? null : resolved;
   item.lane = origin ? "origin" : "server";
   item.gone = false;
@@ -532,7 +535,8 @@ async function inputFor(channelId: string, item: Entry): Promise<GrabInput | nul
   return { url, close };
 }
 
-async function grab(channelId: string): Promise<void> {
+/** `playing`: the channel's own engine session the player reads, read instead of the channel, the short profile only. */
+async function grab(channelId: string, playing?: string): Promise<void> {
   const item = entry(channelId);
   const now = Date.now();
   const wasDueAt = item.lastAt;
@@ -540,14 +544,19 @@ async function grab(channelId: string): Promise<void> {
   const gen = generation;
   // No picture yet: the short first-paint profile; the refresh upgrades to the full burst.
   const shown = validBurst(channelId, now);
-  const cold = !shown;
+  const cold = !shown || playing !== undefined;
   const needsClip = !!shown && !shown.clip;
   let input: GrabInput | null = null;
   try {
-    input = await inputFor(channelId, item);
+    input = playing !== undefined ? { url: playing } : await inputFor(channelId, item);
     // A cancel sent while the open ran met no read: the open closes here and the channel stays due.
-    if (gen !== generation || isPlaybackHeld() || activeSurface === null || stopped.has(channelId)) {
+    if (gen !== generation || (playing === undefined && (isPlaybackHeld() || activeSurface === null)) || stopped.has(channelId)) {
       item.lastAt = wasDueAt;
+      return;
+    }
+    if (!input && isTunerChannel(channelId)) {
+      item.lastAt = wasDueAt;
+      notify(channelId);
       return;
     }
     if (!input) {
@@ -667,6 +676,30 @@ export function setLiveFramesActive(surface: LiveFrameSurface, active: boolean):
   cancelGrabs();
 }
 
+/** A playing tuner channel's card picture, read off the player's own engine session, never a second tuner open: now and on
+ *  every refresh while it plays. The returned function stops it. */
+export function refreshLiveFrameWhilePlaying(channelId: string, sessionUrl: string): () => void {
+  wire();
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let ended = false;
+  const run = () => {
+    timer = setTimeout(run, LIVE_FRAME_REFRESH_MS);
+    if (ended || !isTunerChannel(channelId) || grabbing.has(channelId) || !appActive()) return;
+    grabbing.set(channelId, generation);
+    stopped.delete(channelId);
+    void grab(channelId, sessionUrl).finally(() => grabbing.delete(channelId));
+  };
+  run();
+  return () => {
+    ended = true;
+    if (timer) clearTimeout(timer);
+    if (grabbing.has(channelId)) {
+      stopped.add(channelId);
+      cancelLiveFrame(channelId);
+    }
+  };
+}
+
 /** The card's picture: the newest valid frame, held until a grab brings a newer one. */
 export function liveFrameFor(channelId: string): LiveFrame | undefined {
   return validBurst(channelId, Date.now())?.frames.at(-1);
@@ -711,5 +744,6 @@ export function clearLiveFrames(): void {
   entries.clear();
   stopTicker();
   clearChannelHealth();
+  clearTunerChannels();
   for (const channelId of cleared) notify(channelId);
 }

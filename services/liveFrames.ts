@@ -26,6 +26,7 @@ export {
   liveFrameFor,
   liveFrameReel,
   type LiveFrameSurface,
+  refreshLiveFrameWhilePlaying,
   setLiveFrameFocus,
   setLiveFramesActive,
   setLiveFrameViewable,

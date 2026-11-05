@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- A channel only a hardware tuner carries is never opened for a picture or a neighbour: `resolveOrigin` may answer `"tuner"` (the app's `LiveChannels` contract), the sampler then never grabs it, the focused card warms no preview for it, the ring heats no tuner neighbour and keeps no tuner channel the player left. `noteTunerChannel`, `isTunerChannel`, `tunerChannelKnown` and `clearTunerChannels` (cleared with `clearLiveFrames`).
+- `refreshLiveFrameWhilePlaying(channelId, sessionUrl)`: a tuner channel the player plays gets its card's picture read off the player's own engine session, now and every `LIVE_FRAME_REFRESH_MS`, never a second tuner open.
+
 ## 1.6.0
 
 - A channel's start buffer steps through `LIVE_START_STEPS` (2, 6, then 15 s): `noteLiveStall(channelId, playedMs)` steps it up one on a stall within `LIVE_POOR_START_WINDOW_MS` (60 s) of the picture coming up and returns the seconds to hold the picture for, the gap to the next step; `noteLiveCleanStart(channelId)` steps it back down one after a clean minute; `liveStartBufferSeconds(channelId)` is what the channel's next session builds. Kept in memory for the app run. `LivePlayback` waits for the channel's step, at most 20 s past it.

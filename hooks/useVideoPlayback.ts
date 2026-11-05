@@ -76,6 +76,7 @@ import {
 } from "@/services/localRemux";
 import { retainLiveSession, takeRingSession, takeWarmDetails, yieldLiveRing } from "@/services/liveRing";
 import { takeLivePreview } from "@/services/livePreview";
+import { refreshLiveFrameWhilePlaying } from "@/services/liveFrames";
 import { admitOnOneConnection, admitUntilPlaying, isAdmitting, isChannelHeld } from "@/services/recordingHold";
 import { recordTimeoutVerdict, rememberedVerdict, recordVerdict } from "@/services/engineVerdicts";
 import { downloadManager } from "@/services/downloads/manager";
@@ -3547,6 +3548,12 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
       },
     };
   }, [streamUrl, onLoad, onProgress, onError, onEnd, onSeek, onBuffer, onAudioTracks, onTextTracks, onPlaybackStateChanged, onBandwidthUpdate, onReadyForDisplay]);
+
+  // A tuner channel's card takes its picture off this session, so nothing opens the tuner a second time for it.
+  useEffect(() => {
+    if (!isLiveRef.current || !hasStablePlayback || !streamUrl || !localRemuxToken(streamUrl)) return;
+    return refreshLiveFrameWhilePlaying(videoId, playerSourceUrl(streamUrl));
+  }, [videoId, hasStablePlayback, streamUrl]);
 
   // Hand the manager a way to drive this player while a group is joined. Re-registered
   // per item so a queue advance never leaves the manager holding the previous session.

@@ -52,6 +52,11 @@ function liveDeviceProfile() {
   };
 }
 
+/** A channel only a hardware tuner carries: HdHomerunHost.GetMediaSource names it Protocol Udp with the device's HTTP base URL as Path. */
+export function isHardwareTunerSource(source: JellyfinMediaSource): boolean {
+  return /^udp$/i.test(source.Protocol ?? "") && /^https?:\/\//i.test(source.Path ?? "");
+}
+
 /** Jellyfin's relay of an open tuner stream (a shared TS stream, an HDHomeRun): a byte copy of the channel. */
 const RELAY_PATH = /\/LiveTv\/LiveStreamFiles\//i;
 
@@ -334,9 +339,9 @@ async function manifestOrigin(source: JellyfinMediaSource): Promise<ChannelOrigi
  * A channel's origin for a frame grab, off the read-only PlaybackInfo: nothing is opened on the
  * server, and the playlist goes as given (the engine picks the variant a card needs, through its
  * own HTTP, which App Transport Security does not gate). Null for a channel the server carries,
- * "untuned" for one it lists that no tuner carries.
+ * "untuned" for one it lists that no tuner carries, "tuner" for one only a hardware tuner carries.
  */
-export async function resolveChannelOrigin(channelId: string): Promise<ChannelOrigin | "untuned" | null> {
+export async function resolveChannelOrigin(channelId: string): Promise<ChannelOrigin | "untuned" | "tuner" | null> {
   const config = await getConfig();
   if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
   const headers = { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) };
@@ -351,6 +356,7 @@ export async function resolveChannelOrigin(channelId: string): Promise<ChannelOr
   const source: JellyfinMediaSource | undefined = info.MediaSources?.[0];
   // Jellyfin's placeholder when no tuner lists the channel (LiveTvMediaSourceProvider.cs): the item's own id, no path.
   if (source && !source.Path && source.Id === channelId) return "untuned";
+  if (source && isHardwareTunerSource(source)) return "tuner";
   if (source && !isManifestSource(source)) {
     const raw = await rawLiveInput(source);
     return raw ? { url: raw.url, originKey: raw.originKey, ...(raw.headers ? { headers: raw.headers } : {}) } : null;
@@ -383,9 +389,13 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
   };
   // A ring neighbour opens in the background and must not narrate over the channel on screen.
   if (!options.quiet) setPlaybackStage("opening");
-  const infoRequest = fetchWithTimeout(`${config.server}/Items/${channelId}/PlaybackInfo?UserId=${config.userId}`, { method: "POST", headers, body: JSON.stringify(body) }, API_TIMEOUTS.EXTENDED);
+  // Every open of a channel gets the same LiveStreamId, and the server keeps one stream per id: an open landing before
+  // the last one's close would leave the older stream, and its tuner, past any close.
+  await closingByChannel.get(channelId);
+  // Not aborted at the deadline: the server finishes an open the device stopped waiting for, and that open is closed as it lands.
+  const infoRequest = fetch(`${config.server}/Items/${channelId}/PlaybackInfo?UserId=${config.userId}`, { method: "POST", headers, body: JSON.stringify(body) });
   // The item's failure surfaces at once; an open that still goes through beside it is released as it lands.
-  const releaseOpenWhenItLands = () => void infoRequest.then((response) => (response.ok ? closeOpenedStream(response, origin) : undefined)).catch(() => {});
+  const releaseOpenWhenItLands = () => void infoRequest.then((response) => (response.ok ? closeOpenedStream(response, origin, channelId) : undefined)).catch(() => {});
   let itemResponse: Response | null = null;
   try {
     itemResponse = item ? null : await fetchWithTimeout(`${config.server}/Items/${channelId}?userId=${config.userId}&EnableUserData=true`, { headers }, API_TIMEOUTS.NORMAL);
@@ -397,7 +407,19 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
     releaseOpenWhenItLands();
     throwRequestError(itemResponse, `Failed to fetch channel: ${itemResponse.status}`);
   }
-  const infoResponse = await infoRequest;
+  let deadline: ReturnType<typeof setTimeout> | null = null;
+  const late = new Promise<never>((_, reject) => {
+    deadline = setTimeout(() => reject(Object.assign(new Error("Aborted"), { name: "AbortError" })), API_TIMEOUTS.EXTENDED);
+  });
+  let infoResponse: Response;
+  try {
+    infoResponse = await Promise.race([infoRequest, late]);
+  } catch (error) {
+    releaseOpenWhenItLands();
+    throw error;
+  } finally {
+    if (deadline) clearTimeout(deadline);
+  }
   if (!infoResponse.ok) throwRequestError(infoResponse, `Failed to open channel: ${infoResponse.status}`);
   const [channel] = await fillAiringFromGuides<JellyfinVideoItem>([item ?? (await itemResponse!.json())]);
   const info = await infoResponse.json();
@@ -418,18 +440,19 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
     }
   } catch (error) {
     // The server holds the tuner for an open nobody will play.
-    void closeLiveStream(source.LiveStreamId, origin);
+    void closeLiveStream(source.LiveStreamId, origin, channelId);
     throw error;
   }
   if (!input) {
     // An open that answered with a stream nobody can play still holds the tuner.
-    void closeLiveStream(source.LiveStreamId, origin);
+    void closeLiveStream(source.LiveStreamId, origin, channelId);
     if (!options.remux) return openChannel(channelId, channel, { ...options, remux: true });
     throw new Error(`The server can carry ${channel.Name} only by re-encoding it${info.ErrorCode ? ` (${info.ErrorCode})` : ""}`);
   }
   clearOpenFailure(channelId);
   if (source.LiveStreamId) {
     openOrigins.set(source.LiveStreamId, origin);
+    channelOfStream.set(source.LiveStreamId, channelId);
     recordOpen(source.LiveStreamId, { server: config.server, deviceId: config.deviceId });
   }
   logger.info("Live channel opened", {
@@ -454,10 +477,10 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
 }
 
 /** The live stream an open's PlaybackInfo answer names, closed; nothing when it named none. */
-async function closeOpenedStream(infoResponse: Response, origin: LiveOrigin): Promise<void> {
+async function closeOpenedStream(infoResponse: Response, origin: LiveOrigin, channelId: string): Promise<void> {
   try {
     const info = (await infoResponse.json()) as { MediaSources?: JellyfinMediaSource[] };
-    await closeLiveStream(info.MediaSources?.[0]?.LiveStreamId, origin);
+    await closeLiveStream(info.MediaSources?.[0]?.LiveStreamId, origin, channelId);
   } catch (error) {
     logger.warn("Live open could not be read back for its close", error, { service: "LiveTv" });
   }
@@ -468,11 +491,29 @@ type LiveOrigin = { server: string; deviceId: string; apiKey: string };
 /** The server and credentials each open this run made went out on; a switch must not redirect its close. */
 const openOrigins = new Map<string, LiveOrigin>();
 
+/** The channel each open this run made is of, so its next open waits for the close. */
+const channelOfStream = new Map<string, string>();
+/** Per channel, the close in flight that its next open waits for. */
+const closingByChannel = new Map<string, Promise<void>>();
+
 /**
  * Release the tuner on the server that opened it; the server holds it for every open that never closes.
  * A 2xx or 4xx ends the record of the open; a 5xx or no answer keeps it, so the close is retried at the next launch or foreground.
  */
-export async function closeLiveStream(liveStreamId: string | null | undefined, origin?: LiveOrigin): Promise<void> {
+export function closeLiveStream(liveStreamId: string | null | undefined, origin?: LiveOrigin, channelId?: string): Promise<void> {
+  const channel = channelId ?? (liveStreamId ? channelOfStream.get(liveStreamId) : undefined);
+  if (liveStreamId) channelOfStream.delete(liveStreamId);
+  const closing = sendClose(liveStreamId, origin);
+  if (channel) {
+    closingByChannel.set(channel, closing);
+    void closing.finally(() => {
+      if (closingByChannel.get(channel) === closing) closingByChannel.delete(channel);
+    });
+  }
+  return closing;
+}
+
+async function sendClose(liveStreamId: string | null | undefined, origin?: LiveOrigin): Promise<void> {
   if (!liveStreamId) return;
   try {
     const config = origin ?? openOrigins.get(liveStreamId) ?? (await getConfig());

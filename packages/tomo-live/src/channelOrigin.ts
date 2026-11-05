@@ -9,6 +9,28 @@ export interface ChannelOrigin {
   fallbackUrl?: string;
 }
 
+/** Per channel, whether only a hardware tuner carries it (resolveOrigin answered "tuner"); absent until asked. */
+const tunerChannels = new Map<string, boolean>();
+
+/** Nothing opens a tuner channel but the viewer playing it. */
+export function noteTunerChannel(channelId: string, tuner = true): void {
+  tunerChannels.set(channelId, tuner);
+}
+
+export function isTunerChannel(channelId: string): boolean {
+  return tunerChannels.get(channelId) === true;
+}
+
+/** Whether resolveOrigin has answered for the channel since the last switch. */
+export function tunerChannelKnown(channelId: string): boolean {
+  return tunerChannels.has(channelId);
+}
+
+/** Channel ids repeat across servers: a switch forgets which ones were tuners. */
+export function clearTunerChannels(): void {
+  tunerChannels.clear();
+}
+
 /** `url|User-Agent=x&Referer=y`, split as packages/tomo-engine/ios/LiveSources/M3uParser.swift splits it. */
 export function splitPipeHeaders(raw: string): { url: string; headers: Record<string, string> } {
   const pipe = raw.indexOf("|");

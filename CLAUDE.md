@@ -94,6 +94,7 @@ Two npm workspaces (`packages/*` in the root `package.json`, symlinked into node
 - Audio-only PiP is impossible (AVKit gates on `hasVideo`). Dismissing the audio player keeps playing; the brief gap is accepted.
 - Downloads are never removed by an auth/session event. The only route to `removeAll()` is the storage gauge long press.
 - Never auto-logout on network failure. Recovery matches servers by stored `jellyfin_server_id`.
+- A hardware tuner (HDHomeRun behind Jellyfin, `isHardwareTunerSource`) opens only for the viewer playing a channel: never for a card picture, a focus preview or a ring neighbour. Its card's picture comes off the playing session (`refreshLiveFrameWhilePlaying`). Issue 116.
 - Issue 73: explicit `Recursive=false` on every non-recursive `/Items` call. Shared library folders are unsupported by Jellyfin; no app-side scoping.
 - Issue 76 (Touch Alternatives eats keys): no plist/defaults fix exists.
 - No in-player remote subtitle search (Jellyfin returns empty for `Type: Video`). No Apple Watch app.

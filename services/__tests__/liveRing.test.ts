@@ -21,6 +21,7 @@ jest.mock("@keiver/tomo-live/src/playlistChannels", () => ({
 jest.mock("@/services/jellyfinApi", () => ({
   resolveChannel: jest.fn((id: string) => Promise.resolve({ Id: id, Name: id, LiveStreamId: `ls-${id}`, liveStreamUrl: `https://origin/${id}.m3u8` })),
   closeLiveStream: jest.fn(() => Promise.resolve()),
+  resolveChannelOrigin: jest.fn((id: string) => Promise.resolve(id.startsWith("hd") ? "tuner" : null)),
   noteOpenFailed: jest.requireMock("@keiver/tomo-live/src/openFailures").noteOpenFailed,
   openRecentlyFailed: jest.requireMock("@keiver/tomo-live/src/openFailures").openRecentlyFailed,
 }));
@@ -63,6 +64,15 @@ describe("liveRing", () => {
   });
   afterEach(async () => {
     await releaseLiveRing();
+  });
+
+  it("never opens a neighbour only a hardware tuner carries, and never keeps a tuner channel hot behind a flip", async () => {
+    const tuners = [{ Id: "hd1" }, { Id: "hd2" }, { Id: "hd3" }];
+    recenterLiveRing(tuners, "hd2", true);
+    await flush();
+    expect(resolveChannel).not.toHaveBeenCalled();
+    expect(startLocalRemux).not.toHaveBeenCalled();
+    expect(retainLiveSession({ channelId: "hd2", details: { Id: "hd2" } as never, url: "http://127.0.0.1:1/hd2-s/master.m3u8", token: "hd2-s" })).toBe(false);
   });
 
   it("names the ring either way round, wrapping, without the center", () => {

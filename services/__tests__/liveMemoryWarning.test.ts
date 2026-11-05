@@ -16,6 +16,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   resolveChannel: jest.fn((id: string) => Promise.resolve({ Id: id, Name: id, LiveStreamId: `ls-${id}`, liveStreamUrl: `https://origin/${id}.m3u8` })),
   resolveChannelWithoutOpen: jest.fn((id: string) => Promise.resolve({ Id: id, Name: id, liveStreamUrl: `https://origin/${id}.ts` })),
   closeLiveStream: jest.fn(() => Promise.resolve()),
+  resolveChannelOrigin: jest.fn(() => Promise.resolve(null)),
 }));
 
 const mockThroughput = new Map<string, () => void>();
