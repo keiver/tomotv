@@ -9,6 +9,8 @@ final class LiveClipView: ExpoView {
   private(set) var muted = true
   private var claim: DispatchWorkItem?
   let onFailed = EventDispatcher()
+  let onPlaying = EventDispatcher()
+  private var playing = false
   #if os(tvOS)
   private static let settle: TimeInterval = 0
   #else
@@ -56,7 +58,15 @@ final class LiveClipView: ExpoView {
   /// A live tile's player failed or none was free: its session plays to nobody, so the app is told. A clip card keeps its frame.
   func playerFailed(_ code: Int) {
     guard live else { return }
+    playerPlaying(false)
     onFailed(["code": code])
+  }
+
+  /// A live tile's session starts or stops progressing in its player, so the app can show it loading until it plays.
+  func playerPlaying(_ playing: Bool) {
+    guard playing != self.playing else { return }
+    self.playing = playing
+    onPlaying(["playing": playing])
   }
 
   private func play() {
@@ -79,5 +89,6 @@ final class LiveClipView: ExpoView {
     claim?.cancel()
     claim = nil
     PreviewPlayerPool.shared.release(from: self)
+    playerPlaying(false)
   }
 }

@@ -20,7 +20,7 @@ const NOW = Date.parse("2026-11-05T20:00:00Z");
 const channel = { Id: "c1", Name: "Channel One", Type: "TvChannel" } as never;
 const rect = { x: 0, y: 0, width: 320, height: 180 };
 const program = { Name: "Evening News", StartDate: "2026-11-05T19:30:00Z", EndDate: "2026-11-05T20:45:00Z" };
-type ClipProps = { uri: string | null; live: boolean; muted: boolean; onFailed: () => void };
+type ClipProps = { uri: string | null; live: boolean; muted: boolean; onFailed: () => void; onPlaying: (event: { nativeEvent: { playing: boolean } }) => void };
 
 function render(props: Partial<React.ComponentProps<typeof MultiviewTile>> = {}) {
   const onSelect = jest.fn();
@@ -113,6 +113,26 @@ describe("MultiviewTile", () => {
     const ring = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAll((node) => node.type === View && StyleSheet.flatten(node.props.style)?.borderColor === "#FFC312");
     expect(ring(render({ main: true }).tree)).toHaveLength(1);
     expect(ring(render().tree)).toHaveLength(0);
+  });
+
+  it("shows a spinner in the speaker's place on the spot with the sound until its session plays, and again when it stalls", () => {
+    const url = "http://127.0.0.1:5000/t/master.m3u8";
+    const { tree, clip } = render({ main: true, liveUrl: url });
+    const icons = () => tree.root.findAll((node) => (node.type as unknown) === "Ionicons").map((node) => node.props.name);
+    const loading = () => tree.root.findAll((node) => node.props.testID === "multiview-tile-loading").length > 0;
+    expect(loading()).toBe(true);
+    expect(icons()).not.toContain("volume-high");
+    act(() => clip!.onPlaying({ nativeEvent: { playing: true } }));
+    expect(loading()).toBe(false);
+    expect(icons()).toContain("volume-high");
+    act(() => tree.root.findAllByType("LiveClipView" as never)[0].props.onPlaying({ nativeEvent: { playing: false } }));
+    expect(loading()).toBe(true);
+  });
+
+  it("shows neither the spinner nor the speaker on a spot without the sound", () => {
+    const { tree } = render({ liveUrl: "http://127.0.0.1:5000/t/master.m3u8" });
+    expect(tree.root.findAll((node) => node.props.testID === "multiview-tile-loading")).toHaveLength(0);
+    expect(tree.root.findAll((node) => (node.type as unknown) === "Ionicons" && node.props.name === "volume-high")).toHaveLength(0);
   });
 
   it("lets its player go while the screen is covered", () => {

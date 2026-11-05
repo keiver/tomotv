@@ -11,11 +11,13 @@ interface LiveClipViewProps {
   muted?: boolean;
   /** A live tile's player failed, or none was free to play its session. */
   onFailed?: (event: NativeSyntheticEvent<{ code: number }>) => void;
+  /** A live tile's session started (true) or stopped (false) progressing in its player. */
+  onPlaying?: (event: NativeSyntheticEvent<{ playing: boolean }>) => void;
   style?: StyleProp<ViewStyle>;
 }
 
 const NativeView = requireNativeViewManager<LiveClipViewProps & { pointerEvents?: "none" }>("LiveClip");
 
-export function LiveClipView({ uri, live, muted, onFailed, style }: LiveClipViewProps) {
-  return <NativeView uri={uri} live={live} muted={muted} onFailed={onFailed} style={style} pointerEvents="none" />;
+export function LiveClipView({ uri, live, muted, onFailed, onPlaying, style }: LiveClipViewProps) {
+  return <NativeView uri={uri} live={live} muted={muted} onFailed={onFailed} onPlaying={onPlaying} style={style} pointerEvents="none" />;
 }

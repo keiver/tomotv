@@ -86,6 +86,7 @@ final class PreviewPlayerPool {
     if let player = idle.popLast() { return player }
     let player = PreviewPlayer()
     player.onFailure = { [weak self] player, code in self?.failed(player, code: code) }
+    player.onPlaying = { [weak self] player, playing in self?.hosting.first { $0.player === player }?.view?.playerPlaying(playing) }
     return player
   }
 

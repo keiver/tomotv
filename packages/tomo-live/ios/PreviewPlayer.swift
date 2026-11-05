@@ -16,9 +16,13 @@ final class PreviewPlayer {
   private var endObserver: NSObjectProtocol?
   private var itemObservation: NSKeyValueObservation?
   private var itemStatusObservation: NSKeyValueObservation?
+  private var controlObservation: NSKeyValueObservation?
+  private var reportedPlaying = false
   private(set) weak var host: UIView?
   /// The clip cannot play, with its AVError code: an item the decoder refused.
   var onFailure: ((PreviewPlayer, Int) -> Void)?
+  /// A live session starts or stops progressing: `AVPlayer.timeControlStatus` enters or leaves `.playing`.
+  var onPlaying: ((PreviewPlayer, Bool) -> Void)?
 
   init() {
     player.isMuted = true
@@ -35,6 +39,17 @@ final class PreviewPlayer {
     itemObservation = player.observe(\.currentItem, options: [.new]) { [weak self] observed, _ in
       DispatchQueue.main.async { self?.watch(observed.currentItem) }
     }
+    controlObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
+      DispatchQueue.main.async { self?.report() }
+    }
+  }
+
+  // Read on the main queue, not from the change: a player lent on since the change reports its own state.
+  private func report() {
+    let live = self.live && player.timeControlStatus == .playing
+    guard live != reportedPlaying else { return }
+    reportedPlaying = live
+    onPlaying?(self, live)
   }
 
   /// `view` takes the layer and plays `url`; the previous host is left showing its card underneath. `live`: an engine
@@ -73,6 +88,7 @@ final class PreviewPlayer {
     hide()
     start(nil)
     live = false
+    reportedPlaying = false
     player.isMuted = true
     player.preventsDisplaySleepDuringVideoPlayback = false
     playerLayer.removeFromSuperlayer()

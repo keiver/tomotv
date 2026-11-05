@@ -12,7 +12,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { LiveClipView, type MultiviewRect } from "@keiver/tomo-live";
 import { Image } from "expo-image";
 import React, { memo, useCallback, useState } from "react";
-import { Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Platform, StyleSheet, Text, TouchableOpacity, View, type NativeSyntheticEvent } from "react-native";
 
 const IS_TV = Platform.isTV;
 /** The channel's name: a thin square label half the height of a card's name tab. */
@@ -59,6 +59,10 @@ function MultiviewTileComponent({ channel, rect, main, liveUrl, visible, bare, p
   const handleFailed = useCallback(() => onFailed(channel.Id), [onFailed, channel.Id]);
   const live = !!liveUrl;
   const uri = visible ? (liveUrl ?? clip?.uri ?? null) : null;
+  // The session its player reported playing; the sound spot shows a spinner until its own session plays.
+  const [playingUri, setPlayingUri] = useState<string | null>(null);
+  const handlePlaying = useCallback((event: NativeSyntheticEvent<{ playing: boolean }>) => setPlayingUri(event.nativeEvent.playing ? uri : null), [uri]);
+  const sounding = main && live && playingUri === uri;
   const airing = airingLine(program, nowMs);
   // Touch screens have no focus: the spot with the sound wears the ring Apple TV gives the focused spot.
   const ringed = (focused || (!IS_TV && main)) && !bare;
@@ -82,12 +86,18 @@ function MultiviewTileComponent({ channel, rect, main, liveUrl, visible, bare, p
         </View>
       )}
       {frame ? <Image source={frame} style={StyleSheet.absoluteFill} contentFit="cover" transition={LIVE_FRAME_TRANSITION_MS} cachePolicy="none" /> : null}
-      {uri !== null ? <LiveClipView uri={uri} live={live} muted={!main} onFailed={handleFailed} style={StyleSheet.absoluteFill} /> : null}
+      {uri !== null ? <LiveClipView uri={uri} live={live} muted={!main} onFailed={handleFailed} onPlaying={handlePlaying} style={StyleSheet.absoluteFill} /> : null}
       {bare ? null : <View style={[styles.edge, ringed && styles.edgeFocused]} pointerEvents="none" />}
       {ringed ? <View style={[styles.focusRing, { borderColor: accent }]} pointerEvents="none" /> : null}
       {bare ? null : (
         <View style={[styles.label, ringed && { backgroundColor: accent }]} pointerEvents="none">
-          {main ? <Ionicons name="volume-high" size={LABEL_TEXT} color={ringed ? ink : COLORS.TEXT_PRIMARY} /> : null}
+          {sounding ? (
+            <Ionicons name="volume-high" size={LABEL_TEXT} color={ringed ? ink : COLORS.TEXT_PRIMARY} />
+          ) : main ? (
+            <View style={styles.loading} testID="multiview-tile-loading">
+              <ActivityIndicator size="small" color={ringed ? ink : COLORS.TEXT_PRIMARY} style={styles.spinner} />
+            </View>
+          ) : null}
           <Text style={[styles.labelText, ringed && { color: ink }]} numberOfLines={1}>
             {[cleanLabel(channel.Name ?? ""), main ? airing : null].filter(Boolean).join(" · ")}
           </Text>
@@ -125,6 +135,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: IS_TV ? 4 : 2,
     backgroundColor: CARD_CHROME,
+  },
+  // The speaker icon's slot; the spinner is drawn small inside it, as on the card badge.
+  loading: {
+    width: LABEL_TEXT,
+    height: LABEL_TEXT,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  spinner: {
+    transform: [{ scale: IS_TV ? 0.45 : 0.3 }],
   },
   labelText: {
     flexShrink: 1,
