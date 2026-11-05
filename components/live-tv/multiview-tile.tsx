@@ -1,3 +1,4 @@
+import { PinnedRecordingMark } from "@/components/live-tv/pinned-recording-mark";
 import { CARD_CHROME, CARD_FOCUS, RAISED_EDGE, STAND_HEIGHT } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardPalette } from "@/hooks/useCardPalette";
@@ -40,6 +41,10 @@ interface MultiviewTileProps {
   /** The tile's player failed, or none was free for its live session. */
   onFailed: (channelId: string) => void;
   onLongPress?: (channelId: string) => void;
+  /** The app's player plays this spot over it: no player of its own, and the label's speaker follows that player. */
+  inPlayer?: { playing: boolean };
+  /** Drawn over the app's player instead: the label, ring and buttons on a clear tile, no picture of its own. */
+  overlay?: { actions: React.ReactNode; mark: string | null };
 }
 
 /** A programme's name and time left while it airs; null outside it. */
@@ -51,7 +56,7 @@ export function airingLine(program: Pick<JellyfinProgram, "Name" | "StartDate" |
 }
 
 /** One multiview spot: its live session when it has one, else its clip, else its picture, else the channel's logo, under its name and programme. */
-function MultiviewTileComponent({ channel, rect, main, liveUrl, failed, visible, bare, program, nowMs, hasTVPreferredFocus, onSelect, onFailed, onLongPress }: MultiviewTileProps) {
+function MultiviewTileComponent({ channel, rect, main, liveUrl, failed, visible, bare, program, nowMs, hasTVPreferredFocus, onSelect, onFailed, onLongPress, inPlayer, overlay }: MultiviewTileProps) {
   const { accent, ink } = useCardPalette();
   const frame = useLiveFrame(channel.Id);
   const clip = useLiveClip(channel.Id);
@@ -59,12 +64,14 @@ function MultiviewTileComponent({ channel, rect, main, liveUrl, failed, visible,
   const handlePress = useCallback(() => onSelect(channel.Id), [onSelect, channel.Id]);
   const handleLongPress = useCallback(() => onLongPress?.(channel.Id), [onLongPress, channel.Id]);
   const handleFailed = useCallback(() => onFailed(channel.Id), [onFailed, channel.Id]);
-  const live = !!liveUrl;
-  const uri = visible ? (liveUrl ?? clip?.uri ?? null) : null;
+  const played = !!inPlayer || !!overlay;
+  const live = !!liveUrl || played;
+  // The app's player draws this spot: the tile keeps its picture under it for the moments the player is parked.
+  const uri = visible && !played ? (liveUrl ?? clip?.uri ?? null) : visible && inPlayer && !inPlayer.playing ? (clip?.uri ?? null) : null;
   // The session its player reported playing; the sound spot shows a spinner until its own session plays.
   const [playingUri, setPlayingUri] = useState<string | null>(null);
   const handlePlaying = useCallback((event: NativeSyntheticEvent<{ playing: boolean }>) => setPlayingUri(event.nativeEvent.playing ? uri : null), [uri]);
-  const sounding = main && live && playingUri === uri;
+  const sounding = main && live && (played ? !!inPlayer?.playing || !!overlay : playingUri === uri);
   const airing = airingLine(program, nowMs);
   // Touch screens have no focus: the spot with the sound wears the ring Apple TV gives the focused spot.
   const ringed = (focused || (!IS_TV && main)) && !bare;
@@ -79,16 +86,18 @@ function MultiviewTileComponent({ channel, rect, main, liveUrl, failed, visible,
       hasTVPreferredFocus={hasTVPreferredFocus}
       accessibilityRole="button"
       accessibilityLabel={[cleanLabel(channel.Name ?? ""), airing].filter(Boolean).join(", ")}
-      style={[styles.tile, { left: rect.x, top: rect.y, width: rect.width, height: rect.height }, ringed && [styles.focused, { shadowColor: accent }]]}>
-      {frame ? null : logo ? (
+      style={[styles.tile, overlay && styles.clear, { left: rect.x, top: rect.y, width: rect.width, height: rect.height }, ringed && [styles.focused, { shadowColor: accent }]]}>
+      {overlay ? null : frame ? null : logo ? (
         <Image source={logo} style={styles.logo} contentFit="contain" cachePolicy="memory-disk" />
       ) : (
         <View style={[styles.logo, styles.glyph]} pointerEvents="none">
           <Ionicons name="tv-outline" size={IS_TV ? 64 : 28} color={COLORS.TEXT_SECONDARY} />
         </View>
       )}
-      {frame ? <Image source={frame} style={StyleSheet.absoluteFill} contentFit="cover" transition={LIVE_FRAME_TRANSITION_MS} cachePolicy="none" /> : null}
-      {uri !== null ? <LiveClipView uri={uri} live={live} muted={!main} onFailed={handleFailed} onPlaying={handlePlaying} style={StyleSheet.absoluteFill} /> : null}
+      {frame && !overlay ? <Image source={frame} style={StyleSheet.absoluteFill} contentFit="cover" transition={LIVE_FRAME_TRANSITION_MS} cachePolicy="none" /> : null}
+      {uri !== null ? <LiveClipView uri={uri} live={!played && live} muted={!main || played} onFailed={handleFailed} onPlaying={handlePlaying} style={StyleSheet.absoluteFill} /> : null}
+      {overlay?.mark ? <PinnedRecordingMark text={overlay.mark} style={styles.mark} /> : null}
+      {overlay ? overlay.actions : null}
       {failed && !live ? (
         <View style={styles.warn} pointerEvents="none" testID="multiview-tile-warn">
           <View style={styles.warnNote}>
@@ -126,6 +135,13 @@ const styles = StyleSheet.create({
     position: "absolute",
     overflow: "hidden",
     backgroundColor: COLORS.MEDIA_BACKGROUND,
+  },
+  clear: {
+    backgroundColor: "transparent",
+  },
+  mark: {
+    bottom: 6,
+    left: 6,
   },
   // Over the picture, inside the spot: focus takes no space, so the lines between spots stay 2 pt.
   // The Live TV grid card's lit edge, square; under the focus ring it would read as a second ring.

@@ -23,7 +23,7 @@ import { clearChannelHealth, healthFor, noteChannelAlive, noteChannelEmpty, note
 import { liveChannels } from "./config";
 import { showLivePreview, stopLivePreview } from "./livePreview";
 import { openRecentlyFailed } from "./openFailures";
-import { isPlaybackHeld, onPlaybackHoldReleased, onPlaybackHoldTaken } from "./playbackHold";
+import { isPlaybackHeldBesides, MULTIVIEW_PLAYBACK_OWNER, onPlaybackHoldChange } from "./playbackHold";
 import { playlistChannelById } from "./playlistChannels";
 
 /** A channel is asked again this soon after its picture moved. */
@@ -178,10 +178,18 @@ function wire(): void {
       stopLivePreview();
     }
   });
-  onPlaybackHoldReleased(() => schedule(0));
   subscribeOriginHolds(() => schedule(0));
-  // A channel opening needs the whole link: the grab reading now is stopped, not waited out.
-  onPlaybackHoldTaken(() => {
+  // A channel opening needs the whole link: the grab reading now is stopped, not waited out. Multiview's own player
+  // plays beside the sampler.
+  let held = linkHeld();
+  onPlaybackHoldChange(() => {
+    const now = linkHeld();
+    if (now === held) return;
+    held = now;
+    if (!now) {
+      schedule(0);
+      return;
+    }
     stop();
     cancelGrabs();
   });
@@ -199,8 +207,13 @@ function appActive(): boolean {
   return AppState.currentState !== "background" && AppState.currentState !== "inactive";
 }
 
+/** Playback other than multiview's own player holds the link. */
+function linkHeld(): boolean {
+  return isPlaybackHeldBesides(MULTIVIEW_PLAYBACK_OWNER);
+}
+
 function running(): boolean {
-  return activeSurface !== null && appActive() && !isPlaybackHeld() && viewable.length > 0 && isLocalRemuxAvailable();
+  return activeSurface !== null && appActive() && !linkHeld() && viewable.length > 0 && isLocalRemuxAvailable();
 }
 
 function stop(): void {
@@ -559,7 +572,7 @@ async function grab(channelId: string, playing?: string): Promise<void> {
   try {
     input = playing !== undefined ? { url: playing } : await inputFor(channelId, item);
     // A cancel sent while the open ran met no read: the open closes here and the channel stays due.
-    if (gen !== generation || (playing === undefined && (isPlaybackHeld() || activeSurface === null)) || stopped.has(channelId)) {
+    if (gen !== generation || (playing === undefined && (linkHeld() || activeSurface === null)) || stopped.has(channelId)) {
       item.lastAt = wasDueAt;
       return;
     }

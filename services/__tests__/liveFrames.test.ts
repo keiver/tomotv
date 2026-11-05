@@ -118,7 +118,7 @@ import {
 } from "@/services/liveFrames";
 import { healthFor } from "@/services/channelHealth";
 import { setOriginRecording } from "@keiver/tomo-engine";
-import { setPlaybackHold } from "@/services/playbackHold";
+import { MULTIVIEW_PLAYBACK_OWNER, setPlaybackHold } from "@/services/playbackHold";
 import { noteTunerChannel } from "@keiver/tomo-live";
 import { AppState } from "react-native";
 
@@ -353,6 +353,21 @@ describe("live frames", () => {
     expect(grabs()).toEqual(["m1", "m1", "m2"]);
     await advance(LIVE_FRAME_SPACING_MS);
     expect(grabs()).toEqual(["m1", "m1", "m2", "m1"]);
+  });
+
+  it("keeps reading while only multiview's own player holds the link, and stands down when other playback takes it", async () => {
+    setPlaybackHold(MULTIVIEW_PLAYBACK_OWNER, true);
+    setLiveFramesActive("multiview", true);
+    setLiveFrameViewable("multiview", ["m1", "m2"]);
+    await advance(0);
+    expect(grabs()).toEqual(["m1"]);
+    setPlaybackHold("video", true);
+    await advance(LIVE_FRAME_SPACING_MS * 3);
+    expect(grabs()).toEqual(["m1"]);
+    setPlaybackHold("video", false);
+    await advance(0);
+    expect(grabs()).toEqual(["m1", "m2"]);
+    setPlaybackHold(MULTIVIEW_PLAYBACK_OWNER, false);
   });
 
   it("a grab that brings the clip clears the failures its clipless grabs counted", async () => {

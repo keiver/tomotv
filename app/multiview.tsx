@@ -1,11 +1,13 @@
 import { MultiviewEmptySpot } from "@/components/live-tv/multiview-empty-spot";
 import { MultiviewTile } from "@/components/live-tv/multiview-tile";
 import { COLORS } from "@/constants/colors";
-import { useLoadingActions } from "@/contexts/LoadingContext";
+import { PinnedCornerButtons } from "@/components/live-tv/pinned-corner-buttons";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { useChannelWall } from "@/hooks/useChannelWall";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
+import { useMultiviewPlayer } from "@/hooks/useMultiviewPlayer";
+import { usePinnedRecordButton } from "@/hooks/usePinnedRecordButton";
 import { t } from "@/services/i18n";
 import { fetchChannelWindow } from "@/services/jellyfinApi";
 import { setLiveFramesActive, setLiveFrameViewable } from "@/services/liveFrames";
@@ -40,6 +42,9 @@ const GAP = 2;
 /** Channels the strip offers past the spots. */
 const STRIP_LIMIT = 30;
 const CLOCK_MS = 30_000;
+/** The buttons over the spot with the sound, from its top and right edges. */
+const ACTIONS_INSET = { top: 6, right: 6 };
+const ignore = () => {};
 
 /**
  * Multiview: a fixed layout of whole 16:9 spots, its live spots first, then the viewer's picture spots, and in most
@@ -115,9 +120,23 @@ export default function MultiviewScreen() {
   const sound = soundPick.layout === arrangement.layout ? Math.min(soundPick.at, liveCount - 1) : 0;
   const setSoundAt = useCallback((at: number) => setSoundPick({ layout: arrangement.layout, at }), [arrangement.layout]);
   useEffect(() => {
-    setLiveTiles(liveOrder(arrangement, sound), { chosen: arrangement.chosen });
+    setLiveTiles(liveOrder(arrangement, sound), { chosen: arrangement.chosen, mainInPlayer: !IS_TV });
   }, [arrangement, sound]);
   useEffect(() => () => setLiveTiles([]), []);
+
+  // iPhone, iPad and Mac: the app's player plays the spot with the sound inline, as the guide's pinned channel, so a
+  // press presents that same player full screen. Apple TV keeps the spot's own player.
+  const soundId = arrangement.spots[sound] ?? null;
+  const soundChannel = (soundId && byId.get(soundId)) || null;
+  const player = useMultiviewPlayer(IS_TV ? null : soundChannel, isFocused);
+  const { recordButton, mark } = usePinnedRecordButton({
+    channel: IS_TV ? null : soundChannel,
+    program: soundChannel?.CurrentProgram,
+    nowMs,
+    playsRecording: false,
+    onRecordStart: ignore,
+    onRecordSettled: ignore,
+  });
 
   // Queued programmes that air now take spots, the latest start the sound spot, while Multiview is open.
   const queue = preferences.multiviewQueue;
@@ -139,25 +158,21 @@ export default function MultiviewScreen() {
   useFocusEffect(useCallback(() => setFullAsked(false), []));
   const pick = useCallback((index: number) => router.push({ pathname: "/multiview-pick", params: { spot: String(index) } }), [router]);
   const openLayouts = useCallback(() => router.push("/multiview-layout"), [router]);
-  // Apple TV: the spot fills the screen in place. iPhone, iPad and Mac: the channel opens in the player.
-  const { showGlobalLoader } = useLoadingActions();
-  const openFull = useCallback(
-    (id: string) => {
-      if (Platform.isTV) {
-        setFullAsked(true);
-        router.push("/multiview-full");
-        return;
-      }
-      showGlobalLoader();
-      router.push({ pathname: "/player", params: { videoId: id, videoName: byId.get(id)?.Name, live: "1" } });
-    },
-    [router, showGlobalLoader, byId],
-  );
+  // Apple TV: the spot fills the screen in place. iPhone, iPad and Mac: the same player goes to AVKit's presented player.
+  const { open: presentSound } = player;
+  const openFull = useCallback(() => {
+    if (Platform.isTV) {
+      setFullAsked(true);
+      router.push("/multiview-full");
+      return;
+    }
+    presentSound();
+  }, [router, presentSound]);
   const select = useCallback(
     (index: number) => {
       const id = arrangement.spots[index];
       if (!id) return pick(index);
-      if (index === sound) return openFull(id);
+      if (index === sound) return openFull();
       const promoted = promoteSpot(arrangement, index, sound);
       if (promoted.arrangement !== arrangement) save(promoted.arrangement);
       setSoundAt(promoted.soundAt);
@@ -208,6 +223,37 @@ export default function MultiviewScreen() {
   const onStripScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => setStripFrom(cell > 0 ? Math.max(0, Math.floor(event.nativeEvent.contentOffset.x / cell)) : 0);
   const [stageY, setStageY] = useState(0);
   const onStageScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => setStageY(event.nativeEvent.contentOffset.y);
+  // While the stage moves, the player parks, still playing, and the spot shows its picture until the scroll stops.
+  const [scrolling, setScrolling] = useState(false);
+  const onStageDragEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    onStageScroll(event);
+    if (!event.nativeEvent.velocity?.y) setScrolling(false);
+  };
+  const onStageMomentumEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    onStageScroll(event);
+    setScrolling(false);
+  };
+  // The stage's top-left corner in the window, where the player's frame is measured from.
+  const containerRef = useRef<View>(null);
+  const [stageOrigin, setStageOrigin] = useState<{ x: number; y: number } | null>(null);
+  const measureStage = useCallback(() => {
+    containerRef.current?.measureInWindow((x, y) => setStageOrigin((prev) => (prev && prev.x === x + insets.left && prev.y === y + headerHeight ? prev : { x: x + insets.left, y: y + headerHeight })));
+  }, [insets.left, headerHeight]);
+  useEffect(() => {
+    if (!IS_TV && isFocused) measureStage();
+  }, [isFocused, measureStage, size]);
+  const soundRect = fit?.spots[sound] ?? null;
+  const { setSlot } = player;
+  const slot =
+    !IS_TV && isFocused && !scrolling && soundRect && stageOrigin && soundId
+      ? { x: stageOrigin.x + soundRect.x, y: stageOrigin.y + soundRect.y - stageY, width: soundRect.width, height: soundRect.height }
+      : null;
+  const slotKey = slot ? `${slot.x},${slot.y},${slot.width},${slot.height}` : "";
+  useEffect(() => {
+    if (IS_TV) return;
+    const [x, y, width, height] = slotKey ? slotKey.split(",").map(Number) : [];
+    setSlot(slotKey ? { x, y, width, height } : null);
+  }, [slotKey, setSlot]);
   const group = !full && fit ? fit.group : null;
   const groupCardHeight = group ? group.width / group.columns / MULTIVIEW_ASPECT : 0;
   const groupFrom = group && groupCardHeight > 0 ? multiviewGroupCount(group, Math.max(0, Math.floor((stageY - group.y) / groupCardHeight))) : 0;
@@ -227,6 +273,32 @@ export default function MultiviewScreen() {
     setLiveFrameViewable("multiview", [...spots, ...(stripKey ? stripKey.split(",") : [])]);
   }, [arrangement.spots, sound, stripKey, version, full]);
   useEffect(() => () => setLiveFrameViewable("multiview", []), []);
+
+  // The spot's label, ring and buttons, drawn by the player host over the inline picture, which covers the tile.
+  const { setOverlay, muted, toggleMute } = player;
+  const soundWidth = soundRect?.width ?? 0;
+  const soundHeight = soundRect?.height ?? 0;
+  // Only while this screen shows: another screen's inline session draws its own copy.
+  useEffect(() => {
+    if (!isFocused) return;
+    setOverlay(
+      IS_TV || !soundChannel || soundWidth === 0 ? null : (
+        <MultiviewTile
+          channel={soundChannel}
+          rect={{ x: 0, y: 0, width: soundWidth, height: soundHeight }}
+          main
+          liveUrl={null}
+          visible
+          program={soundChannel.CurrentProgram}
+          nowMs={nowMs}
+          onSelect={() => select(sound)}
+          onFailed={ignore}
+          onLongPress={() => spotSheet(sound)}
+          overlay={{ mark, actions: <PinnedCornerButtons accent={accent} muted={muted} onToggleMute={toggleMute} record={recordButton} inset={ACTIONS_INSET} /> }}
+        />
+      ),
+    );
+  }, [isFocused, setOverlay, soundChannel, soundWidth, soundHeight, nowMs, select, sound, spotSheet, mark, accent, muted, toggleMute, recordButton]);
 
   const featured = multiviewFeatured(arrangement.layout);
   const lastCard = stripIds.length > 0 ? multiviewStripCard(stripIds.length - 1, grid, cell, GAP) : null;
@@ -256,13 +328,17 @@ export default function MultiviewScreen() {
         scrollEnabled: !full,
         contentContainerStyle: { height: stageHeight },
         onScroll: onStageScroll,
-        onScrollEndDrag: onStageScroll,
-        onMomentumScrollEnd: onStageScroll,
+        onScrollBeginDrag: () => setScrolling(true),
+        onScrollEndDrag: onStageDragEnd,
+        onMomentumScrollEnd: onStageMomentumEnd,
         scrollEventThrottle: 250,
         showsVerticalScrollIndicator: false,
       };
   return (
-    <View style={[styles.container, IS_TV ? null : { paddingTop: full ? 0 : headerHeight, paddingLeft: insets.left, paddingRight: insets.right }]}>
+    <View
+      ref={containerRef}
+      onLayout={IS_TV ? undefined : measureStage}
+      style={[styles.container, IS_TV ? null : { paddingTop: full ? 0 : headerHeight, paddingLeft: insets.left, paddingRight: insets.right }]}>
       <Stack.Screen options={screenOptions} />
       <Stage style={styles.stage} onLayout={onLayout} {...stageProps}>
         {(placement?.spots ?? fit?.spots ?? []).map((spotRect, index) => {
@@ -273,14 +349,16 @@ export default function MultiviewScreen() {
           const channel = id ? byId.get(id) : undefined;
           if (!id) return <MultiviewEmptySpot key={`empty-${index}`} rect={rect} onPress={() => pick(index)} />;
           if (!channel) return null;
+          const inPlayer = !IS_TV && index === sound;
           return (
             <MultiviewTile
               key={id}
               channel={channel}
               rect={rect}
               main={index === sound}
-              liveUrl={index < liveCount ? liveTileUrl(id) : null}
-              failed={index === sound && liveTileFailed(id)}
+              liveUrl={index < liveCount && !inPlayer ? liveTileUrl(id) : null}
+              inPlayer={inPlayer ? { playing: player.playing } : undefined}
+              failed={index === sound && (inPlayer ? player.failed : liveTileFailed(id))}
               visible={isFocused || full}
               bare={full}
               program={channel.CurrentProgram}

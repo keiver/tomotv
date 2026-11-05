@@ -20,7 +20,7 @@ import { startChannelSession } from "./channelSession";
 import { liveChannels } from "./config";
 import { setLiveFrameOriginHold } from "./liveFrames";
 import type { HotChannel, RingSession } from "./liveRing";
-import { isPlaybackHeld, onPlaybackHoldReleased, onPlaybackHoldTaken } from "./playbackHold";
+import { isPlaybackHeldBesides, MULTIVIEW_PLAYBACK_OWNER, onPlaybackHoldChange } from "./playbackHold";
 import { playlistChannelById } from "./playlistChannels";
 
 /** A tile session's window: disk, not playback, is what it bounds. */
@@ -56,6 +56,11 @@ const dropped = new Set<string>();
 const unavailable = new Set<string>();
 /** Spots the viewer filled: opened as the player opens a channel. */
 let chosen = new Set<string>();
+/** The player plays the main: it is never opened as a tile, and a main tile waits only for the player to take it. */
+let mainInPlayer = false;
+let mainGrace: ReturnType<typeof setTimeout> | null = null;
+/** Playback other than multiview's own player holds the link. */
+let linkHeld = false;
 /** Each channel's provider, read off its resolve, so a provider with no room is known before the next open. */
 const knownOrigins = new Map<string, string>();
 let generation = 0;
@@ -97,13 +102,13 @@ function main(): string | undefined {
 
 /** The channels that should be live now, in open order. */
 function wanted(): string[] {
-  if (order.length === 0 || isPlaybackHeld()) return [];
+  if (order.length === 0 || isPlaybackHeldBesides(MULTIVIEW_PLAYBACK_OWNER)) return [];
   const live = (channelId: string) => !failed.has(channelId) && !refused.has(channelId);
   const head = main()!;
   // A spot the viewer filled is theirs to spend a server open or a tuner on; the others never are.
   const mayOpen = (channelId: string) => chosen.has(channelId) || (!unavailable.has(channelId) && !isTunerChannel(channelId));
   const satellites = order.slice(1).filter((channelId) => live(channelId) && !dropped.has(channelId) && mayOpen(channelId) && !noRoomForSatellite(channelId));
-  return (live(head) ? [head] : []).concat(satellites);
+  return (live(head) && !mainInPlayer ? [head] : []).concat(satellites);
 }
 
 function priorityOf(channelId: string): "playback" | "preview" {
@@ -142,7 +147,7 @@ function syncHold(): void {
   const head = main();
   const tile = head !== undefined ? tiles.get(head) : undefined;
   const key = tile?.originKey ?? (head !== undefined ? originKeyOf(head) : undefined);
-  const one = key !== undefined && (tile !== undefined || starting.has(head!)) && originConnectionLimit(key) === 1;
+  const one = key !== undefined && (mainInPlayer || tile !== undefined || starting.has(head!)) && originConnectionLimit(key) === 1;
   if (heldOrigin !== null && (!one || heldOrigin !== key)) releaseHold();
   if (one && heldOrigin === null) {
     heldOrigin = key;
@@ -278,10 +283,33 @@ async function openWanted(): Promise<void> {
 /** Ends the tiles no longer wanted, sets each tile's priority to its spot, and opens what is missing. */
 function reconcile(): void {
   const want = new Set(wanted());
-  for (const tile of [...tiles.values()]) if (!want.has(tile.channelId)) endTile(tile, "not on screen live");
+  const head = main();
+  for (const tile of [...tiles.values()]) {
+    if (want.has(tile.channelId)) continue;
+    if (mainInPlayer && tile.channelId === head && !linkHeld) {
+      keepForPlayer(tile);
+      continue;
+    }
+    endTile(tile, "not on screen live");
+  }
   for (const tile of tiles.values()) void setLiveSessionPriority(tile.token, priorityOf(tile.channelId));
+  if (mainInPlayer) syncHold();
   notify();
   void openWanted();
+}
+
+/** A main tile the player plays from: kept the handoff grace for the player to take, then ended. */
+function keepForPlayer(tile: Tile): void {
+  if (mainGrace) return;
+  mainGrace = setTimeout(() => {
+    mainGrace = null;
+    if (tiles.get(tile.channelId) === tile && mainInPlayer && tile.channelId === main()) endTile(tile, "the player did not take it");
+  }, LIVE_TILE_HANDOFF_GRACE_MS);
+}
+
+function clearMainGrace(): void {
+  if (mainGrace) clearTimeout(mainGrace);
+  mainGrace = null;
 }
 
 function stopAll(why: string, keep?: string): void {
@@ -303,9 +331,18 @@ function wire(): void {
     if (state === "active") reconcile();
     else stopAll("app left the foreground");
   });
-  // The player opening the main takes the hold before it takes the main's session: the main waits out the handoff.
-  onPlaybackHoldTaken(() => {
+  // Multiview's own player plays alongside the tiles; any other playback takes the link from them.
+  linkHeld = isPlaybackHeldBesides(MULTIVIEW_PLAYBACK_OWNER);
+  onPlaybackHoldChange(() => {
+    const held = isPlaybackHeldBesides(MULTIVIEW_PLAYBACK_OWNER);
+    if (held === linkHeld) return;
+    linkHeld = held;
     if (order.length === 0) return;
+    if (!held) {
+      reconcile();
+      return;
+    }
+    // The player opening the main takes the hold before it takes the main's session: the main waits out the handoff.
     const head = main()!;
     const kept = tiles.get(head);
     stopAll("playback holds the link", head);
@@ -313,11 +350,8 @@ function wire(): void {
     if (holdGrace) clearTimeout(holdGrace);
     holdGrace = setTimeout(() => {
       holdGrace = null;
-      if (tiles.get(head) === kept && isPlaybackHeld()) endTile(kept, "the player did not take it");
+      if (tiles.get(head) === kept && isPlaybackHeldBesides(MULTIVIEW_PLAYBACK_OWNER)) endTile(kept, "the player did not take it");
     }, LIVE_TILE_HANDOFF_GRACE_MS);
-  });
-  onPlaybackHoldReleased(() => {
-    if (order.length > 0) reconcile();
   });
   // A limit set or lifted while multiview is open changes who may be live and whether the sampler may read the provider.
   subscribeOriginConnectionBudget(() => {
@@ -330,18 +364,22 @@ function wire(): void {
 /**
  * The channels multiview shows, the main first; an empty list ends every tile. A new main or set brings dropped tiles back.
  * `chosen`: spots the viewer filled, opened as the player opens a channel, a hardware tuner included.
+ * `mainInPlayer`: the app's player plays the main, so only the satellites are tiles.
  */
-export function setLiveTiles(channelIds: readonly string[], options: { chosen?: readonly string[] } = {}): void {
+export function setLiveTiles(channelIds: readonly string[], options: { chosen?: readonly string[]; mainInPlayer?: boolean } = {}): void {
   wire();
   const next = [...new Set(channelIds)];
   const nextChosen = new Set(options.chosen ?? []);
   const chosenChanged = nextChosen.size !== chosen.size || [...nextChosen].some((channelId) => !chosen.has(channelId));
   chosen = nextChosen;
+  const playerChanged = (options.mainInPlayer === true) !== mainInPlayer;
+  mainInPlayer = options.mainInPlayer === true && next.length > 0;
   if (next.join("\n") === order.join("\n")) {
-    if (chosenChanged) reconcile();
+    if (chosenChanged || playerChanged) reconcile();
     return;
   }
   const mainChanged = next[0] !== order[0];
+  if (mainChanged || next.length === 0) clearMainGrace();
   const setChanged = next.length !== order.length || next.some((channelId) => !order.includes(channelId));
   if (mainChanged || next.length === 0) clearMainRetry();
   order = next;

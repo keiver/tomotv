@@ -3,7 +3,7 @@ import { ImageSubtitleOverlay } from "@/components/image-subtitle-overlay";
 import { COLORS } from "@/constants/colors";
 import { t } from "@/services/i18n";
 import { usePlayerSessionHost, type HostMode, type InlineFrame, type PlayerHostBridge, type PlayerTvConfig } from "@/contexts/PlayerSessionContext";
-import { setPlaybackHold } from "@/services/playbackHold";
+import { MULTIVIEW_PLAYBACK_OWNER, setPlaybackHold } from "@/services/playbackHold";
 import { setToastPlayerOnScreen } from "@/services/toast";
 import { channelOnOneConnection, isHotChannel } from "@/services/liveRing";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
@@ -119,6 +119,7 @@ interface HostSession {
   isLive?: boolean;
   queueMode?: boolean;
   inline?: boolean;
+  multiview?: boolean;
 }
 
 type PipState = "none" | "active" | "detached";
@@ -511,8 +512,9 @@ export function PlayerHost() {
   // Playback owns the link and the JS thread while a session lives, so competing
   // background work stands down. Held through a detached PiP window too.
   useEffect(() => {
-    setPlaybackHold("video", session !== null);
-    return () => setPlaybackHold("video", false);
+    const owner = session?.multiview ? MULTIVIEW_PLAYBACK_OWNER : "video";
+    setPlaybackHold(owner, session !== null);
+    return () => setPlaybackHold(owner, false);
   }, [session]);
 
   // tvOS chapter list, gated here rather than inside playerChapters so the rule
@@ -880,6 +882,7 @@ export function PlayerHost() {
           isLive: request.isLive,
           queueMode: request.queueMode,
           inline: request.inline,
+          multiview: request.multiview,
         });
         endSession();
       },

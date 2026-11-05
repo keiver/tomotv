@@ -4,17 +4,15 @@ import { GuideChannelCard } from "@/components/live-tv/guide-channel-card";
 import { GuideChannelTile } from "@/components/live-tv/guide-channel-tile";
 import { COLORS } from "@/constants/colors";
 import { GuidePinnedTab, PINNED_EDGE } from "@/components/live-tv/guide-pinned-tab";
-import { GuidePinnedOverlay, PINNED_TEXT_INSET, type PinnedRecordButton } from "@/components/live-tv/guide-pinned-overlay";
+import { GuidePinnedOverlay, PINNED_TEXT_INSET } from "@/components/live-tv/guide-pinned-overlay";
 import { usePlayerSession, type InlineFrame } from "@/contexts/PlayerSessionContext";
 import { useCardPalette } from "@/hooks/useCardPalette";
-import { useLiveTvManagement } from "@/hooks/useLiveTvManagement";
-import { useRecordActions } from "@/hooks/useRecordActions";
+import { usePinnedRecordButton } from "@/hooks/usePinnedRecordButton";
 import { tapFeedback } from "@/services/haptics";
-import { runningTimers } from "@/services/recordingStatus";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
-import { bandExtendedSize, bandSwipeToggles, EXTERNAL_GUIDE_PREFIX, formatClockRange, type GuideMetrics } from "@/utils/guide";
+import { bandExtendedSize, bandSwipeToggles, formatClockRange, type GuideMetrics } from "@/utils/guide";
 import { THIS_DEVICE } from "@/utils/hostEnvironment";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, type LayoutChangeEvent, StyleSheet, Text, useWindowDimensions, View } from "react-native";
@@ -167,46 +165,7 @@ export function GuidePinnedBand({
   const name = cleanLabel(channel.Name);
   const startMs = Date.parse(program?.StartDate ?? "");
   const endMs = Date.parse(program?.EndDate ?? "");
-  const timed = Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs;
-
-  // The info panel's rule: an external programme records by its times, and a channel the server has not ingested not at all.
-  const canManage = useLiveTvManagement();
-  const externalProgram = !!program?.Id?.startsWith(EXTERNAL_GUIDE_PREFIX);
-  const recording = useRecordActions(
-    canManage && !channel.playlistPending && (!externalProgram || timed)
-      ? { programId: program && !externalProgram ? program.Id : undefined, channelId: channel.Id, channelName: name, program: program ?? null }
-      : null,
-  );
-  const { timer: recordTimer, busy: recordBusy, record, cancel: cancelRecording, cancelWaiting } = recording;
-  const waiting = recordBusy === "waiting";
-  const pressRecord = useCallback(() => {
-    if (waiting) {
-      void tapFeedback();
-      cancelWaiting();
-      return;
-    }
-    if (recordBusy !== null) return;
-    void tapFeedback();
-    if (recordTimer) {
-      void cancelRecording();
-      return;
-    }
-    onRecordStart();
-    void Promise.resolve(record()).then((landed) => onRecordSettled(landed === true));
-  }, [waiting, cancelWaiting, recordBusy, recordTimer, cancelRecording, record, onRecordStart, onRecordSettled]);
-  // Recording now by the shared status's rule: InProgress, or its span covers the clock before the server says so.
-  const recordingNow = !!recordTimer && runningTimers([recordTimer], nowMs).length > 0;
-  const recordButton = useMemo<PinnedRecordButton | null>(() => {
-    if (recordTimer === undefined) return null;
-    if (waiting) return { icon: "close-circle-outline", label: t("liveTv.waitingForConnection"), text: t("liveTv.waitingForConnection"), onPress: pressRecord };
-    return {
-      icon: recordTimer ? (recordingNow ? "stop" : "close-circle-outline") : "radio-button-on",
-      label: t(recordTimer ? (recordingNow ? "liveTv.stopRecording" : "liveTv.cancelRecording") : "liveTv.record"),
-      text: recordingNow ? t("liveTv.stopRecording") : undefined,
-      onPress: pressRecord,
-    };
-  }, [recordTimer, recordingNow, waiting, pressRecord]);
-  const mark = playsRecording ? t("liveTv.playingRecording") : recordingNow ? t("liveTv.recordingNow") : null;
+  const { recordButton, mark } = usePinnedRecordButton({ channel, program, nowMs, playsRecording, onRecordStart, onRecordSettled });
 
   const overlay = showTile ? null : (
     <GuidePinnedOverlay

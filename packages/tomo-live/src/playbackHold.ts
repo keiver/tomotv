@@ -47,3 +47,11 @@ export function onPlaybackHoldTaken(listener: () => void): () => void {
 export function isPlaybackHeld(owner?: string): boolean {
   return owner ? owners.has(owner) : owners.size > 0;
 }
+
+/** The hold owner of the player that plays multiview's main: the tiles and the sampler keep running under it. */
+export const MULTIVIEW_PLAYBACK_OWNER = "multiview";
+
+/** True while an owner other than `owner` holds the link. */
+export function isPlaybackHeldBesides(owner: string): boolean {
+  return owners.size > (owners.has(owner) ? 1 : 0);
+}

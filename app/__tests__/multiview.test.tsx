@@ -1,6 +1,6 @@
 /** Multiview: a fixed layout of live spots, the viewer's picture spots and a strip row, kept per user; the sound spot full screen on select, the layout picker on Play/Pause, and queued programmes taking the sound spot when they start. */
 import React from "react";
-import { Alert, Platform, ScrollView } from "react-native";
+import { Alert, Platform, ScrollView, View } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 import type { MultiviewArrangement, MultiviewQueued } from "@/services/liveTvPreferences";
 
@@ -89,6 +89,16 @@ jest.mock("@/components/live-tv/multiview-tile", () => ({
   },
 }));
 jest.mock("@/components/live-tv/multiview-empty-spot", () => ({ MultiviewEmptySpot: () => null }));
+const mockPlayer = { open: jest.fn(), setSlot: jest.fn(), setOverlay: jest.fn(), playing: false, failed: false, muted: false, toggleMute: jest.fn() };
+const mockPlayerChannel = jest.fn();
+jest.mock("@/hooks/useMultiviewPlayer", () => ({
+  useMultiviewPlayer: (channel: { Id: string } | null, focused: boolean) => {
+    mockPlayerChannel(channel?.Id ?? null, focused);
+    return mockPlayer;
+  },
+}));
+jest.mock("@/hooks/usePinnedRecordButton", () => ({ usePinnedRecordButton: () => ({ recordButton: null, mark: null }) }));
+jest.mock("@/components/live-tv/pinned-corner-buttons", () => ({ PinnedCornerButtons: () => null }));
 
 import MultiviewScreen from "@/app/multiview";
 import { MultiviewEmptySpot } from "@/components/live-tv/multiview-empty-spot";
@@ -107,7 +117,14 @@ function mount(layout: { width: number; height: number } = STAGE) {
   });
   const stage = tree.root.findAll((node) => node.type === ScrollView && typeof node.props.onLayout === "function")[0];
   act(() => stage.props.onLayout({ nativeEvent: { layout } }));
+  // The screen sits at the window's top-left corner, so the player's frame is the spot's rect.
+  const container = tree.root.findAll((node) => node.type === View && typeof node.props.onLayout === "function" && typeof node.instance?.measureInWindow === "function")[0];
+  if (container) {
+    container.instance.measureInWindow = (done: (x: number, y: number) => void) => done(0, 0);
+    act(() => container.props.onLayout({ nativeEvent: { layout } }));
+  }
 }
+const stageScroll = () => tree.root.findAll((node) => node.type === ScrollView && typeof node.props.onLayout === "function")[0];
 const tiles = () => tree.root.findAllByType(MultiviewTile).map((node) => node.props as TileProps);
 const spots = () => tiles().filter((tile) => tile.onLongPress);
 const strip = () => tiles().filter((tile) => !tile.onLongPress);
@@ -132,6 +149,8 @@ beforeEach(() => {
   mockFailedTiles.clear();
   mockLiveUrls.clear();
   mockWindow.mockResolvedValue([]);
+  mockPlayer.failed = false;
+  mockPlayer.playing = false;
 });
 
 afterEach(() => {
@@ -144,7 +163,7 @@ describe("Multiview", () => {
     mockParams = { channelId: "c10" };
     mount();
     expect(mockPrefs.multiview).toMatchObject({ layout: "bigThree", spots: ["c10", "c9", "c11", "c12"], chosen: ["c10"] });
-    expect(lastLive()).toEqual([["c10", "c9", "c11", "c12"], { chosen: ["c10"] }]);
+    expect(lastLive()).toEqual([["c10", "c9", "c11", "c12"], { chosen: ["c10"], mainInPlayer: true }]);
     const [big, ...small] = spots();
     expect(big.main).toBe(true);
     expect(small.every((tile) => !tile.main && tile.rect.width < big.rect.width)).toBe(true);
@@ -167,7 +186,7 @@ describe("Multiview", () => {
   it("opens from the bar on the stored arrangement, and on the group's first channel when nothing is stored", () => {
     store({ layout: "bigTwo", spots: ["c5", "c6", null], chosen: ["c5"] });
     mount();
-    expect(lastLive()).toEqual([["c5", "c6"], { chosen: ["c5"] }]);
+    expect(lastLive()).toEqual([["c5", "c6"], { chosen: ["c5"], mainInPlayer: true }]);
     act(() => tree.unmount());
     store({ layout: "bigThree", spots: [], chosen: [] });
     mount();
@@ -204,12 +223,37 @@ describe("Multiview", () => {
     expect(lastLive()?.[0]).toEqual(["c7", "c2", "c3"]);
   });
 
-  it("on iPhone, iPad and Mac opens the channel with the sound in the player when its spot is selected", () => {
+  it("on iPhone, iPad and Mac plays the spot with the sound in the app's player, and presents that same player full screen when it is selected", () => {
     mockParams = { channelId: "c10" };
     mount();
+    expect(mockPlayerChannel).toHaveBeenLastCalledWith("c10", true);
+    expect(spots()[0]).toMatchObject({ main: true, liveUrl: null, inPlayer: { playing: false } });
     act(() => spots()[0].onSelect("c10"));
-    expect(mockLoader).toHaveBeenCalledTimes(1);
-    expect(mockPush).toHaveBeenCalledWith({ pathname: "/player", params: { videoId: "c10", videoName: "Channel 10", live: "1" } });
+    expect(mockPlayer.open).toHaveBeenCalledTimes(1);
+    expect(mockPush).not.toHaveBeenCalled();
+    expect(mockLoader).not.toHaveBeenCalled();
+  });
+
+  it("gives the app's player the spot's frame, parks it while the stage scrolls, and gives the frame back when the scroll stops", () => {
+    mockParams = { channelId: "c10" };
+    mount();
+    const frame = mockPlayer.setSlot.mock.calls.at(-1)?.[0];
+    expect(frame).toMatchObject({ x: 0, y: 0 });
+    expect(frame.width).toBeGreaterThan(0);
+    act(() => stageScroll().props.onScrollBeginDrag());
+    expect(mockPlayer.setSlot).toHaveBeenLastCalledWith(null);
+    act(() => stageScroll().props.onScrollEndDrag({ nativeEvent: { contentOffset: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } } }));
+    expect(mockPlayer.setSlot).toHaveBeenLastCalledWith(frame);
+  });
+
+  it("draws the spot's label, ring, and mute and record buttons over the app's player", () => {
+    mockParams = { channelId: "c10" };
+    mount();
+    const overlay = mockPlayer.setOverlay.mock.calls.at(-1)?.[0] as React.ReactElement<TileProps>;
+    expect(overlay.props).toMatchObject({ main: true, channel: expect.objectContaining({ Id: "c10" }) });
+    expect(overlay.props.overlay?.actions).toBeTruthy();
+    act(() => overlay.props.onSelect("c10"));
+    expect(mockPlayer.open).toHaveBeenCalledTimes(1);
   });
 
   it("on Apple TV fills the screen with the spot with the sound under the full screen route, the same tile playing on bare, and brings the layout back when it returns", () => {
@@ -275,7 +319,7 @@ describe("Multiview", () => {
     expect(strip().every((tile) => tile.liveUrl === null)).toBe(true);
     act(() => strip()[0].onSelect("c0"));
     expect(mockPrefs.multiview.spots).toEqual(["c0", "c9", "c11", "c12"]);
-    expect(lastLive()?.[1]).toEqual({ chosen: ["c0"] });
+    expect(lastLive()?.[1]).toEqual({ chosen: ["c0"], mainInPlayer: true });
   });
 
   it("on a portrait phone stacks the spots down the screen, the big one full width, and the group in rows below", () => {
@@ -354,7 +398,8 @@ describe("Multiview", () => {
 
   it("marks only the spot with the sound as failed when its channel could not be opened", () => {
     mockParams = { channelId: "c10" };
-    mockFailedTiles.add("c10").add("c9");
+    mockPlayer.failed = true;
+    mockFailedTiles.add("c9");
     mount();
     expect(spots().map((tile) => tile.failed)).toEqual([true, false, false, false]);
   });

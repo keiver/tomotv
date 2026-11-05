@@ -17,7 +17,12 @@ import { useVideoPlayback } from "@/hooks/useVideoPlayback";
 import { t } from "@/services/i18n";
 
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
-jest.mock("@/services/playbackHold", () => ({ setPlaybackHold: jest.fn(), isPlaybackHeld: jest.fn(() => false), onPlaybackHoldChange: jest.fn(() => () => {}) }));
+jest.mock("@/services/playbackHold", () => ({
+  MULTIVIEW_PLAYBACK_OWNER: "multiview",
+  setPlaybackHold: jest.fn(),
+  isPlaybackHeld: jest.fn(() => false),
+  onPlaybackHoldChange: jest.fn(() => () => {}),
+}));
 const mockAutoPlay = { enabled: true };
 jest.mock("@/services/jellyfinApi", () => ({
   getPosterUrl: jest.fn(() => "https://server/poster.jpg"),
@@ -1088,6 +1093,16 @@ describe("PlayerHost", () => {
 
     beforeEach(() => {
       Object.values(videoRef.current).forEach((fn) => fn.mockClear());
+    });
+
+    it("holds the link as Multiview's owner for Multiview's spot with the sound, and as video for anything else", async () => {
+      const { setPlaybackHold } = jest.requireMock("@/services/playbackHold") as { setPlaybackHold: jest.Mock };
+      setPlaybackHold.mockClear();
+      await act(async () => {
+        bridge().requestSession({ videoId: "channel-1", sessionKey: "multiview:1", isLive: true, inline: true, multiview: true });
+      });
+      expect(setPlaybackHold).toHaveBeenCalledWith("multiview", true);
+      expect(setPlaybackHold).not.toHaveBeenCalledWith("video", true);
     });
 
     it("plays the picture with sound and no controls in the band's slot, leaving its touches to the band, never presented and never starting PiP", async () => {

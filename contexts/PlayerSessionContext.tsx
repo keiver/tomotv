@@ -54,6 +54,8 @@ export interface PlayerSessionRequest {
   queueMode?: boolean;
   /** Plays with AVKit's controls in the frame the screen reports (setInlineFrame), instead of AVKit's presented player. */
   inline?: boolean;
+  /** Multiview's spot with the sound: the tiles and the sampler keep running beside it. */
+  multiview?: boolean;
 }
 
 /** Where an inline player draws, in window coordinates. */

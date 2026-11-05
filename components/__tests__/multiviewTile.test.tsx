@@ -161,4 +161,27 @@ describe("MultiviewTile", () => {
     act(() => tree.root.findByType(TouchableOpacity).props.onLongPress());
     expect(onLongPress).toHaveBeenCalledWith("c1");
   });
+
+  describe("played by the app's player", () => {
+    it("opens no live player of its own, and shows a muted clip only until the app's player plays", () => {
+      const url = "http://127.0.0.1:5000/t/master.m3u8";
+      const opening = render({ main: true, liveUrl: url, inPlayer: { playing: false } });
+      expect(opening.clip).toMatchObject({ uri: mockClip!.uri, live: false, muted: true });
+      expect(opening.tree.root.findAll((node) => node.props.testID === "multiview-tile-loading")).not.toHaveLength(0);
+      const playing = render({ main: true, liveUrl: url, inPlayer: { playing: true } });
+      expect(playing.clip).toBeUndefined();
+      expect(playing.tree.root.findAll((node) => (node.type as unknown) === "Ionicons" && node.props.name === "volume-high")).toHaveLength(1);
+    });
+
+    it("drawn over the app's player, is clear with no picture of its own, and carries the label, the ring and the buttons", () => {
+      const actions = <View testID="spot-actions" />;
+      const { tree, clip } = render({ main: true, overlay: { actions, mark: "liveTv.recordingNow" } });
+      expect(clip).toBeUndefined();
+      expect(tree.root.findAllByType("Image" as never)).toHaveLength(0);
+      expect(StyleSheet.flatten(tree.root.findByType(TouchableOpacity).props.style).backgroundColor).toBe("transparent");
+      expect(tree.root.findAll((node) => node.props.testID === "spot-actions")).not.toHaveLength(0);
+      expect(tree.root.findAll((node) => node.props.testID === "guide-pinned-mark")).not.toHaveLength(0);
+      expect(tree.root.findAllByType(Text).map((node) => node.props.children)).toContain("Channel One");
+    });
+  });
 });

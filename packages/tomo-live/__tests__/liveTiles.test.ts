@@ -48,6 +48,11 @@ jest.mock("@keiver/tomo-engine", () => ({
 jest.mock("../src/liveFrames", () => ({
   setLiveFrameOriginHold: (key: string, held: boolean) => mockHolds.push([key, held]),
 }));
+// "pl-" channels come from a playlist, whose provider is known without opening them.
+jest.mock("../src/playlistChannels", () => ({
+  ...jest.requireActual("../src/playlistChannels"),
+  playlistChannelById: (id: string) => (id.startsWith("pl-") ? { id, originKey: "one.example" } : null),
+}));
 
 import { configureLive } from "../src/config";
 import { clearTunerChannels, noteTunerChannel } from "../src/channelOrigin";
@@ -64,7 +69,7 @@ import {
   setLiveTiles,
   takeLiveTile,
 } from "../src/liveTiles";
-import { setPlaybackHold } from "../src/playbackHold";
+import { MULTIVIEW_PLAYBACK_OWNER, setPlaybackHold } from "../src/playbackHold";
 
 type Item = { Id: string; LiveStreamId?: string; origin?: string };
 const resolvedWithout: string[] = [];
@@ -343,6 +348,50 @@ describe("liveTiles", () => {
     expect(liveTileUrl("a")).not.toBeNull();
     await advance(LIVE_TILE_HANDOFF_GRACE_MS);
     expect(mockStopped).toContain("t-a");
+  });
+
+  describe("with the main in the player", () => {
+    it("opens only the satellites, never the main", async () => {
+      setLiveTiles(["a", "b", "c"], { mainInPlayer: true });
+      await openAll(3);
+      expect(started.map(([id]) => id)).toEqual(["b", "c"]);
+      expect(liveTileUrl("a")).toBeNull();
+    });
+
+    it("keeps a main tile for the player to take, and ends it after the handoff grace if the player never does", async () => {
+      setLiveTiles(["a", "b"]);
+      await openAll(2);
+      setLiveTiles(["a", "b"], { mainInPlayer: true });
+      await flush();
+      expect(liveTileUrl("a")).not.toBeNull();
+      await advance(LIVE_TILE_HANDOFF_GRACE_MS);
+      expect(mockStopped).toContain("t-a");
+      expect(liveTileUrl("b")).not.toBeNull();
+    });
+
+    it("keeps the satellites live while Multiview's player holds the link, and stops them when other playback takes it", async () => {
+      setLiveTiles(["a", "b", "c"], { mainInPlayer: true });
+      setPlaybackHold(MULTIVIEW_PLAYBACK_OWNER, true);
+      await openAll(3);
+      expect(started.map(([id]) => id)).toEqual(["b", "c"]);
+      setPlaybackHold("video", true);
+      await flush();
+      expect(mockStopped).toEqual(expect.arrayContaining(["t-b", "t-c"]));
+      setPlaybackHold("video", false);
+      await openAll(3);
+      expect(liveTileUrl("b")).not.toBeNull();
+      setPlaybackHold(MULTIVIEW_PLAYBACK_OWNER, false);
+    });
+
+    it("holds the sampler off a one-connection provider while the player plays the main there", async () => {
+      mockLimits.set("one.example", 1);
+      setLiveTiles(["pl-a", "pl-b"], { mainInPlayer: true });
+      await openAll(2);
+      expect(started).toEqual([]);
+      expect(mockHolds).toEqual([["one.example", true]]);
+      setLiveTiles([]);
+      expect(mockHolds.at(-1)).toEqual(["one.example", false]);
+    });
   });
 
   it("plays only the main on a one-connection provider, holding the sampler off that provider, and never stops it", async () => {
