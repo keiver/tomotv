@@ -101,7 +101,7 @@ describe("Video info panel: hide and rename a channel", () => {
     multiview.onPress();
     await act(async () => {});
     expect(mockRouter.back).toHaveBeenCalledTimes(1);
-    expect(mockRouter.push).toHaveBeenCalledWith({ pathname: "/multiview", params: { channelId: "ch-1" } });
+    expect(mockRouter.push).toHaveBeenCalledWith({ pathname: "/multiview", params: { channelId: "ch-1", channelName: "Channel One" } });
     expect(mockRouter.back.mock.invocationCallOrder[0]).toBeLessThan(mockRouter.push.mock.invocationCallOrder[0]);
   });
 

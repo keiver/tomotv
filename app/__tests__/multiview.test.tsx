@@ -9,9 +9,11 @@ type TileProps = {
   frozen: boolean;
   visible: boolean;
   onSelect: (id: string) => void;
+  onFailed: (id: string) => void;
   onLongPress?: () => void;
   rect: { width: number };
 };
+const mockFailed = jest.fn();
 let mockTiles: TileProps[] = [];
 let mockParams: Record<string, string> = {};
 let mockFocused = true;
@@ -53,6 +55,7 @@ jest.mock("@/services/liveTiles", () => ({
   liveTilesVersion: () => 0,
   subscribeLiveTiles: () => () => {},
   noteLiveTileFrozen: jest.fn(),
+  noteLiveTileFailed: (id: string) => mockFailed(id),
   pauseLiveTileMain: () => mockPause(),
 }));
 jest.mock("@keiver/tomo-live", () => jest.requireActual("@keiver/tomo-live/src/multiviewLayout"));
@@ -105,6 +108,13 @@ describe("Multiview", () => {
     expect(tiles[0].rect.width).toBeGreaterThan(tiles[1].rect.width * 2 - 1);
   });
 
+  it("keeps a chosen channel the group's list does not hold on the main stage, under its own name", () => {
+    mockParams = { channelId: "x99", channelName: "Ninety-nine" };
+    mount();
+    expect(mockSetLiveTiles).toHaveBeenLastCalledWith(["x99", "c17", "c18", "c19", "c0", "c1", "c2", "c3"]);
+    expect(lastTiles()[0].channel).toMatchObject({ Id: "x99", Name: "Ninety-nine" });
+  });
+
   it("opens from the bar on the group's first channel, wrapping round the list", () => {
     mount();
     expect(mockSetLiveTiles.mock.calls.at(-1)?.[0][0]).toBe("c0");
@@ -127,6 +137,12 @@ describe("Multiview", () => {
     act(() => lastTiles()[5].onSelect("c12"));
     expect(mockSetLiveTiles).toHaveBeenLastCalledWith(["c12", "c7", "c8", "c9", "c11", "c10", "c13", "c14"]);
     expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it("hands a tile whose player failed to the tile sessions", () => {
+    mount();
+    lastTiles()[2].onFailed("c18");
+    expect(mockFailed).toHaveBeenCalledWith("c18");
   });
 
   it("opens the main full screen when it is selected", () => {

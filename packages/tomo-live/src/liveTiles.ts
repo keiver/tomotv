@@ -402,6 +402,13 @@ export function setLiveTiles(channelIds: readonly string[]): void {
   reconcile();
 }
 
+/** The tile's player failed or none was free: its session plays to nobody, so it ends and the tile shows its clip. */
+export function noteLiveTileFailed(channelId: string): void {
+  if (!tiles.has(channelId)) return;
+  (channelId === main() ? failed : dropped).add(channelId);
+  reconcile();
+}
+
 /** The tile's view holds its last frame: the main's connection goes to a round of grabs. */
 export function noteLiveTileFrozen(channelId: string): void {
   if (frozen !== channelId || round) return;

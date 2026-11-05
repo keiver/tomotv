@@ -25,17 +25,20 @@ interface MultiviewTileProps {
   hasTVPreferredFocus?: boolean;
   onSelect: (channelId: string) => void;
   onFrozen: (channelId: string) => void;
+  /** The tile's player failed, or none was free for its live session. */
+  onFailed: (channelId: string) => void;
   onLongPress?: () => void;
 }
 
 /** One multiview tile: its live session when it has one, else its clip, else its picture, under the channel's name. */
-function MultiviewTileComponent({ channel, rect, main, liveUrl, frozen, visible, hasTVPreferredFocus, onSelect, onFrozen, onLongPress }: MultiviewTileProps) {
+function MultiviewTileComponent({ channel, rect, main, liveUrl, frozen, visible, hasTVPreferredFocus, onSelect, onFrozen, onFailed, onLongPress }: MultiviewTileProps) {
   const { accent } = useCardPalette();
   const frame = useLiveFrame(channel.Id);
   const clip = useLiveClip(channel.Id);
   const [focused, setFocused] = useState(false);
   const handlePress = useCallback(() => onSelect(channel.Id), [onSelect, channel.Id]);
   const handleFrozen = useCallback(() => onFrozen(channel.Id), [onFrozen, channel.Id]);
+  const handleFailed = useCallback(() => onFailed(channel.Id), [onFailed, channel.Id]);
   const live = !!liveUrl || frozen;
   const uri = visible ? (liveUrl ?? (frozen ? null : (clip?.uri ?? null))) : null;
   return (
@@ -50,7 +53,7 @@ function MultiviewTileComponent({ channel, rect, main, liveUrl, frozen, visible,
       accessibilityLabel={cleanLabel(channel.Name ?? "")}
       style={[styles.tile, { left: rect.x, top: rect.y, width: rect.width, height: rect.height }, focused && [styles.focused, { borderColor: accent, shadowColor: accent }]]}>
       {frame ? <Image source={frame} style={StyleSheet.absoluteFill} contentFit="cover" transition={LIVE_FRAME_TRANSITION_MS} cachePolicy="none" /> : null}
-      {uri !== null || frozen ? <LiveClipView uri={uri} live={live} muted={!main} frozen={frozen} onFrozen={handleFrozen} style={StyleSheet.absoluteFill} /> : null}
+      {uri !== null || frozen ? <LiveClipView uri={uri} live={live} muted={!main} frozen={frozen} onFrozen={handleFrozen} onFailed={handleFailed} style={StyleSheet.absoluteFill} /> : null}
       <View style={styles.label} pointerEvents="none">
         {main ? <Ionicons name="volume-high" size={IS_TV ? 26 : 16} color={COLORS.TEXT_PRIMARY} /> : null}
         <Text style={[styles.name, !main && styles.nameSmall]} numberOfLines={1}>

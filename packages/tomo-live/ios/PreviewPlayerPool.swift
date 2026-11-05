@@ -53,6 +53,11 @@ final class PreviewPlayerPool {
       lend(player, to: view, playing: url)
       return
     }
+    // A live tile with no player has nothing to show its session in: it says so, and its session goes.
+    if view.live {
+      view.playerFailed(0)
+      return
+    }
     if !waiting.contains(where: { $0.view === view }) {
       waiting.append(Waiting(view: view))
       NSLog("[LiveClip] %@", "waiting: \(hosting.count) of \(limit) playing\(lowPower ? ", low power" : "")")
@@ -124,9 +129,11 @@ final class PreviewPlayerPool {
   /// The failed card keeps its still frame; a busy decoder caps the pool at what was playing without it.
   private func failed(_ player: PreviewPlayer, code: Int) {
     guard let index = hosting.firstIndex(where: { $0.player === player }) else { return }
+    let view = hosting[index].view
     free(at: index)
     if code == AVError.Code.decoderTemporarilyUnavailable.rawValue { limit = max(1, hosting.count) }
     NSLog("[LiveClip] %@", "clip failed \(code), \(hosting.count) playing, limit \(limit)")
+    view?.playerFailed(code)
     grantWaiting()
   }
 
@@ -138,9 +145,10 @@ final class PreviewPlayerPool {
       grantWaiting()
       return
     }
-    // Every card falls back to its frame and queues to play again once it ends.
+    // Every card falls back to its frame and queues to play again once it ends; a live tile says it lost its player.
     let views = hosting.compactMap { $0.view }
     while !hosting.isEmpty { free(at: hosting.count - 1) }
-    waiting = views.map { Waiting(view: $0) } + waiting
+    views.filter(\.live).forEach { $0.playerFailed(0) }
+    waiting = views.filter { !$0.live }.map { Waiting(view: $0) } + waiting
   }
 }

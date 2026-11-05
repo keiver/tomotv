@@ -5,7 +5,7 @@ public final class LiveClipModule: Module {
     Name("LiveClip")
 
     View(LiveClipView.self) {
-      Events("onFrozen")
+      Events("onFrozen", "onFailed")
 
       Prop("uri") { (view, uri: String?) in
         view.show(uri.flatMap(URL.init(string:)))

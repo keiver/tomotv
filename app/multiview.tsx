@@ -2,9 +2,10 @@ import { MultiviewTile } from "@/components/live-tv/multiview-tile";
 import { COLORS } from "@/constants/colors";
 import { useLoadingActions } from "@/contexts/LoadingContext";
 import { useChannelWall } from "@/hooks/useChannelWall";
+import type { JellyfinItem } from "@/types/jellyfin";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { setLiveFramesActive, setLiveFrameViewable } from "@/services/liveFrames";
-import { liveTileFrozen, liveTilesVersion, liveTileUnavailable, liveTileUrl, noteLiveTileFrozen, pauseLiveTileMain, setLiveTiles, subscribeLiveTiles } from "@/services/liveTiles";
+import { liveTileFrozen, liveTilesVersion, liveTileUnavailable, liveTileUrl, noteLiveTileFailed, noteLiveTileFrozen, pauseLiveTileMain, setLiveTiles, subscribeLiveTiles } from "@/services/liveTiles";
 import { keepMultiviewOrder, multiviewCapacity, multiviewChannels, multiviewLayout, type MultiviewSpace } from "@keiver/tomo-live";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import { useIsFocused, useLocalSearchParams, useRouter } from "expo-router";
@@ -23,7 +24,7 @@ const TILE_GAP = IS_TV ? 24 : 8;
  */
 export default function MultiviewScreen() {
   const router = useRouter();
-  const { channelId } = useLocalSearchParams<{ channelId?: string }>();
+  const { channelId, channelName } = useLocalSearchParams<{ channelId?: string; channelName?: string }>();
   const { showGlobalLoader } = useLoadingActions();
   const preferences = useLiveTvPreferences();
   const { wall } = useChannelWall(preferences);
@@ -39,8 +40,13 @@ export default function MultiviewScreen() {
   const space = useMemo<MultiviewSpace | null>(() => (size ? { ...size, minTileWidth: MIN_TILE_WIDTH, gap: TILE_GAP } : null), [size]);
   const capacity = space ? multiviewCapacity(space) : 0;
 
-  const ids = useMemo(() => wall.map((channel) => channel.Id), [wall]);
-  const byId = useMemo(() => new Map(wall.map((channel) => [channel.Id, channel])), [wall]);
+  // A chosen channel the group's loaded list does not hold (another group, a later page) leads it, so it is still the main.
+  const channels = useMemo(() => {
+    if (!channelId || wall.some((channel) => channel.Id === channelId)) return wall;
+    return [{ Id: channelId, Name: channelName ?? "", Type: "TvChannel" } as JellyfinItem, ...wall];
+  }, [wall, channelId, channelName]);
+  const ids = useMemo(() => channels.map((channel) => channel.Id), [channels]);
+  const byId = useMemo(() => new Map(channels.map((channel) => [channel.Id, channel])), [channels]);
   // The viewer's arrangement once a satellite is swapped onto the main stage; until then, the tiles around the chosen channel.
   const [picked, setPicked] = useState<string[] | null>(null);
   const shown = useMemo(() => {
@@ -121,6 +127,7 @@ export default function MultiviewScreen() {
                   hasTVPreferredFocus={index === 0}
                   onSelect={select}
                   onFrozen={frozen}
+                  onFailed={noteLiveTileFailed}
                   onLongPress={index === 0 ? pauseLiveTileMain : undefined}
                 />
               );

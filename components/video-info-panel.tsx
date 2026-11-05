@@ -520,7 +520,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
     const before = navigationRef.isReady() ? navigationRef.getRootState() : undefined;
     router.back();
     await whenRootStateSettles(navigationRef, before);
-    router.push({ pathname: "/multiview", params: { channelId: details.Id } });
+    router.push({ pathname: "/multiview", params: { channelId: details.Id, channelName: details.Name ?? "" } });
   }, [details, router, navigationRef]);
 
   const subtitlePanel = useSubtitlePanel(details?.Id ?? "", null);

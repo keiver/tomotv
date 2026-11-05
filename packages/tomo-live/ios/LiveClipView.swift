@@ -10,6 +10,7 @@ final class LiveClipView: ExpoView {
   private var frozen = false
   private var claim: DispatchWorkItem?
   let onFrozen = EventDispatcher()
+  let onFailed = EventDispatcher()
   #if os(tvOS)
   private static let settle: TimeInterval = 0
   #else
@@ -57,6 +58,12 @@ final class LiveClipView: ExpoView {
   func setMuted(_ muted: Bool) {
     self.muted = muted
     PreviewPlayerPool.shared.player(in: self)?.setMuted(muted)
+  }
+
+  /// A live tile's player failed or none was free: its session plays to nobody, so the app is told. A clip card keeps its frame.
+  func playerFailed(_ code: Int) {
+    guard live else { return }
+    onFailed(["code": code])
   }
 
   /// The tile holds its last frame, then says so; unfrozen with no session to show, it lets its player go.

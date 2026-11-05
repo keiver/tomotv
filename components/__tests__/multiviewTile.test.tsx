@@ -15,17 +15,20 @@ import { MultiviewTile } from "@/components/live-tv/multiview-tile";
 
 const channel = { Id: "c1", Name: "Channel One", Type: "TvChannel" } as never;
 const rect = { x: 0, y: 0, width: 320, height: 180 };
-type ClipProps = { uri: string | null; live: boolean; muted: boolean; frozen: boolean; onFrozen: () => void };
+type ClipProps = { uri: string | null; live: boolean; muted: boolean; frozen: boolean; onFrozen: () => void; onFailed: () => void };
 
 function render(props: Partial<React.ComponentProps<typeof MultiviewTile>> = {}) {
   const onSelect = jest.fn();
   const onFrozen = jest.fn();
+  const onFailed = jest.fn();
   let tree!: TestRenderer.ReactTestRenderer;
   act(() => {
-    tree = TestRenderer.create(<MultiviewTile channel={channel} rect={rect} main={false} liveUrl={null} frozen={false} visible onSelect={onSelect} onFrozen={onFrozen} {...props} />);
+    tree = TestRenderer.create(
+      <MultiviewTile channel={channel} rect={rect} main={false} liveUrl={null} frozen={false} visible onSelect={onSelect} onFrozen={onFrozen} onFailed={onFailed} {...props} />,
+    );
   });
   const clips = tree.root.findAllByType("LiveClipView" as never);
-  return { tree, clip: clips[0]?.props as ClipProps | undefined, onSelect, onFrozen };
+  return { tree, clip: clips[0]?.props as ClipProps | undefined, onSelect, onFrozen, onFailed };
 }
 
 beforeEach(() => {
@@ -57,6 +60,12 @@ describe("MultiviewTile", () => {
 
   it("lets its player go while the screen is covered", () => {
     expect(render({ liveUrl: "http://127.0.0.1:5000/t/master.m3u8", visible: false }).clip).toBeUndefined();
+  });
+
+  it("names its channel when its player fails", () => {
+    const { clip, onFailed } = render({ liveUrl: "http://127.0.0.1:5000/t/master.m3u8" });
+    clip!.onFailed();
+    expect(onFailed).toHaveBeenCalledWith("c1");
   });
 
   it("names its channel to the select handler", () => {

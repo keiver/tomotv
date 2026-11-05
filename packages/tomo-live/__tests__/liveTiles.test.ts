@@ -64,6 +64,7 @@ import {
   liveTileFrozen,
   liveTileUnavailable,
   liveTileUrl,
+  noteLiveTileFailed,
   noteLiveTileFrozen,
   retainLiveTile,
   setLiveTiles,
@@ -214,6 +215,21 @@ describe("liveTiles", () => {
     expect(liveTileUrl("a")).not.toBeNull();
     await openAll(2);
     expect(liveTileUrl("d")).toBeNull();
+  });
+
+  it("ends a tile whose player failed: a satellite drops to its clip, the main stops being live, and nothing reopens it while the set stays", async () => {
+    setLiveTiles(["a", "b", "c"]);
+    await openAll(3);
+    noteLiveTileFailed("c");
+    await openAll(1);
+    expect(mockStopped).toContain("t-c");
+    expect(liveTileUrl("c")).toBeNull();
+    noteLiveTileFailed("a");
+    await openAll(2);
+    expect(mockStopped).toContain("t-a");
+    expect(liveTileUrl("a")).toBeNull();
+    expect(started.filter(([id]) => id === "a" || id === "c")).toHaveLength(2);
+    expect(liveTileUrl("b")).not.toBeNull();
   });
 
   it("drops every satellite on a memory warning and keeps the main", async () => {
