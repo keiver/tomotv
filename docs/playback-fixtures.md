@@ -1,6 +1,6 @@
 # Playback fixtures
 
-Every file the playback suite plays, as ffprobe version 9.0.1 reads it, generated 2026-11-03. Stream facts are ffprobe's, scan type and HDR metadata come from the first decoded video frame, and the SHA-256 identifies the exact bytes described. Browsable with a codec index in [`playback-fixtures.html`](playback-fixtures.html); results per file are in [`playback-coverage.md`](playback-coverage.md).
+Every file the playback suite plays, as ffprobe version 9.0.1 reads it, generated 2026-11-05. Stream facts are ffprobe's, scan type and HDR metadata come from the first decoded video frame, and the SHA-256 identifies the exact bytes described. Browsable with a codec index in [`playback-fixtures.html`](playback-fixtures.html); results per file are in [`playback-coverage.md`](playback-coverage.md).
 
 ### T01
 
@@ -2049,7 +2049,7 @@ Every file the playback suite plays, as ffprobe version 9.0.1 reads it, generate
 | Streams | 1 |
 | Container tags | COMPATIBLE_BRANDS=isomav01iso2mp41; MAJOR_BRAND=isom; MINOR_VERSION=512; ENCODER=Lavf62.12.103 |
 | Origin | unverified |
-| Expected lane | On-device remux, validate none |
+| Expected lane | Server transcode, validate none |
 
 | # | Type | Codec | Detail | Language | Title | Flags |
 | --- | --- | --- | --- | --- | --- | --- |
