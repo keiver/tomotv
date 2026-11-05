@@ -22,6 +22,11 @@ describe("multiview arrangement", () => {
     expect(resizeArrangement(arrangement("halvesThree", ["a", "b", "c", "d", "p", "q", "r"]), "bigTwo", []).spots).toEqual(["a", "b", "c"]);
   });
 
+  it("switches layout around the channel with the sound, moving it to the first spot from wherever it sat", () => {
+    expect(switchLayout(arrangement("grid4", ["c3", "c2", "c4", "c5"]), "bigThree", list, () => false, "c4").spots).toEqual(["c4", "c2", "c3", "c5"]);
+    expect(switchLayout(arrangement("grid4", ["c3", "c2", "c4", "c5"]), "bigThree", list, () => false, "c3").spots).toEqual(["c3", "c2", "c4", "c5"]);
+  });
+
   it("switches layout around the first spot's channel, filling new live spots from its neighbours", () => {
     expect(switchLayout(arrangement("bigTwo", ["c3", "c2", "c4"]), "grid4", list, () => false).spots).toEqual(["c3", "c2", "c4", "c5"]);
   });

@@ -29,8 +29,17 @@ export function resizeArrangement(arrangement: MultiviewArrangement, layout: Mul
   return { ...arrangement, layout, spots, chosen: arrangement.chosen.filter((channelId) => spots.includes(channelId)) };
 }
 
-/** The viewer picks `layout`: the first spot's channel stays first, and new live spots fill from the channels around it in `list`. */
-export function switchLayout(arrangement: MultiviewArrangement, layout: MultiviewLayoutName, list: readonly string[], skip: (channelId: string) => boolean): MultiviewArrangement {
+/**
+ * The viewer picks `layout`: `lead` (the channel with the sound) moves to the first spot, trading places with the channel
+ * there, and stays first; new live spots fill from the channels around it in `list`.
+ */
+export function switchLayout(arrangement: MultiviewArrangement, layout: MultiviewLayoutName, list: readonly string[], skip: (channelId: string) => boolean, lead?: string): MultiviewArrangement {
+  const at = lead ? arrangement.spots.indexOf(lead) : -1;
+  if (at > 0) {
+    const spots = [...arrangement.spots];
+    [spots[0], spots[at]] = [spots[at], spots[0]];
+    return switchLayout({ ...arrangement, spots }, layout, list, skip);
+  }
   const main = arrangement.spots[0];
   const fresh = main ? multiviewChannels(list, main, multiviewLiveCount(layout), skip) : list.filter((id) => !skip(id));
   return resizeArrangement(arrangement, layout, fresh);

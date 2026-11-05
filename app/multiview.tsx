@@ -157,7 +157,7 @@ export default function MultiviewScreen() {
   const full = fullAsked && !!arrangement.spots[sound];
   useFocusEffect(useCallback(() => setFullAsked(false), []));
   const pick = useCallback((index: number) => router.push({ pathname: "/multiview-pick", params: { spot: String(index) } }), [router]);
-  const openLayouts = useCallback(() => router.push("/multiview-layout"), [router]);
+  const openLayouts = useCallback(() => router.push({ pathname: "/multiview-layout", params: soundId ? { sound: soundId } : {} }), [router, soundId]);
   // Apple TV: the spot fills the screen in place. iPhone, iPad and Mac: the same player goes to AVKit's presented player.
   const { open: presentSound } = player;
   const openFull = useCallback(() => {

@@ -8,7 +8,7 @@ import { updateLiveTvPreferences } from "@/services/liveTvPreferences";
 import { switchLayout } from "@/utils/multiviewArrangement";
 import { MULTIVIEW_LAYOUTS, type MultiviewLayoutName } from "@keiver/tomo-live";
 import { useHeaderHeight } from "expo-router/react-navigation";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useMemo } from "react";
 import { Platform, ScrollView, StyleSheet, Text, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -21,6 +21,8 @@ const COLUMNS = 3;
 /** Multiview's layouts drawn as they would fit this screen; the pressed one becomes the layout. */
 export default function MultiviewLayoutScreen() {
   const router = useRouter();
+  // The channel with the sound: it keeps playing, first in the new layout.
+  const { sound } = useLocalSearchParams<{ sound?: string }>();
   const headerHeight = useHeaderHeight();
   const { width, height } = useWindowDimensions();
   const preferences = useLiveTvPreferences();
@@ -36,10 +38,10 @@ export default function MultiviewLayoutScreen() {
   const optionWidth = Math.floor((width - left - right - GUTTER * (COLUMNS - 1)) / COLUMNS);
   const choose = useCallback(
     (layout: MultiviewLayoutName) => {
-      if (layout !== arrangement.layout) updateLiveTvPreferences({ multiview: switchLayout(arrangement, layout, ids, liveTileUnavailable) });
+      if (layout !== arrangement.layout) updateLiveTvPreferences({ multiview: switchLayout(arrangement, layout, ids, liveTileUnavailable, sound) });
       router.back();
     },
-    [arrangement, ids, router],
+    [arrangement, ids, router, sound],
   );
   return (
     <ScrollView style={styles.container} contentContainerStyle={[styles.grid, { paddingTop: IS_TV ? 60 : headerHeight + 16, paddingLeft: left, paddingRight: right, columnGap: GUTTER }]}>

@@ -10,7 +10,8 @@ let mockArrangement: MultiviewArrangement;
 const mockUnavailable = new Set<string>();
 const mockWall = Array.from({ length: 10 }, (_, i) => ({ Id: `c${i}`, Name: `Channel ${i}` }));
 
-jest.mock("expo-router", () => ({ useRouter: () => ({ back: mockBack }) }));
+let mockParams: { sound?: string } = {};
+jest.mock("expo-router", () => ({ useRouter: () => ({ back: mockBack }), useLocalSearchParams: () => mockParams }));
 jest.mock("expo-router/react-navigation", () => ({ useHeaderHeight: () => 0 }));
 jest.mock("@/services/i18n", () => ({ t: (key: string) => key }));
 jest.mock("@/hooks/useLiveTvPreferences", () => ({ useLiveTvPreferences: () => ({ autoUpdate: true, multiview: mockArrangement }) }));
@@ -39,6 +40,7 @@ function mount() {
 beforeEach(() => {
   jest.clearAllMocks();
   mockUnavailable.clear();
+  mockParams = {};
   mockArrangement = { layout: "bigThree", spots: ["c5", "c4", "c6", "c7"], chosen: ["c5"] };
   mockWindow = { width: 440, height: 956, scale: 3, fontScale: 1 };
   mockInsets = { top: 0, bottom: 0, left: 0, right: 0 };
@@ -97,5 +99,14 @@ describe("Multiview layout picker", () => {
     act(() => options[0].onPress("bigThree"));
     expect(mockUpdate).not.toHaveBeenCalled();
     expect(mockBack).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the channel with the sound playing: it leads the new layout, wherever it sat in the old one", () => {
+    mockArrangement = { layout: "grid4", spots: ["c5", "c4", "c6", "c7"], chosen: ["c5"] };
+    mockParams = { sound: "c6" };
+    const options = mount();
+    act(() => options[0].onPress("bigThree"));
+    expect(mockUpdate.mock.calls[0][0].multiview.spots[0]).toBe("c6");
+    expect(mockUpdate.mock.calls[0][0].multiview.spots).toEqual(expect.arrayContaining(["c5", "c4", "c7"]));
   });
 });

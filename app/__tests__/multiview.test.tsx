@@ -300,7 +300,8 @@ describe("Multiview", () => {
     press(alert, "liveTv.record");
     expect(mockInfoPanel).toHaveBeenCalledWith(expect.objectContaining({ Id: "c9" }));
     press(alert, "liveTv.multiviewLayout");
-    expect(mockPush).toHaveBeenLastCalledWith("/multiview-layout");
+    // The channel with the sound goes along, so it keeps playing in the new layout.
+    expect(mockPush).toHaveBeenLastCalledWith({ pathname: "/multiview-layout", params: { sound: "c10" } });
     press(alert, "liveTv.multiviewClear");
     expect(mockPrefs.multiview.spots).toEqual(["c10", null, "c11", "c12"]);
     alert.mockRestore();
@@ -309,7 +310,7 @@ describe("Multiview", () => {
   it("opens the layout picker on Play/Pause", () => {
     mount();
     act(() => mockTvHandler?.({ eventType: "playPause" }));
-    expect(mockPush).toHaveBeenCalledWith("/multiview-layout");
+    expect(mockPush).toHaveBeenCalledWith(expect.objectContaining({ pathname: "/multiview-layout" }));
   });
 
   it("scrolls the group's other channels in the layout's strip row, opening no stream for them, and puts a selected one in the sound spot", () => {
