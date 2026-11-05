@@ -1,5 +1,6 @@
 /** The Multiview layout picker: every layout drawn in the Multiview screen's shape, the current one marked and focused, a pressed one applied around the first spot's channel before the screen goes back. */
 import React from "react";
+import { ScrollView, StyleSheet } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 import type { MultiviewArrangement } from "@/services/liveTvPreferences";
 
@@ -18,6 +19,10 @@ jest.mock("@/services/liveTvPreferences", () => ({ updateLiveTvPreferences: (pat
 jest.mock("@/services/liveTiles", () => ({ liveTileUnavailable: (id: string) => mockUnavailable.has(id) }));
 jest.mock("@keiver/tomo-live", () => jest.requireActual("@keiver/tomo-live/src/multiviewLayout"));
 jest.mock("@/components/live-tv/multiview-layout-option", () => ({ MultiviewLayoutOption: () => null }));
+let mockWindow = { width: 440, height: 956, scale: 3, fontScale: 1 };
+let mockInsets = { top: 0, bottom: 0, left: 0, right: 0 };
+jest.mock("react-native/Libraries/Utilities/useWindowDimensions", () => ({ __esModule: true, default: () => mockWindow }));
+jest.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => mockInsets }));
 
 import MultiviewLayoutScreen from "@/app/multiview-layout";
 import { MultiviewLayoutOption } from "@/components/live-tv/multiview-layout-option";
@@ -35,6 +40,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockUnavailable.clear();
   mockArrangement = { layout: "bigThree", spots: ["c5", "c4", "c6", "c7"], chosen: ["c5"] };
+  mockWindow = { width: 440, height: 956, scale: 3, fontScale: 1 };
+  mockInsets = { top: 0, bottom: 0, left: 0, right: 0 };
 });
 
 describe("Multiview layout picker", () => {
@@ -43,6 +50,26 @@ describe("Multiview layout picker", () => {
     expect(options.map((option) => option.layout)).toEqual(["bigThree", "bigTwo", "grid4", "rowThree", "halvesTwo", "halvesThree"]);
     expect(options.filter((option) => option.current).map((option) => option.layout)).toEqual(["bigThree"]);
     expect(options.filter((option) => option.hasTVPreferredFocus).map((option) => option.layout)).toEqual(["bigThree"]);
+  });
+
+  it("lays the six layouts three to a row, in whole points that never wrap a row, inside the safe area when turned", () => {
+    const content = (inset: number) => {
+      let tree!: TestRenderer.ReactTestRenderer;
+      act(() => {
+        tree = TestRenderer.create(<MultiviewLayoutScreen />);
+      });
+      const grid = StyleSheet.flatten(tree.root.findByType(ScrollView).props.contentContainerStyle);
+      const options = tree.root.findAllByType(MultiviewLayoutOption).map((node) => node.props as OptionProps);
+      expect(grid).toMatchObject({ paddingLeft: Math.max(16, inset), paddingRight: Math.max(16, inset) });
+      const width = options[0].width;
+      expect(Number.isInteger(width)).toBe(true);
+      expect(width * 3 + 16 * 2).toBeLessThanOrEqual(mockWindow.width - Math.max(16, inset) * 2);
+      return options;
+    };
+    content(0);
+    mockWindow = { width: 956, height: 440, scale: 3, fontScale: 1 };
+    mockInsets = { top: 0, bottom: 21, left: 62, right: 62 };
+    expect(content(62)[0].stage).toEqual({ width: 956 - 124, height: 440 });
   });
 
   it("applies a pressed layout around the first spot's channel and goes back", () => {

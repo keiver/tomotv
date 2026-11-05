@@ -11,10 +11,12 @@ import { useHeaderHeight } from "expo-router/react-navigation";
 import { useRouter } from "expo-router";
 import React, { useCallback, useMemo } from "react";
 import { Platform, ScrollView, StyleSheet, Text, useWindowDimensions } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
 const PAD = IS_TV ? 80 : 16;
 const GUTTER = IS_TV ? 48 : 16;
+const COLUMNS = 3;
 
 /** Multiview's layouts drawn as they would fit this screen; the pressed one becomes the layout. */
 export default function MultiviewLayoutScreen() {
@@ -25,10 +27,13 @@ export default function MultiviewLayoutScreen() {
   const arrangement = preferences.multiview;
   const { wall } = useChannelWall(preferences);
   const ids = useMemo(() => wall.map((channel) => channel.Id), [wall]);
-  // Multiview's own screen: the window under the same bar this screen has.
-  const stage = { width, height: IS_TV ? height : height - headerHeight };
-  const columns = IS_TV || width >= 900 ? 3 : 2;
-  const optionWidth = (width - PAD * 2 - GUTTER * (columns - 1)) / columns;
+  const insets = useSafeAreaInsets();
+  const left = IS_TV ? PAD : Math.max(PAD, insets.left);
+  const right = IS_TV ? PAD : Math.max(PAD, insets.right);
+  // Multiview's own screen: the window inside the safe area, under the same bar this screen has.
+  const stage = IS_TV ? { width, height } : { width: width - insets.left - insets.right, height: height - headerHeight };
+  // Six layouts in two even rows; floored so rounding never wraps the last one.
+  const optionWidth = Math.floor((width - left - right - GUTTER * (COLUMNS - 1)) / COLUMNS);
   const choose = useCallback(
     (layout: MultiviewLayoutName) => {
       if (layout !== arrangement.layout) updateLiveTvPreferences({ multiview: switchLayout(arrangement, layout, ids, liveTileUnavailable) });
@@ -37,7 +42,7 @@ export default function MultiviewLayoutScreen() {
     [arrangement, ids, router],
   );
   return (
-    <ScrollView style={styles.container} contentContainerStyle={[styles.grid, { paddingTop: IS_TV ? 60 : headerHeight + 16, columnGap: GUTTER }]}>
+    <ScrollView style={styles.container} contentContainerStyle={[styles.grid, { paddingTop: IS_TV ? 60 : headerHeight + 16, paddingLeft: left, paddingRight: right, columnGap: GUTTER }]}>
       {IS_TV ? <Text style={styles.title}>{t("liveTv.multiviewLayout")}</Text> : null}
       {MULTIVIEW_LAYOUTS.map((layout) => (
         <MultiviewLayoutOption
@@ -63,7 +68,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     rowGap: IS_TV ? 48 : 24,
-    paddingHorizontal: PAD,
     paddingBottom: IS_TV ? 60 : 32,
   },
   title: {

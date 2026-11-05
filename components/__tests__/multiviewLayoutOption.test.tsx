@@ -8,15 +8,18 @@ jest.mock("@/services/i18n", () => ({ t: (key: string) => key }));
 jest.mock("@expo/vector-icons", () => ({ Ionicons: (props: object) => require("react").createElement("Ionicons", props) }));
 jest.mock("@keiver/tomo-live", () => jest.requireActual("@keiver/tomo-live/src/multiviewLayout"));
 
-import { MultiviewLayoutOption } from "@/components/live-tv/multiview-layout-option";
-import { RAISED_EDGE } from "@/constants/app";
+import { MULTIVIEW_LAYOUT_INSET, MultiviewLayoutOption } from "@/components/live-tv/multiview-layout-option";
+import { DESIGN, RAISED_EDGE } from "@/constants/app";
 import type { MultiviewLayoutName } from "@keiver/tomo-live";
+
+const INNER = 480;
+const OUTER = INNER + MULTIVIEW_LAYOUT_INSET * 2;
 
 function render(layout: MultiviewLayoutName, stage = { width: 1920, height: 1080 }, current = false) {
   const onPress = jest.fn();
   let tree!: TestRenderer.ReactTestRenderer;
   act(() => {
-    tree = TestRenderer.create(<MultiviewLayoutOption layout={layout} width={480} stage={stage} current={current} onPress={onPress} />);
+    tree = TestRenderer.create(<MultiviewLayoutOption layout={layout} width={OUTER} stage={stage} current={current} onPress={onPress} />);
   });
   const shapes = tree.root.findAll((node) => node.type === View && node.props.testID === "multiview-layout-shape");
   const boxes = (testID: string, shape = 0) => shapes[shape].findAll((node) => node.type === View && node.props.testID === testID).map((node) => StyleSheet.flatten(node.props.style));
@@ -40,11 +43,11 @@ describe("MultiviewLayoutOption", () => {
   it("held upright draws the tall cut, the big spot the full width, and the screen turned below it at the same width", () => {
     const { shapes, spots, turned } = render("bigThree", { width: 393, height: 700 });
     const [upright, wide] = shapes.map((shape) => StyleSheet.flatten(shape.props.style) as { width: number; height: number });
-    expect([upright.width, wide.width]).toEqual([480, 480]);
-    expect(upright.height).toBeCloseTo((480 * 700) / 393, 5);
-    expect(wide.height).toBeCloseTo((480 * 393) / 700, 5);
-    expect(spots[0]).toMatchObject({ left: 0, top: 0, width: 480 });
-    expect(turned()[0].width).toBeLessThan(480);
+    expect([upright.width, wide.width]).toEqual([INNER, INNER]);
+    expect(upright.height).toBeCloseTo((INNER * 700) / 393, 5);
+    expect(wide.height).toBeCloseTo((INNER * 393) / 700, 5);
+    expect(spots[0]).toMatchObject({ left: 0, top: 0, width: INNER });
+    expect(turned()[0].width).toBeLessThan(INNER);
   });
 
   it("turned draws the wide cut and the screen held upright beside it, the same height, filling the width", () => {
@@ -52,7 +55,17 @@ describe("MultiviewLayoutOption", () => {
     const [wide, upright] = shapes.map((shape) => StyleSheet.flatten(shape.props.style) as { width: number; height: number });
     expect(wide.height).toBeCloseTo(upright.height, 5);
     expect(wide.width / wide.height).toBeCloseTo(734 / 340, 5);
-    expect(wide.width + upright.width + 8).toBeCloseTo(480, 5);
+    expect(wide.width + upright.width + 8).toBeCloseTo(INNER, 5);
+  });
+
+  it("sits on a rounded card with continuous corners, its drawings inset from the edge", () => {
+    const { tree } = render("grid4");
+    expect(StyleSheet.flatten(tree.root.findByType(TouchableOpacity).props.style)).toMatchObject({
+      width: OUTER,
+      padding: MULTIVIEW_LAYOUT_INSET,
+      borderRadius: DESIGN.BORDER_RADIUS_CARD,
+      borderCurve: "continuous",
+    });
   });
 
   it("on Apple TV marks the spot with the sound with its speaker, leaving the accent to focus", () => {
@@ -72,10 +85,23 @@ describe("MultiviewLayoutOption", () => {
     });
   });
 
-  it("boxes the spot with the sound in the accent, in both shapes", () => {
+  it("boxes the spot with the sound in a one point accent line, in both shapes", () => {
     const { spots, turned } = render("grid4");
     expect(spots.map((style) => style.borderColor)).toEqual(["#FFC312", undefined, undefined, undefined]);
-    expect(turned()[0].borderColor).toBe("#FFC312");
+    expect(spots[0].borderWidth).toBe(1);
+    expect(turned()[0]).toMatchObject({ borderColor: "#FFC312", borderWidth: 1 });
+  });
+
+  it("marks each shape with a dim phone outline held upright or turned, in the order they are drawn", () => {
+    const icons = (stage: { width: number; height: number }) =>
+      render("grid4", stage)
+        .tree.root.findAll((node) => (node.type as unknown) === "Ionicons" && node.props.testID === "multiview-layout-orientation")
+        .map((node) => [node.props.name, node.props.color]);
+    expect(icons({ width: 393, height: 700 })).toEqual([
+      ["phone-portrait-outline", "#6E6E73"],
+      ["phone-landscape-outline", "#6E6E73"],
+    ]);
+    expect(icons({ width: 734, height: 340 }).map(([name]) => name)).toEqual(["phone-landscape-outline", "phone-portrait-outline"]);
   });
 
   it("names its layout, marks the current one, rings focus without changing its size, and reports a press", () => {

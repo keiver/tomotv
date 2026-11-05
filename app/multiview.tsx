@@ -32,6 +32,7 @@ import { useHeaderHeight } from "expo-router/react-navigation";
 import { Stack, useFocusEffect, useIsFocused, useLocalSearchParams, useRouter, type NativeStackNavigationOptions } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Alert, Platform, ScrollView, StyleSheet, useTVEventHandler, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
 /** The line between channels. */
@@ -52,6 +53,7 @@ export default function MultiviewScreen() {
   const { wall } = useChannelWall(preferences);
   const isFocused = useIsFocused();
   const headerHeight = useHeaderHeight();
+  const insets = useSafeAreaInsets();
   const openInfoPanel = useItemLongPress();
   const version = useSyncExternalStore(subscribeLiveTiles, liveTilesVersion);
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
@@ -262,7 +264,7 @@ export default function MultiviewScreen() {
         showsVerticalScrollIndicator: false,
       };
   return (
-    <View style={[styles.container, { paddingTop: IS_TV || full ? 0 : headerHeight }]}>
+    <View style={[styles.container, IS_TV ? null : { paddingTop: full ? 0 : headerHeight, paddingLeft: insets.left, paddingRight: insets.right }]}>
       <Stack.Screen options={screenOptions} />
       <Stage style={styles.stage} onLayout={onLayout} {...stageProps}>
         {(placement?.spots ?? fit?.spots ?? []).map((spotRect, index) => {

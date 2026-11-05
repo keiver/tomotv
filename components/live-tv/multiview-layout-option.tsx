@@ -1,4 +1,4 @@
-import { CARD_CHROME, CARD_FOCUS, RAISED_EDGE } from "@/constants/app";
+import { CARD_CHROME, CARD_FOCUS, DESIGN, RAISED_EDGE } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { t } from "@/services/i18n";
@@ -12,6 +12,9 @@ const IS_TV = Platform.isTV;
 const LINE = IS_TV ? 3 : 2;
 const SHAPE_GAP = 8;
 const SPEAKER = 26;
+/** The drawings' and the name's distance from the option's rounded edge. */
+export const MULTIVIEW_LAYOUT_INSET = IS_TV ? 20 : 12;
+const ORIENTATION = 10;
 
 export const MULTIVIEW_LAYOUT_LABEL: Record<MultiviewLayoutName, StringKey> = {
   bigThree: "liveTv.layoutOnePlusThree",
@@ -36,8 +39,9 @@ interface MultiviewLayoutOptionProps {
 const box = (rect: MultiviewRect) => ({ left: rect.x, top: rect.y, width: rect.width, height: rect.height });
 
 /** One layout as Multiview would fit it on this screen and turned: a box per spot with the Live TV card's edge, the sound spot boxed, the group's other channels dimmer after them. */
-function MultiviewLayoutOptionComponent({ layout, width, stage, current, hasTVPreferredFocus, onPress }: MultiviewLayoutOptionProps) {
+function MultiviewLayoutOptionComponent({ layout, width: outer, stage, current, hasTVPreferredFocus, onPress }: MultiviewLayoutOptionProps) {
   const { accent } = useCardPalette();
+  const width = outer - MULTIVIEW_LAYOUT_INSET * 2;
   const [focused, setFocused] = useState(false);
   const label = t(MULTIVIEW_LAYOUT_LABEL[layout]);
   // Apple TV has one shape. Elsewhere the screen turned is drawn too: below when held upright, beside when turned.
@@ -72,6 +76,16 @@ function MultiviewLayoutOptionComponent({ layout, width, stage, current, hasTVPr
           const card = multiviewGroupCard(rest, group, LINE);
           return <View key={`rest-${rest}`} style={[styles.box, styles.rest, box({ ...card, x: group.x + card.x, y: group.y + card.y })]} testID="multiview-layout-rest" />;
         })}
+        {IS_TV ? null : (
+          <View style={styles.orientation}>
+            <Ionicons
+              name={shape.height > shape.width ? "phone-portrait-outline" : "phone-landscape-outline"}
+              size={ORIENTATION}
+              color={COLORS.TEXT_QUATERNARY}
+              testID="multiview-layout-orientation"
+            />
+          </View>
+        )}
       </View>
     );
   };
@@ -85,17 +99,15 @@ function MultiviewLayoutOptionComponent({ layout, width, stage, current, hasTVPr
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ selected: current }}
-      style={[styles.option, { width }]}>
-      <View style={[styles.shapes, tall ? styles.stacked : styles.beside]}>
-        {shapes.map(drawing)}
-        {focused ? <View style={[styles.ring, { borderColor: accent }]} pointerEvents="none" /> : null}
-      </View>
+      style={[styles.option, { width: outer }]}>
+      <View style={[styles.shapes, tall ? styles.stacked : styles.beside]}>{shapes.map(drawing)}</View>
       <View style={styles.caption}>
-        {current ? <Ionicons name="checkmark-circle" size={IS_TV ? 26 : 16} color={accent} /> : null}
-        <Text style={styles.label} numberOfLines={1}>
+        {current ? <Ionicons name="checkmark-circle" size={IS_TV ? 26 : 14} color={accent} /> : null}
+        <Text style={styles.label} numberOfLines={2}>
           {label}
         </Text>
       </View>
+      {focused ? <View style={[styles.ring, { borderColor: accent }]} pointerEvents="none" /> : null}
     </TouchableOpacity>
   );
 }
@@ -105,6 +117,10 @@ export const MultiviewLayoutOption = memo(MultiviewLayoutOptionComponent);
 const styles = StyleSheet.create({
   option: {
     gap: IS_TV ? 14 : 8,
+    padding: MULTIVIEW_LAYOUT_INSET,
+    backgroundColor: COLORS.SURFACE_RAISED,
+    borderRadius: DESIGN.BORDER_RADIUS_CARD,
+    borderCurve: "continuous",
   },
   screen: {
     backgroundColor: COLORS.BACKGROUND_DEEP,
@@ -121,13 +137,20 @@ const styles = StyleSheet.create({
   },
   // The spot with the sound: the box Multiview draws round it on iPhone, iPad and Mac.
   sound: {
-    borderWidth: LINE,
+    borderWidth: 1,
   },
   // Apple TV marks the spot with the sound with its speaker, as Multiview's label does; the accent is focus there.
   speaker: {
     position: "absolute",
     top: 8,
     left: 10,
+  },
+  orientation: {
+    position: "absolute",
+    right: 0,
+    bottom: 0,
+    padding: 2,
+    backgroundColor: COLORS.BACKGROUND_DEEP,
   },
   shapes: {
     gap: SHAPE_GAP,
@@ -142,10 +165,12 @@ const styles = StyleSheet.create({
   ring: {
     ...StyleSheet.absoluteFill,
     borderWidth: CARD_FOCUS.BORDER_WIDTH_FOCUSED,
+    borderRadius: DESIGN.BORDER_RADIUS_CARD,
+    borderCurve: "continuous",
   },
   caption: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: IS_TV ? 8 : 4,
   },
   label: {
