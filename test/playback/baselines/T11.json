@@ -23,8 +23,6 @@
     "audio": [
       {
         "action": "copy",
-        "active": true,
-        "rendition": "a0",
         "source": {
           "channels": 2,
           "codec": "aac",
@@ -49,7 +47,7 @@
   },
   "video": {
     "policy": "copy",
-    "digest": "2b5927906ca994ab0e63818f1641badb",
+    "digest": "e743451e212e5c694e459a62a165d18b",
     "frames": 722,
     "lastPtsSec": 30.04
   },
