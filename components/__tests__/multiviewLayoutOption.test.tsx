@@ -55,6 +55,23 @@ describe("MultiviewLayoutOption", () => {
     expect(wide.width + upright.width + 8).toBeCloseTo(480, 5);
   });
 
+  it("on Apple TV marks the spot with the sound with its speaker, leaving the accent to focus", () => {
+    jest.isolateModules(() => {
+      const RN = require("react-native");
+      jest.spyOn(RN.Platform, "isTV", "get").mockReturnValue(true);
+      const R = require("react");
+      const Renderer = require("react-test-renderer");
+      const { MultiviewLayoutOption: TvOption } = require("@/components/live-tv/multiview-layout-option");
+      let tree!: TestRenderer.ReactTestRenderer;
+      Renderer.act(() => {
+        tree = Renderer.create(R.createElement(TvOption, { layout: "grid4", width: 480, stage: { width: 1920, height: 1080 }, current: false, onPress: () => {} }));
+      });
+      const spots = tree.root.findAll((node: TestRenderer.ReactTestInstance) => node.props.testID === "multiview-layout-spot" && typeof node.type === "string");
+      expect(spots.map((node) => RN.StyleSheet.flatten(node.props.style).borderColor)).toEqual([undefined, undefined, undefined, undefined]);
+      expect(tree.root.findAll((node: TestRenderer.ReactTestInstance) => node.props.testID === "multiview-layout-sound" && (node.type as unknown) === "Ionicons")).toHaveLength(1);
+    });
+  });
+
   it("boxes the spot with the sound in the accent, in both shapes", () => {
     const { spots, turned } = render("grid4");
     expect(spots.map((style) => style.borderColor)).toEqual(["#FFC312", undefined, undefined, undefined]);

@@ -11,6 +11,7 @@ import { Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native
 const IS_TV = Platform.isTV;
 const LINE = IS_TV ? 3 : 2;
 const SHAPE_GAP = 8;
+const SPEAKER = 26;
 
 export const MULTIVIEW_LAYOUT_LABEL: Record<MultiviewLayoutName, StringKey> = {
   bigThree: "liveTv.layoutOnePlusThree",
@@ -63,7 +64,9 @@ function MultiviewLayoutOptionComponent({ layout, width, stage, current, hasTVPr
     return (
       <View key={index} style={[styles.screen, shape]} testID="multiview-layout-shape">
         {spots.map((rect, spot) => (
-          <View key={spot} style={[styles.box, box(rect), spot === 0 && [styles.sound, { borderColor: accent }]]} testID="multiview-layout-spot" />
+          <View key={spot} style={[styles.box, box(rect), !IS_TV && spot === 0 && [styles.sound, { borderColor: accent }]]} testID="multiview-layout-spot">
+            {IS_TV && spot === 0 ? <Ionicons name="volume-high" size={SPEAKER} color={COLORS.TEXT_PRIMARY} style={styles.speaker} testID="multiview-layout-sound" /> : null}
+          </View>
         ))}
         {Array.from({ length: shown }, (_, rest) => {
           const card = multiviewGroupCard(rest, group, LINE);
@@ -116,9 +119,15 @@ const styles = StyleSheet.create({
   rest: {
     opacity: 0.4,
   },
-  // The spot with the sound: the box Multiview draws round it.
+  // The spot with the sound: the box Multiview draws round it on iPhone, iPad and Mac.
   sound: {
     borderWidth: LINE,
+  },
+  // Apple TV marks the spot with the sound with its speaker, as Multiview's label does; the accent is focus there.
+  speaker: {
+    position: "absolute",
+    top: 8,
+    left: 10,
   },
   shapes: {
     gap: SHAPE_GAP,
