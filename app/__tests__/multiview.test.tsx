@@ -23,6 +23,12 @@ jest.mock("expo-router", () => ({
   useRouter: () => ({ push: mockPush }),
   useLocalSearchParams: () => mockParams,
   useIsFocused: () => mockFocused,
+  useFocusEffect: (effect: () => void) => {
+    const focused = mockFocused;
+    require("react").useEffect(() => {
+      if (focused) effect();
+    }, [focused, effect]);
+  },
   Stack: { Screen: () => null },
 }));
 jest.mock("expo-router/react-navigation", () => ({ useHeaderHeight: () => 0 }));
@@ -174,21 +180,25 @@ describe("Multiview", () => {
     expect(spots().map((tile) => tile.main)).toEqual([false, false, true, false]);
   });
 
-  it("fills the screen with the spot with the sound, the same tile playing on, and returns on a second select", () => {
+  it("fills the screen with the spot with the sound under the full screen route, the same tile playing on bare, and brings the layout back when it returns", () => {
     mockParams = { channelId: "c10" };
     mount();
     const sessions = mockSetLiveTiles.mock.calls.length;
     mockMounts.length = 0;
     act(() => spots()[0].onSelect("c10"));
+    expect(mockPush).toHaveBeenCalledWith("/multiview-full");
+    // The full screen route covers Multiview: it is no longer focused, and the spot keeps its player.
+    mockFocused = false;
+    act(() => tree.update(<MultiviewScreen />));
     expect(spots()).toHaveLength(1);
     expect(strip()).toHaveLength(0);
-    expect(spots()[0]).toMatchObject({ main: true, rect: { x: 0, y: 0, width: STAGE.width, height: STAGE.height } });
+    expect(spots()[0]).toMatchObject({ main: true, visible: true, bare: true, rect: { x: 0, y: 0, width: STAGE.width, height: STAGE.height } });
     expect(mockMounts).toEqual([]);
     expect(mockSetLiveTiles.mock.calls.length).toBe(sessions);
-    expect(mockPush).not.toHaveBeenCalled();
-    expect(mockViewable).toHaveBeenLastCalledWith("multiview", []);
-    act(() => spots()[0].onSelect("c10"));
+    mockFocused = true;
+    act(() => tree.update(<MultiviewScreen />));
     expect(spots()).toHaveLength(4);
+    expect(spots().every((tile) => !tile.bare)).toBe(true);
     expect(strip().length).toBeGreaterThan(0);
   });
 
@@ -201,18 +211,6 @@ describe("Multiview", () => {
     press(alert, "liveTv.multiviewLayout");
     press(alert, "liveTv.layoutOnePlusThree");
     expect(mockPrefs.multiview.spots).toEqual([null, "c3", "c1", "c2"]);
-    alert.mockRestore();
-  });
-
-  it("leaves full screen when the layout changes", () => {
-    const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
-    mockParams = { channelId: "c10" };
-    mount();
-    act(() => spots()[0].onSelect("c10"));
-    act(() => spots()[0].onLongPress?.("c10"));
-    press(alert, "liveTv.multiviewLayout");
-    press(alert, "liveTv.layoutGrid4");
-    expect(spots()).toHaveLength(4);
     alert.mockRestore();
   });
 
@@ -301,6 +299,18 @@ describe("Multiview", () => {
     expect(mockActive).toHaveBeenCalledWith("multiview", true);
     expect(mockViewable).toHaveBeenLastCalledWith("multiview", ["c9", "c12", "c0", "c1", "c2", "c3", "c4", "c5", "c6"]);
     expect(spots()[2].liveUrl).toBe("http://127.0.0.1/t/master.m3u8");
+  });
+
+  it("sizes the strip's cards so a whole number of them spans the first spot, their lines meeting the spots' lines", () => {
+    mockParams = { channelId: "c10" };
+    mount();
+    const big = spots()[0].rect;
+    const cards = strip().map((tile) => tile.rect);
+    const ends = cards.map((card) => card.x + card.width);
+    expect(ends.some((end) => Math.abs(end - (big.x + big.width)) < 0.01)).toBe(true);
+    const next = cards.find((card) => card.x > big.x + big.width)!;
+    expect(next.x).toBeCloseTo(spots()[1].rect.x, 5);
+    expect(cards[1].x - (cards[0].x + cards[0].width)).toBeCloseTo(2, 5);
   });
 
   it("hands a failed player to the tile sessions", () => {

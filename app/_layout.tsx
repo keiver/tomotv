@@ -354,6 +354,8 @@ function RootLayoutInner() {
                           }
                     }
                   />
+                  {/* A transparent modal on every platform, Apple TV included, so Multiview stays drawn under it. */}
+                  <Stack.Screen name="multiview-full" options={{ headerShown: false, presentation: "transparentModal", animation: "fade", contentStyle: { backgroundColor: "transparent" } }} />
                   <Stack.Screen
                     name="channel-settings"
                     options={

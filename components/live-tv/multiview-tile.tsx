@@ -25,6 +25,8 @@ interface MultiviewTileProps {
   liveUrl: string | null;
   /** False while the screen is covered: the tile lets its player go. */
   visible: boolean;
+  /** Full screen: the picture alone, no label and no focus ring. */
+  bare?: boolean;
   /** The programme airing, for the label; past its end it is not shown. */
   program?: Pick<JellyfinProgram, "Name" | "StartDate" | "EndDate"> | null;
   nowMs: number;
@@ -44,7 +46,7 @@ export function airingLine(program: Pick<JellyfinProgram, "Name" | "StartDate" |
 }
 
 /** One multiview spot: its live session when it has one, else its clip, else its picture, else the channel's logo, under its name and programme. */
-function MultiviewTileComponent({ channel, rect, main, liveUrl, visible, program, nowMs, hasTVPreferredFocus, onSelect, onFailed, onLongPress }: MultiviewTileProps) {
+function MultiviewTileComponent({ channel, rect, main, liveUrl, visible, bare, program, nowMs, hasTVPreferredFocus, onSelect, onFailed, onLongPress }: MultiviewTileProps) {
   const { accent } = useCardPalette();
   const frame = useLiveFrame(channel.Id);
   const clip = useLiveClip(channel.Id);
@@ -55,6 +57,7 @@ function MultiviewTileComponent({ channel, rect, main, liveUrl, visible, program
   const live = !!liveUrl;
   const uri = visible ? (liveUrl ?? clip?.uri ?? null) : null;
   const airing = airingLine(program, nowMs);
+  const ringed = focused && !bare;
   return (
     <TouchableOpacity
       onPress={handlePress}
@@ -65,24 +68,26 @@ function MultiviewTileComponent({ channel, rect, main, liveUrl, visible, program
       hasTVPreferredFocus={hasTVPreferredFocus}
       accessibilityRole="button"
       accessibilityLabel={[cleanLabel(channel.Name ?? ""), airing].filter(Boolean).join(", ")}
-      style={[styles.tile, { left: rect.x, top: rect.y, width: rect.width, height: rect.height }, focused && [styles.focused, { shadowColor: accent }]]}>
+      style={[styles.tile, { left: rect.x, top: rect.y, width: rect.width, height: rect.height }, ringed && [styles.focused, { shadowColor: accent }]]}>
       {frame ? null : <Image source={{ uri: getPosterUrl(channel.Id, 300) }} style={styles.logo} contentFit="contain" cachePolicy="memory-disk" />}
       {frame ? <Image source={frame} style={StyleSheet.absoluteFill} contentFit="cover" transition={LIVE_FRAME_TRANSITION_MS} cachePolicy="none" /> : null}
       {uri !== null ? <LiveClipView uri={uri} live={live} muted={!main} onFailed={handleFailed} style={StyleSheet.absoluteFill} /> : null}
-      {focused ? <View style={[styles.focusRing, { borderColor: accent }]} pointerEvents="none" /> : null}
-      <View style={styles.label} pointerEvents="none">
-        <View style={styles.nameRow}>
-          {main ? <Ionicons name="volume-high" size={IS_TV ? 26 : 16} color={COLORS.TEXT_PRIMARY} /> : null}
-          <Text style={[styles.name, !main && styles.nameSmall]} numberOfLines={1}>
-            {cleanLabel(channel.Name ?? "")}
-          </Text>
+      {ringed ? <View style={[styles.focusRing, { borderColor: accent }]} pointerEvents="none" /> : null}
+      {bare ? null : (
+        <View style={styles.label} pointerEvents="none">
+          <View style={styles.nameRow}>
+            {main ? <Ionicons name="volume-high" size={IS_TV ? 26 : 16} color={COLORS.TEXT_PRIMARY} /> : null}
+            <Text style={[styles.name, !main && styles.nameSmall]} numberOfLines={1}>
+              {cleanLabel(channel.Name ?? "")}
+            </Text>
+          </View>
+          {airing ? (
+            <Text style={[styles.airing, !main && styles.airingSmall]} numberOfLines={1}>
+              {airing}
+            </Text>
+          ) : null}
         </View>
-        {airing ? (
-          <Text style={[styles.airing, !main && styles.airingSmall]} numberOfLines={1}>
-            {airing}
-          </Text>
-        ) : null}
-      </View>
+      )}
     </TouchableOpacity>
   );
 }

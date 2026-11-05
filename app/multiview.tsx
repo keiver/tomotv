@@ -17,7 +17,7 @@ import { logger } from "@/utils/logger";
 import { clearSpot, dueQueue, liveOrder, placeChannel, promoteSpot, resizeArrangement, seedArrangement } from "@/utils/multiviewArrangement";
 import { MULTIVIEW_ASPECT, MULTIVIEW_LAYOUTS, multiviewChannels, multiviewFeatured, multiviewSpots, multiviewSpotsBottom, type MultiviewLayoutName } from "@keiver/tomo-live";
 import { useHeaderHeight } from "expo-router/react-navigation";
-import { Stack, useIsFocused, useLocalSearchParams, useRouter, type NativeStackNavigationOptions } from "expo-router";
+import { Stack, useFocusEffect, useIsFocused, useLocalSearchParams, useRouter, type NativeStackNavigationOptions } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Alert, Platform, ScrollView, StyleSheet, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 
@@ -127,20 +127,26 @@ export default function MultiviewScreen() {
     return () => clearTimeout(timer);
   }, [queue, nowMs, arrangement, sound]);
 
-  // The spot with the sound fills the screen in place: its own player plays on, nothing opens.
+  // The spot with the sound fills the screen in place, its own player playing on, under /multiview-full, which holds
+  // focus so Menu returns here; back here, the layout returns.
   const [fullAsked, setFullAsked] = useState(false);
   const full = fullAsked && !!arrangement.spots[sound];
+  useFocusEffect(useCallback(() => setFullAsked(false), []));
   const pick = useCallback((index: number) => router.push({ pathname: "/multiview-pick", params: { spot: String(index) } }), [router]);
   const select = useCallback(
     (index: number) => {
       const id = arrangement.spots[index];
       if (!id) return pick(index);
-      if (index === sound) return setFullAsked((current) => !current);
+      if (index === sound) {
+        setFullAsked(true);
+        router.push("/multiview-full");
+        return;
+      }
       const promoted = promoteSpot(arrangement, index);
       if (promoted.arrangement !== arrangement) save(promoted.arrangement);
       setSoundAt(promoted.soundAt);
     },
-    [arrangement, sound, pick, save],
+    [arrangement, sound, pick, save, router],
   );
   const changeLayout = useCallback(
     (layout: MultiviewLayoutName) => {
@@ -148,7 +154,6 @@ export default function MultiviewScreen() {
       const fresh = main ? multiviewChannels(ids, main, 4, liveTileUnavailable) : ids.filter((id) => !liveTileUnavailable(id));
       save(resizeArrangement(arrangement, layout, fresh));
       setSoundAt(0);
-      setFullAsked(false);
     },
     [arrangement, sound, ids, save],
   );
@@ -235,7 +240,8 @@ export default function MultiviewScreen() {
               rect={rect}
               main={index === sound}
               liveUrl={liveTileUrl(id)}
-              visible={isFocused}
+              visible={isFocused || full}
+              bare={full}
               program={channel.CurrentProgram}
               nowMs={nowMs}
               hasTVPreferredFocus={featured ? index === 0 : index === sound}

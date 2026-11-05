@@ -80,6 +80,14 @@ describe("MultiviewTile", () => {
     expect(StyleSheet.flatten(ring()[0].props.style)).toMatchObject({ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderWidth: 4 });
   });
 
+  it("full screen shows the picture alone: no label, and no focus ring even while focused", () => {
+    const { tree, clip } = render({ main: true, bare: true, program, liveUrl: "http://127.0.0.1:5000/t/master.m3u8" });
+    expect(clip).toMatchObject({ live: true, muted: false });
+    act(() => tree.root.findByType(TouchableOpacity).props.onFocus());
+    expect(tree.root.findAllByType(Text)).toHaveLength(0);
+    expect(tree.root.findAll((node) => node.type === View && StyleSheet.flatten(node.props.style)?.borderColor === "#FFC312")).toHaveLength(0);
+  });
+
   it("lets its player go while the screen is covered", () => {
     expect(render({ liveUrl: "http://127.0.0.1:5000/t/master.m3u8", visible: false }).clip).toBeUndefined();
   });
