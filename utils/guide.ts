@@ -503,6 +503,15 @@ const BAND_MAX_WIDTH = 640;
 /** The room kept beside the larger picture for the channel's name and the two buttons. */
 const BAND_INFO_ROOM = 260;
 
+/** How far, in points, a finger may travel between touch down and lift for the touch to count as a tap. */
+const TAP_SLOP = 10;
+
+/** Whether a touch that lifted at `end` after going down at `start` travelled too far to be a tap. */
+export function movedPastTap(start: { pageX: number; pageY: number } | null, end: { pageX?: number; pageY?: number } | undefined): boolean {
+  if (!start || end?.pageX === undefined || end.pageY === undefined) return false;
+  return Math.hypot(end.pageX - start.pageX, end.pageY - start.pageY) > TAP_SLOP;
+}
+
 /** How far, in points, or how fast, in points per second, a vertical swipe on the pinned band goes to switch its size. */
 const BAND_SWIPE_DISTANCE = 40;
 const BAND_SWIPE_VELOCITY = 500;

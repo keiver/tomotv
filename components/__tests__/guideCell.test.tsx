@@ -69,6 +69,20 @@ describe("GuideCell", () => {
     expect(style(nodes[nodes.length - 1]).color).toBe(COLORS.TEXT_TERTIARY);
   });
 
+  it("a tap opens the programme, a touch that travels more than 10pt before lifting does not", () => {
+    const onPress = jest.fn();
+    const tree = render({ onPress, program: { ...program, Id: "p42" } });
+    const cell = tree.root.find((node) => typeof node.props.onPressIn === "function" && node.props.isTVSelectable === false);
+    const touch = (pageX: number, pageY: number) => ({ nativeEvent: { pageX, pageY } });
+    act(() => cell.props.onPressIn(touch(100, 40)));
+    act(() => cell.props.onPress(touch(140, 42)));
+    expect(onPress).not.toHaveBeenCalled();
+    act(() => cell.props.onPressIn(touch(100, 40)));
+    act(() => cell.props.onPress(touch(104, 46)));
+    expect(onPress).toHaveBeenCalledTimes(1);
+    expect(onPress).toHaveBeenCalledWith(expect.objectContaining({ Id: "p42" }));
+  });
+
   it("the cell VoiceOver reaches is a labelled button that offers Details, which runs the long press", () => {
     const onLongPress = jest.fn();
     const tree = render({ onLongPress, program: { ...program, Id: "p41" } });

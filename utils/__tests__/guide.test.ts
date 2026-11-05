@@ -45,6 +45,7 @@ import {
   wideColumnWidth,
   bandExtendedSize,
   bandSwipeToggles,
+  movedPastTap,
   settleStop,
   stopDragValue,
 } from "../guide";
@@ -592,6 +593,20 @@ describe("bandExtendedSize", () => {
 
   it("never goes below zero in a narrow guide", () => {
     expect(bandExtendedSize(200, 1366, true)).toEqual({ width: 0, height: 0 });
+  });
+});
+
+describe("movedPastTap", () => {
+  it("counts a lift more than 10pt from the touch down as moved, and 10pt or less as a tap", () => {
+    expect(movedPastTap({ pageX: 0, pageY: 0 }, { pageX: 8, pageY: 6 })).toBe(false);
+    expect(movedPastTap({ pageX: 0, pageY: 0 }, { pageX: 9, pageY: 6 })).toBe(true);
+    expect(movedPastTap({ pageX: 50, pageY: 50 }, { pageX: 50, pageY: 20 })).toBe(true);
+  });
+
+  it("lets the press through when either point is missing", () => {
+    expect(movedPastTap(null, { pageX: 90, pageY: 90 })).toBe(false);
+    expect(movedPastTap({ pageX: 0, pageY: 0 }, undefined)).toBe(false);
+    expect(movedPastTap({ pageX: 0, pageY: 0 }, {})).toBe(false);
   });
 });
 

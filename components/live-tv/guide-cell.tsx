@@ -8,12 +8,12 @@ import type { JellyfinProgram } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
 import { namedAction } from "@/utils/namedAction";
 import { pinOffset, visibleSpan } from "@/components/live-tv/guide-pin";
-import { formatClock, formatClockRange, programCategory, standInChannelId } from "@/utils/guide";
+import { formatClock, formatClockRange, movedPastTap, programCategory, standInChannelId } from "@/utils/guide";
 import { liveFrameReel, subscribeLiveFrame } from "@/services/liveFrames";
 import { t } from "@/services/i18n";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useCallback, useMemo, useState, useSyncExternalStore } from "react";
-import { findNodeHandle, LayoutChangeEvent, Platform, Pressable, Animated as RNAnimated, StyleSheet, Text, useAnimatedValue, View } from "react-native";
+import React, { useCallback, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { findNodeHandle, type GestureResponderEvent, LayoutChangeEvent, Platform, Pressable, Animated as RNAnimated, StyleSheet, Text, useAnimatedValue, View } from "react-native";
 
 const IS_TV = Platform.isTV;
 const NO_INFO = /^\s*no info(rmation)?( available)?\s*$/i;
@@ -162,7 +162,20 @@ function GuideCellComponent({
     setFocused(false);
     onBlur?.(program);
   }, [onBlur, program]);
-  const press = useCallback(() => onPress(program), [onPress, program]);
+  // Phone: a touch that travels before it lifts is a drag or a palm, not a tap.
+  const pressStartRef = useRef<{ pageX: number; pageY: number } | null>(null);
+  const pressIn = useCallback((event: GestureResponderEvent) => {
+    pressStartRef.current = { pageX: event.nativeEvent.pageX, pageY: event.nativeEvent.pageY };
+  }, []);
+  const press = useCallback(
+    (event?: GestureResponderEvent) => {
+      const start = pressStartRef.current;
+      pressStartRef.current = null;
+      if (!IS_TV && movedPastTap(start, event?.nativeEvent)) return;
+      onPress(program);
+    },
+    [onPress, program],
+  );
   const longPress = useCallback(() => onLongPress(program), [onLongPress, program]);
   const detailsAction = useMemo(() => namedAction("details", t("info.details"), longPress), [longPress]);
 
@@ -237,6 +250,7 @@ function GuideCellComponent({
         ) : (
           <AnimatedPressable
             ref={handleRef}
+            onPressIn={pressIn}
             onPress={press}
             onLongPress={longPress}
             onFocus={handleFocus}
@@ -280,7 +294,15 @@ function GuideCellComponent({
       {body}
     </View>
   ) : (
-    <Pressable isTVSelectable={false} onPress={press} onLongPress={longPress} accessibilityRole="button" accessibilityLabel={accessibilityLabel} {...detailsAction} style={cellStyle}>
+    <Pressable
+      isTVSelectable={false}
+      onPressIn={pressIn}
+      onPress={press}
+      onLongPress={longPress}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      {...detailsAction}
+      style={cellStyle}>
       {body}
     </Pressable>
   );
