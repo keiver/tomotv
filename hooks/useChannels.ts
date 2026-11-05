@@ -73,15 +73,15 @@ export function useChannels(
         const page = startIndex === 0 ? await fetchListedChannels(list) : [];
         return { page, hasMore: false, consumed: page.length, waiting: false };
       }
-      const { items: page, total } = await fetchChannels({ startIndex, limit: CHANNEL_WALL_PAGE, sortBy: channelSortParam(sort) });
-      const loaded = startIndex + page.length;
-      const hasMore = total !== undefined ? loaded < total : page.length >= CHANNEL_WALL_PAGE;
+      const { items: page, total, fetched } = await fetchChannels({ startIndex, limit: CHANNEL_WALL_PAGE, sortBy: channelSortParam(sort) });
+      const loaded = startIndex + fetched;
+      const hasMore = total !== undefined ? loaded < total : fetched >= CHANNEL_WALL_PAGE;
       if (!hasMore) {
         // The server catalog is done: channels only the tuner playlists carry yet follow, a page at a time.
         const tail = await pendingChannelsAfter(page, itemsRef.current, CHANNEL_WALL_PAGE);
-        return { page: [...page, ...tail.pending], hasMore: tail.hasMore, consumed: page.length + tail.pending.length, waiting: tail.waiting };
+        return { page: [...page, ...tail.pending], hasMore: tail.hasMore, consumed: fetched + tail.pending.length, waiting: tail.waiting };
       }
-      return { page, hasMore, consumed: page.length, waiting: false };
+      return { page, hasMore, consumed: fetched, waiting: false };
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [sort, category, categoryEdit, list, ids, editsKey],

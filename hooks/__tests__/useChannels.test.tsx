@@ -53,6 +53,7 @@ async function settle() {
 }
 
 const channels = (from: number, count: number) => Array.from({ length: count }, (_, i) => ({ Id: `c${from + i}`, Name: `Channel ${from + i}`, Type: "TvChannel" }));
+const serverPage = (items: unknown[], total: number, fetched = items.length) => ({ items, total, fetched });
 
 describe("useChannels", () => {
   beforeEach(() => {
@@ -64,7 +65,7 @@ describe("useChannels", () => {
   const standIn = (id: string) => ({ Id: id, Name: `Pending ${id}`, Type: "TvChannel", playlistPending: true });
 
   it("asks for the page after the server's last one itself while the tuner playlists are still loading, and lands their channels", async () => {
-    mockFetch.mockImplementation(async ({ startIndex }: { startIndex: number }) => ({ items: channels(startIndex, Math.max(0, 2 - startIndex)), total: 2 }));
+    mockFetch.mockImplementation(async ({ startIndex }: { startIndex: number }) => serverPage(channels(startIndex, Math.max(0, 2 - startIndex)), 2));
     mockPending.mockResolvedValueOnce({ pending: [], hasMore: true, waiting: true }).mockResolvedValueOnce({ pending: [standIn("p1")], hasMore: false, waiting: false });
     const ref = React.createRef<HookRef>();
     await act(async () => {
@@ -80,7 +81,7 @@ describe("useChannels", () => {
   });
 
   it("shows no loading footer while it reads the tuner playlists after the server's last channel, whoever asks", async () => {
-    mockFetch.mockImplementation(async ({ startIndex }: { startIndex: number }) => ({ items: channels(startIndex, Math.max(0, 2 - startIndex)), total: 2 }));
+    mockFetch.mockImplementation(async ({ startIndex }: { startIndex: number }) => serverPage(channels(startIndex, Math.max(0, 2 - startIndex)), 2));
     let finishTail!: (value: typeof NOTHING_PENDING) => void;
     mockPending.mockResolvedValueOnce({ pending: [], hasMore: true, waiting: true }).mockReturnValueOnce(new Promise((resolve) => (finishTail = resolve)));
     const ref = React.createRef<HookRef>();
@@ -100,7 +101,7 @@ describe("useChannels", () => {
   });
 
   it("reloads the wall with the playlist-only channels after a tuner playlist held back by playback downloads", async () => {
-    mockFetch.mockResolvedValue({ items: channels(0, 1), total: 1 });
+    mockFetch.mockResolvedValue(serverPage(channels(0, 1), 1));
     const ref = React.createRef<HookRef>();
     let renderer: TestRenderer.ReactTestRenderer | undefined;
     await act(async () => {
@@ -117,7 +118,7 @@ describe("useChannels", () => {
   });
 
   it("lists a channel once when the server ingests it after its stand-in landed", async () => {
-    mockFetch.mockResolvedValueOnce({ items: channels(0, 1), total: 1 }).mockResolvedValueOnce({ items: [{ Id: "p1", Name: "Ingested", Type: "TvChannel" }, ...channels(7, 1)], total: 4 });
+    mockFetch.mockResolvedValueOnce(serverPage(channels(0, 1), 1)).mockResolvedValueOnce(serverPage([{ Id: "p1", Name: "Ingested", Type: "TvChannel" }, ...channels(7, 1)], 4));
     mockPending.mockResolvedValueOnce({ pending: [standIn("p1")], hasMore: true, waiting: false });
     const ref = React.createRef<HookRef>();
     await act(async () => {
@@ -131,7 +132,7 @@ describe("useChannels", () => {
 
   it("reads the wall again when a channel is hidden or renamed", async () => {
     const preferences = jest.requireActual("@/services/liveTvPreferences") as typeof import("@/services/liveTvPreferences");
-    mockFetch.mockResolvedValue({ items: channels(0, 2), total: 2 });
+    mockFetch.mockResolvedValue(serverPage(channels(0, 2), 2));
     const ref = React.createRef<HookRef>();
     let renderer: TestRenderer.ReactTestRenderer | undefined;
     await act(async () => {
@@ -152,9 +153,35 @@ describe("useChannels", () => {
     act(() => renderer?.unmount());
   });
 
+  it("has no more to load when the server's last channel is hidden", async () => {
+    mockFetch.mockResolvedValue(serverPage(channels(0, 8), 9, 9));
+    const ref = React.createRef<HookRef>();
+    await act(async () => {
+      TestRenderer.create(<Harness ref={ref} sort="number" />);
+    });
+    await settle();
+    expect(ref.current?.get()).toMatchObject({ isLoading: false, hasMore: false });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks for the next page after the server's rows, hidden ones included", async () => {
+    mockFetch
+      .mockResolvedValueOnce(serverPage(channels(0, CHANNEL_WALL_PAGE - 1), CHANNEL_WALL_PAGE + 1, CHANNEL_WALL_PAGE))
+      .mockResolvedValueOnce(serverPage(channels(CHANNEL_WALL_PAGE, 1), CHANNEL_WALL_PAGE + 1));
+    const ref = React.createRef<HookRef>();
+    await act(async () => {
+      TestRenderer.create(<Harness ref={ref} sort="number" />);
+    });
+    await settle();
+    act(() => ref.current?.get().loadMore());
+    await settle();
+    expect(mockFetch).toHaveBeenLastCalledWith({ startIndex: CHANNEL_WALL_PAGE, limit: CHANNEL_WALL_PAGE, sortBy: "SortName" });
+    expect(ref.current?.get()).toMatchObject({ isLoadingMore: false, hasMore: false });
+  });
+
   it("loads the first page in the sort's server order, then the next on loadMore until the total is reached", async () => {
     const total = CHANNEL_WALL_PAGE + 3;
-    mockFetch.mockImplementation(async ({ startIndex }: { startIndex: number }) => ({ items: channels(startIndex, Math.min(CHANNEL_WALL_PAGE, total - startIndex)), total }));
+    mockFetch.mockImplementation(async ({ startIndex }: { startIndex: number }) => serverPage(channels(startIndex, Math.min(CHANNEL_WALL_PAGE, total - startIndex)), total));
     const ref = React.createRef<HookRef>();
     await act(async () => {
       TestRenderer.create(<Harness ref={ref} sort="number" />);
@@ -176,10 +203,10 @@ describe("useChannels", () => {
   });
 
   it("starts over in the server's name order when the sort changes, dropping a page from the old sort", async () => {
-    let releaseOld: (value: { items: unknown[]; total: number }) => void = () => {};
+    let releaseOld: (value: { items: unknown[]; total: number; fetched: number }) => void = () => {};
     mockFetch.mockImplementation(async ({ startIndex, sortBy }: { startIndex: number; sortBy: string }) => {
       if (sortBy === "SortName" && startIndex > 0) return new Promise((resolve) => (releaseOld = resolve));
-      return { items: sortBy === "Name" ? channels(500, 2) : channels(startIndex, CHANNEL_WALL_PAGE), total: CHANNEL_WALL_PAGE * 3 };
+      return serverPage(sortBy === "Name" ? channels(500, 2) : channels(startIndex, CHANNEL_WALL_PAGE), CHANNEL_WALL_PAGE * 3);
     });
     const ref = React.createRef<HookRef>();
     let renderer!: TestRenderer.ReactTestRenderer;
@@ -195,7 +222,7 @@ describe("useChannels", () => {
     expect(mockFetch).toHaveBeenLastCalledWith({ startIndex: 0, limit: CHANNEL_WALL_PAGE, sortBy: "Name" });
     expect(ref.current?.get().items.map((item) => item.Id)).toEqual(["c500", "c501"]);
 
-    await act(async () => releaseOld({ items: channels(CHANNEL_WALL_PAGE, CHANNEL_WALL_PAGE), total: CHANNEL_WALL_PAGE * 3 }));
+    await act(async () => releaseOld(serverPage(channels(CHANNEL_WALL_PAGE, CHANNEL_WALL_PAGE), CHANNEL_WALL_PAGE * 3)));
     await settle();
     expect(ref.current?.get().items.map((item) => item.Id)).toEqual(["c500", "c501"]);
   });
@@ -204,7 +231,7 @@ describe("useChannels", () => {
     jest.useFakeTimers();
     try {
       mockFetch.mockImplementation(async ({ startIndex }: { startIndex: number }) => {
-        if (startIndex === 0) return { items: channels(0, CHANNEL_WALL_PAGE), total: CHANNEL_WALL_PAGE * 2 };
+        if (startIndex === 0) return serverPage(channels(0, CHANNEL_WALL_PAGE), CHANNEL_WALL_PAGE * 2);
         throw new Error("down");
       });
       const ref = React.createRef<HookRef>();
@@ -231,7 +258,7 @@ describe("useChannels", () => {
       await act(async () => jest.advanceTimersByTime(1));
       expect(ref.current?.get().isLoadingMore).toBe(false);
 
-      mockFetch.mockResolvedValueOnce({ items: channels(CHANNEL_WALL_PAGE, CHANNEL_WALL_PAGE), total: CHANNEL_WALL_PAGE * 2 });
+      mockFetch.mockResolvedValueOnce(serverPage(channels(CHANNEL_WALL_PAGE, CHANNEL_WALL_PAGE), CHANNEL_WALL_PAGE * 2));
       act(() => ref.current?.get().loadMore());
       await settle();
       expect(ref.current?.get()).toMatchObject({ isLoadingMore: false, hasMore: false });
@@ -242,7 +269,7 @@ describe("useChannels", () => {
   });
 
   it("reports a failed load and retries it", async () => {
-    mockFetch.mockRejectedValueOnce(new Error("down")).mockResolvedValueOnce({ items: channels(0, 2), total: 2 });
+    mockFetch.mockRejectedValueOnce(new Error("down")).mockResolvedValueOnce(serverPage(channels(0, 2), 2));
     const ref = React.createRef<HookRef>();
     await act(async () => {
       TestRenderer.create(<Harness ref={ref} sort="number" />);

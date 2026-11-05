@@ -117,8 +117,11 @@ export async function fillAiringFromGuides<T extends JellyfinVideoItem>(channels
   }
 }
 
-/** One page of channels in the server's channel order; the whole list when no page is asked for. */
-export async function fetchChannels(page: { startIndex?: number; limit?: number; sortBy?: "SortName" | "Name"; favorite?: boolean } = {}): Promise<{ items: JellyfinItem[]; total?: number }> {
+/** One page of channels in the server's channel order; the whole list when no page is asked for.
+ *  `fetched` counts the server's rows before hidden channels are dropped: the next page starts there. */
+export async function fetchChannels(
+  page: { startIndex?: number; limit?: number; sortBy?: "SortName" | "Name"; favorite?: boolean } = {},
+): Promise<{ items: JellyfinItem[]; total?: number; fetched: number }> {
   const config = await getConfig();
   if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
   const query = new URLSearchParams({
@@ -140,7 +143,8 @@ export async function fetchChannels(page: { startIndex?: number; limit?: number;
   );
   if (!response.ok) throwRequestError(response, `Failed to fetch channels: ${response.status}`);
   const json = await response.json();
-  return { items: applyChannelEdits(await fillAiringFromGuides((json.Items ?? []) as JellyfinItem[])), total: json.TotalRecordCount };
+  const rows = (json.Items ?? []) as JellyfinItem[];
+  return { items: applyChannelEdits(await fillAiringFromGuides(rows)), total: json.TotalRecordCount, fetched: rows.length };
 }
 
 /**

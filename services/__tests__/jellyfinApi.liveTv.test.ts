@@ -88,7 +88,7 @@ describe("live TV client", () => {
       json: async () => ({ Items: [{ Id: "c1", Name: "One", Type: "TvChannel", CurrentProgram: { Name: "News" } }], TotalRecordCount: 1 }),
     });
     const result = await fetchChannels();
-    expect(result).toEqual({ items: [{ Id: "c1", Name: "One", Type: "TvChannel", CurrentProgram: { Name: "News" } }], total: 1 });
+    expect(result).toEqual({ items: [{ Id: "c1", Name: "One", Type: "TvChannel", CurrentProgram: { Name: "News" } }], total: 1, fetched: 1 });
     const [url] = (global.fetch as jest.Mock).mock.calls[0];
     expect(url).toContain(`${SERVER}/LiveTv/Channels?`);
     expect(url).toContain("addCurrentProgram=true");
@@ -108,8 +108,9 @@ describe("live TV client", () => {
       (global.fetch as jest.Mock).mockResolvedValue({ ok: true, json: async () => ({ Items: items, TotalRecordCount: 2 }) });
       const page = await fetchChannels();
       expect(page.items).toEqual([{ Id: "c1", Name: "First", SourceName: "One", Type: "TvChannel", CurrentProgram: null }]);
-      // The total still counts the hidden channel: the next page is asked for by the server's count.
+      // The total and the rows read still count the hidden channel: the next page is asked for by the server's count.
       expect(page.total).toBe(2);
+      expect(page.fetched).toBe(2);
       expect((await fetchChannelOrder()).map((channel) => [channel.Id, channel.Name])).toEqual([["c1", "First"]]);
       expect((await fetchChannelsByIds(["c2", "c1"])).map((channel) => channel.Name)).toEqual(["First"]);
     } finally {
@@ -142,7 +143,7 @@ describe("live TV client", () => {
   it("asks for one page of channels when a page is named", async () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ Items: [], TotalRecordCount: 130 }) });
     const result = await fetchChannels({ startIndex: 60, limit: 60 });
-    expect(result).toEqual({ items: [], total: 130 });
+    expect(result).toEqual({ items: [], total: 130, fetched: 0 });
     const [url] = (global.fetch as jest.Mock).mock.calls[0];
     expect(url).toContain("startIndex=60");
     expect(url).toContain("limit=60");
