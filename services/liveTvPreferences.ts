@@ -7,6 +7,7 @@
 import { getCachedConfig } from "@/services/jellyfin/session";
 import type { JellyfinItem } from "@/types/jellyfin";
 import type { ColumnStop } from "@/utils/guide";
+import { THIS_DEVICE } from "@/utils/hostEnvironment";
 import { logger } from "@/utils/logger";
 import { MULTIVIEW_LAYOUTS, multiviewSpotCount, type MultiviewLayoutName } from "@keiver/tomo-live/src/multiviewLayout";
 import { Settings } from "react-native";
@@ -108,7 +109,7 @@ export const DEFAULT_LIVE_TV_PREFERENCES: LiveTvPreferences = {
   guideSourcesOff: [],
   recordingMinutes: 120,
   hideOffline: false,
-  columnStop: "default",
+  columnStop: THIS_DEVICE === "iPad" || THIS_DEVICE === "Mac" ? "wide" : "default",
   connectionLimits: {},
   multiview: { layout: "bigThree", spots: [], chosen: [] },
   multiviewQueue: [],
@@ -241,7 +242,7 @@ function parseMultiviewQueue(raw: unknown, nowMs = Date.now()): MultiviewQueued[
 /** A document from before the three stops saved only whether the column was collapsed. */
 function parseColumnStop(raw: unknown, legacyCompact: unknown): ColumnStop {
   if (raw === "closed" || raw === "default" || raw === "wide") return raw;
-  return legacyCompact === true ? "closed" : "default";
+  return legacyCompact === true ? "closed" : DEFAULT_LIVE_TV_PREFERENCES.columnStop;
 }
 
 /** Playlist URL to limit, keeping only the limits a viewer can set. */

@@ -114,6 +114,23 @@ describe("live TV preferences", () => {
     expect(parseLiveTvPreferences({ compactColumn: 1 }).columnStop).toBe("default");
   });
 
+  it("opens the guide's channel column at the wide stop on iPad and Mac, and at the default stop on iPhone and Apple TV", () => {
+    const stopOn = (device: string) => {
+      let stop: string | undefined;
+      jest.isolateModules(() => {
+        jest.doMock("@/utils/hostEnvironment", () => ({ THIS_DEVICE: device }));
+        const preferences = require("@/services/liveTvPreferences") as typeof import("@/services/liveTvPreferences");
+        stop = preferences.parseLiveTvPreferences({ compactColumn: false }).columnStop;
+        expect(preferences.parseLiveTvPreferences({ columnStop: "default" }).columnStop).toBe("default");
+      });
+      return stop;
+    };
+    expect(stopOn("iPad")).toBe("wide");
+    expect(stopOn("Mac")).toBe("wide");
+    expect(stopOn("iPhone")).toBe("default");
+    expect(stopOn("Apple TV")).toBe("default");
+  });
+
   it("reads a favorites-only document from the previous build as the Favorites filter", () => {
     expect(parseLiveTvPreferences({ favoritesOnly: true }).filter).toBe("favorites");
     expect(parseLiveTvPreferences({ favoritesOnly: false }).filter).toBe("all");
