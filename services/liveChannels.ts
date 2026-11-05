@@ -17,6 +17,7 @@ configureLive<JellyfinVideoItem>({
     streamUrl: (item) => item.liveStreamUrl,
     name: (item) => item.Name,
     canPlayOnDevice: (item) => canRemuxLocally(item, { record: false }),
+    originKey: (item) => item.liveOriginKey,
     startSession: (item, options) => startLocalRemux(item, undefined, undefined, options),
     // Only a filter change replaces the rows; favorites and guide edits write the same store.
     subscribeListChange: (listener) => {

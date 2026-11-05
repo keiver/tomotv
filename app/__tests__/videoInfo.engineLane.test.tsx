@@ -22,6 +22,7 @@ const item = {
 jest.mock("expo-router", () => ({
   useLocalSearchParams: () => ({ videoId: "item-1" }),
   useRouter: () => ({ back: jest.fn(), push: jest.fn(), replace: jest.fn() }),
+  useNavigationContainerRef: () => ({ isReady: () => false }),
 }));
 
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));

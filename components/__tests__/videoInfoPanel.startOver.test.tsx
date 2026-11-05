@@ -11,7 +11,7 @@ const film = { Id: "m-1", Name: "A Film", Type: "Movie", ImageTags: {}, MediaStr
 const started = { ...film, UserData: { PlaybackPositionTicks: 600_000_000 } } as unknown as JellyfinItem;
 const mockRouter = { back: jest.fn(), push: jest.fn(), replace: jest.fn() };
 
-jest.mock("expo-router", () => ({ useRouter: () => mockRouter }));
+jest.mock("expo-router", () => ({ useRouter: () => mockRouter, useNavigationContainerRef: () => ({ isReady: () => false }) }));
 jest.mock("react-native-gesture-handler", () => {
   const chain: any = new Proxy(() => chain, { get: () => () => chain, apply: () => chain });
   return { Gesture: { Native: () => chain }, GestureDetector: ({ children }: { children: React.ReactNode }) => children };

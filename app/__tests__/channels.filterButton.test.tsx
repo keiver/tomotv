@@ -1,4 +1,4 @@
-/** The wall's filter button: always in the bar, filled while a group holds the list, a press opens the Groups picker. */
+/** The wall's filter button: always in the bar, filled while a group holds the list, a press opens the Groups picker. The Multiview button leads the bar once the wall lists two channels. */
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 
@@ -29,11 +29,13 @@ jest.mock("@/components/sf-symbol-icon", () => ({ SfSymbolIcon: () => null }));
 jest.mock("@/components/header-search-reveal", () => ({ HeaderSearchReveal: () => null }));
 jest.mock("@/contexts/LoadingContext", () => ({ useLoadingActions: () => ({ showGlobalLoader: jest.fn() }) }));
 jest.mock("@/hooks/useCardPalette", () => ({ useCardPalette: () => ({ accent: "#FFC312" }) }));
+jest.mock("@/components/glass-button", () => ({ GlassButton: () => null }));
 jest.mock("@/hooks/useItemLongPress", () => ({ useItemLongPress: () => jest.fn() }));
 jest.mock("@/hooks/useLiveTvSearchRefresh", () => ({ useLiveTvSearchRefresh: () => undefined }));
 jest.mock("@/hooks/useChannelFavoritesSync", () => ({ useChannelFavoritesSync: () => undefined }));
+let mockItems: { Id: string; Name: string; Type: string }[] = [];
 jest.mock("@/hooks/useChannels", () => ({
-  useChannels: () => ({ items: [], isLoading: false, isLoadingMore: false, hasMore: false, error: null, loadMore: jest.fn(), retry: jest.fn() }),
+  useChannels: () => ({ items: mockItems, isLoading: false, isLoadingMore: false, hasMore: false, error: null, loadMore: jest.fn(), retry: jest.fn() }),
 }));
 jest.mock("@/hooks/useLiveTvPreferences", () => ({ useLiveTvPreferences: () => ({ filter: mockFilter, sort: "number", hideOffline: false, autoUpdate: true }) }));
 jest.mock("@/hooks/useOpenShelfItem", () => ({ useOpenShelfItem: () => jest.fn() }));
@@ -67,7 +69,23 @@ function render(filter: string) {
   return { labels: items.map((item) => item.label), items, tvAction };
 }
 
-beforeEach(() => mockPush.mockClear());
+beforeEach(() => {
+  mockPush.mockClear();
+  mockItems = [];
+});
+
+test("with two channels on the wall, a Multiview button leads the bar and opens Multiview; with one, there is none", () => {
+  mockItems = [
+    { Id: "c1", Name: "One", Type: "TvChannel" },
+    { Id: "c2", Name: "Two", Type: "TvChannel" },
+  ];
+  const { labels, items } = render("all");
+  expect(labels).toEqual(["liveTv.multiview", "tab.search", "liveTv.groups", "settings.title"]);
+  items[0].onPress();
+  expect(mockPush).toHaveBeenLastCalledWith("/multiview");
+  mockItems = [{ Id: "c1", Name: "One", Type: "TvChannel" }];
+  expect(render("all").labels).toEqual(["tab.search", "liveTv.groups", "settings.title"]);
+});
 
 test("with every channel shown, the filter button sits before Settings with its outline symbol", () => {
   const { labels, items, tvAction } = render("all");

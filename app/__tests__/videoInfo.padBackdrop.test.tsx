@@ -26,6 +26,7 @@ const mockBack = jest.fn();
 jest.mock("expo-router", () => ({
   useLocalSearchParams: () => ({ videoId: "item-1" }),
   useRouter: () => ({ back: mockBack, push: jest.fn(), replace: jest.fn() }),
+  useNavigationContainerRef: () => ({ isReady: () => false }),
 }));
 
 jest.mock("expo-blur", () => {

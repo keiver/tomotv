@@ -3,11 +3,11 @@
  * focus dwell and adopted by the player when the card is played, so the play press binds instead of opening cold.
  * The card itself keeps its recorded clip. Nothing here ever opens a server stream.
  */
-import { engineLog, localRemuxToken, originHeld, setLiveSessionPriority, setLiveWindow, stopLocalRemux, subscribeEngineFailure, subscribeEngineThroughput } from "@keiver/tomo-engine";
+import { engineLog, setLiveSessionPriority, setLiveWindow, stopLocalRemux, subscribeEngineFailure, subscribeEngineThroughput } from "@keiver/tomo-engine";
 import { AppState } from "react-native";
+import { startChannelSession } from "./channelSession";
 import { liveChannels } from "./config";
 import type { RingSession } from "./liveRing";
-import { playlistChannelById } from "./playlistChannels";
 
 /** The session's window until a player adopts it; disk, not playback, is what it bounds. */
 const PREVIEW_WINDOW_SECONDS = 20;
@@ -43,19 +43,10 @@ function clearGrace(): void {
 }
 
 async function start(channelId: string, mine: number): Promise<void> {
-  let token: string | null = null;
-  if (originHeld(playlistChannelById(channelId)?.originKey)) return;
   try {
-    const channels = liveChannels();
-    const details = await channels.resolveWithoutOpen(channelId);
-    if (mine !== generation || !details || !channels.streamUrl(details) || !(await channels.canPlayOnDevice(details))) return;
-    const url = await channels.startSession(details, { prewarm: true, liveWindowSeconds: PREVIEW_WINDOW_SECONDS, livePriority: "preview" });
-    token = localRemuxToken(url);
-    if (!token || mine !== generation) {
-      void stopLocalRemux(token);
-      return;
-    }
-    const held = token;
+    const started = await startChannelSession(channelId, { windowSeconds: PREVIEW_WINDOW_SECONDS, priority: "preview", current: () => mine === generation });
+    if (typeof started === "string") return;
+    const { details, url, token: held } = started;
     const preview: Preview = { channelId, details, url, token: held, segmentsCut: 0, unsubscribe: () => {} };
     const stopThroughput = subscribeEngineThroughput(held, () => {
       preview.segmentsCut += 1;
@@ -69,7 +60,6 @@ async function start(channelId: string, mine: number): Promise<void> {
     };
     current = preview;
   } catch (error) {
-    void stopLocalRemux(token);
     engineLog().debug("Live preview did not start", { service: "LivePreview", channelId, error: String(error) });
   }
 }

@@ -76,6 +76,7 @@ import {
 } from "@/services/localRemux";
 import { retainLiveSession, takeRingSession, takeWarmDetails, yieldLiveRing } from "@/services/liveRing";
 import { takeLivePreview } from "@/services/livePreview";
+import { retainLiveTile, takeLiveTile } from "@/services/liveTiles";
 import { refreshLiveFrameWhilePlaying } from "@/services/liveFrames";
 import { admitOnOneConnection, admitUntilPlaying, isAdmitting, isChannelHeld } from "@/services/recordingHold";
 import { recordTimeoutVerdict, rememberedVerdict, recordVerdict } from "@/services/engineVerdicts";
@@ -621,9 +622,9 @@ export function useVideoPlayback(config: VideoPlaybackConfig): VideoPlaybackResu
     () =>
       new LivePlayback<JellyfinVideoItem>({
         closeChannel: (item) => void closeLiveStream(item.LiveStreamId),
-        takeHot: async (id) => (await takeRingSession(id)) ?? takeLivePreview(id),
+        takeHot: async (id) => (await takeRingSession(id)) ?? takeLivePreview(id) ?? takeLiveTile(id),
         takeWarm: takeWarmDetails,
-        retain: retainLiveSession,
+        retain: (channel) => retainLiveTile(channel) || retainLiveSession(channel),
         stopSession: stopLocalRemux,
         openChannel: fetchVideoDetails,
         isChannel: isChannelItem,

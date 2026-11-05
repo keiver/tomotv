@@ -61,7 +61,7 @@ import { useFolderDownload } from "@/hooks/useFolderDownload";
 import { useItemDownload } from "@/hooks/useItemDownload";
 import { downloadsSupported } from "@/services/downloads/paths";
 import { useIsAdministrator } from "@/hooks/useIsAdministrator";
-import { useShowInFolder } from "@/hooks/useShowInFolder";
+import { useShowInFolder, whenRootStateSettles } from "@/hooks/useShowInFolder";
 import { CATEGORY_LABELS } from "@/utils/channelGroups";
 import { useLiveTvManagement } from "@/hooks/useLiveTvManagement";
 import { useRecordActions } from "@/hooks/useRecordActions";
@@ -83,7 +83,7 @@ import { subscribe as subscribeSyncPlay } from "@/services/syncPlayManager";
 import { Ionicons } from "@expo/vector-icons";
 import { Image, type ImageRef } from "expo-image";
 
-import { useRouter } from "expo-router";
+import { useNavigationContainerRef, useRouter } from "expo-router";
 import React, { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Alert, findNodeHandle, Platform, ScrollView, StyleSheet, Text, TVFocusGuideView, useWindowDimensions, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -513,6 +513,16 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
     void showInFolder(details, { dismissFirst: true });
   }, [details, showInFolder]);
 
+  // Multiview opens with this channel on the main stage, pushed once the panel's dismissal has landed.
+  const navigationRef = useNavigationContainerRef();
+  const handleWatchInMultiview = useCallback(async () => {
+    if (!details) return;
+    const before = navigationRef.isReady() ? navigationRef.getRootState() : undefined;
+    router.back();
+    await whenRootStateSettles(navigationRef, before);
+    router.push({ pathname: "/multiview", params: { channelId: details.Id } });
+  }, [details, router, navigationRef]);
+
   const subtitlePanel = useSubtitlePanel(details?.Id ?? "", null);
   const handleFindSubtitles = useCallback(() => {
     if (!details) return;
@@ -829,6 +839,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
     ...(canFindSubtitles ? [{ key: "subtitles", icon: "text-outline" as const, label: t("info.findSubtitles"), word: t("info.word.subtitles"), onPress: handleFindSubtitles }] : []),
     ...(liveChannel
       ? [
+          { key: "multiview", icon: "grid-outline" as const, label: t("liveTv.watchInMultiview"), word: t("info.word.multiview"), onPress: () => void handleWatchInMultiview() },
           { key: "rename", icon: "pencil-outline" as const, label: t("liveTv.renameChannel"), word: t("info.word.rename"), onPress: handleRenameChannel },
           { key: "hide", icon: "eye-off-outline" as const, label: t("liveTv.hideChannel"), word: t("info.word.hide"), onPress: handleHideChannel },
         ]

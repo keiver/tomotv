@@ -16,8 +16,10 @@ export interface LiveChannels<Item = unknown> {
   streamUrl(item: Item): string | undefined;
   name(item: Item): string;
   canPlayOnDevice(item: Item): Promise<boolean>;
+  /** The provider whose connection budget the item's reads spend; the stream URL's host when absent. */
+  originKey?(item: Item): string | undefined;
   /** Starts an engine session for the item; resolves to its master playlist URL. */
-  startSession(item: Item, options: { prewarm: true; liveWindowSeconds: number; livePriority?: "preview" }): Promise<string>;
+  startSession(item: Item, options: { prewarm: true; liveWindowSeconds: number; livePriority?: "preview" | "playback" }): Promise<string>;
   /** Fires when the channel list on screen changes, so grabs for the old list stop. */
   subscribeListChange(listener: () => void): () => void;
 }

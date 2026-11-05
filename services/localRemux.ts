@@ -737,7 +737,14 @@ export async function startLocalRemux(
   // prewarm: a live ring neighbour no player reads yet, kept out of the plan and probe the playing session owns.
   // selectedSubtitleIndex: the track the stored choice lands on, decoded from the start with the default and forced ones.
   // audioLanguage: live, the language made the default rendition; the stored audio preference when absent.
-  options: { prewarm?: boolean; liveWindowSeconds?: number; serverVideoOnly?: boolean; livePriority?: "preview" | "ring"; selectedSubtitleIndex?: number | null; audioLanguage?: string } = {},
+  options: {
+    prewarm?: boolean;
+    liveWindowSeconds?: number;
+    serverVideoOnly?: boolean;
+    livePriority?: "preview" | "ring" | "playback";
+    selectedSubtitleIndex?: number | null;
+    audioLanguage?: string;
+  } = {},
 ): Promise<string> {
   if (!isLocalRemuxAvailable()) {
     throw new Error("Local remux native module not available on this platform");

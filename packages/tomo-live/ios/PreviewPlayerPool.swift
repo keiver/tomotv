@@ -71,6 +71,10 @@ final class PreviewPlayerPool {
     hosting.first { $0.view === view }?.player.layout(in: view)
   }
 
+  func player(in view: LiveClipView) -> PreviewPlayer? {
+    hosting.first { $0.view === view }?.player
+  }
+
   private func take() -> PreviewPlayer? {
     hosting.removeAll { $0.view == nil }
     guard !lowPower, hosting.count < limit else { return nil }
@@ -82,8 +86,9 @@ final class PreviewPlayerPool {
 
   private func lend(_ player: PreviewPlayer, to view: LiveClipView, playing url: URL) {
     hosting.append(Hosting(view: view, player: player))
-    player.attach(to: view, playing: url)
-    NSLog("[LiveClip] %@", "playing \(hosting.count) of \(limit)")
+    player.attach(to: view, playing: url, live: view.live)
+    player.setMuted(view.muted)
+    NSLog("[LiveClip] %@", "playing \(hosting.count) of \(limit)\(view.live ? ", live" : "")")
   }
 
   private func free(at index: Int) {

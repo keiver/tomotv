@@ -7,6 +7,7 @@ import { engineProgress, localRemuxToken, stopLocalRemux, subscribeEngineFailure
 import { isPermanentLiveFailure, liveReopenCount, planLiveRecovery, type LiveRecoveryDecision } from "./liveRecovery";
 import { takeLivePreview } from "./livePreview";
 import { retainLiveSession, takeRingSession, takeWarmDetails, type HotChannel, type RingSession } from "./liveRing";
+import { retainLiveTile, takeLiveTile } from "./liveTiles";
 import { liveStartBufferSeconds } from "./startBuffer";
 
 export interface LiveSessionWatch {
@@ -343,7 +344,7 @@ export class LivePlayback<Item> {
   private async take(channelId: string, current: () => boolean): Promise<{ item: Item | null; token: string | null }> {
     this.dropAdopted();
     this.channelId = channelId;
-    const hot = await (this.deps.takeHot ?? ((id: string) => takeRingSession<Item>(id).then((ring) => ring ?? takeLivePreview<Item>(id))))(channelId);
+    const hot = await (this.deps.takeHot ?? ((id: string) => takeRingSession<Item>(id).then((ring) => ring ?? takeLivePreview<Item>(id) ?? takeLiveTile<Item>(id))))(channelId);
     if (hot && !current()) {
       this.stopSession(hot.token);
       this.deps.closeChannel(hot.details);
@@ -434,7 +435,11 @@ export class LivePlayback<Item> {
     this.endWatch();
     const { channelId, item, session } = this;
     const retained =
-      keepHot && channelId !== null && item !== null && session !== null && (this.deps.retain ?? retainLiveSession)({ channelId, details: item, url: session.url, token: session.token });
+      keepHot &&
+      channelId !== null &&
+      item !== null &&
+      session !== null &&
+      (this.deps.retain ?? ((channel: HotChannel<Item>) => retainLiveTile(channel) || retainLiveSession(channel)))({ channelId, details: item, url: session.url, token: session.token });
     if (!retained && item !== null) this.deps.closeChannel(item);
     this.item = null;
     this.session = null;

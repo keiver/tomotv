@@ -18,7 +18,7 @@ const DISMISS_SETTLE_TIMEOUT_MS = 400;
  * still on top of the ROOT stack: it diverges there and forks a second (tabs) instance instead of
  * pushing into the library's own stack. Waiting for the pop to land puts the push in a later drain.
  */
-function whenRootStateSettles(ref: ContainerRef, from: unknown): Promise<void> {
+export function whenRootStateSettles(ref: ContainerRef, from: unknown): Promise<void> {
   return new Promise<void>((resolve) => {
     if (!ref.isReady() || ref.getRootState() !== from) {
       resolve();

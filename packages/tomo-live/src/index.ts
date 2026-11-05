@@ -10,6 +10,8 @@ export * from "./livePreview";
 export * from "./liveRecovery";
 export * from "./liveRing";
 export * from "./liveSession";
+export * from "./liveTiles";
+export * from "./multiviewLayout";
 export * from "./openFailures";
 export * from "./playbackHold";
 export * from "./playlistChannels";

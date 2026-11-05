@@ -109,8 +109,10 @@ const SERVER_ORIGIN = "server";
 const listeners = new Map<string, Set<() => void>>();
 /** A seed from disk in flight; a viewable set that changes while it runs waits for it. */
 let seeding: Promise<void> | null = null;
-/** The guide's channel column or the channel wall: whichever is the screen feeds the sampler. */
-export type LiveFrameSurface = "guide" | "wall";
+/** The guide's channel column, the channel wall or multiview's tiles not playing live: whichever is the screen feeds the sampler. */
+export type LiveFrameSurface = "guide" | "wall" | "multiview";
+/** Providers whose only connection a multiview main is playing on: their channels wait until it lets go. */
+const mainHeldOrigins = new Set<string>();
 
 /** Channels in view on the active surface: the rows wholly on screen in order, the lookahead row, then the rows partly shown. */
 let viewable: string[] = [];
@@ -373,8 +375,11 @@ function byFocus(): string[] {
 function nextDue(now: number): { channelId: string; waitMs: number } | null {
   // The focused card first: while it reads, only a card known to read another provider reads beside it; nothing
   // else does while it is stale, except while it waits out a failure.
-  // A recording holding a card's one-connection provider leaves it out until the recording ends.
-  const free = (channelId: string) => !isTunerChannel(channelId) && !originHeld(playlistChannelById(channelId)?.originKey);
+  // A recording or a multiview main holding a card's one-connection provider leaves it out until it lets go.
+  const free = (channelId: string) => {
+    const originKey = playlistChannelById(channelId)?.originKey ?? entries.get(channelId)?.originKey;
+    return !isTunerChannel(channelId) && !originHeld(originKey) && !(originKey !== undefined && mainHeldOrigins.has(originKey));
+  };
   const focused = focusedStale(now);
   const stale = focused && free(focused) ? focused : null;
   let held: string | undefined;
@@ -698,6 +703,23 @@ export function refreshLiveFrameWhilePlaying(channelId: string, sessionUrl: stri
       cancelLiveFrame(channelId);
     }
   };
+}
+
+/** A multiview main plays on the provider's only connection (`held`), or let it go for a round of grabs. */
+export function setLiveFrameOriginHold(originKey: string, held: boolean): void {
+  if (held) {
+    mainHeldOrigins.add(originKey);
+    for (const channelId of grabbing.keys()) {
+      const key = playlistChannelById(channelId)?.originKey ?? entries.get(channelId)?.originKey;
+      if (key === originKey) {
+        stopped.add(channelId);
+        cancelLiveFrame(channelId);
+      }
+    }
+    return;
+  }
+  if (!mainHeldOrigins.delete(originKey)) return;
+  schedule(0);
 }
 
 /** The card's picture: the newest valid frame, held until a grab brings a newer one. */

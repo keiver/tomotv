@@ -1,4 +1,5 @@
 import { AmbientBackground } from "@/components/ambient-background";
+import { GlassButton } from "@/components/glass-button";
 import { LibraryGrid } from "@/components/library-grid";
 import { ShowAllChannels } from "@/components/live-tv/show-all-channels";
 import { SfSymbolIcon } from "@/components/sf-symbol-icon";
@@ -9,17 +10,14 @@ import { useCardPalette } from "@/hooks/useCardPalette";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { useLiveTvSearchRefresh } from "@/hooks/useLiveTvSearchRefresh";
 import { useChannelFavoritesSync } from "@/hooks/useChannelFavoritesSync";
-import { useChannels } from "@/hooks/useChannels";
+import { useChannelWall } from "@/hooks/useChannelWall";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
-import { usePlaylistChannelIds } from "@/hooks/useTunerGroups";
-import { useHealthGeneration } from "@/hooks/useChannelHealth";
-import { healthFor } from "@/services/channelHealth";
 import { t } from "@/services/i18n";
 import { fetchTimers, searchLiveTv, warmLiveTvSearch } from "@/services/jellyfinApi";
 import { reportRecordingTimers } from "@/services/recordingStatus";
 import { requestSearchFocus } from "@/services/searchFocus";
-import { activeCategory, activeChannelList, isFavoriteChannel } from "@/services/liveTvPreferences";
+import { isFavoriteChannel } from "@/services/liveTvPreferences";
 import type { FolderStackEntry, JellyfinItem, JellyfinTimer, JellyfinVideoItem } from "@/types/jellyfin";
 import { activeRecordTimer, programRecording } from "@/utils/guide";
 import { logger } from "@/utils/logger";
@@ -41,25 +39,8 @@ export default function ChannelsScreen() {
   const { showGlobalLoader } = useLoadingActions();
   const preferences = useLiveTvPreferences();
   useChannelFavoritesSync();
-  const playlistIds = usePlaylistChannelIds(preferences.filter);
-  const category = activeCategory(preferences.filter);
-  const {
-    items: listed,
-    isLoading,
-    isLoadingMore,
-    hasMore,
-    error,
-    loadMore,
-    retry,
-  } = useChannels(preferences.sort, category, activeChannelList(preferences), playlistIds, category ? preferences.categoryEdits[category] : undefined);
+  const { wall, isLoading, isLoadingMore, hasMore, error, loadMore, retry } = useChannelWall(preferences);
   const filtered = preferences.filter !== "all";
-  // Hide offline narrows to channels whose health check concluded down; unchecked ones stay.
-  const healthGen = useHealthGeneration(preferences.hideOffline);
-  const wall = useMemo(
-    () => (preferences.hideOffline ? listed.filter((channel) => healthFor(channel.Id) !== "down") : listed),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- healthGen re-filters when any verdict moves
-    [listed, preferences.hideOffline, healthGen],
-  );
 
   // The targeted search: channels and programmes only, debounced like the search tab. Results
   // are remembered with the term they answer, so what shows is derived and never reset in-effect.
@@ -153,12 +134,18 @@ export default function ChannelsScreen() {
     requestSearchFocus();
     router.navigate("/(tabs)/search");
   }, [router]);
+  // Multiview opens on the group's first channel; a channel's info panel opens it on that one.
+  const canMultiview = wall.length >= 2;
+  const openMultiview = useCallback(() => router.push("/multiview"), [router]);
   const screenOptions = useMemo<NativeStackNavigationOptions>(
     () =>
       IS_TV
         ? {}
         : {
             unstable_headerRightItems: () => [
+              ...(canMultiview
+                ? [{ type: "button" as const, label: t("liveTv.multiview"), icon: { type: "sfSymbol" as const, name: "rectangle.grid.2x2" as const }, tintColor: accent, onPress: openMultiview }]
+                : []),
               { type: "button", label: t("tab.search"), icon: { type: "sfSymbol", name: "magnifyingglass" }, tintColor: accent, onPress: openSearch },
               {
                 type: "button",
@@ -170,7 +157,7 @@ export default function ChannelsScreen() {
               { type: "button", label: t("settings.title"), icon: { type: "sfSymbol", name: "gearshape" }, tintColor: accent, onPress: openSettings },
             ],
           },
-    [openSettings, openSearch, filterAction, filtered, accent],
+    [openSettings, openSearch, filterAction, filtered, accent, canMultiview, openMultiview],
   );
 
   // An empty wall keeps the bar: back, search, the filter and settings stay in reach.
@@ -197,7 +184,14 @@ export default function ChannelsScreen() {
           recordingFor={recordingFor}
           headerAction={headerAction}
           headerSecondaryAction={filterAction}
-          headerTrailing={IS_TV ? <HeaderSearchReveal key={preferences.filter} value={query} onChangeText={setQuery} placeholder={t("liveTv.searchLive")} /> : undefined}
+          headerTrailing={
+            IS_TV ? (
+              <>
+                {canMultiview ? <GlassButton accessibilityLabel={t("liveTv.multiview")} onPress={openMultiview} icon={<Ionicons name="grid-outline" size={24} color={accent} />} /> : null}
+                <HeaderSearchReveal key={preferences.filter} value={query} onChangeText={setQuery} placeholder={t("liveTv.searchLive")} />
+              </>
+            ) : undefined
+          }
           isLoading={searching ? isSearching : isLoading}
           isLoadingMore={!searching && isLoadingMore}
           hasMoreResults={!searching && hasMore}
