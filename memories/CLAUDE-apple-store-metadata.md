@@ -108,9 +108,12 @@ Tomo TV ships no media, channels, playlists or guides. It plays what your Jellyf
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
 ```
 
-### What's New (2.2.15), macOS (914 / 4000)
+### What's New (2.2.15), macOS (1106 / 4000)
 
 ```text
+- Multiview: watch several live channels at once and pick the one you hear
+- Live TV previews no longer use up your HDHomeRun's tuners
+- Jumping ahead in a video no longer freezes the picture
 - Live TV: click a channel to watch it pinned above the guide as you keep browsing, and make the picture bigger with its expand button
 - Videos start sooner after you open an item's page
 - Live channels start faster
@@ -125,9 +128,12 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 - The Find Subtitles panel has a close button, and Escape closes it
 ```
 
-### What's New (2.2.15), iOS (822 / 4000)
+### What's New (2.2.15), iOS (1014 / 4000)
 
 ```text
+- Multiview: watch several live channels at once and pick the one you hear
+- Live TV previews no longer use up your HDHomeRun's tuners
+- Jumping ahead in a video no longer freezes the picture
 - Live TV: tap a channel to watch it pinned above the guide as you keep browsing, and swipe it down for a bigger picture
 - Videos start sooner after you open an item's page
 - Live channels start faster
@@ -141,9 +147,12 @@ Tomo TV is a free, open-source, independent client for Jellyfin and is not affil
 - The Find Subtitles panel has a close button
 ```
 
-### What's New (2.2.15), tvOS (726 / 4000)
+### What's New (2.2.15), tvOS (918 / 4000)
 
 ```text
+- Multiview: watch several live channels at once and pick the one you hear
+- Live TV previews no longer use up your HDHomeRun's tuners
+- Jumping ahead in a video no longer freezes the picture
 - Videos start sooner after you open an item's page
 - Live channels start faster
 - A live channel that stutters as it starts pauses once to catch up, instead of stopping again and again
@@ -626,9 +635,12 @@ Tomo TV enthält keine Medien, Kanäle, Wiedergabelisten oder Fernsehprogramme. 
 Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin und steht in keiner Verbindung zum Jellyfin-Projekt und wird von ihm nicht unterstützt. Jellyfin ist eine Marke des jeweiligen Inhabers.
 ```
 
-#### What's New (2.2.15), macOS (1057 / 4000)
+#### What's New (2.2.15), macOS (1268 / 4000)
 
 ```text
+- Multiview: Sieh mehrere Live-Kanäle gleichzeitig und wähle, welchen du hörst
+- Live-TV-Vorschauen belegen keine Tuner deines HDHomeRun mehr
+- Ein Sprung nach vorn in einem Video friert das Bild nicht mehr ein
 - Live-TV: Klicke auf einen Kanal, um ihn über dem Fernsehprogramm angeheftet zu sehen, während du weiterstöberst, und vergrößere das Bild mit seiner Vergrößern-Taste
 - Videos starten schneller, nachdem du die Seite eines Titels geöffnet hast
 - Live-Kanäle starten schneller
@@ -643,9 +655,12 @@ Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin
 - Das Fenster „Untertitel suchen“ hat eine Schließen-Taste, und Esc schließt es
 ```
 
-#### What's New (2.2.15), iOS (972 / 4000 chars)
+#### What's New (2.2.15), iOS (1183 / 4000 chars)
 
 ```text
+- Multiview: Sieh mehrere Live-Kanäle gleichzeitig und wähle, welchen du hörst
+- Live-TV-Vorschauen belegen keine Tuner deines HDHomeRun mehr
+- Ein Sprung nach vorn in einem Video friert das Bild nicht mehr ein
 - Live-TV: Tippe auf einen Kanal, um ihn über dem Fernsehprogramm angeheftet zu sehen, während du weiterstöberst, und wische ihn für ein größeres Bild nach unten
 - Videos starten schneller, nachdem du die Seite eines Titels geöffnet hast
 - Live-Kanäle starten schneller
@@ -659,9 +674,12 @@ Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin
 - Das Fenster „Untertitel suchen“ hat eine Schließen-Taste
 ```
 
-#### What's New (2.2.15), tvOS (820 / 4000 chars)
+#### What's New (2.2.15), tvOS (1031 / 4000 chars)
 
 ```text
+- Multiview: Sieh mehrere Live-Kanäle gleichzeitig und wähle, welchen du hörst
+- Live-TV-Vorschauen belegen keine Tuner deines HDHomeRun mehr
+- Ein Sprung nach vorn in einem Video friert das Bild nicht mehr ein
 - Videos starten schneller, nachdem du die Seite eines Titels geöffnet hast
 - Live-Kanäle starten schneller
 - Ein Live-Kanal, der beim Start stockt, hält einmal kurz an, statt immer wieder zu stoppen
@@ -1122,9 +1140,12 @@ Tomo TV ne fournit aucun média, chaîne, liste de lecture ni guide. L'app lit c
 Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'est ni affilié au projet Jellyfin ni approuvé par lui. Jellyfin est une marque de son détenteur respectif.
 ```
 
-#### What's New (2.2.15), macOS (1109 / 4000)
+#### What's New (2.2.15), macOS (1337 / 4000)
 
 ```text
+- Multivue : regardez plusieurs chaînes en direct à la fois et choisissez celle que vous entendez
+- Les aperçus de la TV en direct n'occupent plus les tuners de votre HDHomeRun
+- Avancer loin dans une vidéo ne fige plus l'image
 - TV en direct : cliquez sur une chaîne pour la regarder épinglée au-dessus du guide pendant que vous continuez à naviguer, et agrandissez l'image avec son bouton d'agrandissement
 - Les vidéos démarrent plus vite une fois la page d'un titre ouverte
 - Les chaînes en direct démarrent plus vite
@@ -1139,9 +1160,12 @@ Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'e
 - Le panneau Chercher des sous-titres a un bouton de fermeture, et Échap le ferme
 ```
 
-#### What's New (2.2.15), iOS (1001 / 4000 chars)
+#### What's New (2.2.15), iOS (1229 / 4000 chars)
 
 ```text
+- Multivue : regardez plusieurs chaînes en direct à la fois et choisissez celle que vous entendez
+- Les aperçus de la TV en direct n'occupent plus les tuners de votre HDHomeRun
+- Avancer loin dans une vidéo ne fige plus l'image
 - TV en direct : touchez une chaîne pour la regarder épinglée au-dessus du guide pendant que vous continuez à naviguer, et balayez-la vers le bas pour agrandir l'image
 - Les vidéos démarrent plus vite une fois la page d'un titre ouverte
 - Les chaînes en direct démarrent plus vite
@@ -1155,9 +1179,12 @@ Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'e
 - Le panneau Chercher des sous-titres a un bouton de fermeture
 ```
 
-#### What's New (2.2.15), tvOS (874 / 4000 chars)
+#### What's New (2.2.15), tvOS (1102 / 4000 chars)
 
 ```text
+- Multivue : regardez plusieurs chaînes en direct à la fois et choisissez celle que vous entendez
+- Les aperçus de la TV en direct n'occupent plus les tuners de votre HDHomeRun
+- Avancer loin dans une vidéo ne fige plus l'image
 - Les vidéos démarrent plus vite une fois la page d'un titre ouverte
 - Les chaînes en direct démarrent plus vite
 - Une chaîne en direct qui saccade au démarrage fait une seule pause pour se rattraper, au lieu de s'arrêter encore et encore
@@ -1618,9 +1645,12 @@ Tomo TV no incluye contenido, canales, listas de reproducción ni guías. Reprod
 Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin, y no está afiliado al proyecto Jellyfin ni respaldado por él. Jellyfin es una marca de su titular correspondiente.
 ```
 
-#### What's New (2.2.15), macOS (1068 / 4000)
+#### What's New (2.2.15), macOS (1278 / 4000)
 
 ```text
+- Multivista: mira varios canales en vivo a la vez y elige cuál escuchas
+- Las vistas previas de TV en vivo ya no ocupan los sintonizadores de tu HDHomeRun
+- Saltar adelante en un video ya no congela la imagen
 - TV en vivo: haz clic en un canal para verlo fijado sobre la guía mientras sigues navegando, y amplía la imagen con su botón para ampliar
 - Los videos empiezan antes cuando abres la página de un título
 - Los canales en vivo empiezan más rápido
@@ -1635,9 +1665,12 @@ Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin
 - El panel Buscar subtítulos tiene un botón para cerrar, y Esc lo cierra
 ```
 
-#### What's New (2.2.15), iOS (971 / 4000 chars)
+#### What's New (2.2.15), iOS (1181 / 4000 chars)
 
 ```text
+- Multivista: mira varios canales en vivo a la vez y elige cuál escuchas
+- Las vistas previas de TV en vivo ya no ocupan los sintonizadores de tu HDHomeRun
+- Saltar adelante en un video ya no congela la imagen
 - TV en vivo: toca un canal para verlo fijado sobre la guía mientras sigues navegando, y deslízalo hacia abajo para ver la imagen más grande
 - Los videos empiezan antes cuando abres la página de un título
 - Los canales en vivo empiezan más rápido
@@ -1651,9 +1684,12 @@ Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin
 - El panel Buscar subtítulos tiene un botón para cerrar
 ```
 
-#### What's New (2.2.15), tvOS (863 / 4000 chars)
+#### What's New (2.2.15), tvOS (1073 / 4000 chars)
 
 ```text
+- Multivista: mira varios canales en vivo a la vez y elige cuál escuchas
+- Las vistas previas de TV en vivo ya no ocupan los sintonizadores de tu HDHomeRun
+- Saltar adelante en un video ya no congela la imagen
 - Los videos empiezan antes cuando abres la página de un título
 - Los canales en vivo empiezan más rápido
 - Un canal en vivo que se entrecorta al empezar hace una sola pausa para ponerse al día, en lugar de detenerse una y otra vez

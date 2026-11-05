@@ -34,14 +34,17 @@ configureLive({
     streamUrl,
     name,
     canPlayOnDevice,
+    originKey, // optional: the provider whose connection budget an item's reads spend
     startSession,
     subscribeListChange,
   },
 });
 ```
 
-`LiveChannels` in `src/config.ts` documents each member. Logging goes through the engine's
-`configureEngine({ log })`.
+`LiveChannels` in `src/config.ts` documents each member. `resolveOrigin` answers `"tuner"` for a
+channel only a hardware tuner carries (an HDHomeRun behind Jellyfin): the services then open it
+only to play it, never for a card picture, a preview, a warm neighbour or a multiview satellite.
+Logging goes through the engine's `configureEngine({ log })`.
 
 ## Live playback controller
 
