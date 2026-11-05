@@ -49,6 +49,7 @@ import {
   stopFrameProvider,
   stopLocalRemux,
   stopPlaylistShim,
+  subscribeOriginConnectionBudget,
   subscribeOriginHolds,
 } from "../src/session";
 import { fittedIFrameSize, iframeStreamInf } from "../src/tags";
@@ -345,6 +346,20 @@ describe("setOriginConnectionBudget", () => {
   it("is false when the engine refuses", async () => {
     mockRemuxer!.setOriginBudget = jest.fn().mockRejectedValue(new Error("x"));
     await expect(setOriginConnectionBudget("provider-a", 1)).resolves.toBe(false);
+  });
+
+  it("tells its subscribers when a provider's limit changes, and not when it is set to the same", async () => {
+    mockRemuxer!.setOriginBudget = jest.fn().mockResolvedValue(undefined);
+    const listener = jest.fn();
+    const stop = subscribeOriginConnectionBudget(listener);
+    await setOriginConnectionBudget("provider-signal", 1);
+    await setOriginConnectionBudget("provider-signal", 1);
+    await setOriginConnectionBudget("provider-signal", 0);
+    expect(listener).toHaveBeenCalledTimes(2);
+    stop();
+    await setOriginConnectionBudget("provider-signal", 3);
+    expect(listener).toHaveBeenCalledTimes(2);
+    await setOriginConnectionBudget("provider-signal", 0);
   });
 });
 

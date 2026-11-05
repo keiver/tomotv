@@ -218,6 +218,15 @@ export function describedSessionConfig(input: DescribedSessionInput): EngineSess
 }
 
 const setLimits = new Map<string, number>();
+const budgetListeners = new Set<() => void>();
+
+/** Called whenever setOriginConnectionBudget changes a provider's limit. */
+export function subscribeOriginConnectionBudget(listener: () => void): () => void {
+  budgetListeners.add(listener);
+  return () => {
+    budgetListeners.delete(listener);
+  };
+}
 
 /**
  * How many connections a provider allows this device at once, for every read that names `originKey`;
@@ -228,8 +237,10 @@ export async function setOriginConnectionBudget(originKey: string, connections: 
   const limit = Number.isFinite(connections) && connections > 0 ? Math.floor(connections) : 0;
   try {
     await engineModule().setOriginBudget(originKey, limit);
+    const before = setLimits.get(originKey);
     if (limit > 0) setLimits.set(originKey, limit);
     else setLimits.delete(originKey);
+    if ((setLimits.get(originKey) ?? 0) !== (before ?? 0)) for (const listener of budgetListeners) listener();
     return true;
   } catch (error) {
     engineLog().warn("Failed to set an origin's connection budget", error, { service: "LocalRemux" });
