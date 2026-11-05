@@ -3,7 +3,7 @@ import { GlassIconButton } from "@/components/glass-icon-button";
 import { GuideChannelCard } from "@/components/live-tv/guide-channel-card";
 import { GuideChannelTile } from "@/components/live-tv/guide-channel-tile";
 import { COLORS } from "@/constants/colors";
-import { GuidePinnedTab } from "@/components/live-tv/guide-pinned-tab";
+import { GuidePinnedTab, PINNED_EDGE } from "@/components/live-tv/guide-pinned-tab";
 import { GuidePinnedOverlay, PINNED_TEXT_INSET, type PinnedRecordButton } from "@/components/live-tv/guide-pinned-overlay";
 import { usePlayerSession, type InlineFrame } from "@/contexts/PlayerSessionContext";
 import { useCardPalette } from "@/hooks/useCardPalette";
@@ -23,8 +23,6 @@ import Animated, { LinearTransition, runOnJS, type SharedValue, useAnimatedStyle
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const OPENING_DIM = 0.3;
-/** The band's bottom edge, in the theme's accent and heavier than the rows' grid line below it. */
-const BAND_EDGE = 5;
 /** The band's swipe reaches this far below its edge. */
 const EDGE_SLOP = 20;
 const SIDE_BUTTON = 38;
@@ -341,7 +339,7 @@ export function GuidePinnedBand({
           </Animated.View>
         </GestureDetector>
       </GestureHandlerRootView>
-      <GuidePinnedTab left={PINNED_TEXT_INSET} extended={extended} swipe={tabSwipe} onToggle={toggleSize} />
+      <GuidePinnedTab left={PINNED_TEXT_INSET} extended={extended} swipe={tabSwipe} onToggle={toggleSize} name={name} />
     </Animated.View>
   );
 }
@@ -363,7 +361,7 @@ const styles = StyleSheet.create({
   },
   band: {
     overflow: "hidden",
-    borderBottomWidth: BAND_EDGE,
+    borderBottomWidth: PINNED_EDGE,
     backgroundColor: COLORS.BACKGROUND,
   },
   row: {
