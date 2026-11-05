@@ -64,11 +64,12 @@ All notable changes to Tomo TV are documented here.
 - A broken ZIP subtitle download could freeze the app (fflate 0.8.3)
 - A live channel reopened from Now Playing showed the subtitle search button, because it lost its live flag. It keeps the flag now
 - Guide download logs showed the guide's URL, which can contain the provider's username and password. They show only its host and port now (`@keiver/tomo-live@1.6.0`)
+- iPhone, iPad and Mac: a guide programme could open when you only meant to scroll. A programme now opens only on a tap; a touch that moves more than 10 pt before lifting, a drag at the edge of the guide, or a sliding palm opens nothing
 
 ### Changed
 
 - Mac: a video plays in the system player, sized to the app's window, instead of inline. A double click still toggles the letterbox
-- iPhone, iPad and Mac: the guide's channel column snaps to three widths (logos only, cards, wide cards) instead of resizing freely. The cards and rows grow with it, the width is kept on the device, and VoiceOver can adjust it
+- iPhone, iPad and Mac: the guide's channel column snaps to three widths (logos only, cards, wide cards) instead of resizing freely. The cards and rows grow with it, the width is kept on the device, and VoiceOver can adjust it. iPad and Mac start at wide cards, iPhone at cards
 - The Favorites chip starts with the heart used on guide cards
 - Server transcoding defaults to Only for unsupported files instead of When needed. A When needed saved by an earlier version reads as Only for unsupported files, because earlier versions saved the default with every change. On this level, a link that stops at open shows the error instead of turning to the server, and the device is not marked as too slow
 
