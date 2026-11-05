@@ -93,6 +93,21 @@ extension RemuxSession {
         return LiveConnectionBroker.shared.noteLost(lease) && lease.priority < .playback
     }
 
+    /// A quiet live read is kept, not reopened, on a provider of one or two connections that are all held.
+    static func keepsQuietLiveRead(budget: Int?, hasSpare: Bool) -> Bool {
+        guard let budget, budget <= 2 else { return false }
+        return !hasSpare
+    }
+
+    func keepsQuietLiveRead() -> Bool {
+        stateLock.lock()
+        let lease = inputIsFallback ? nil : inputLease
+        stateLock.unlock()
+        guard let lease else { return false }
+        let broker = LiveConnectionBroker.shared
+        return Self.keepsQuietLiveRead(budget: broker.budget(for: lease.key), hasSpare: broker.hasSpare(for: lease.key))
+    }
+
     /// The 4xx a provider gives a connection over its cap (429 has its own tag; 458 and the rest are 4XX): teaches its limit.
     static let limitErrors: Set<Int32> = errorTags(["401", "403", "429", "4XX"])
     /// Any HTTP answer but a 404 to an open: the reads below make room and the open retries. A 5xx teaches no
@@ -3176,8 +3191,8 @@ extension RemuxSession {
                 ret = 0
             } else {
                 // A live read that brings nothing for twice its longest ordinary wait (an HLS demuxer
-                // waits a segment's length for the next one) is a dead feed: the callback aborts it.
-                if config.isLive { liveReadDeadline = readStarted.addingTimeInterval(max(12, 2 * longestLiveRead)) }
+                // waits a segment's length for the next one) is a dead feed: the callback aborts it, unless the read is kept.
+                if config.isLive, !keepsQuietLiveRead() { liveReadDeadline = readStarted.addingTimeInterval(max(12, 2 * longestLiveRead)) }
                 ret = av_read_frame(input, pkt)
                 liveReadDeadline = nil
             }
