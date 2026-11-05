@@ -1,4 +1,4 @@
-/** One layout in the picker, drawn as Multiview would fit it on this screen and turned: a box per spot, the sound spot boxed in the accent with the Live TV card's edge, the group's other channels dimmer after them, a focus ring that takes no space. */
+/** One layout in the picker, drawn as Multiview would fit it on this screen as held: a rounded outline with a line round every spot and the group's other channels, in the accent with a checkmark when current and grey otherwise, an accent ring on focus that takes no space. */
 import React from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
@@ -9,7 +9,7 @@ jest.mock("@expo/vector-icons", () => ({ Ionicons: (props: object) => require("r
 jest.mock("@keiver/tomo-live", () => jest.requireActual("@keiver/tomo-live/src/multiviewLayout"));
 
 import { MULTIVIEW_LAYOUT_INSET, MultiviewLayoutOption } from "@/components/live-tv/multiview-layout-option";
-import { DESIGN, RAISED_EDGE } from "@/constants/app";
+import { COLORS } from "@/constants/colors";
 import type { MultiviewLayoutName } from "@keiver/tomo-live";
 
 const INNER = 480;
@@ -23,52 +23,93 @@ function render(layout: MultiviewLayoutName, stage = { width: 1920, height: 1080
   });
   const shapes = tree.root.findAll((node) => node.type === View && node.props.testID === "multiview-layout-shape");
   const boxes = (testID: string, shape = 0) => shapes[shape].findAll((node) => node.type === View && node.props.testID === testID).map((node) => StyleSheet.flatten(node.props.style));
-  return { tree, onPress, shapes, spots: boxes("multiview-layout-spot"), rest: boxes("multiview-layout-rest"), turned: () => boxes("multiview-layout-spot", 1) };
+  return { tree, onPress, shapes, spots: boxes("multiview-layout-spot"), rest: boxes("multiview-layout-rest") };
 }
+const rings = (tree: TestRenderer.ReactTestRenderer) =>
+  tree.root.findAll((node) => node.type === View && StyleSheet.flatten(node.props.style)?.borderColor === "#FFC312" && StyleSheet.flatten(node.props.style)?.bottom === 0);
 
 describe("MultiviewLayoutOption", () => {
-  it("draws a box for every spot with the Live TV card's edge, and the group's other channels in the strip row", () => {
+  it("draws a two point grey line round every spot and the group's other channels in the strip row, with no fill", () => {
     const { shapes, spots, rest } = render("rowThree");
     const height = StyleSheet.flatten(shapes[0].props.style).height as number;
     expect(spots).toHaveLength(6);
-    expect(spots.every((style) => style.boxShadow === RAISED_EDGE)).toBe(true);
     expect(rest).toHaveLength(3);
-    expect(rest.every((style) => (style.top as number) >= (height * 2) / 3 - 1)).toBe(true);
+    expect([...spots, ...rest].map((style) => [style.borderColor, style.borderWidth, style.backgroundColor, style.opacity])).toEqual(
+      Array.from({ length: 9 }, () => [COLORS.SURFACE_MUTED, 2, undefined, undefined]),
+    );
+    expect(rest.every((style) => (style.top as number) >= (height * 2) / 3 - 2)).toBe(true);
   });
 
   it("draws no other channels for a layout with no strip row on a 16:9 screen", () => {
     expect(render("halvesThree").rest).toHaveLength(0);
   });
 
-  it("held upright draws the tall cut, the big spot the full width, and the screen turned below it at the same width", () => {
-    const { shapes, spots, turned } = render("bigThree", { width: 393, height: 700 });
-    const [upright, wide] = shapes.map((shape) => StyleSheet.flatten(shape.props.style) as { width: number; height: number });
-    expect([upright.width, wide.width]).toEqual([INNER, INNER]);
+  it("held upright draws only the tall cut, the big spot the full width", () => {
+    const { shapes, spots } = render("bigThree", { width: 393, height: 700 });
+    expect(shapes).toHaveLength(1);
+    const upright = StyleSheet.flatten(shapes[0].props.style) as { width: number; height: number };
+    expect(upright.width).toBe(INNER);
     expect(upright.height).toBeCloseTo((INNER * 700) / 393, 5);
-    expect(wide.height).toBeCloseTo((INNER * 393) / 700, 5);
     expect(spots[0]).toMatchObject({ left: 0, top: 0, width: INNER });
-    expect(turned()[0].width).toBeLessThan(INNER);
   });
 
-  it("turned draws the wide cut and the screen held upright beside it, the same height, filling the width", () => {
+  it("turned draws only the wide cut, the full width", () => {
     const { shapes } = render("bigThree", { width: 734, height: 340 });
-    const [wide, upright] = shapes.map((shape) => StyleSheet.flatten(shape.props.style) as { width: number; height: number });
-    expect(wide.height).toBeCloseTo(upright.height, 5);
+    expect(shapes).toHaveLength(1);
+    const wide = StyleSheet.flatten(shapes[0].props.style) as { width: number; height: number };
+    expect(wide.width).toBe(INNER);
     expect(wide.width / wide.height).toBeCloseTo(734 / 340, 5);
-    expect(wide.width + upright.width + 8).toBeCloseTo(INNER, 5);
   });
 
-  it("sits on a rounded card with continuous corners, its drawings inset from the edge", () => {
-    const { tree } = render("grid4");
-    expect(StyleSheet.flatten(tree.root.findByType(TouchableOpacity).props.style)).toMatchObject({
-      width: OUTER,
-      padding: MULTIVIEW_LAYOUT_INSET,
-      borderRadius: DESIGN.BORDER_RADIUS_CARD,
-      borderCurve: "continuous",
-    });
+  it("draws no line closer to the outline than 8 points, upright or turned", () => {
+    const layouts: MultiviewLayoutName[] = ["bigThree", "bigTwo", "grid4", "rowThree", "halvesTwo", "halvesThree"];
+    for (const stage of [
+      { width: 393, height: 852 },
+      { width: 852, height: 393 },
+    ]) {
+      for (const layout of layouts) {
+        const { shapes, spots, rest } = render(layout, stage);
+        const screen = StyleSheet.flatten(shapes[0].props.style) as { width: number; height: number };
+        for (const style of [...spots, ...rest]) {
+          const left = style.left as number;
+          const top = style.top as number;
+          const right = left + (style.width as number);
+          const bottom = top + (style.height as number);
+          for (const edge of [left, screen.width - right]) expect(edge === 0 || edge < 0 || edge >= 8).toBe(true);
+          for (const edge of [top, screen.height - bottom]) expect(edge === 0 || edge < 0 || edge >= 8).toBe(true);
+          expect(top).toBeLessThanOrEqual(screen.height - 8);
+        }
+      }
+    }
   });
 
-  it("on Apple TV marks the spot with the sound with its speaker, leaving the accent to focus", () => {
+  it("draws every line and the outline in the accent when current", () => {
+    const { tree, spots } = render("grid4", undefined, true);
+    expect(spots.every((style) => style.borderColor === "#FFC312")).toBe(true);
+    expect(StyleSheet.flatten(tree.root.find((node) => node.type === View && node.props.testID === "multiview-layout-outline").props.style).borderColor).toBe("#FFC312");
+  });
+
+  it("has no background, its drawing inset from the edge inside a rounded two point accent outline the size of the screen", () => {
+    const { tree, shapes } = render("grid4", undefined, true);
+    const option = StyleSheet.flatten(tree.root.findByType(TouchableOpacity).props.style);
+    expect(option).toMatchObject({ width: OUTER, padding: MULTIVIEW_LAYOUT_INSET });
+    expect(option.backgroundColor).toBeUndefined();
+    const screen = StyleSheet.flatten(shapes[0].props.style);
+    expect(screen.backgroundColor).toBeUndefined();
+    const outline = StyleSheet.flatten(tree.root.find((node) => node.type === View && node.props.testID === "multiview-layout-outline").props.style);
+    expect(outline).toMatchObject({ width: screen.width, height: screen.height, borderWidth: 2, borderColor: "#FFC312", borderRadius: screen.borderRadius, borderCurve: "continuous" });
+    expect(outline.borderRadius).toBeGreaterThan(0);
+  });
+
+  it("shares one line between neighbouring spots and meets the outline at the edges", () => {
+    const { shapes, spots } = render("grid4", { width: 393, height: 700 });
+    const screen = StyleSheet.flatten(shapes[0].props.style) as { width: number };
+    expect(spots[0]).toMatchObject({ left: 0, top: 0 });
+    expect(spots[1].left).toBeCloseTo((spots[0].left as number) + (spots[0].width as number) - 2, 5);
+    expect((spots[1].left as number) + (spots[1].width as number)).toBeCloseTo(screen.width, 5);
+  });
+
+  it("on Apple TV marks the spot with the sound with its speaker and the current layout with a checkmark, leaving the accent ring to focus", () => {
     jest.isolateModules(() => {
       const RN = require("react-native");
       jest.spyOn(RN.Platform, "isTV", "get").mockReturnValue(true);
@@ -77,43 +118,48 @@ describe("MultiviewLayoutOption", () => {
       const { MultiviewLayoutOption: TvOption } = require("@/components/live-tv/multiview-layout-option");
       let tree!: TestRenderer.ReactTestRenderer;
       Renderer.act(() => {
-        tree = Renderer.create(R.createElement(TvOption, { layout: "grid4", width: 480, stage: { width: 1920, height: 1080 }, current: false, onPress: () => {} }));
+        tree = Renderer.create(R.createElement(TvOption, { layout: "grid4", width: 480, stage: { width: 1920, height: 1080 }, current: true, onPress: () => {} }));
       });
+      expect(tree.root.findAll((node: TestRenderer.ReactTestInstance) => (node.type as unknown) === "Ionicons" && node.props.name === "checkmark-circle")).toHaveLength(1);
+      expect(
+        tree.root.findAll(
+          (node: TestRenderer.ReactTestInstance) =>
+            typeof node.type === "string" && RN.StyleSheet.flatten(node.props.style)?.bottom === 0 && RN.StyleSheet.flatten(node.props.style)?.borderColor === "#FFC312",
+        ),
+      ).toHaveLength(0);
       const spots = tree.root.findAll((node: TestRenderer.ReactTestInstance) => node.props.testID === "multiview-layout-spot" && typeof node.type === "string");
-      expect(spots.map((node) => RN.StyleSheet.flatten(node.props.style).borderColor)).toEqual([undefined, undefined, undefined, undefined]);
+      expect(spots).toHaveLength(4);
       expect(tree.root.findAll((node: TestRenderer.ReactTestInstance) => node.props.testID === "multiview-layout-sound" && (node.type as unknown) === "Ionicons")).toHaveLength(1);
     });
   });
 
-  it("boxes the spot with the sound in a one point accent line, in both shapes", () => {
-    const { spots, turned } = render("grid4");
-    expect(spots.map((style) => style.borderColor)).toEqual(["#FFC312", undefined, undefined, undefined]);
-    expect(spots[0].borderWidth).toBe(1);
-    expect(turned()[0]).toMatchObject({ borderColor: "#FFC312", borderWidth: 1 });
+  it("shows no name and no orientation icon, and names its layout to accessibility", () => {
+    const { tree } = render("grid4");
+    expect(tree.root.findAllByType(Text)).toHaveLength(0);
+    expect(tree.root.findAll((node) => (node.type as unknown) === "Ionicons")).toHaveLength(0);
+    expect(tree.root.findByType(TouchableOpacity).props.accessibilityLabel).toBe("liveTv.layoutGrid4");
   });
 
-  it("marks each shape with a dim phone outline held upright or turned, in the order they are drawn", () => {
-    const icons = (stage: { width: number; height: number }) =>
-      render("grid4", stage)
-        .tree.root.findAll((node) => (node.type as unknown) === "Ionicons" && node.props.testID === "multiview-layout-orientation")
-        .map((node) => [node.props.name, node.props.color]);
-    expect(icons({ width: 393, height: 700 })).toEqual([
-      ["phone-portrait-outline", "#6E6E73"],
-      ["phone-landscape-outline", "#6E6E73"],
-    ]);
-    expect(icons({ width: 734, height: 340 }).map(([name]) => name)).toEqual(["phone-landscape-outline", "phone-portrait-outline"]);
-  });
-
-  it("names its layout, marks the current one, rings focus without changing its size, and reports a press", () => {
+  it("marks the current layout with an accent checkmark and no ring, the others with neither, and reports a press", () => {
+    const checks = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAll((node) => (node.type as unknown) === "Ionicons" && node.props.name === "checkmark-circle");
+    const other = render("grid4", undefined, false).tree;
+    expect(checks(other)).toHaveLength(0);
+    expect(rings(other)).toHaveLength(0);
     const { tree, onPress } = render("grid4", undefined, true);
-    expect(tree.root.findAllByType(Text).map((node) => node.props.children)).toEqual(["liveTv.layoutGrid4"]);
-    expect(tree.root.findAll((node) => (node.type as unknown) === "Ionicons" && node.props.name === "checkmark-circle")).toHaveLength(1);
+    expect(checks(tree).map((node) => node.props.color)).toEqual(["#FFC312"]);
+    expect(rings(tree)).toHaveLength(0);
+    expect(tree.root.findByType(TouchableOpacity).props.accessibilityState).toEqual({ selected: true });
+    act(() => tree.root.findByType(TouchableOpacity).props.onPress());
+    expect(onPress).toHaveBeenCalledWith("grid4");
+  });
+
+  it("rings focus without changing its size", () => {
+    const { tree } = render("grid4");
     const touch = tree.root.findByType(TouchableOpacity);
     const before = StyleSheet.flatten(touch.props.style);
     act(() => touch.props.onFocus());
     expect(StyleSheet.flatten(tree.root.findByType(TouchableOpacity).props.style)).toEqual(before);
-    expect(tree.root.findAll((node) => node.type === View && StyleSheet.flatten(node.props.style)?.borderColor === "#FFC312" && StyleSheet.flatten(node.props.style)?.bottom === 0)).toHaveLength(1);
-    act(() => touch.props.onPress());
-    expect(onPress).toHaveBeenCalledWith("grid4");
+    expect(rings(tree)).toHaveLength(1);
+    expect(StyleSheet.flatten(rings(tree)[0].props.style).borderWidth).toBeGreaterThan(1);
   });
 });
