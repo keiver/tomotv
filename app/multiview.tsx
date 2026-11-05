@@ -189,12 +189,17 @@ export default function MultiviewScreen() {
   );
   // The strip: the group's other channels, the sampler reading those in view.
   const stripIds = useMemo(() => ids.filter((id) => !arrangement.spots.includes(id)).slice(0, STRIP_LIMIT), [ids, arrangement.spots]);
-  const [stripFrom, setStripFrom] = useState(0);
-  const onStripScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    setStripFrom(Math.max(0, Math.floor(event.nativeEvent.contentOffset.x / (STRIP_WIDTH + GAP))));
-  }, []);
   const stripShown = !full && arrangement.strip && stripIds.length > 0;
-  const stripVisible = useMemo(() => (stripShown && size ? stripIds.slice(stripFrom, stripFrom + Math.ceil(size.width / (STRIP_WIDTH + GAP)) + 1) : []), [stripShown, size, stripIds, stripFrom]);
+  const stage = size ? { width: size.width, height: size.height - (stripShown ? STRIP_HEIGHT + GAP : 0), gap: GAP } : null;
+  const rects = stage ? multiviewSpots(arrangement.layout, stage) : [];
+  // A whole number of strip cards spans the first spot exactly, so the strip's lines meet the spots' lines.
+  const lead = rects[0]?.width ?? 0;
+  const perLead = Math.max(1, Math.round((lead + GAP) / (STRIP_WIDTH + GAP)));
+  const stripCard = lead > 0 ? (lead - (perLead - 1) * GAP) / perLead : STRIP_WIDTH;
+  const stripStep = stripCard + GAP;
+  const [stripFrom, setStripFrom] = useState(0);
+  const onStripScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => setStripFrom(Math.max(0, Math.floor(event.nativeEvent.contentOffset.x / stripStep))), [stripStep]);
+  const stripVisible = useMemo(() => (stripShown && size ? stripIds.slice(stripFrom, stripFrom + Math.ceil(size.width / stripStep) + 1) : []), [stripShown, size, stripIds, stripFrom, stripStep]);
   const toSound = useCallback((id: string) => save(placeChannel(arrangement, sound, id)), [arrangement, sound, save]);
 
   const autoUpdate = preferences.autoUpdate;
@@ -209,8 +214,6 @@ export default function MultiviewScreen() {
   }, [arrangement.spots, sound, stripVisible, version, full]);
   useEffect(() => () => setLiveFrameViewable("multiview", []), []);
 
-  const stage = size ? { width: size.width, height: size.height - (stripShown ? STRIP_HEIGHT + GAP : 0), gap: GAP } : null;
-  const rects = stage ? multiviewSpots(arrangement.layout, stage) : [];
   const stripTop = multiviewSpotsBottom(rects, GAP) + GAP / 2;
   const featured = multiviewFeatured(arrangement.layout);
   return (
@@ -246,7 +249,7 @@ export default function MultiviewScreen() {
           <ScrollView
             horizontal
             style={[styles.strip, { top: stripTop, height: STRIP_HEIGHT }]}
-            contentContainerStyle={{ width: stripIds.length * (STRIP_WIDTH + GAP), height: STRIP_HEIGHT }}
+            contentContainerStyle={{ width: stripIds.length * stripStep - GAP, height: STRIP_HEIGHT }}
             onScroll={onStripScroll}
             scrollEventThrottle={250}
             showsHorizontalScrollIndicator={false}>
@@ -257,7 +260,7 @@ export default function MultiviewScreen() {
                 <MultiviewTile
                   key={id}
                   channel={channel}
-                  rect={{ x: index * (STRIP_WIDTH + GAP), y: 0, width: STRIP_WIDTH, height: STRIP_HEIGHT }}
+                  rect={{ x: index * stripStep, y: 0, width: stripCard, height: STRIP_HEIGHT }}
                   main={false}
                   liveUrl={null}
                   visible={isFocused}

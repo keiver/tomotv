@@ -1,6 +1,6 @@
-/** A multiview spot: its live session with sound only on the main, else its clip, else its picture, else the channel's logo; its programme and time left; a border that keeps its space whether focused or not. */
+/** A multiview spot: its live session with sound only on the main, else its clip, else its picture, else the channel's logo; its programme and time left; a focus ring that takes no space. */
 import React from "react";
-import { StyleSheet, Text, TouchableOpacity } from "react-native";
+import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 
 let mockFrame: { uri: string; cacheKey: string } | undefined;
@@ -68,12 +68,16 @@ describe("MultiviewTile", () => {
     expect(texts).toContain("Evening News · 45m left");
   });
 
-  it("keeps its border painted in the line's colour at rest and recolours the same border on focus, so nothing moves", () => {
+  it("takes no border space, so its picture meets the line, and draws focus as a ring over the picture", () => {
     const { tree } = render();
     const touch = tree.root.findByType(TouchableOpacity);
-    expect(StyleSheet.flatten(touch.props.style)).toMatchObject({ borderWidth: 4, borderColor: "#0D0D0F", width: 320, height: 180 });
+    expect(StyleSheet.flatten(touch.props.style).borderWidth).toBeUndefined();
+    const ring = () => tree.root.findAll((node) => node.type === View && StyleSheet.flatten(node.props.style)?.borderColor === "#FFC312");
+    expect(ring()).toHaveLength(0);
     act(() => touch.props.onFocus());
-    expect(StyleSheet.flatten(tree.root.findByType(TouchableOpacity).props.style)).toMatchObject({ borderWidth: 4, borderColor: "#FFC312", width: 320, height: 180 });
+    expect(StyleSheet.flatten(tree.root.findByType(TouchableOpacity).props.style).borderWidth).toBeUndefined();
+    expect(ring()).toHaveLength(1);
+    expect(StyleSheet.flatten(ring()[0].props.style)).toMatchObject({ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderWidth: 4 });
   });
 
   it("lets its player go while the screen is covered", () => {

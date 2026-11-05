@@ -65,10 +65,11 @@ function MultiviewTileComponent({ channel, rect, main, liveUrl, visible, program
       hasTVPreferredFocus={hasTVPreferredFocus}
       accessibilityRole="button"
       accessibilityLabel={[cleanLabel(channel.Name ?? ""), airing].filter(Boolean).join(", ")}
-      style={[styles.tile, { left: rect.x, top: rect.y, width: rect.width, height: rect.height }, focused && [styles.focused, { borderColor: accent, shadowColor: accent }]]}>
+      style={[styles.tile, { left: rect.x, top: rect.y, width: rect.width, height: rect.height }, focused && [styles.focused, { shadowColor: accent }]]}>
       {frame ? null : <Image source={{ uri: getPosterUrl(channel.Id, 300) }} style={styles.logo} contentFit="contain" cachePolicy="memory-disk" />}
       {frame ? <Image source={frame} style={StyleSheet.absoluteFill} contentFit="cover" transition={LIVE_FRAME_TRANSITION_MS} cachePolicy="none" /> : null}
       {uri !== null ? <LiveClipView uri={uri} live={live} muted={!main} onFailed={handleFailed} style={StyleSheet.absoluteFill} /> : null}
+      {focused ? <View style={[styles.focusRing, { borderColor: accent }]} pointerEvents="none" /> : null}
       <View style={styles.label} pointerEvents="none">
         <View style={styles.nameRow}>
           {main ? <Ionicons name="volume-high" size={IS_TV ? 26 : 16} color={COLORS.TEXT_PRIMARY} /> : null}
@@ -93,9 +94,11 @@ const styles = StyleSheet.create({
     position: "absolute",
     overflow: "hidden",
     backgroundColor: COLORS.MEDIA_BACKGROUND,
-    // Painted in the line's colour at rest, so the border's space reads as the line and focus only recolours it.
+  },
+  // Over the picture, inside the spot: focus takes no space, so the lines between spots stay 2 pt.
+  focusRing: {
+    ...StyleSheet.absoluteFill,
     borderWidth: CARD_FOCUS.BORDER_WIDTH_FOCUSED,
-    borderColor: COLORS.BACKGROUND_DEEP,
   },
   focused: {
     shadowOffset: { width: 0, height: 0 },

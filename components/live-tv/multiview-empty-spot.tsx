@@ -5,7 +5,7 @@ import { t } from "@/services/i18n";
 import { Ionicons } from "@expo/vector-icons";
 import type { MultiviewRect } from "@keiver/tomo-live";
 import React, { memo, useState } from "react";
-import { Platform, StyleSheet, TouchableOpacity } from "react-native";
+import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 
 const IS_TV = Platform.isTV;
 
@@ -22,8 +22,9 @@ function MultiviewEmptySpotComponent({ rect, hasTVPreferredFocus, onPress }: { r
       hasTVPreferredFocus={hasTVPreferredFocus}
       accessibilityRole="button"
       accessibilityLabel={t("liveTv.multiviewAdd")}
-      style={[styles.spot, { left: rect.x, top: rect.y, width: rect.width, height: rect.height }, focused && { borderColor: accent }]}>
+      style={[styles.spot, { left: rect.x, top: rect.y, width: rect.width, height: rect.height }]}>
       <Ionicons name="add" size={IS_TV ? 64 : 36} color={focused ? accent : COLORS.TEXT_SECONDARY} />
+      {focused ? <View style={[styles.focusRing, { borderColor: accent }]} pointerEvents="none" /> : null}
     </TouchableOpacity>
   );
 }
@@ -36,7 +37,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: COLORS.SURFACE_SUNKEN,
+  },
+  focusRing: {
+    ...StyleSheet.absoluteFill,
     borderWidth: CARD_FOCUS.BORDER_WIDTH_FOCUSED,
-    borderColor: COLORS.BACKGROUND_DEEP,
   },
 });
