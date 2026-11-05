@@ -195,6 +195,7 @@ export function parseLiveTvPreferences(raw: unknown): LiveTvPreferences {
   const doc = typeof raw === "string" ? safeParse(raw) : raw;
   const source = doc && typeof doc === "object" ? (doc as Record<string, unknown>) : {};
   const groups = parseGroups(source.groups);
+  const hidden = parseChannelList(source.hidden);
   return {
     version: 1,
     autoUpdate: typeof source.autoUpdate === "boolean" ? source.autoUpdate : DEFAULT_LIVE_TV_PREFERENCES.autoUpdate,
@@ -202,7 +203,7 @@ export function parseLiveTvPreferences(raw: unknown): LiveTvPreferences {
     sort: source.sort === "name" ? "name" : "number",
     favorites: parseChannelList(source.favorites),
     groups,
-    hidden: parseChannelList(source.hidden),
+    hidden,
     renames: parseRenames(source.renames),
     playlistEdits: parsePlaylistEdits(source.playlistEdits),
     categoryEdits: parseCategoryEdits(source.categoryEdits),
@@ -215,9 +216,17 @@ export function parseLiveTvPreferences(raw: unknown): LiveTvPreferences {
     hideOffline: typeof source.hideOffline === "boolean" ? source.hideOffline : DEFAULT_LIVE_TV_PREFERENCES.hideOffline,
     columnStop: parseColumnStop(source.columnStop, source.compactColumn),
     connectionLimits: parseConnectionLimits(source.connectionLimits),
-    multiview: parseMultiview(source.multiview),
+    multiview: withoutHidden(parseMultiview(source.multiview), hidden),
     multiviewQueue: parseMultiviewQueue(source.multiviewQueue),
   };
+}
+
+/** Multiview with every spot that holds a hidden channel emptied. */
+function withoutHidden(arrangement: MultiviewArrangement, hidden: readonly ChannelFavorite[]): MultiviewArrangement {
+  const ids = new Set(hidden.flatMap((entry) => (entry.id ? [entry.id] : [])));
+  if (!arrangement.spots.some((id) => id && ids.has(id))) return arrangement;
+  const spots = arrangement.spots.map((id) => (id && ids.has(id) ? null : id));
+  return { ...arrangement, spots, chosen: arrangement.chosen.filter((id) => !ids.has(id)) };
 }
 
 function parseMultiview(raw: unknown): MultiviewArrangement {
@@ -376,8 +385,10 @@ export function isHiddenChannel(preferences: Pick<LiveTvPreferences, "hidden">, 
 }
 
 export function hideChannel(channel: ChannelIdentity): void {
-  const { hidden } = getLiveTvPreferences();
-  if (!listHas(hidden, channel)) updateLiveTvPreferences({ hidden: hidden.concat(channelFavorite(channel)) });
+  const { hidden, multiview } = getLiveTvPreferences();
+  if (listHas(hidden, channel)) return;
+  const next = hidden.concat(channelFavorite(channel));
+  updateLiveTvPreferences({ hidden: next, multiview: withoutHidden(multiview, next) });
 }
 
 export function unhideChannel(entry: ChannelFavorite): void {

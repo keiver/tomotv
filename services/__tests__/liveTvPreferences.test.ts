@@ -447,6 +447,18 @@ describe("hidden and renamed channels", () => {
     expect(getLiveTvPreferences().hidden).toEqual([]);
   });
 
+  it("empties the multiview spot of a channel when it is hidden, and of a hidden channel stored in a spot", () => {
+    updateLiveTvPreferences({ multiview: { layout: "bigThree", spots: ["a", "x", null, "c"], chosen: ["a", "x"] } });
+    hideChannel({ Id: "x", ...kqed });
+    expect(getLiveTvPreferences().multiview).toEqual({ layout: "bigThree", spots: ["a", null, null, "c"], chosen: ["a"] });
+    unhideChannel({ number: "9.1", name: "KQED" });
+    expect(parseLiveTvPreferences({ hidden: [{ id: "c", name: "Hidden" }], multiview: { layout: "bigThree", spots: ["a", "b", "c"], chosen: ["c"] } }).multiview).toEqual({
+      layout: "bigThree",
+      spots: ["a", "b", null],
+      chosen: [],
+    });
+  });
+
   it("renames a channel, keys the rename by the server's name, and removes it for an empty or unchanged name", () => {
     renameChannel({ Id: "x", ...kqed }, " PBS ");
     expect(getLiveTvPreferences().renames).toEqual([{ id: "x", number: "9.1", name: "KQED", displayName: "PBS" }]);
