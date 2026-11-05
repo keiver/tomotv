@@ -1,6 +1,7 @@
 /** Multiview's live tiles: the main at playback priority, satellites at preview priority, opened one at a time; a tile that
  *  cannot stay live shows the sampler's clip and picture. */
 import {
+  belowRealtime,
   engineLog,
   isConnectionBudgetFailure,
   LiveProviderFullError,
@@ -11,6 +12,7 @@ import {
   stopLocalRemux,
   subscribeEngineFailure,
   subscribeEngineThroughput,
+  subscribeOriginConnectionBudget,
 } from "@keiver/tomo-engine";
 import { AppState } from "react-native";
 import { isTunerChannel } from "./channelOrigin";
@@ -60,6 +62,10 @@ let generation = 0;
 /** The generation whose open loop is running. */
 let openingFor: number | null = null;
 let lastDropAt = 0;
+/** A main that failed is tried again after each of these, then left failed until the main or the set changes. */
+export const LIVE_TILE_MAIN_RETRY_MS = [5_000, 15_000, 45_000] as const;
+let mainRetries = 0;
+let mainRetry: ReturnType<typeof setTimeout> | null = null;
 /** The provider a one-connection main holds in the sampler. */
 let heldOrigin: string | null = null;
 let holdGrace: ReturnType<typeof setTimeout> | null = null;
@@ -111,6 +117,39 @@ function releaseHold(): void {
   setLiveFrameOriginHold(key, false);
 }
 
+function fail(channelId: string): void {
+  failed.add(channelId);
+  if (channelId !== main() || mainRetry) return;
+  const delay = LIVE_TILE_MAIN_RETRY_MS[mainRetries];
+  if (delay === undefined) return;
+  mainRetries += 1;
+  mainRetry = setTimeout(() => {
+    mainRetry = null;
+    if (channelId !== main()) return;
+    failed.delete(channelId);
+    reconcile();
+  }, delay);
+}
+
+function clearMainRetry(): void {
+  if (mainRetry) clearTimeout(mainRetry);
+  mainRetry = null;
+  mainRetries = 0;
+}
+
+/** The sampler is held off the main's provider exactly while the main is live there on a one-connection limit. */
+function syncHold(): void {
+  const head = main();
+  const tile = head !== undefined ? tiles.get(head) : undefined;
+  const key = tile?.originKey ?? (head !== undefined ? originKeyOf(head) : undefined);
+  const one = key !== undefined && (tile !== undefined || starting.has(head!)) && originConnectionLimit(key) === 1;
+  if (heldOrigin !== null && (!one || heldOrigin !== key)) releaseHold();
+  if (one && heldOrigin === null) {
+    heldOrigin = key;
+    setLiveFrameOriginHold(key, true);
+  }
+}
+
 /** `freed`: false for a tile that lost its connection to the budget, which frees no slot for a refused tile. */
 function endTile(tile: Tile, why: string, freed = true): void {
   if (tiles.get(tile.channelId) !== tile) return;
@@ -141,13 +180,15 @@ function dropFurthest(why: string): void {
 
 function watch(tile: Tile): void {
   const stopThroughput = subscribeEngineThroughput(tile.token, (sample) => {
-    if (readBound(sample)) dropFurthest("read-bound segment");
+    // Read-bound alone is not slow: a tile drops only for a segment that also took longer than it plays.
+    if (readBound(sample) && belowRealtime(sample)) dropFurthest("read-bound segment");
   });
   const stopFailure = subscribeEngineFailure(tile.token, (failure) => {
     if (tiles.get(tile.channelId) !== tile) return;
     const budget = isConnectionBudgetFailure(failure.message);
     endTile(tile, failure.message, !budget);
-    (budget ? refused : failed).add(tile.channelId);
+    if (budget) refused.add(tile.channelId);
+    else fail(tile.channelId);
     reconcile();
     notify();
   });
@@ -161,6 +202,7 @@ function adopt(channelId: string, details: unknown, url: string, token: string):
   const tile: Tile = { channelId, details, url, token, originKey: originKeyOf(channelId, details), unsubscribe: () => {} };
   watch(tile);
   tiles.set(channelId, tile);
+  if (channelId === main()) clearMainRetry();
   if (channelId === main() && tile.originKey && originConnectionLimit(tile.originKey) === 1) {
     heldOrigin = tile.originKey;
     setLiveFrameOriginHold(tile.originKey, true);
@@ -188,7 +230,10 @@ async function open(channelId: string, mine: number): Promise<void> {
       return priority === "playback" || !noRoomForSatellite(channelId);
     };
     const started = await startChannelSession(channelId, { windowSeconds: LIVE_TILE_WINDOW_SECONDS, priority, current, openOnServer: priority === "playback" || chosen.has(channelId), allow });
-    if (started === "unavailable") (priority === "playback" || chosen.has(channelId) ? failed : unavailable).add(channelId);
+    if (started === "unavailable") {
+      if (priority === "playback" || chosen.has(channelId)) fail(channelId);
+      else unavailable.add(channelId);
+    }
     if (typeof started === "string") {
       if (channelId === main() && !tiles.has(channelId)) releaseHold();
       return;
@@ -202,7 +247,8 @@ async function open(channelId: string, mine: number): Promise<void> {
   } catch (error) {
     if (mine !== generation) return;
     const budget = error instanceof LiveProviderFullError || isConnectionBudgetFailure(error instanceof Error ? error.message : String(error));
-    (budget ? refused : failed).add(channelId);
+    if (budget) refused.add(channelId);
+    else fail(channelId);
     if (channelId === main()) releaseHold();
     engineLog().debug("Live tile did not start", { service: "LiveTile", channelId, error: String(error) });
   } finally {
@@ -273,6 +319,12 @@ function wire(): void {
   onPlaybackHoldReleased(() => {
     if (order.length > 0) reconcile();
   });
+  // A limit set or lifted while multiview is open changes who may be live and whether the sampler may read the provider.
+  subscribeOriginConnectionBudget(() => {
+    if (order.length === 0) return;
+    syncHold();
+    reconcile();
+  });
 }
 
 /**
@@ -291,6 +343,7 @@ export function setLiveTiles(channelIds: readonly string[], options: { chosen?: 
   }
   const mainChanged = next[0] !== order[0];
   const setChanged = next.length !== order.length || next.some((channelId) => !order.includes(channelId));
+  if (mainChanged || next.length === 0) clearMainRetry();
   order = next;
   dropped.clear();
   if (setChanged) failed.clear();
@@ -308,8 +361,14 @@ export function setLiveTiles(channelIds: readonly string[], options: { chosen?: 
 /** The tile's player failed or none was free: its session plays to nobody, so it ends and the tile shows its clip. */
 export function noteLiveTileFailed(channelId: string): void {
   if (!tiles.has(channelId)) return;
-  (channelId === main() ? failed : dropped).add(channelId);
+  if (channelId === main()) fail(channelId);
+  else dropped.add(channelId);
   reconcile();
+}
+
+/** The channel could not be opened live while the set on screen stays the same (a main between its retries included). */
+export function liveTileFailed(channelId: string): boolean {
+  return failed.has(channelId);
 }
 
 /** The tile's live URL, null while it shows its clip or picture. */

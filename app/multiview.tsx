@@ -9,7 +9,7 @@ import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { t } from "@/services/i18n";
 import { fetchChannelWindow } from "@/services/jellyfinApi";
 import { setLiveFramesActive, setLiveFrameViewable } from "@/services/liveFrames";
-import { liveTilesVersion, liveTileUnavailable, liveTileUrl, noteLiveTileFailed, setLiveTiles, subscribeLiveTiles } from "@/services/liveTiles";
+import { liveTileFailed, liveTilesVersion, liveTileUnavailable, liveTileUrl, noteLiveTileFailed, setLiveTiles, subscribeLiveTiles } from "@/services/liveTiles";
 import { updateLiveTvPreferences, type MultiviewArrangement } from "@/services/liveTvPreferences";
 import type { JellyfinItem } from "@/types/jellyfin";
 import { programTimes } from "@/utils/guide";
@@ -280,6 +280,7 @@ export default function MultiviewScreen() {
               rect={rect}
               main={index === sound}
               liveUrl={index < liveCount ? liveTileUrl(id) : null}
+              failed={index === sound && liveTileFailed(id)}
               visible={isFocused || full}
               bare={full}
               program={channel.CurrentProgram}

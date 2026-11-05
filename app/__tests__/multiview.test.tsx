@@ -17,6 +17,7 @@ const mockFailed = jest.fn();
 const mockInfoPanel = jest.fn();
 const mockWindow = jest.fn();
 const mockUnavailable = new Set<string>();
+const mockFailedTiles = new Set<string>();
 const mockLiveUrls = new Map<string, string>();
 let mockTvHandler: ((event: { eventType: string }) => void) | null = null;
 
@@ -72,6 +73,7 @@ jest.mock("@/services/liveTiles", () => ({
   setLiveTiles: (ids: string[], options?: { chosen?: readonly string[] }) => mockSetLiveTiles(ids, options),
   liveTileUrl: (id: string) => mockLiveUrls.get(id) ?? null,
   liveTileUnavailable: (id: string) => mockUnavailable.has(id),
+  liveTileFailed: (id: string) => mockFailedTiles.has(id),
   liveTilesVersion: () => 0,
   subscribeLiveTiles: () => () => {},
   noteLiveTileFailed: (id: string) => mockFailed(id),
@@ -127,6 +129,7 @@ beforeEach(() => {
   mockParams = {};
   mockFocused = true;
   mockUnavailable.clear();
+  mockFailedTiles.clear();
   mockLiveUrls.clear();
   mockWindow.mockResolvedValue([]);
 });
@@ -336,6 +339,13 @@ describe("Multiview", () => {
     expect(mockActive).toHaveBeenCalledWith("multiview", true);
     expect(mockViewable.mock.calls.at(-1)?.[1].slice(0, 6)).toEqual(["c9", "c12", "c0", "c1", "c2", "c3"]);
     expect(spots()[2].liveUrl).toBe("http://127.0.0.1/t/master.m3u8");
+  });
+
+  it("marks only the spot with the sound as failed when its channel could not be opened", () => {
+    mockParams = { channelId: "c10" };
+    mockFailedTiles.add("c10").add("c9");
+    mount();
+    expect(spots().map((tile) => tile.failed)).toEqual([true, false, false, false]);
   });
 
   it("hands a failed player to the tile sessions", () => {

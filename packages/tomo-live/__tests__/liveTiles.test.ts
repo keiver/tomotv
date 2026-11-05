@@ -1,11 +1,12 @@
 /** liveTiles - multiview's live sessions: who opens, in what order, at what priority, and what drops back to a clip. */
 
 const mockFailures = new Map<string, (failure: { token: string; message: string }) => void>();
-const mockThroughput = new Map<string, (sample: { produceSeconds: number; readSeconds: number }) => void>();
+const mockThroughput = new Map<string, (sample: { produceSeconds: number; readSeconds: number; segmentSeconds: number }) => void>();
 const mockStopped: string[] = [];
 const mockPriorities: [string, string][] = [];
 const mockLimits = new Map<string, number>();
 const mockHolds: [string, boolean][] = [];
+const mockBudgetListeners = new Set<() => void>();
 let mockAppListeners: Record<string, (state?: string) => void> = {};
 
 jest.mock("react-native", () => ({
@@ -31,6 +32,10 @@ jest.mock("@keiver/tomo-engine", () => ({
     mockPriorities.push([token, priority]);
   },
   originConnectionLimit: (key: string | undefined) => (key ? (mockLimits.get(key) ?? null) : null),
+  subscribeOriginConnectionBudget: (listener: () => void) => {
+    mockBudgetListeners.add(listener);
+    return () => mockBudgetListeners.delete(listener);
+  },
   subscribeEngineFailure: (token: string, listener: (failure: { token: string; message: string }) => void) => {
     mockFailures.set(token, listener);
     return () => mockFailures.delete(token);
@@ -49,7 +54,9 @@ import { clearTunerChannels, noteTunerChannel } from "../src/channelOrigin";
 import {
   LIVE_TILE_DROP_SPACING_MS,
   LIVE_TILE_HANDOFF_GRACE_MS,
+  LIVE_TILE_MAIN_RETRY_MS,
   LIVE_TILE_OPEN_SPACING_MS,
+  liveTileFailed,
   liveTileUnavailable,
   liveTileUrl,
   noteLiveTileFailed,
@@ -110,7 +117,7 @@ const openAll = async (opens: number) => {
   await flush();
   for (let i = 0; i < opens; i += 1) await advance(LIVE_TILE_OPEN_SPACING_MS);
 };
-const bound = { produceSeconds: 2, readSeconds: 2 };
+const bound = { produceSeconds: 2, readSeconds: 2, segmentSeconds: 1 };
 
 beforeEach(() => {
   jest.useFakeTimers();
@@ -218,6 +225,15 @@ describe("liveTiles", () => {
     expect(liveTileUrl("a")).not.toBeNull();
   });
 
+  it("keeps a satellite live whose segment spent its time reading but still came faster than it plays", async () => {
+    setLiveTiles(["a", "b", "c"]);
+    await openAll(3);
+    mockThroughput.get("t-c")!({ produceSeconds: 0.07, readSeconds: 0.07, segmentSeconds: 1 });
+    await flush();
+    expect(liveTileUrl("b")).not.toBeNull();
+    expect(liveTileUrl("c")).not.toBeNull();
+  });
+
   it("drops the satellite furthest from the main to its clip on a read-bound segment, one per spacing, until the set changes", async () => {
     setLiveTiles(["a", "b", "c", "d"]);
     await openAll(4);
@@ -236,7 +252,36 @@ describe("liveTiles", () => {
     expect(liveTileUrl("d")).toBeNull();
   });
 
-  it("ends a tile whose player failed: a satellite drops to its clip, the main stops being live, and nothing reopens it while the set stays", async () => {
+  it("tries a main that failed to open again after 5, 15 and 45 seconds, reports it failed meanwhile, and stops after the third", async () => {
+    startFailure = (id) => (id === "a" ? new Error("Failed to open channel: 500") : null);
+    setLiveTiles(["a", "b"]);
+    await openAll(2);
+    const opens = () => started.filter(([id]) => id === "a").length;
+    expect(opens()).toBe(1);
+    expect(liveTileFailed("a")).toBe(true);
+    for (const [i, delay] of LIVE_TILE_MAIN_RETRY_MS.entries()) {
+      await advance(delay);
+      await openAll(1);
+      expect(opens()).toBe(i + 2);
+    }
+    await advance(120_000);
+    await openAll(2);
+    expect(opens()).toBe(4);
+    expect(liveTileFailed("a")).toBe(true);
+  });
+
+  it("brings a failed main back on a retry that opens, and clears its failed report", async () => {
+    startFailure = (id) => (id === "a" ? new Error("Failed to open channel: 500") : null);
+    setLiveTiles(["a", "b"]);
+    await openAll(2);
+    startFailure = null;
+    await advance(LIVE_TILE_MAIN_RETRY_MS[0]);
+    await openAll(1);
+    expect(liveTileUrl("a")).not.toBeNull();
+    expect(liveTileFailed("a")).toBe(false);
+  });
+
+  it("ends a tile whose player failed: a satellite drops to its clip, and the main stops being live until its first retry", async () => {
     setLiveTiles(["a", "b", "c"]);
     await openAll(3);
     noteLiveTileFailed("c");
@@ -309,5 +354,24 @@ describe("liveTiles", () => {
     await advance(60_000);
     expect(liveTileUrl("one-a")).not.toBeNull();
     expect(mockStopped).toEqual([]);
+  });
+
+  it("lets the sampler back onto the provider and opens the satellites when its one-connection limit is lifted, and holds it again when it returns", async () => {
+    mockLimits.set("one.example", 1);
+    setLiveTiles(["one-a", "one-b", "one-c"]);
+    await openAll(3);
+    expect(started.map(([id]) => id)).toEqual(["one-a"]);
+    mockLimits.delete("one.example");
+    mockBudgetListeners.forEach((listener) => listener());
+    await openAll(3);
+    expect(mockHolds.at(-1)).toEqual(["one.example", false]);
+    expect(started.map(([id]) => id)).toEqual(["one-a", "one-b", "one-c"]);
+    expect(liveTileUrl("one-a")).not.toBeNull();
+    mockLimits.set("one.example", 1);
+    mockBudgetListeners.forEach((listener) => listener());
+    await flush();
+    expect(mockHolds.at(-1)).toEqual(["one.example", true]);
+    expect(liveTileUrl("one-b")).toBeNull();
+    expect(liveTileUrl("one-a")).not.toBeNull();
   });
 });

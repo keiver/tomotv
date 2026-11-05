@@ -100,6 +100,7 @@
   "liveTv.multiviewChange": "Cambiar canal",
   "liveTv.multiviewClear": "Vaciar",
   "liveTv.multiviewAdd": "Añadir un canal",
+  "liveTv.multiviewCannotPlay": "Este canal no se puede reproducir ahora",
   "liveTv.multiviewLayout": "Disposición",
   "liveTv.layoutOnePlusTwo": "Uno grande, dos pequeños",
   "liveTv.layoutOnePlusThree": "Uno grande, tres pequeños",

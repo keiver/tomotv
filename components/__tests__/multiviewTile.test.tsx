@@ -129,6 +129,13 @@ describe("MultiviewTile", () => {
     expect(loading()).toBe(true);
   });
 
+  it("says softly over its picture that a channel that failed to open cannot play, and nothing while it plays live", () => {
+    const warn = (props: Partial<React.ComponentProps<typeof MultiviewTile>>) => render(props).tree.root.findAll((node) => node.type === View && node.props.testID === "multiview-tile-warn").length;
+    expect(warn({ main: true, failed: true })).toBe(1);
+    expect(warn({ main: true })).toBe(0);
+    expect(warn({ main: true, failed: true, liveUrl: "http://127.0.0.1:5000/t/master.m3u8" })).toBe(0);
+  });
+
   it("shows no spinner on the spot with the sound while it has no live session to wait for", () => {
     const { tree } = render({ main: true });
     expect(tree.root.findAll((node) => node.props.testID === "multiview-tile-loading")).toHaveLength(0);

@@ -26,6 +26,8 @@ interface MultiviewTileProps {
   main: boolean;
   /** The tile's live session, null while it shows its clip or picture. */
   liveUrl: string | null;
+  /** The channel could not be opened live: the tile says so softly over its picture. */
+  failed?: boolean;
   /** False while the screen is covered: the tile lets its player go. */
   visible: boolean;
   /** Full screen: the picture alone, no label and no focus ring. */
@@ -49,7 +51,7 @@ export function airingLine(program: Pick<JellyfinProgram, "Name" | "StartDate" |
 }
 
 /** One multiview spot: its live session when it has one, else its clip, else its picture, else the channel's logo, under its name and programme. */
-function MultiviewTileComponent({ channel, rect, main, liveUrl, visible, bare, program, nowMs, hasTVPreferredFocus, onSelect, onFailed, onLongPress }: MultiviewTileProps) {
+function MultiviewTileComponent({ channel, rect, main, liveUrl, failed, visible, bare, program, nowMs, hasTVPreferredFocus, onSelect, onFailed, onLongPress }: MultiviewTileProps) {
   const { accent, ink } = useCardPalette();
   const frame = useLiveFrame(channel.Id);
   const clip = useLiveClip(channel.Id);
@@ -87,6 +89,16 @@ function MultiviewTileComponent({ channel, rect, main, liveUrl, visible, bare, p
       )}
       {frame ? <Image source={frame} style={StyleSheet.absoluteFill} contentFit="cover" transition={LIVE_FRAME_TRANSITION_MS} cachePolicy="none" /> : null}
       {uri !== null ? <LiveClipView uri={uri} live={live} muted={!main} onFailed={handleFailed} onPlaying={handlePlaying} style={StyleSheet.absoluteFill} /> : null}
+      {failed && !live ? (
+        <View style={styles.warn} pointerEvents="none" testID="multiview-tile-warn">
+          <View style={styles.warnNote}>
+            <Ionicons name="alert-circle-outline" size={IS_TV ? 26 : 16} color={COLORS.ACCENT_DIM} />
+            <Text style={styles.warnText} numberOfLines={2}>
+              {t("liveTv.multiviewCannotPlay")}
+            </Text>
+          </View>
+        </View>
+      ) : null}
       {bare ? null : <View style={[styles.edge, ringed && styles.edgeFocused]} pointerEvents="none" />}
       {ringed ? <View style={[styles.focusRing, { borderColor: accent }]} pointerEvents="none" /> : null}
       {bare ? null : (
@@ -167,6 +179,24 @@ const styles = StyleSheet.create({
     right: "25%",
     top: "20%",
     bottom: "35%",
+  },
+  warn: {
+    ...StyleSheet.absoluteFill,
+    alignItems: "center",
+    justifyContent: "flex-end",
+    paddingBottom: IS_TV ? 24 : 10,
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
+  },
+  warnNote: {
+    maxWidth: "90%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: IS_TV ? 10 : 6,
+  },
+  warnText: {
+    flexShrink: 1,
+    color: COLORS.TEXT_BRIGHT,
+    fontSize: IS_TV ? 22 : 12,
   },
   glyph: {
     alignItems: "center",
