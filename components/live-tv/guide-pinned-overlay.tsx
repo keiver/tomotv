@@ -1,6 +1,5 @@
 import { CloseOverlayButton } from "@/components/close-overlay-button";
 import { GlassIconButton } from "@/components/glass-icon-button";
-import { GRIP_SIZE } from "@/components/live-tv/guide-grip";
 import { RecordingPulse } from "@/components/live-tv/recording-pulse";
 import { COLORS } from "@/constants/colors";
 import { t } from "@/services/i18n";
@@ -11,8 +10,8 @@ import { GestureDetector, type GestureType } from "react-native-gesture-handler"
 
 /** The channel's name, here and beside the picture, starts this far in; the band's pull tab lines up with it. */
 export const PINNED_TEXT_INSET = 12;
-const CORNER_BUTTON = 36;
-const CORNER_ICON = 18;
+const CORNER_BUTTON = 38;
+const CORNER_ICON = 19;
 // Eased stops: the fade starts at the scrim's top edge and deepens gradually, with no visible line.
 const SCRIM =
   "linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.08) 15%, rgba(0, 0, 0, 0.22) 30%, rgba(0, 0, 0, 0.42) 45%, rgba(0, 0, 0, 0.62) 60%, rgba(0, 0, 0, 0.8) 75%, rgba(0, 0, 0, 0.92) 90%, rgba(0, 0, 0, 0.96) 100%)";
@@ -68,23 +67,23 @@ export function GuidePinnedOverlay({ name, mark, record, extended, bar, accent, 
           <Text style={styles.name} numberOfLines={1} pointerEvents="none">
             {name}
           </Text>
-          {record ? (
-            <View testID="guide-pinned-record">
-              <GlassIconButton icon={record.icon} iconSize={20} size={GRIP_SIZE} color={COLORS.DESTRUCTIVE} label={record.text} onPress={record.onPress} accessibilityLabel={record.label} />
-            </View>
-          ) : null}
-          <GlassIconButton
-            icon={muted ? "volume-mute-outline" : "volume-high-outline"}
-            iconSize={20}
-            size={GRIP_SIZE}
-            color={accent}
-            onPress={onToggleMute}
-            accessibilityLabel={t(muted ? "liveTv.unmute" : "liveTv.mute")}
-          />
         </View>
       ) : null}
       {bar ? (
         <View style={styles.corner} pointerEvents="box-none">
+          <GlassIconButton
+            icon={muted ? "volume-mute-outline" : "volume-high-outline"}
+            iconSize={CORNER_ICON}
+            size={CORNER_BUTTON}
+            color={accent}
+            onPress={onToggleMute}
+            accessibilityLabel={t(muted ? "liveTv.unmute" : "liveTv.mute")}
+          />
+          {record ? (
+            <View testID="guide-pinned-record">
+              <GlassIconButton icon={record.icon} iconSize={CORNER_ICON} size={CORNER_BUTTON} color={COLORS.DESTRUCTIVE} onPress={record.onPress} accessibilityLabel={record.label} />
+            </View>
+          ) : null}
           <GlassIconButton
             icon={extended ? "contract-outline" : "expand-outline"}
             iconSize={CORNER_ICON}
@@ -104,13 +103,13 @@ export function GuidePinnedOverlay({ name, mark, record, extended, bar, accent, 
 }
 
 const styles = StyleSheet.create({
-  // Size and close: the band's own controls, in the picture's top corner, apart from what acts on the channel.
+  // Every button in the picture's top corner, as beside the picture.
   corner: {
     position: "absolute",
     top: 8,
     right: PINNED_TEXT_INSET,
     flexDirection: "row",
-    gap: 10,
+    gap: 12,
   },
   scrim: {
     position: "absolute",
