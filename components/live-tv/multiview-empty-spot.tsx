@@ -37,6 +37,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: COLORS.SURFACE_SUNKEN,
     borderWidth: CARD_FOCUS.BORDER_WIDTH_FOCUSED,
-    borderColor: "transparent",
+    borderColor: COLORS.BACKGROUND_DEEP,
   },
 });

@@ -93,8 +93,9 @@ const styles = StyleSheet.create({
     position: "absolute",
     overflow: "hidden",
     backgroundColor: COLORS.MEDIA_BACKGROUND,
+    // Painted in the line's colour at rest, so the border's space reads as the line and focus only recolours it.
     borderWidth: CARD_FOCUS.BORDER_WIDTH_FOCUSED,
-    borderColor: "transparent",
+    borderColor: COLORS.BACKGROUND_DEEP,
   },
   focused: {
     shadowOffset: { width: 0, height: 0 },

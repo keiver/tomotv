@@ -1,6 +1,6 @@
-/** A multiview spot: its live session with sound only on the main, else its clip, else its picture, else the channel's logo; its programme and time left. */
+/** A multiview spot: its live session with sound only on the main, else its clip, else its picture, else the channel's logo; its programme and time left; a border that keeps its space whether focused or not. */
 import React from "react";
-import { Text, TouchableOpacity } from "react-native";
+import { StyleSheet, Text, TouchableOpacity } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 
 let mockFrame: { uri: string; cacheKey: string } | undefined;
@@ -66,6 +66,14 @@ describe("MultiviewTile", () => {
       .tree.root.findAllByType(Text)
       .map((node) => node.props.children);
     expect(texts).toContain("Evening News · 45m left");
+  });
+
+  it("keeps its border painted in the line's colour at rest and recolours the same border on focus, so nothing moves", () => {
+    const { tree } = render();
+    const touch = tree.root.findByType(TouchableOpacity);
+    expect(StyleSheet.flatten(touch.props.style)).toMatchObject({ borderWidth: 4, borderColor: "#0D0D0F", width: 320, height: 180 });
+    act(() => touch.props.onFocus());
+    expect(StyleSheet.flatten(tree.root.findByType(TouchableOpacity).props.style)).toMatchObject({ borderWidth: 4, borderColor: "#FFC312", width: 320, height: 180 });
   });
 
   it("lets its player go while the screen is covered", () => {
