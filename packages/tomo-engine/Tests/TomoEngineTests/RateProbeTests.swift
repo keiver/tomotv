@@ -287,10 +287,11 @@ final class LinkEstimateTests: XCTestCase {
     }
 
     /// The startup probe reads on the pipeline's three connections: a link paced per connection reads as their sum.
+    /// A 20 Mb/s copy keeps 120 Mb/s under 8x its need, so the probe reads its whole budget, past the connections' ramp.
     func testTheStartupProbeReadsOnThePipelinesConnections() throws {
         let server = try PacedServer(.init(bps: 40 * mbps, length: 200_000_000))
         defer { server.stop() }
-        let s = try RemuxSession(config: makeConfig(durationSeconds: 18, inputUrl: server.url.absoluteString))
+        let s = try RemuxSession(config: makeConfig(durationSeconds: 18, inputUrl: server.url.absoluteString, bandwidth: 20_000_000))
         defer { s.stop() }
         s.probeLink()
         XCTAssertEqual(try XCTUnwrap(s.wireLinkBps) / mbps, 120, accuracy: 6)
