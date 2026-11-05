@@ -396,7 +396,7 @@ const VideoGridItemComponent = forwardRef<React.ElementRef<typeof TouchableOpaci
         {/* Inside the card, under the picture's slot: the glow wraps both and the picture keeps its size. */}
         {standed ? (
           <View>
-            <CardStand name={cardTitle} icon={titleIcon} focused={focused} offline={offline} liveChannelId={liveFrame && liveMark ? video.Id : undefined} />
+            <CardStand name={cardTitle} icon={titleIcon} focused={focused} offline={offline} />
             {navBarVisible ? <CardNavProgress active={navigating} title={cardTitle} stand baseColor={CARD_CHROME} /> : null}
           </View>
         ) : null}
