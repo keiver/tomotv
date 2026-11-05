@@ -49,7 +49,7 @@ const lineBox = (rect: MultiviewRect, shape: { width: number; height: number }) 
   return { left, top, width: right - left, height: bottom - top };
 };
 
-/** One layout as Multiview would fit it on this screen as held: a rounded screen outline with a line round every spot and the group's other channels, in the accent with a checkmark when current, grey otherwise. Its name is for accessibility only. */
+/** One layout as Multiview would fit it on this screen as held: a rounded screen outline with a line round every spot and the group's other channels, in the accent with a checkmark when current or focused on Apple TV, grey otherwise. Its name is for accessibility only. */
 function MultiviewLayoutOptionComponent({ layout, width: outer, stage, current, hasTVPreferredFocus, onPress }: MultiviewLayoutOptionProps) {
   const { accent } = useCardPalette();
   const width = outer - MULTIVIEW_LAYOUT_INSET * 2;
@@ -57,7 +57,10 @@ function MultiviewLayoutOptionComponent({ layout, width: outer, stage, current, 
   const label = t(MULTIVIEW_LAYOUT_LABEL[layout]);
   const aspect = stage.width > 0 && stage.height > 0 ? stage.width / stage.height : MULTIVIEW_ASPECT;
   const shape = { width, height: width / aspect };
-  const ink = current ? accent : COLORS.SURFACE_MUTED;
+  // Apple TV shows focus as the accent drawing and a plain checkmark, with no ring.
+  const lit = current || (IS_TV && focused);
+  const ink = lit ? accent : COLORS.SURFACE_MUTED;
+  const check = current ? "checkmark-circle" : lit ? "checkmark" : null;
   const drawing = () => {
     const { spots, group } = multiviewFit(layout, { ...shape, gap: 0 });
     const cardHeight = group.width / group.columns / MULTIVIEW_ASPECT;
@@ -91,8 +94,8 @@ function MultiviewLayoutOptionComponent({ layout, width: outer, stage, current, 
       accessibilityState={{ selected: current }}
       style={[styles.option, { width: outer }]}>
       {drawing()}
-      <View style={styles.check}>{current ? <Ionicons name="checkmark-circle" size={CHECK} color={accent} /> : null}</View>
-      {focused ? <View style={[styles.ring, { borderColor: accent }]} pointerEvents="none" /> : null}
+      <View style={styles.check}>{check ? <Ionicons name={check} size={CHECK} color={accent} /> : null}</View>
+      {focused && !IS_TV ? <View style={[styles.ring, { borderColor: accent }]} pointerEvents="none" /> : null}
     </TouchableOpacity>
   );
 }
@@ -121,7 +124,7 @@ const styles = StyleSheet.create({
     borderRadius: SCREEN_RADIUS,
     borderCurve: "continuous",
   },
-  // Apple TV marks the spot with the sound with its speaker, as Multiview's label does; the accent is focus there.
+  // Apple TV marks the spot with the sound with its speaker, as Multiview's label does.
   speaker: {
     position: "absolute",
     top: 8,

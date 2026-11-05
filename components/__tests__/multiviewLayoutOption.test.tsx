@@ -109,7 +109,7 @@ describe("MultiviewLayoutOption", () => {
     expect((spots[1].left as number) + (spots[1].width as number)).toBeCloseTo(screen.width, 5);
   });
 
-  it("on Apple TV marks the spot with the sound with its speaker and the current layout with a checkmark, leaving the accent ring to focus", () => {
+  it("on Apple TV marks the spot with the sound with its speaker and the current layout with a checkmark, with no ring", () => {
     jest.isolateModules(() => {
       const RN = require("react-native");
       jest.spyOn(RN.Platform, "isTV", "get").mockReturnValue(true);
@@ -130,6 +130,33 @@ describe("MultiviewLayoutOption", () => {
       const spots = tree.root.findAll((node: TestRenderer.ReactTestInstance) => node.props.testID === "multiview-layout-spot" && typeof node.type === "string");
       expect(spots).toHaveLength(4);
       expect(tree.root.findAll((node: TestRenderer.ReactTestInstance) => node.props.testID === "multiview-layout-sound" && (node.type as unknown) === "Ionicons")).toHaveLength(1);
+    });
+  });
+
+  it("on Apple TV draws a focused layout in the accent with a plain checkmark under it and no ring", () => {
+    jest.isolateModules(() => {
+      const RN = require("react-native");
+      jest.spyOn(RN.Platform, "isTV", "get").mockReturnValue(true);
+      const R = require("react");
+      const Renderer = require("react-test-renderer");
+      const { MultiviewLayoutOption: TvOption } = require("@/components/live-tv/multiview-layout-option");
+      let tree!: TestRenderer.ReactTestRenderer;
+      Renderer.act(() => {
+        tree = Renderer.create(R.createElement(TvOption, { layout: "grid4", width: 480, stage: { width: 1920, height: 1080 }, current: false, onPress: () => {} }));
+      });
+      const icons = (name: string) => tree.root.findAll((node: TestRenderer.ReactTestInstance) => (node.type as unknown) === "Ionicons" && node.props.name === name);
+      expect(icons("checkmark")).toHaveLength(0);
+      Renderer.act(() => tree.root.findByType(RN.TouchableOpacity).props.onFocus());
+      expect(icons("checkmark").map((node: TestRenderer.ReactTestInstance) => node.props.color)).toEqual(["#FFC312"]);
+      expect(icons("checkmark-circle")).toHaveLength(0);
+      const spots = tree.root.findAll((node: TestRenderer.ReactTestInstance) => node.props.testID === "multiview-layout-spot" && typeof node.type === "string");
+      expect(spots.every((node: TestRenderer.ReactTestInstance) => RN.StyleSheet.flatten(node.props.style).borderColor === "#FFC312")).toBe(true);
+      expect(
+        tree.root.findAll(
+          (node: TestRenderer.ReactTestInstance) =>
+            typeof node.type === "string" && RN.StyleSheet.flatten(node.props.style)?.bottom === 0 && RN.StyleSheet.flatten(node.props.style)?.borderColor === "#FFC312",
+        ),
+      ).toHaveLength(0);
     });
   });
 
