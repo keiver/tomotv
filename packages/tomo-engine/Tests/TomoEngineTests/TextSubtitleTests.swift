@@ -1000,7 +1000,7 @@ final class ServedSubtitleSegmentTests: XCTestCase {
         XCTAssertTrue(body.contains("0:02 plain line"), "cue text missing from:\n\(body)")
     }
 
-    /// The window 12-18s holds two lines; a segment that served early would be empty.
+    /// The window 10.4-20.8s holds the 12 s line and the karaoke line; a segment that served early would be empty.
     func testMidFileSegmentCarriesItsCues() throws {
         let url = try fixture()
         let session = try RemuxSession(
@@ -1018,7 +1018,9 @@ final class ServedSubtitleSegmentTests: XCTestCase {
         defer { session.stop() }
         session.start()
 
-        let body = try XCTUnwrap(session.subtitleSegment(streamIndex: 2, segment: 2))
+        // T100's keyframes are 10.417 s apart, so 12 s falls in segment 1 (10.417-20.833 s).
+        let body = try XCTUnwrap(session.subtitleSegment(streamIndex: 2, segment: 1))
+        XCTAssertEqual(session.segmentStartSeconds(1), 10.417, accuracy: 0.01)
         XCTAssertTrue(body.contains("00:00:12.000 --> 00:00:13.000"), "12s cue missing from:\n\(body)")
         XCTAssertTrue(body.contains("karaoke reads as one word"), "karaoke line missing from:\n\(body)")
         XCTAssertFalse(body.contains("{"), "an override block reached the cue text:\n\(body)")
@@ -1055,7 +1057,8 @@ final class SubtitleStartupRaceTests: XCTestCase {
         // parallel, which is what the HTTP server does with them.
         let playlist = try XCTUnwrap(session.subtitlePlaylist(streamIndex: 2))
         let count = playlist.components(separatedBy: ".vtt").count - 1
-        XCTAssertEqual(count, 10)
+        // One segment per keyframe: T100 has six, 10.417 s apart.
+        XCTAssertEqual(count, 6)
 
         // A player pulls both tracks, and it is the video demand that drives the
         // producer: asking for cues alone leaves the read head where it started.

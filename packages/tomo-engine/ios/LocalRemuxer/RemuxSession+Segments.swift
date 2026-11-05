@@ -97,6 +97,7 @@ extension RemuxSession {
             }
         }
         let deadline = Date().addingTimeInterval(20)
+        awaitCopyGrid(deadline: 20)
         var availableRendition = rendition(withPrefix: prefix)
         while availableRendition == nil {
             stateLock.lock()

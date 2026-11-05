@@ -1096,6 +1096,7 @@ extension RemuxSession {
     }
 
     func subtitleSegment(streamIndex: Int, segment: Int) -> String? {
+        awaitCopyGrid(deadline: Self.subtitleSegmentWaitSeconds)
         guard segment >= 0, segment < segmentCount else { return nil }
         guard let sub = sessionSubtitles().first(where: { $0.index == streamIndex && $0.isEngineText }) else { return nil }
 
