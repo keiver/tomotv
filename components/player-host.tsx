@@ -1026,7 +1026,8 @@ export function PlayerHost() {
           ref={videoRef}
           source={shownSource}
           style={styles.video}
-          resizeMode={fills ? "cover" : "contain"}
+          // Inline, without controls, this reaches only the inline layer (RCTVideo.setResizeMode); the presented player keeps its whole picture.
+          resizeMode={fills || inline ? "cover" : "contain"}
           // Inline, the picture alone: AVKit's controls do not shrink to the band, so a tap on it opens the presented player.
           controls={!inline}
           muted={inline && inlineMuted}

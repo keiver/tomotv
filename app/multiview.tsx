@@ -129,7 +129,7 @@ export default function MultiviewScreen() {
   const soundId = arrangement.spots[sound] ?? null;
   const soundChannel = (soundId && byId.get(soundId)) || null;
   const player = useMultiviewPlayer(IS_TV ? null : soundChannel, isFocused);
-  const { recordButton, mark } = usePinnedRecordButton({
+  const { recordButton } = usePinnedRecordButton({
     channel: IS_TV ? null : soundChannel,
     program: soundChannel?.CurrentProgram,
     nowMs,
@@ -294,11 +294,11 @@ export default function MultiviewScreen() {
           onSelect={() => select(sound)}
           onFailed={ignore}
           onLongPress={() => spotSheet(sound)}
-          overlay={{ mark, actions: <PinnedCornerButtons accent={accent} muted={muted} onToggleMute={toggleMute} record={recordButton} inset={ACTIONS_INSET} /> }}
+          overlay={{ actions: <PinnedCornerButtons accent={accent} muted={muted} onToggleMute={toggleMute} record={recordButton} inset={ACTIONS_INSET} /> }}
         />
       ),
     );
-  }, [isFocused, setOverlay, soundChannel, soundWidth, soundHeight, nowMs, select, sound, spotSheet, mark, accent, muted, toggleMute, recordButton]);
+  }, [isFocused, setOverlay, soundChannel, soundWidth, soundHeight, nowMs, select, sound, spotSheet, accent, muted, toggleMute, recordButton]);
 
   const featured = multiviewFeatured(arrangement.layout);
   const lastCard = stripIds.length > 0 ? multiviewStripCard(stripIds.length - 1, grid, cell, GAP) : null;

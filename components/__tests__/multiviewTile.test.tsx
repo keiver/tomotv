@@ -13,6 +13,8 @@ jest.mock("@/services/itemArtwork", () => ({ posterSource: () => mockLogo }));
 jest.mock("@/services/i18n", () => ({ t: (key: string) => (key === "liveTv.timeLeft" ? "{time} left" : key === "common.durationMinutes" ? "{minutes}m" : key) }));
 jest.mock("expo-image", () => ({ Image: (props: object) => require("react").createElement("Image", props) }));
 jest.mock("@expo/vector-icons", () => ({ Ionicons: (props: object) => require("react").createElement("Ionicons", props) }));
+const mockRecording = new Set<string>();
+jest.mock("@/hooks/useRecordingStatus", () => ({ useChannelRecording: (channelId: string) => mockRecording.has(channelId) }));
 
 import { airingLine, MultiviewTile } from "@/components/live-tv/multiview-tile";
 
@@ -37,6 +39,7 @@ beforeEach(() => {
   mockFrame = { uri: "file:///pool/c1/live-1-3.jpg", cacheKey: "live-c1-1-3" };
   mockClip = { uri: "file:///pool/c1/live-1-clip.mp4", cacheKey: "live-c1-1-clip" };
   mockLogo = { uri: "https://jf/Items/c1/Images/Primary" };
+  mockRecording.clear();
 });
 
 describe("MultiviewTile", () => {
@@ -175,13 +178,21 @@ describe("MultiviewTile", () => {
 
     it("drawn over the app's player, is clear with no picture of its own, and carries the label, the ring and the buttons", () => {
       const actions = <View testID="spot-actions" />;
-      const { tree, clip } = render({ main: true, overlay: { actions, mark: "liveTv.recordingNow" } });
+      const { tree, clip } = render({ main: true, overlay: { actions } });
       expect(clip).toBeUndefined();
       expect(tree.root.findAllByType("Image" as never)).toHaveLength(0);
       expect(StyleSheet.flatten(tree.root.findByType(TouchableOpacity).props.style).backgroundColor).toBe("transparent");
       expect(tree.root.findAll((node) => node.props.testID === "spot-actions")).not.toHaveLength(0);
-      expect(tree.root.findAll((node) => node.props.testID === "guide-pinned-mark")).not.toHaveLength(0);
       expect(tree.root.findAllByType(Text).map((node) => node.props.children)).toContain("Channel One");
     });
+  });
+
+  it("marks a channel being recorded with a red dot in its name label, whether or not it has the sound", () => {
+    const dot = (props: Partial<React.ComponentProps<typeof MultiviewTile>>) =>
+      render(props).tree.root.findAll((node) => node.props.testID === "multiview-tile-recording" && typeof node.type === "string");
+    expect(dot({})).toHaveLength(0);
+    mockRecording.add("c1");
+    expect(dot({})).toHaveLength(1);
+    expect(dot({ main: true })).toHaveLength(1);
   });
 });

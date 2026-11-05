@@ -1111,6 +1111,8 @@ describe("PlayerHost", () => {
       expect(videoRef.current.setFullScreen).not.toHaveBeenCalled();
       expect(video().props.muted).toBe(false);
       expect(video().props.controls).toBe(false);
+      // Filled like every clip around it; the presented player keeps AVKit's own whole picture.
+      expect(video().props.resizeMode).toBe("cover");
       expect(video().props.enterPictureInPictureOnLeave).toBeUndefined();
       expect(covered(renderer)).toBe(false);
       expect(stage().props.pointerEvents).toBe("none");

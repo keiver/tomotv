@@ -1,8 +1,9 @@
-import { PinnedRecordingMark } from "@/components/live-tv/pinned-recording-mark";
+import { RecordingPulse } from "@/components/live-tv/recording-pulse";
 import { CARD_CHROME, CARD_FOCUS, RAISED_EDGE, STAND_HEIGHT } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { useLiveClip, useLiveFrame } from "@/hooks/useLiveFrame";
+import { useChannelRecording } from "@/hooks/useRecordingStatus";
 import { t } from "@/services/i18n";
 import { posterSource } from "@/services/itemArtwork";
 import { LIVE_FRAME_TRANSITION_MS } from "@/services/liveFrames";
@@ -44,7 +45,7 @@ interface MultiviewTileProps {
   /** The app's player plays this spot over it: no player of its own, and the label's speaker follows that player. */
   inPlayer?: { playing: boolean };
   /** Drawn over the app's player instead: the label, ring and buttons on a clear tile, no picture of its own. */
-  overlay?: { actions: React.ReactNode; mark: string | null };
+  overlay?: { actions: React.ReactNode };
 }
 
 /** A programme's name and time left while it airs; null outside it. */
@@ -64,6 +65,7 @@ function MultiviewTileComponent({ channel, rect, main, liveUrl, failed, visible,
   const handlePress = useCallback(() => onSelect(channel.Id), [onSelect, channel.Id]);
   const handleLongPress = useCallback(() => onLongPress?.(channel.Id), [onLongPress, channel.Id]);
   const handleFailed = useCallback(() => onFailed(channel.Id), [onFailed, channel.Id]);
+  const recording = useChannelRecording(channel.Id);
   const played = !!inPlayer || !!overlay;
   const live = !!liveUrl || played;
   // The app's player draws this spot: the tile keeps its picture under it for the moments the player is parked.
@@ -96,7 +98,6 @@ function MultiviewTileComponent({ channel, rect, main, liveUrl, failed, visible,
       )}
       {frame && !overlay ? <Image source={frame} style={StyleSheet.absoluteFill} contentFit="cover" transition={LIVE_FRAME_TRANSITION_MS} cachePolicy="none" /> : null}
       {uri !== null ? <LiveClipView uri={uri} live={!played && live} muted={!main || played} onFailed={handleFailed} onPlaying={handlePlaying} style={StyleSheet.absoluteFill} /> : null}
-      {overlay?.mark ? <PinnedRecordingMark text={overlay.mark} style={styles.mark} /> : null}
       {overlay ? overlay.actions : null}
       {failed && !live ? (
         <View style={styles.warn} pointerEvents="none" testID="multiview-tile-warn">
@@ -119,6 +120,11 @@ function MultiviewTileComponent({ channel, rect, main, liveUrl, failed, visible,
               <ActivityIndicator size="small" color={ringed ? ink : COLORS.TEXT_PRIMARY} style={styles.spinner} />
             </View>
           ) : null}
+          {recording ? (
+            <RecordingPulse active>
+              <View style={styles.recordingDot} testID="multiview-tile-recording" />
+            </RecordingPulse>
+          ) : null}
           <Text style={[styles.labelText, ringed && { color: ink }]} numberOfLines={1}>
             {[cleanLabel(channel.Name ?? ""), main ? airing : null].filter(Boolean).join(" · ")}
           </Text>
@@ -139,9 +145,11 @@ const styles = StyleSheet.create({
   clear: {
     backgroundColor: "transparent",
   },
-  mark: {
-    bottom: 6,
-    left: 6,
+  recordingDot: {
+    width: LABEL_TEXT * 0.75,
+    height: LABEL_TEXT * 0.75,
+    borderRadius: LABEL_TEXT * 0.375,
+    backgroundColor: COLORS.DESTRUCTIVE,
   },
   // Over the picture, inside the spot: focus takes no space, so the lines between spots stay 2 pt.
   // The Live TV grid card's lit edge, square; under the focus ring it would read as a second ring.

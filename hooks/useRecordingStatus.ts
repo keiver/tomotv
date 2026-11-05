@@ -16,6 +16,11 @@ export function useActiveTimers(): JellyfinTimer[] {
   return useSyncExternalStore(subscribeRecordingStatus, activeTimers);
 }
 
+/** Whether the server is recording this channel right now, as the shared reading sees it. */
+export function useChannelRecording(channelId: string): boolean {
+  return useSyncExternalStore(subscribeRecordingStatus, () => getRecordingStatus().running.some((timer) => timer.ChannelId === channelId));
+}
+
 const noSubscription = () => () => {};
 
 /** The timer holding the channel's provider while `active`, re-read as timers change; null otherwise. */
