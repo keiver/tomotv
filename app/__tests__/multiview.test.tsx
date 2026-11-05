@@ -332,6 +332,17 @@ describe("Multiview", () => {
     expect(mockPrefs.multiviewQueue).toEqual([]);
   });
 
+  it("keeps both queued programmes when two have started by the time Multiview opens, the later start with the sound", () => {
+    const entry = (channelId: string, startMs: number): MultiviewQueued => ({ channelId, name: "Match", startMs, endMs: startMs + 3_600_000 });
+    mockParams = { channelId: "c10" };
+    mockPrefs.multiviewQueue = [entry("c4", NOW - 60_000), entry("c6", NOW - 1_800_000)];
+    mount();
+    expect(mockPrefs.multiview.spots[0]).toBe("c4");
+    expect(mockPrefs.multiview.spots).toContain("c6");
+    expect(mockPrefs.multiview.chosen).toEqual(expect.arrayContaining(["c4", "c6"]));
+    expect(mockPrefs.multiviewQueue).toEqual([]);
+  });
+
   it("reports the spots not playing live, never the sound spot, and the strip channels in view to the sampler", () => {
     mockParams = { channelId: "c10" };
     mockLiveUrls.set("c11", "http://127.0.0.1/t/master.m3u8");

@@ -61,6 +61,41 @@ export function placeChannel(arrangement: MultiviewArrangement, index: number, c
   return { ...arrangement, spots, chosen };
 }
 
+/**
+ * Queued programmes airing now: the latest start takes the spot with the sound; each other keeps a spot it already shows,
+ * or takes an empty spot, then one the viewer did not fill, live spots before picture spots. One with no such spot is dropped.
+ */
+export function placeDue(arrangement: MultiviewArrangement, soundAt: number, due: readonly MultiviewQueued[]): MultiviewArrangement {
+  const ids = [...new Set([...due].sort((a, b) => b.startMs - a.startMs).map((entry) => entry.channelId))];
+  if (ids.length === 0) return arrangement;
+  let next = placeChannel(arrangement, soundAt, ids[0]);
+  const held = new Set(ids.map((id) => next.spots.indexOf(id)).filter((index) => index >= 0));
+  for (const id of ids.slice(1)) {
+    if (next.spots.includes(id)) {
+      if (!next.chosen.includes(id)) next = { ...next, chosen: [...next.chosen, id] };
+      continue;
+    }
+    const at = openSpot(next, held);
+    if (at === null) continue;
+    next = placeChannel(next, at, id);
+    held.add(at);
+  }
+  return next;
+}
+
+function openSpot(arrangement: MultiviewArrangement, held: ReadonlySet<number>): number | null {
+  const count = Math.max(arrangement.spots.length, multiviewSpotCount(arrangement.layout));
+  const live = multiviewLiveCount(arrangement.layout);
+  const indices = Array.from({ length: count }, (_, index) => index).filter((index) => !held.has(index));
+  for (const band of [indices.filter((index) => index < live), indices.filter((index) => index >= live)]) {
+    const empty = band.find((index) => !arrangement.spots[index]);
+    if (empty !== undefined) return empty;
+    const notChosen = band.find((index) => !arrangement.chosen.includes(arrangement.spots[index] as string));
+    if (notChosen !== undefined) return notChosen;
+  }
+  return null;
+}
+
 export function clearSpot(arrangement: MultiviewArrangement, index: number): MultiviewArrangement {
   const spots = [...arrangement.spots];
   spots[index] = null;

@@ -1,5 +1,5 @@
 import type { MultiviewArrangement } from "@/services/liveTvPreferences";
-import { clearSpot, dueQueue, liveOrder, placeChannel, promoteSpot, resizeArrangement, seedArrangement, switchLayout } from "@/utils/multiviewArrangement";
+import { clearSpot, dueQueue, liveOrder, placeChannel, placeDue, promoteSpot, resizeArrangement, seedArrangement, switchLayout } from "@/utils/multiviewArrangement";
 
 const list = ["c1", "c2", "c3", "c4", "c5", "c6"];
 const arrangement = (layout: MultiviewArrangement["layout"], spots: (string | null)[], chosen: string[] = []): MultiviewArrangement => ({ layout, spots, chosen });
@@ -57,5 +57,37 @@ describe("multiview arrangement", () => {
       { channelId: "c", name: "C", startMs: 0, endMs: 50 },
     ];
     expect(dueQueue(queue, 150)).toEqual({ due: [queue[0]], rest: [queue[1]], nextAt: 300 });
+  });
+
+  describe("placing queued programmes that air now", () => {
+    const due = (channelId: string, startMs: number) => ({ channelId, name: channelId, startMs, endMs: 10_000 });
+
+    it("gives the sound spot to the latest start and another spot to the earlier one, when two are due at once", () => {
+      const placed = placeDue(arrangement("bigThree", ["a", "b", "c", "d"]), 0, [due("y", 100), due("x", 200)]);
+      expect(placed.spots).toEqual(["x", "y", "c", "d"]);
+      expect(placed.chosen).toEqual(["x", "y"]);
+    });
+
+    it("fills an empty live spot before replacing a channel Tomo put there", () => {
+      expect(placeDue(arrangement("grid4", ["a", "b", null, "d"]), 0, [due("x", 300), due("y", 100)]).spots).toEqual(["x", "b", "y", "d"]);
+    });
+
+    it("keeps a due channel already on screen in its spot", () => {
+      const placed = placeDue(arrangement("grid4", ["a", "b", "y", "d"]), 0, [due("x", 200), due("y", 100)]);
+      expect(placed.spots).toEqual(["x", "b", "y", "d"]);
+      expect(placed.chosen).toEqual(["x", "y"]);
+    });
+
+    it("never takes a spot the viewer filled, moving on to an empty picture spot", () => {
+      expect(placeDue(arrangement("rowThree", ["a", "b", "c", null, null, null], ["b", "c"]), 0, [due("x", 200), due("y", 100)]).spots).toEqual(["x", "b", "c", "y", null, null]);
+    });
+
+    it("drops a programme only when every other spot holds the viewer's channel or another programme", () => {
+      expect(placeDue(arrangement("bigTwo", ["a", "b", "c"], ["b", "c"]), 0, [due("x", 300), due("y", 200), due("z", 100)]).spots).toEqual(["x", "b", "c"]);
+    });
+
+    it("places a single due programme in the sound spot, as before", () => {
+      expect(placeDue(arrangement("bigTwo", ["a", "b", "c"]), 0, [due("x", 100)])).toEqual(placeChannel(arrangement("bigTwo", ["a", "b", "c"]), 0, "x"));
+    });
   });
 });

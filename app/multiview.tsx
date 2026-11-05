@@ -14,7 +14,7 @@ import { updateLiveTvPreferences, type MultiviewArrangement } from "@/services/l
 import type { JellyfinItem } from "@/types/jellyfin";
 import { programTimes } from "@/utils/guide";
 import { logger } from "@/utils/logger";
-import { clearSpot, dueQueue, liveOrder, placeChannel, promoteSpot, seedArrangement } from "@/utils/multiviewArrangement";
+import { clearSpot, dueQueue, liveOrder, placeChannel, placeDue, promoteSpot, seedArrangement } from "@/utils/multiviewArrangement";
 import {
   MULTIVIEW_ASPECT,
   multiviewCut,
@@ -119,14 +119,12 @@ export default function MultiviewScreen() {
   }, [arrangement, sound]);
   useEffect(() => () => setLiveTiles([]), []);
 
-  // A queued programme that airs now takes the sound spot, while Multiview is open.
+  // Queued programmes that air now take spots, the latest start the sound spot, while Multiview is open.
   const queue = preferences.multiviewQueue;
   useEffect(() => {
     const { due, rest, nextAt } = dueQueue(queue, nowMs);
     if (due.length > 0) {
-      let next = arrangement;
-      for (const entry of due) next = placeChannel(next, sound, entry.channelId);
-      updateLiveTvPreferences({ multiview: next, multiviewQueue: rest });
+      updateLiveTvPreferences({ multiview: placeDue(arrangement, sound, due), multiviewQueue: rest });
       return;
     }
     if (nextAt === null) return;
