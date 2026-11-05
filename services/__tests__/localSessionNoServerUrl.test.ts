@@ -45,6 +45,7 @@ jest.mock("@/services/jellyfin/bitrateTest", () => ({ rememberedBitrate: jest.fn
 import { NativeModules } from "react-native";
 import { startLocalRemux, predictPlaybackLane } from "@/services/localRemux";
 import { putEntry, resetManifestCache, type DownloadEntry } from "@/services/downloads/manifest";
+import { updateUiPreferences } from "@/services/uiPreferences";
 import { fakeFs, File } from "./fakeFileSystem";
 
 const MEDIA = "file:///doc/downloads/a/media.mkv";
@@ -90,6 +91,7 @@ beforeEach(() => {
   resetManifestCache();
   jest.clearAllMocks();
   fakeFs.clear();
+  updateUiPreferences({ serverTranscoding: "linkOrFile" });
   startRemux.mockResolvedValue("http://127.0.0.1:1/token/master.m3u8");
 });
 
