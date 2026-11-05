@@ -9,9 +9,6 @@ interface LiveClipViewProps {
   live?: boolean;
   /** A live tile plays with sound only when false. */
   muted?: boolean;
-  /** A live tile holds its last frame; `onFrozen` says it does. */
-  frozen?: boolean;
-  onFrozen?: (event: NativeSyntheticEvent<{ held: boolean }>) => void;
   /** A live tile's player failed, or none was free to play its session. */
   onFailed?: (event: NativeSyntheticEvent<{ code: number }>) => void;
   style?: StyleProp<ViewStyle>;
@@ -19,6 +16,6 @@ interface LiveClipViewProps {
 
 const NativeView = requireNativeViewManager<LiveClipViewProps & { pointerEvents?: "none" }>("LiveClip");
 
-export function LiveClipView({ uri, live, muted, frozen, onFrozen, onFailed, style }: LiveClipViewProps) {
-  return <NativeView uri={uri} live={live} muted={muted} frozen={frozen} onFrozen={onFrozen} onFailed={onFailed} style={style} pointerEvents="none" />;
+export function LiveClipView({ uri, live, muted, onFailed, style }: LiveClipViewProps) {
+  return <NativeView uri={uri} live={live} muted={muted} onFailed={onFailed} style={style} pointerEvents="none" />;
 }

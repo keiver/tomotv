@@ -1,5 +1,4 @@
 import AVFoundation
-import CoreImage
 import TomoEngine
 import UIKit
 
@@ -10,12 +9,9 @@ import UIKit
 final class PreviewPlayer {
   private let player = AVPlayer()
   private let playerLayer = AVPlayerLayer()
-  /// A live tile's last frame, held over the card while its session is closed and until the next one draws.
-  private let frozenLayer = CALayer()
   private var current: URL?
   private var pending: URL?
   private var live = false
-  private var videoOutput: AVPlayerItemVideoOutput?
   private var readyObservation: NSKeyValueObservation?
   private var endObserver: NSObjectProtocol?
   private var itemObservation: NSKeyValueObservation?
@@ -32,12 +28,9 @@ final class PreviewPlayer {
     playerLayer.player = player
     playerLayer.videoGravity = .resizeAspectFill
     playerLayer.isHidden = true
-    frozenLayer.contentsGravity = .resizeAspectFill
-    frozenLayer.masksToBounds = true
-    frozenLayer.isHidden = true
     readyObservation = playerLayer.observe(\.isReadyForDisplay, options: [.new]) { [weak self] observed, _ in
       guard observed.isReadyForDisplay else { return }
-      DispatchQueue.main.async { self?.reveal() }
+      DispatchQueue.main.async { self?.playerLayer.isHidden = false }
     }
     itemObservation = player.observe(\.currentItem, options: [.new]) { [weak self] observed, _ in
       DispatchQueue.main.async { self?.watch(observed.currentItem) }
@@ -50,11 +43,8 @@ final class PreviewPlayer {
     host = view
     // Hidden before it moves, so the new card never shows the last card's frame or an empty player.
     hide()
-    clearFrozen()
     playerLayer.removeFromSuperlayer()
-    frozenLayer.removeFromSuperlayer()
     view.layer.addSublayer(playerLayer)
-    view.layer.addSublayer(frozenLayer)
     layout(in: view)
     self.live = live
     player.preventsDisplaySleepDuringVideoPlayback = live
@@ -77,36 +67,15 @@ final class PreviewPlayer {
     player.isMuted = muted
   }
 
-  /// A live tile keeps its last drawn frame over the card and lets its session go. False when no frame was drawn.
-  @discardableResult
-  func freeze() -> Bool {
-    defer {
-      player.replaceCurrentItem(with: nil)
-      current = nil
-      hide()
-    }
-    guard live, let item = player.currentItem, let output = videoOutput,
-          let buffer = output.copyPixelBuffer(forItemTime: item.currentTime(), itemTimeForDisplay: nil),
-          let image = CIContext().createCGImage(CIImage(cvPixelBuffer: buffer), from: CIImage(cvPixelBuffer: buffer).extent) else { return false }
-    CATransaction.begin()
-    CATransaction.setDisableActions(true)
-    frozenLayer.contents = image
-    frozenLayer.isHidden = false
-    CATransaction.commit()
-    return true
-  }
-
   /// Idle and off the card, ready for the next one.
   func detach() {
     host = nil
     hide()
-    clearFrozen()
     start(nil)
     live = false
     player.isMuted = true
     player.preventsDisplaySleepDuringVideoPlayback = false
     playerLayer.removeFromSuperlayer()
-    frozenLayer.removeFromSuperlayer()
   }
 
   func layout(in view: UIView) {
@@ -114,7 +83,6 @@ final class PreviewPlayer {
     CATransaction.begin()
     CATransaction.setDisableActions(true)
     playerLayer.frame = view.bounds
-    frozenLayer.frame = view.bounds
     CATransaction.commit()
   }
 
@@ -123,24 +91,6 @@ final class PreviewPlayer {
     CATransaction.begin()
     CATransaction.setDisableActions(true)
     playerLayer.isHidden = true
-    CATransaction.commit()
-  }
-
-  /// The first frame of the item draws: a held frame gives way to it in the same transaction, a hard cut.
-  private func reveal() {
-    CATransaction.begin()
-    CATransaction.setDisableActions(true)
-    playerLayer.isHidden = false
-    frozenLayer.isHidden = true
-    frozenLayer.contents = nil
-    CATransaction.commit()
-  }
-
-  private func clearFrozen() {
-    CATransaction.begin()
-    CATransaction.setDisableActions(true)
-    frozenLayer.isHidden = true
-    frozenLayer.contents = nil
     CATransaction.commit()
   }
 
@@ -158,14 +108,10 @@ final class PreviewPlayer {
   private func start(_ url: URL?) {
     if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
     endObserver = nil
-    videoOutput = nil
     current = url
     pending = nil
     if let url, live {
       let item = AVPlayerItem(asset: LowLatencyPlayerAsset.asset(for: url) ?? AVURLAsset(url: url))
-      let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
-      item.add(output)
-      videoOutput = output
       player.replaceCurrentItem(with: item)
       player.play()
       return

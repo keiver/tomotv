@@ -23,7 +23,6 @@ interface MultiviewTileProps {
   main: boolean;
   /** The tile's live session, null while it shows its clip or picture. */
   liveUrl: string | null;
-  frozen: boolean;
   /** False while the screen is covered: the tile lets its player go. */
   visible: boolean;
   /** The programme airing, for the label; past its end it is not shown. */
@@ -31,7 +30,6 @@ interface MultiviewTileProps {
   nowMs: number;
   hasTVPreferredFocus?: boolean;
   onSelect: (channelId: string) => void;
-  onFrozen: (channelId: string) => void;
   /** The tile's player failed, or none was free for its live session. */
   onFailed: (channelId: string) => void;
   onLongPress?: (channelId: string) => void;
@@ -46,17 +44,16 @@ export function airingLine(program: Pick<JellyfinProgram, "Name" | "StartDate" |
 }
 
 /** One multiview spot: its live session when it has one, else its clip, else its picture, else the channel's logo, under its name and programme. */
-function MultiviewTileComponent({ channel, rect, main, liveUrl, frozen, visible, program, nowMs, hasTVPreferredFocus, onSelect, onFrozen, onFailed, onLongPress }: MultiviewTileProps) {
+function MultiviewTileComponent({ channel, rect, main, liveUrl, visible, program, nowMs, hasTVPreferredFocus, onSelect, onFailed, onLongPress }: MultiviewTileProps) {
   const { accent } = useCardPalette();
   const frame = useLiveFrame(channel.Id);
   const clip = useLiveClip(channel.Id);
   const [focused, setFocused] = useState(false);
   const handlePress = useCallback(() => onSelect(channel.Id), [onSelect, channel.Id]);
   const handleLongPress = useCallback(() => onLongPress?.(channel.Id), [onLongPress, channel.Id]);
-  const handleFrozen = useCallback(() => onFrozen(channel.Id), [onFrozen, channel.Id]);
   const handleFailed = useCallback(() => onFailed(channel.Id), [onFailed, channel.Id]);
-  const live = !!liveUrl || frozen;
-  const uri = visible ? (liveUrl ?? (frozen ? null : (clip?.uri ?? null))) : null;
+  const live = !!liveUrl;
+  const uri = visible ? (liveUrl ?? clip?.uri ?? null) : null;
   const airing = airingLine(program, nowMs);
   return (
     <TouchableOpacity
@@ -71,7 +68,7 @@ function MultiviewTileComponent({ channel, rect, main, liveUrl, frozen, visible,
       style={[styles.tile, { left: rect.x, top: rect.y, width: rect.width, height: rect.height }, focused && [styles.focused, { borderColor: accent, shadowColor: accent }]]}>
       {frame ? null : <Image source={{ uri: getPosterUrl(channel.Id, 300) }} style={styles.logo} contentFit="contain" cachePolicy="memory-disk" />}
       {frame ? <Image source={frame} style={StyleSheet.absoluteFill} contentFit="cover" transition={LIVE_FRAME_TRANSITION_MS} cachePolicy="none" /> : null}
-      {uri !== null || frozen ? <LiveClipView uri={uri} live={live} muted={!main} frozen={frozen} onFrozen={handleFrozen} onFailed={handleFailed} style={StyleSheet.absoluteFill} /> : null}
+      {uri !== null ? <LiveClipView uri={uri} live={live} muted={!main} onFailed={handleFailed} style={StyleSheet.absoluteFill} /> : null}
       <View style={styles.label} pointerEvents="none">
         <View style={styles.nameRow}>
           {main ? <Ionicons name="volume-high" size={IS_TV ? 26 : 16} color={COLORS.TEXT_PRIMARY} /> : null}

@@ -710,7 +710,7 @@ export function refreshLiveFrameWhilePlaying(channelId: string, sessionUrl: stri
   };
 }
 
-/** A multiview main plays on the provider's only connection (`held`), or let it go for a round of grabs. */
+/** A multiview main plays on the provider's only connection (`held`), or has let it go. */
 export function setLiveFrameOriginHold(originKey: string, held: boolean): void {
   if (held) {
     mainHeldOrigins.add(originKey);

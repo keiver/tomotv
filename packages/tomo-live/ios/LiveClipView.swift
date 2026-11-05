@@ -2,14 +2,12 @@ import ExpoModulesCore
 import UIKit
 
 /// A channel card's preview: hosts a player from PreviewPlayerPool while its clip plays. Its clip loops. A live tile
-/// plays its engine session instead, muted unless it has the sound, and can hold its last frame while its session is away.
+/// plays its engine session instead, muted unless it has the sound.
 final class LiveClipView: ExpoView {
   private(set) var url: URL?
   private(set) var live = false
   private(set) var muted = true
-  private var frozen = false
   private var claim: DispatchWorkItem?
-  let onFrozen = EventDispatcher()
   let onFailed = EventDispatcher()
   #if os(tvOS)
   private static let settle: TimeInterval = 0
@@ -38,12 +36,7 @@ final class LiveClipView: ExpoView {
   func show(_ url: URL?) {
     self.url = url
     guard window != nil else { return }
-    // A frozen tile keeps its player, and the frame it holds, while its session is away.
-    if url == nil {
-      if !frozen { release() }
-    } else {
-      play()
-    }
+    if url == nil { release() } else { play() }
   }
 
   /// Props arrive in any order: a card that turns live after its player was lent takes a fresh one in live mode.
@@ -64,22 +57,6 @@ final class LiveClipView: ExpoView {
   func playerFailed(_ code: Int) {
     guard live else { return }
     onFailed(["code": code])
-  }
-
-  /// The tile holds its last frame, then says so; unfrozen with no session to show, it lets its player go.
-  func setFrozen(_ frozen: Bool) {
-    guard frozen != self.frozen else { return }
-    self.frozen = frozen
-    if frozen {
-      let held = PreviewPlayerPool.shared.player(in: self)?.freeze() ?? false
-      onFrozen(["held": held])
-      return
-    }
-    // A new session's uri may arrive in the same update after this prop: judged once the update is applied.
-    DispatchQueue.main.async { [weak self] in
-      guard let self, !self.frozen, self.url == nil else { return }
-      self.release()
-    }
   }
 
   private func play() {

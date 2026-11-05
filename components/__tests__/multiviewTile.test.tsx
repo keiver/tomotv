@@ -1,4 +1,4 @@
-/** A multiview spot: its live session with sound only on the main, else its clip, else its picture, else the channel's logo; its programme and time left; held on its last frame while frozen. */
+/** A multiview spot: its live session with sound only on the main, else its clip, else its picture, else the channel's logo; its programme and time left. */
 import React from "react";
 import { Text, TouchableOpacity } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
@@ -19,20 +19,17 @@ const NOW = Date.parse("2026-11-05T20:00:00Z");
 const channel = { Id: "c1", Name: "Channel One", Type: "TvChannel" } as never;
 const rect = { x: 0, y: 0, width: 320, height: 180 };
 const program = { Name: "Evening News", StartDate: "2026-11-05T19:30:00Z", EndDate: "2026-11-05T20:45:00Z" };
-type ClipProps = { uri: string | null; live: boolean; muted: boolean; frozen: boolean; onFrozen: () => void; onFailed: () => void };
+type ClipProps = { uri: string | null; live: boolean; muted: boolean; onFailed: () => void };
 
 function render(props: Partial<React.ComponentProps<typeof MultiviewTile>> = {}) {
   const onSelect = jest.fn();
-  const onFrozen = jest.fn();
   const onFailed = jest.fn();
   let tree!: TestRenderer.ReactTestRenderer;
   act(() => {
-    tree = TestRenderer.create(
-      <MultiviewTile channel={channel} rect={rect} main={false} liveUrl={null} frozen={false} visible nowMs={NOW} onSelect={onSelect} onFrozen={onFrozen} onFailed={onFailed} {...props} />,
-    );
+    tree = TestRenderer.create(<MultiviewTile channel={channel} rect={rect} main={false} liveUrl={null} visible nowMs={NOW} onSelect={onSelect} onFailed={onFailed} {...props} />);
   });
   const clips = tree.root.findAllByType("LiveClipView" as never);
-  return { tree, clip: clips[0]?.props as ClipProps | undefined, onSelect, onFrozen, onFailed };
+  return { tree, clip: clips[0]?.props as ClipProps | undefined, onSelect, onFailed };
 }
 
 beforeEach(() => {
@@ -69,13 +66,6 @@ describe("MultiviewTile", () => {
       .tree.root.findAllByType(Text)
       .map((node) => node.props.children);
     expect(texts).toContain("Evening News · 45m left");
-  });
-
-  it("keeps its player, live and holding its frame, while frozen with no session, and reports the hold", () => {
-    const { clip, onFrozen } = render({ main: true, frozen: true });
-    expect(clip).toMatchObject({ uri: null, live: true, frozen: true });
-    clip!.onFrozen();
-    expect(onFrozen).toHaveBeenCalledWith("c1");
   });
 
   it("lets its player go while the screen is covered", () => {

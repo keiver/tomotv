@@ -13,20 +13,12 @@ const mockPush = jest.fn();
 const mockSetLiveTiles = jest.fn();
 const mockViewable = jest.fn();
 const mockActive = jest.fn();
-const mockPause = jest.fn();
 const mockFailed = jest.fn();
 const mockInfoPanel = jest.fn();
 const mockWindow = jest.fn();
 const mockUnavailable = new Set<string>();
 const mockLiveUrls = new Map<string, string>();
-let mockTvHandler: ((event: { eventType: string }) => void) | null = null;
 
-jest.mock("react-native/Libraries/Components/TV/useTVEventHandler", () => ({
-  __esModule: true,
-  default: (handler: (event: { eventType: string }) => void) => {
-    mockTvHandler = handler;
-  },
-}));
 jest.mock("expo-router", () => ({
   useRouter: () => ({ push: mockPush }),
   useLocalSearchParams: () => mockParams,
@@ -64,13 +56,10 @@ jest.mock("@/services/liveFrames", () => ({
 jest.mock("@/services/liveTiles", () => ({
   setLiveTiles: (ids: string[], options?: { chosen?: readonly string[] }) => mockSetLiveTiles(ids, options),
   liveTileUrl: (id: string) => mockLiveUrls.get(id) ?? null,
-  liveTileFrozen: () => false,
   liveTileUnavailable: (id: string) => mockUnavailable.has(id),
   liveTilesVersion: () => 0,
   subscribeLiveTiles: () => () => {},
-  noteLiveTileFrozen: jest.fn(),
   noteLiveTileFailed: (id: string) => mockFailed(id),
-  pauseLiveTileMain: () => mockPause(),
 }));
 jest.mock("@keiver/tomo-live", () => jest.requireActual("@keiver/tomo-live/src/multiviewLayout"));
 const mockMounts: string[] = [];
@@ -314,10 +303,8 @@ describe("Multiview", () => {
     expect(spots()[2].liveUrl).toBe("http://127.0.0.1/t/master.m3u8");
   });
 
-  it("pauses the sound spot for a round of grabs on Play/Pause, and hands a failed player to the tile sessions", () => {
+  it("hands a failed player to the tile sessions", () => {
     mount();
-    act(() => mockTvHandler?.({ eventType: "playPause" }));
-    expect(mockPause).toHaveBeenCalledTimes(1);
     spots()[1].onFailed("c19");
     expect(mockFailed).toHaveBeenCalledWith("c19");
   });

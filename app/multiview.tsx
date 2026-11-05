@@ -9,7 +9,7 @@ import { t } from "@/services/i18n";
 import type { StringKey } from "@/services/i18n/strings";
 import { fetchChannelWindow } from "@/services/jellyfinApi";
 import { setLiveFramesActive, setLiveFrameViewable } from "@/services/liveFrames";
-import { liveTileFrozen, liveTilesVersion, liveTileUnavailable, liveTileUrl, noteLiveTileFailed, noteLiveTileFrozen, pauseLiveTileMain, setLiveTiles, subscribeLiveTiles } from "@/services/liveTiles";
+import { liveTilesVersion, liveTileUnavailable, liveTileUrl, noteLiveTileFailed, setLiveTiles, subscribeLiveTiles } from "@/services/liveTiles";
 import { updateLiveTvPreferences, type MultiviewArrangement } from "@/services/liveTvPreferences";
 import type { JellyfinItem } from "@/types/jellyfin";
 import { programTimes } from "@/utils/guide";
@@ -19,7 +19,7 @@ import { MULTIVIEW_ASPECT, MULTIVIEW_LAYOUTS, multiviewChannels, multiviewFeatur
 import { useHeaderHeight } from "expo-router/react-navigation";
 import { Stack, useIsFocused, useLocalSearchParams, useRouter, type NativeStackNavigationOptions } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Alert, Platform, ScrollView, StyleSheet, useTVEventHandler, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
+import { Alert, Platform, ScrollView, StyleSheet, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 
 const IS_TV = Platform.isTV;
 /** The line between channels. */
@@ -187,11 +187,6 @@ export default function MultiviewScreen() {
           },
     [accent, layoutSheet, full],
   );
-  const frozen = useCallback((id: string) => noteLiveTileFrozen(id), []);
-  useTVEventHandler((event) => {
-    if (isFocused && event.eventType === "playPause") pauseLiveTileMain();
-  });
-
   // The strip: the group's other channels, the sampler reading those in view.
   const stripIds = useMemo(() => ids.filter((id) => !arrangement.spots.includes(id)).slice(0, STRIP_LIMIT), [ids, arrangement.spots]);
   const [stripFrom, setStripFrom] = useState(0);
@@ -237,13 +232,11 @@ export default function MultiviewScreen() {
               rect={rect}
               main={index === sound}
               liveUrl={liveTileUrl(id)}
-              frozen={liveTileFrozen(id)}
               visible={isFocused}
               program={channel.CurrentProgram}
               nowMs={nowMs}
               hasTVPreferredFocus={featured ? index === 0 : index === sound}
               onSelect={() => select(index)}
-              onFrozen={frozen}
               onFailed={noteLiveTileFailed}
               onLongPress={() => spotSheet(index)}
             />
@@ -267,12 +260,10 @@ export default function MultiviewScreen() {
                   rect={{ x: index * (STRIP_WIDTH + GAP), y: 0, width: STRIP_WIDTH, height: STRIP_HEIGHT }}
                   main={false}
                   liveUrl={null}
-                  frozen={false}
                   visible={isFocused}
                   program={channel.CurrentProgram}
                   nowMs={nowMs}
                   onSelect={toSound}
-                  onFrozen={frozen}
                   onFailed={noteLiveTileFailed}
                 />
               );

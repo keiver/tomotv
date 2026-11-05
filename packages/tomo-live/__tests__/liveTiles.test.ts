@@ -6,8 +6,6 @@ const mockStopped: string[] = [];
 const mockPriorities: [string, string][] = [];
 const mockLimits = new Map<string, number>();
 const mockHolds: [string, boolean][] = [];
-const mockFrameListeners = new Map<string, () => void>();
-const mockFrames = new Map<string, string>();
 let mockAppListeners: Record<string, (state?: string) => void> = {};
 
 jest.mock("react-native", () => ({
@@ -43,29 +41,18 @@ jest.mock("@keiver/tomo-engine", () => ({
   },
 }));
 jest.mock("../src/liveFrames", () => ({
-  liveFrameFor: (id: string) => (mockFrames.has(id) ? { uri: mockFrames.get(id), cacheKey: id } : undefined),
-  liveClipFor: (id: string) => (mockFrames.has(id) ? { uri: `${mockFrames.get(id)}.mp4`, cacheKey: id } : undefined),
   setLiveFrameOriginHold: (key: string, held: boolean) => mockHolds.push([key, held]),
-  subscribeLiveFrame: (id: string, listener: () => void) => {
-    mockFrameListeners.set(id, listener);
-    return () => mockFrameListeners.delete(id);
-  },
 }));
 
 import { configureLive } from "../src/config";
 import { clearTunerChannels, noteTunerChannel } from "../src/channelOrigin";
 import {
   LIVE_TILE_DROP_SPACING_MS,
-  LIVE_TILE_FREEZE_CONFIRM_MS,
   LIVE_TILE_HANDOFF_GRACE_MS,
-  LIVE_TILE_MAIN_SETTLE_MS,
   LIVE_TILE_OPEN_SPACING_MS,
-  LIVE_TILE_ROUND_MS,
-  liveTileFrozen,
   liveTileUnavailable,
   liveTileUrl,
   noteLiveTileFailed,
-  noteLiveTileFrozen,
   retainLiveTile,
   setLiveTiles,
   takeLiveTile,
@@ -131,8 +118,6 @@ beforeEach(() => {
   mockFailures.clear();
   mockThroughput.clear();
   mockLimits.clear();
-  mockFrames.clear();
-  mockFrameListeners.clear();
   startFailure = null;
   serverOnly = new Set();
   clearTunerChannels();
@@ -294,66 +279,14 @@ describe("liveTiles", () => {
     expect(mockStopped).toContain("t-a");
   });
 
-  it("on a one-connection provider holds the sampler off while the main plays, then freezes it for a round of grabs and reopens it at the live edge", async () => {
+  it("plays only the main on a one-connection provider, holding the sampler off that provider, and never stops it", async () => {
     mockLimits.set("one.example", 1);
     setLiveTiles(["one-a", "one-b", "one-c"]);
     await openAll(3);
     expect(started.map(([id]) => id)).toEqual(["one-a"]);
-    expect(mockHolds).toContainEqual(["one.example", true]);
-    await advance(LIVE_TILE_MAIN_SETTLE_MS);
-    expect(liveTileFrozen("one-a")).toBe(true);
-    noteLiveTileFrozen("one-a");
-    await flush();
-    expect(mockStopped).toContain("t-one-a");
-    expect(mockHolds.at(-1)).toEqual(["one.example", false]);
-    mockFrames.set("one-b", "file:///b");
-    mockFrameListeners.get("one-b")!();
-    mockFrames.set("one-c", "file:///c");
-    mockFrameListeners.get("one-c")!();
-    // The round is over and the main is reopening: its frame stays held until the new session is adopted.
-    expect(liveTileFrozen("one-a")).toBe(true);
-    expect(liveTileUrl("one-a")).toBeNull();
-    await openAll(1);
-    expect(liveTileFrozen("one-a")).toBe(false);
-    expect(liveTileUrl("one-a")).toBe("http://127.0.0.1/t-one-a/master.m3u8");
-    expect(started.map(([id]) => id)).toEqual(["one-a", "one-a"]);
-    expect(mockHolds.at(-1)).toEqual(["one.example", true]);
-  });
-
-  it("lets the held frame go when the main's reopen after a round fails", async () => {
-    mockLimits.set("one.example", 1);
-    setLiveTiles(["one-a", "one-b"]);
-    await openAll(2);
-    await advance(LIVE_TILE_MAIN_SETTLE_MS);
-    noteLiveTileFrozen("one-a");
-    await flush();
-    startFailure = () => new Error("input ended");
-    mockFrames.set("one-b", "file:///b");
-    mockFrameListeners.get("one-b")!();
-    await advance(LIVE_TILE_ROUND_MS);
-    expect(liveTileFrozen("one-a")).toBe(false);
-    expect(mockHolds.at(-1)).toEqual(["one.example", false]);
-  });
-
-  it("keeps the main playing while it is being frozen, whatever else ends meanwhile", async () => {
-    mockLimits.set("one.example", 1);
-    setLiveTiles(["one-a", "one-b", "x"]);
-    await openAll(3);
-    // Up to the moment the freeze is asked, inside the second the tile has to say it holds the frame.
-    for (let waited = 0; !liveTileFrozen("one-a") && waited < LIVE_TILE_MAIN_SETTLE_MS; waited += 100) await advance(100);
-    expect(liveTileFrozen("one-a")).toBe(true);
-    mockFailures.get("t-x")!({ token: "t-x", message: "input ended" });
-    await flush();
+    expect(mockHolds).toEqual([["one.example", true]]);
+    await advance(60_000);
     expect(liveTileUrl("one-a")).not.toBeNull();
-    expect(mockStopped).not.toContain("t-one-a");
-  });
-
-  it("goes on with the round when the tile never says it holds its frame", async () => {
-    mockLimits.set("one.example", 1);
-    setLiveTiles(["one-a", "one-b"]);
-    await openAll(2);
-    await advance(LIVE_TILE_MAIN_SETTLE_MS);
-    await advance(LIVE_TILE_FREEZE_CONFIRM_MS);
-    expect(mockStopped).toContain("t-one-a");
+    expect(mockStopped).toEqual([]);
   });
 });

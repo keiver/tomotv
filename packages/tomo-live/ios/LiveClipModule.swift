@@ -5,7 +5,7 @@ public final class LiveClipModule: Module {
     Name("LiveClip")
 
     View(LiveClipView.self) {
-      Events("onFrozen", "onFailed")
+      Events("onFailed")
 
       Prop("uri") { (view, uri: String?) in
         view.show(uri.flatMap(URL.init(string:)))
@@ -17,10 +17,6 @@ public final class LiveClipModule: Module {
 
       Prop("muted") { (view, muted: Bool?) in
         view.setMuted(muted ?? true)
-      }
-
-      Prop("frozen") { (view, frozen: Bool?) in
-        view.setFrozen(frozen ?? false)
       }
     }
   }
