@@ -80,24 +80,24 @@ test("with two channels on the wall, a Multiview button leads the bar and opens 
     { Id: "c2", Name: "Two", Type: "TvChannel" },
   ];
   const { labels, items } = render("all");
-  expect(labels).toEqual(["liveTv.multiview", "tab.search", "liveTv.groups", "settings.title"]);
+  expect(labels).toEqual(["liveTv.multiview", "liveTv.groups", "settings.title"]);
   items[0].onPress();
   expect(mockPush).toHaveBeenLastCalledWith("/multiview");
   mockItems = [{ Id: "c1", Name: "One", Type: "TvChannel" }];
-  expect(render("all").labels).toEqual(["tab.search", "liveTv.groups", "settings.title"]);
+  expect(render("all").labels).toEqual(["liveTv.groups", "settings.title"]);
 });
 
-test("with every channel shown, the filter button sits before Settings with its outline symbol", () => {
+test("with every channel shown, the filter button sits before Settings with its outline symbol, and the bar has no search button", () => {
   const { labels, items, tvAction } = render("all");
-  expect(labels).toEqual(["tab.search", "liveTv.groups", "settings.title"]);
-  expect(items[1].icon.name).toBe("line.3.horizontal.decrease.circle");
+  expect(labels).toEqual(["liveTv.groups", "settings.title"]);
+  expect(items[0].icon.name).toBe("line.3.horizontal.decrease.circle");
   expect(tvAction).toBeDefined();
 });
 
 test("with a group picked, the symbol fills and a press opens the Groups picker on both platforms", () => {
   const { items, tvAction } = render("group:g1");
-  expect(items[1].icon.name).toBe("line.3.horizontal.decrease.circle.fill");
-  items[1].onPress();
+  expect(items[0].icon.name).toBe("line.3.horizontal.decrease.circle.fill");
+  items[0].onPress();
   expect(mockPush).toHaveBeenLastCalledWith("/channel-groups");
   tvAction?.onPress();
   expect(mockPush).toHaveBeenCalledTimes(2);

@@ -16,7 +16,6 @@ import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
 import { t } from "@/services/i18n";
 import { fetchTimers, searchLiveTv, warmLiveTvSearch } from "@/services/jellyfinApi";
 import { reportRecordingTimers } from "@/services/recordingStatus";
-import { requestSearchFocus } from "@/services/searchFocus";
 import { isFavoriteChannel } from "@/services/liveTvPreferences";
 import type { FolderStackEntry, JellyfinItem, JellyfinTimer, JellyfinVideoItem } from "@/types/jellyfin";
 import { activeRecordTimer, programRecording } from "@/utils/guide";
@@ -32,7 +31,7 @@ const SEARCH_DEBOUNCE_MS = 300;
 const MIN_QUERY = 2;
 
 /** The channel wall: every channel as the guide's card, tuning on select, a held card a favorite. A root route beside Recordings.
- *  Its bar holds a search over channels and programmes, the Groups picker and Settings. */
+ *  Its bar holds the Groups picker and Settings, and on Apple TV a search over channels and programmes. */
 export default function ChannelsScreen() {
   const router = useRouter();
   const { accent } = useCardPalette();
@@ -128,12 +127,7 @@ export default function ChannelsScreen() {
     [filtered, openFilterPicker, accent],
   );
 
-  // Phone: search, the filter and Settings ride the native bar, as Filters does on a folder level. TV draws them in the grid's bar.
-  // Search opens the Search tab with its field focused.
-  const openSearch = useCallback(() => {
-    requestSearchFocus();
-    router.navigate("/(tabs)/search");
-  }, [router]);
+  // Phone: the filter and Settings ride the native bar, as Filters does on a folder level. TV draws them in the grid's bar.
   // Multiview opens on the group's first channel; a channel's info panel opens it on that one.
   const canMultiview = wall.length >= 2;
   const openMultiview = useCallback(() => router.push("/multiview"), [router]);
@@ -146,7 +140,6 @@ export default function ChannelsScreen() {
               ...(canMultiview
                 ? [{ type: "button" as const, label: t("liveTv.multiview"), icon: { type: "sfSymbol" as const, name: "rectangle.3.group" as const }, tintColor: accent, onPress: openMultiview }]
                 : []),
-              { type: "button", label: t("tab.search"), icon: { type: "sfSymbol", name: "magnifyingglass" }, tintColor: accent, onPress: openSearch },
               {
                 type: "button",
                 label: filterAction.accessibilityLabel,
@@ -157,10 +150,10 @@ export default function ChannelsScreen() {
               { type: "button", label: t("settings.title"), icon: { type: "sfSymbol", name: "gearshape" }, tintColor: accent, onPress: openSettings },
             ],
           },
-    [openSettings, openSearch, filterAction, filtered, accent, canMultiview, openMultiview],
+    [openSettings, filterAction, filtered, accent, canMultiview, openMultiview],
   );
 
-  // An empty wall keeps the bar: back, search, the filter and settings stay in reach.
+  // An empty wall keeps the bar: back, the filter and settings stay in reach, and search on Apple TV.
   const favoritesEmpty = preferences.filter === "favorites";
   const emptyWall =
     !searching && !hasMore ? (
