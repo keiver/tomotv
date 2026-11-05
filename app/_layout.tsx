@@ -292,7 +292,7 @@ function RootLayoutInner() {
                         : { headerShown: false, presentation: "transparentModal", animation: "fade", contentStyle: { backgroundColor: "transparent" } }
                     }
                   />
-                  {/* The guide's Recordings, Channels and Schedule: TV crossfades like video-info, phone
+                  {/* The guide's Recordings and Channels: TV crossfades like video-info, phone
                       pushes under a transparent native bar whose back chevron returns to the guide. */}
                   <Stack.Screen
                     name="recordings"
@@ -492,21 +492,6 @@ function RootLayoutInner() {
                               headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
                               headerBackTitle: t("liveTv.channels"),
                             }
-                    }
-                  />
-                  <Stack.Screen
-                    name="schedule"
-                    options={
-                      Platform.isTV
-                        ? { headerShown: false, animation: "fade" }
-                        : {
-                            headerShown: true,
-                            headerTransparent: true,
-                            headerShadowVisible: false,
-                            headerTitle: t("liveTv.scheduled"),
-                            headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
-                            headerBackTitle: t("liveTv.title"),
-                          }
                     }
                   />
                   {/* Root route (covers the tabs) so the native tab bar can't steal focus while the

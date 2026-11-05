@@ -72,6 +72,7 @@ All notable changes to Tomo TV are documented here.
 
 - Mac: a video plays in the system player, sized to the app's window, instead of inline. A double click still toggles the letterbox
 - iPhone, iPad and Mac: the Channels bar no longer has a search button; search is in the Search tab
+- The Live TV guide's bar is Channels, Multiview, Recordings, and on Apple TV the guide refresh. Multiview opens on the pinned channel when one plays. Recordings and Schedule are one screen: what records now, what is set to record and the series rules sit above the finished recordings, with Stop All while something records; an account that may not manage recordings sees the recordings alone. The Recordings button turns red while a recording runs, where the Schedule button did
 - iPhone, iPad and Mac: the guide's channel column snaps to three widths (logos only, cards, wide cards) instead of resizing freely. The cards and rows grow with it, the width is kept on the device, and VoiceOver can adjust it. iPad and Mac start at wide cards, iPhone at cards
 - The Favorites chip starts with the heart used on guide cards
 - Server transcoding defaults to Only for unsupported files instead of When needed. A When needed saved by an earlier version reads as Only for unsupported files, because earlier versions saved the default with every change. On this level, a link that stops at open shows the error instead of turning to the server, and the device is not marked as too slow

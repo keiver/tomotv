@@ -3,11 +3,14 @@ import { EmptyCard } from "@/components/empty-card";
 import { settingsStyles, sideInsets } from "@/components/settings/styles";
 import { FocusableButton } from "@/components/FocusableButton";
 import { LibraryGrid } from "@/components/library-grid";
+import { RecordingSchedule } from "@/components/live-tv/recording-schedule";
 import { TVFocusHolder } from "@/components/tv-focus-holder";
+import { COLORS } from "@/constants/colors";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
+import { useRecordingSchedule } from "@/hooks/useRecordingSchedule";
 import { t } from "@/services/i18n";
 import { fetchFilteredVideos, fetchRecordingFolderIds, fetchRecordings, subscribeRecordingsChange } from "@/services/jellyfinApi";
 import { countActiveFilters, EMPTY_FILTERS, type FolderStackEntry, type JellyfinItem } from "@/types/jellyfin";
@@ -22,7 +25,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const IS_TV = Platform.isTV;
 
-/** The guide's finished recordings. A root route: TV crossfades it, phone pushes it under a native bar. */
+/**
+ * The guide's recordings: what records now, what is set to record and the series rules above the finished recordings.
+ * A root route: TV crossfades it, phone pushes it under a native bar.
+ */
 export default function RecordingsScreen() {
   const router = useRouter();
   const { accent } = useCardPalette();
@@ -92,39 +98,71 @@ export default function RecordingsScreen() {
     router.push({ pathname: "/filters", params: { folderId, name: title, libraryId: folderId, libraryName: title } });
   }, [router, folderId, title]);
 
-  // Phone: the Filters button rides the native bar, as on a folder level. TV draws its own bar in the grid.
+  // The schedule above the recordings, and Stop All, only for an account that may manage recordings.
+  const schedule = useRecordingSchedule(reloadKey);
+  const scheduleShown = !!schedule.error || (schedule.canManage && schedule.entries.length > 0);
+  const canStopAll = schedule.canManage && schedule.running.length > 0;
+  const { stopping, confirmStopAll } = schedule;
+
+  // Phone: Filters and, while something records, Stop All ride the native bar, as on a folder level. TV draws its own bar in the grid.
   const screenOptions = useMemo<NativeStackNavigationOptions>(
     () =>
-      IS_TV || !folderId
+      IS_TV || (!folderId && !canStopAll)
         ? {}
         : {
             unstable_headerRightItems: () => [
-              {
-                type: "custom",
-                element: (
-                  <FocusableButton
-                    title={activeFilterCount > 0 ? t("filters.titleCount").replace("{count}", String(activeFilterCount)) : t("filters.title")}
-                    variant="link"
-                    icon={<Ionicons name="funnel-outline" size={18} color={accent} />}
-                    onPress={handleOpenFilters}
-                    accessibilityLabel={t("filters.title")}
-                  />
-                ),
-              },
+              ...(folderId
+                ? [
+                    {
+                      type: "custom" as const,
+                      element: (
+                        <FocusableButton
+                          title={activeFilterCount > 0 ? t("filters.titleCount").replace("{count}", String(activeFilterCount)) : t("filters.title")}
+                          variant="link"
+                          icon={<Ionicons name="funnel-outline" size={18} color={accent} />}
+                          onPress={handleOpenFilters}
+                          accessibilityLabel={t("filters.title")}
+                        />
+                      ),
+                    },
+                  ]
+                : []),
+              ...(canStopAll
+                ? [
+                    {
+                      type: "button" as const,
+                      label: t("liveTv.stopAllRecordings"),
+                      icon: { type: "sfSymbol" as const, name: "stop.circle" as const },
+                      tintColor: COLORS.DESTRUCTIVE,
+                      disabled: stopping,
+                      onPress: confirmStopAll,
+                    },
+                  ]
+                : []),
             ],
           },
-    [folderId, activeFilterCount, handleOpenFilters, accent],
+    [folderId, activeFilterCount, handleOpenFilters, accent, canStopAll, stopping, confirmStopAll],
   );
 
-  if (!recordings.isLoading && !recordings.error && recordings.items.length === 0 && activeFilterCount === 0) {
+  const emptyCard = <EmptyCard icon="recording-outline" text={t("liveTv.noRecordings")} note={t("liveTv.noRecordingsHint")} noteIcon="lock-closed-outline" />;
+  const scheduleCard = scheduleShown ? (
+    <RecordingSchedule
+      entries={schedule.entries}
+      nowMs={schedule.nowMs}
+      onTimerPress={schedule.onTimerPress}
+      stopAll={IS_TV && canStopAll ? { disabled: stopping, onPress: confirmStopAll } : null}
+      error={schedule.error}
+      onRetry={schedule.reload}
+    />
+  ) : null;
+
+  if (!scheduleShown && !recordings.isLoading && !recordings.error && recordings.items.length === 0 && activeFilterCount === 0) {
     return (
       <View style={styles.container}>
         <Stack.Screen options={screenOptions} />
         <AmbientBackground />
         <View style={[styles.emptyPage, sideInsets(insets)]}>
-          <View style={settingsStyles.contentContainer}>
-            <EmptyCard icon="recording-outline" text={t("liveTv.noRecordings")} note={t("liveTv.noRecordingsHint")} noteIcon="lock-closed-outline" />
-          </View>
+          <View style={settingsStyles.contentContainer}>{emptyCard}</View>
         </View>
         <TVFocusHolder preferred={isScreenFocused} />
       </View>
@@ -149,6 +187,8 @@ export default function RecordingsScreen() {
         homeAsBack
         onOpenFilters={folderId ? handleOpenFilters : undefined}
         activeFilterCount={activeFilterCount}
+        leadContent={scheduleCard}
+        emptyContent={activeFilterCount === 0 ? emptyCard : undefined}
       />
     </>
   );

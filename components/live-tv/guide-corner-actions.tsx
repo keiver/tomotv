@@ -14,14 +14,9 @@ type HeaderSymbolName = Extract<NonNullable<NativeStackHeaderItemButton["icon"]>
 export const HUD_ACTION_ICON = IS_TV ? 32 : 23;
 const ICON = HUD_ACTION_ICON;
 const WEIGHT = "bold";
-// The dotted calendar is a 2025 glyph; older systems get the clock badge (2020).
-const HAS_CALENDAR_BADGE = Number.parseInt(String(Platform.Version), 10) >= 26;
-
-/** The Schedule glyph: a plain calendar, or one wearing a badge while something records. */
-export function scheduleSymbol(recording: boolean): HeaderSymbolName {
-  if (!recording) return "calendar";
-  return HAS_CALENDAR_BADGE ? "calendar.badge" : "calendar.badge.clock";
-}
+/** Recordings, and Multiview, in the phone's native bar and the TV corner alike. */
+export const RECORDINGS_SYMBOL: HeaderSymbolName = "recordingtape";
+export const MULTIVIEW_SYMBOL: HeaderSymbolName = "rectangle.3.group";
 
 interface HudActionProps {
   icon: React.ReactNode;
@@ -75,13 +70,14 @@ interface GuideCornerActionsProps {
   /** The Channels cell wears the filled filter mark while a filter holds the channels. */
   filtered: boolean;
   onChannels: () => void;
+  /** Absent with fewer than two channels: there is no Multiview to open. */
+  onMultiview?: () => void;
   onRecordings: () => void;
-  onSchedule: () => void;
   /** Reloads the server's listings and re-downloads the external guides. */
   onRefreshGuide: () => void;
   /** True while the guide is already working: the refresh cell drops presses and spins. */
   refreshing?: boolean;
-  /** A recording is in progress: the Schedule glyph wears its badge, turns red and breathes. */
+  /** A recording is in progress: the Recordings glyph turns red and breathes. */
   recording?: boolean;
   /** The first cell's node, the guide cells' fallback Up target. */
   onFirstRef?: (node: View | null) => void;
@@ -89,8 +85,8 @@ interface GuideCornerActionsProps {
   claimFocus?: boolean;
 }
 
-/** Channels, Recordings, Schedule and the guide refresh: equal frosted cells spanning the band's corner. */
-export function GuideCornerActions({ filtered, onChannels, onRecordings, onSchedule, onRefreshGuide, refreshing, recording, onFirstRef, claimFocus }: GuideCornerActionsProps) {
+/** Channels, Multiview, Recordings and the guide refresh: equal frosted cells spanning the band's corner. */
+export function GuideCornerActions({ filtered, onChannels, onMultiview, onRecordings, onRefreshGuide, refreshing, recording, onFirstRef, claimFocus }: GuideCornerActionsProps) {
   const { accent } = useCardPalette();
   return (
     <View style={styles.row}>
@@ -101,13 +97,13 @@ export function GuideCornerActions({ filtered, onChannels, onRecordings, onSched
         onPress={onChannels}
         icon={<SfSymbolIcon name={filtered ? "line.3.horizontal.decrease.circle.fill" : "square.grid.2x2"} size={ICON} color={accent} weight={WEIGHT} />}
       />
-      <HudAction label={t("liveTv.recordings")} onPress={onRecordings} icon={<SfSymbolIcon name="recordingtape" size={ICON} color={accent} weight={WEIGHT} />} />
+      {onMultiview ? <HudAction label={t("liveTv.multiview")} onPress={onMultiview} icon={<SfSymbolIcon name={MULTIVIEW_SYMBOL} size={ICON} color={accent} weight={WEIGHT} />} /> : null}
       <HudAction
-        label={t("liveTv.scheduled")}
-        onPress={onSchedule}
+        label={t("liveTv.recordings")}
+        onPress={onRecordings}
         icon={
           <RecordingPulse active={!!recording}>
-            <SfSymbolIcon name={scheduleSymbol(!!recording)} size={ICON} color={recording ? COLORS.DESTRUCTIVE : accent} weight={WEIGHT} />
+            <SfSymbolIcon name={RECORDINGS_SYMBOL} size={ICON} color={recording ? COLORS.DESTRUCTIVE : accent} weight={WEIGHT} />
           </RecordingPulse>
         }
       />

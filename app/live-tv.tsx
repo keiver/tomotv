@@ -1,6 +1,6 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { GuideCanvas } from "@/components/live-tv/guide-canvas";
-import { GuideCornerActions, HUD_ACTION_ICON, HudAction, scheduleSymbol } from "@/components/live-tv/guide-corner-actions";
+import { GuideCornerActions, HUD_ACTION_ICON, HudAction, MULTIVIEW_SYMBOL, RECORDINGS_SYMBOL } from "@/components/live-tv/guide-corner-actions";
 import { GuideHud } from "@/components/live-tv/guide-hud";
 import { SfSymbolIcon } from "@/components/sf-symbol-icon";
 import { gridEdgePadding, LIBRARY_ROOT_TITLE } from "@/constants/app";
@@ -188,14 +188,17 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
   const handleChannelPress = tune;
   const openChannel = useCallback((channel: JellyfinItem) => router.push({ pathname: "/video-info", params: { videoId: channel.Id, name: channel.Name } }), [router]);
   const openRecordings = useCallback(() => router.push("/recordings"), [router]);
-  const openSchedule = useCallback(() => router.push("/schedule"), [router]);
   const openChannels = useCallback(() => router.push("/channels"), [router]);
+  // Multiview opens on the pinned channel when one plays, as a channel's info panel opens it; else on the stored spots.
+  const canMultiview = guide.rows.length >= 2;
+  const pinnedName = pinned.channel?.Name ?? "";
+  const openMultiview = useCallback(() => router.push(pinnedId ? { pathname: "/multiview", params: { channelId: pinnedId, channelName: pinnedName } } : "/multiview"), [router, pinnedId, pinnedName]);
 
   // TV frames the column half a grid edge in; phone runs it flush to the screen edge.
   const edgeLeft = IS_TV ? gridEdgePadding(insets?.left ?? 0, IS_TV) / 2 : (insets?.left ?? 0);
   // Phone: the transparent native header floats over the content, so the body starts under it.
   const topClearance = IS_TV ? 10 + (insets?.top ?? 0) - TAB_BAR_GUIDE_HEIGHT : headerHeight + (IS_PAD ? 20 : 8);
-  // Phone: Channels, Recordings and Schedule are native bar items; TV draws them as labelled glass pills.
+  // Phone: Channels, Multiview and Recordings are native bar items; TV draws them as the corner's cells.
   const screenOptions = useMemo<NativeStackNavigationOptions>(
     () =>
       IS_TV
@@ -211,18 +214,20 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
                 tintColor: accent,
                 onPress: openChannels,
               },
-              { type: "button", label: t("liveTv.recordings"), icon: { type: "sfSymbol", name: "recordingtape" }, tintColor: accent, onPress: openRecordings },
-              // Badged and red while a recording runs: the Schedule screen behind it is where it stops.
+              ...(canMultiview
+                ? [{ type: "button" as const, label: t("liveTv.multiview"), icon: { type: "sfSymbol" as const, name: MULTIVIEW_SYMBOL }, tintColor: accent, onPress: openMultiview }]
+                : []),
+              // Red while a recording runs: the Recordings screen behind it is where it stops.
               {
                 type: "button",
-                label: t("liveTv.scheduled"),
-                icon: { type: "sfSymbol", name: scheduleSymbol(recording) },
+                label: t("liveTv.recordings"),
+                icon: { type: "sfSymbol", name: RECORDINGS_SYMBOL },
                 tintColor: recording ? COLORS.DESTRUCTIVE : accent,
-                onPress: openSchedule,
+                onPress: openRecordings,
               },
             ],
           },
-    [params.name, openRecordings, openChannels, openSchedule, recording, accent],
+    [params.name, openRecordings, openChannels, canMultiview, openMultiview, recording, accent],
   );
   // Built apart from the canvas so the compiler keys it on the band's own inputs, not every guide render.
   const hudRow = (
@@ -233,8 +238,8 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
           <GuideCornerActions
             filtered={filtered}
             onChannels={openChannels}
+            onMultiview={canMultiview ? openMultiview : undefined}
             onRecordings={openRecordings}
-            onSchedule={openSchedule}
             onRefreshGuide={refreshGuide}
             refreshing={guide.isUpdating}
             recording={recording}
