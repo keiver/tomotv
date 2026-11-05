@@ -42,15 +42,14 @@ interface InfoActionRowProps {
   extras?: InfoExtraAction[];
 }
 
-export interface InfoExtraAction {
+export type InfoExtraAction = {
   key: string;
-  icon: keyof typeof Ionicons.glyphMap;
   label: string;
   /** One word inside the circle. */
   word: string;
   destructive?: boolean;
   onPress: () => void;
-}
+} & ({ icon: keyof typeof Ionicons.glyphMap; symbol?: never } | { /** An SF Symbol name, drawn in place of an Ionicon. */ symbol: string; icon?: never });
 
 /** Slot and circle sizes that put every circle on one line of `width`, or the full sizes when they would fall under MIN_CIRCLE. */
 export function fittedSlot(width: number, count: number): { slot: number; circle: number } {
@@ -294,7 +293,7 @@ export function InfoActionRow({
               <FocusableButton
                 variant="secondary"
                 style={actionFor(key, extra.destructive)}
-                icon={glyph(key, extra.icon, extra.destructive ? COLORS.DESTRUCTIVE : accent, extra.destructive)}
+                icon={extra.symbol !== undefined ? symbol(key, extra.symbol) : glyph(key, extra.icon, extra.destructive ? COLORS.DESTRUCTIVE : accent, extra.destructive)}
                 accessibilityLabel={extra.label}
                 onFocus={() => setFocused(key)}
                 onBlur={() => blur(key)}

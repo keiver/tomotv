@@ -88,6 +88,22 @@ describe("InfoActionRow toggles and actions", () => {
   type Circle = { style: { backgroundColor: string }; icon: React.ReactElement<{ name: string; color: string }>; onFocus: () => void };
   const circles = (renderer: TestRenderer.ReactTestRenderer) => renderer.root.findAllByType(FocusableButton).map((node) => node.props as Circle);
 
+  it("draws an action given an SF Symbol with that symbol, and one given an Ionicon with the Ionicon", async () => {
+    const { SfSymbolIcon } = jest.requireActual("@/components/sf-symbol-icon");
+    const { Ionicons } = jest.requireMock("@expo/vector-icons");
+    const renderer = await mountRow({
+      extras: [
+        { key: "multiview", symbol: "rectangle.3.group", label: "liveTv.watchInMultiview", word: "info.word.multiview", onPress: jest.fn() },
+        { key: "subtitles", icon: "text-outline", label: "info.findSubtitles", word: "info.word.subtitles", onPress: jest.fn() },
+      ],
+    });
+    const [multiview, subtitles] = circles(renderer);
+    expect(multiview.icon.type).toBe(SfSymbolIcon);
+    expect(multiview.icon.props.name).toBe("rectangle.3.group");
+    expect(subtitles.icon.type).toBe(Ionicons);
+    expect(subtitles.icon.props.name).toBe("text-outline");
+  });
+
   it("gives a toggle that is on and one that is off the same circle, fills the icon of a toggle that is on and strikes a line through the outline icon of one that is off", async () => {
     const both = { onToggleFavorite: jest.fn(async () => true), onToggleWatched: jest.fn(async () => true), onToggleProgress: jest.fn(() => true) };
     const on = circles(await mountRow({ ...both, isFavorite: true, isPlayed: true, cleared: false }));

@@ -144,7 +144,7 @@ export default function ChannelsScreen() {
         : {
             unstable_headerRightItems: () => [
               ...(canMultiview
-                ? [{ type: "button" as const, label: t("liveTv.multiview"), icon: { type: "sfSymbol" as const, name: "rectangle.grid.2x2" as const }, tintColor: accent, onPress: openMultiview }]
+                ? [{ type: "button" as const, label: t("liveTv.multiview"), icon: { type: "sfSymbol" as const, name: "rectangle.3.group" as const }, tintColor: accent, onPress: openMultiview }]
                 : []),
               { type: "button", label: t("tab.search"), icon: { type: "sfSymbol", name: "magnifyingglass" }, tintColor: accent, onPress: openSearch },
               {
@@ -187,7 +187,7 @@ export default function ChannelsScreen() {
           headerTrailing={
             IS_TV ? (
               <>
-                {canMultiview ? <GlassButton accessibilityLabel={t("liveTv.multiview")} onPress={openMultiview} icon={<Ionicons name="grid-outline" size={24} color={accent} />} /> : null}
+                {canMultiview ? <GlassButton accessibilityLabel={t("liveTv.multiview")} onPress={openMultiview} icon={<SfSymbolIcon name="rectangle.3.group" size={26} color={accent} />} /> : null}
                 <HeaderSearchReveal key={preferences.filter} value={query} onChangeText={setQuery} placeholder={t("liveTv.searchLive")} />
               </>
             ) : undefined

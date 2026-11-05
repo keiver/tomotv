@@ -850,7 +850,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
     ...(programUpcoming ? [{ key: "multiviewQueue", icon: "alarm-outline" as const, label: t("liveTv.multiviewWhenStarts"), word: t("info.word.multiview"), onPress: handleMultiviewWhenStarts }] : []),
     ...(liveChannel
       ? [
-          { key: "multiview", icon: "grid-outline" as const, label: t("liveTv.watchInMultiview"), word: t("info.word.multiview"), onPress: () => void handleWatchInMultiview() },
+          { key: "multiview", symbol: "rectangle.3.group", label: t("liveTv.watchInMultiview"), word: t("info.word.multiview"), onPress: () => void handleWatchInMultiview() },
           { key: "rename", icon: "pencil-outline" as const, label: t("liveTv.renameChannel"), word: t("info.word.rename"), onPress: handleRenameChannel },
           { key: "hide", icon: "eye-off-outline" as const, label: t("liveTv.hideChannel"), word: t("info.word.hide"), onPress: handleHideChannel },
         ]
