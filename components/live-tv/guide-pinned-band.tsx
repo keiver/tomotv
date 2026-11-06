@@ -381,6 +381,7 @@ const styles = StyleSheet.create({
   },
   buttons: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "flex-end",
     gap: 12,
