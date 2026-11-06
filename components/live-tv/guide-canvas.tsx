@@ -1,10 +1,11 @@
 import { FocusableButton } from "@/components/FocusableButton";
 import { LoadingRow } from "@/components/loading-row";
 import { GRID_LINE } from "@/components/live-tv/guide-cell";
-import { GuideChannelColumn } from "@/components/live-tv/guide-channel-column";
+import { GuideChannelColumn, PIN_SHIFT } from "@/components/live-tv/guide-channel-column";
 import { HUD_BAR_HEIGHT } from "@/components/live-tv/guide-hud";
 import { GuideColumnDivider, useColumnResize } from "@/components/live-tv/guide-column-divider";
 import { GuideDayStrip } from "@/components/live-tv/guide-day-strip";
+import { GuidePinnedBand } from "@/components/live-tv/guide-pinned-band";
 import { GuideRow, rowCells, type FocusTargetsFor } from "@/components/live-tv/guide-row";
 import { GuideSeamMark } from "@/components/live-tv/guide-seam-mark";
 import { GuideTimeRuler, useRulerScrub } from "@/components/live-tv/guide-time-ruler";
@@ -12,14 +13,18 @@ import { sideInsets } from "@/components/settings/styles";
 import { COLORS } from "@/constants/colors";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import type { GuideRow as GuideRowData, GuideState } from "@/hooks/useGuide";
+import type { useLivePreview } from "@/hooks/useLivePreview";
+import { selectionFeedback } from "@/services/haptics";
 import { t } from "@/services/i18n";
 import type { JellyfinItem, JellyfinProgram } from "@/types/jellyfin";
 import {
   cellAtEdge,
   cellGeometry,
+  type ColumnStop,
   exitsToCard,
   GUIDE_SPAN_MINUTES,
   guideMetrics,
+  guideRowHeight,
   isAiring,
   leftLeavesRow,
   MINUTE_MS,
@@ -28,6 +33,7 @@ import {
   restoreFocusNode,
   revealOffset,
   rowSnap,
+  wideColumnWidth,
 } from "@/utils/guide";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused } from "expo-router";
@@ -35,7 +41,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import { LayoutChangeEvent, Platform, Animated as RNAnimated, StyleSheet, Text, TVFocusGuideView, useAnimatedValue, useTVEventHandler, View, type ViewToken } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Animated, { runOnJS, runOnUI, scrollTo, useAnimatedRef, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
+import Animated, { runOnJS, runOnUI, scrollTo, useAnimatedRef, useAnimatedScrollHandler, useAnimatedStyle, useDerivedValue, useSharedValue } from "react-native-reanimated";
 
 import { setFocusedGuideRow } from "@/services/guideChannelFocus";
 import { setLiveFrameFocus } from "@/services/liveFrames";
@@ -57,7 +63,8 @@ const SEAM_REACH = 1;
 const ART_SETTLE_MS = 150;
 const ART_ROW_VIEWABILITY = { itemVisiblePercentThreshold: 1, minimumViewTime: ART_SETTLE_MS };
 const NO_ROWS: ReadonlySet<string> = new Set();
-
+/** The pinned band names its channel and programme only with this much width beside the player. */
+const PINNED_INFO_MIN_WIDTH = 160;
 interface GuideCanvasProps {
   guide: GuideState;
   /** The picked channel group: a change rewinds the rows to the top. */
@@ -72,6 +79,8 @@ interface GuideCanvasProps {
   onProgramLongPress: (program: JellyfinProgram, channel: JellyfinItem) => void;
   onChannelPress: (channel: JellyfinItem) => void;
   onChannelLongPress: (channel: JellyfinItem) => void;
+  /** Phone: the pinned channel, played in a band above the two lists. */
+  pinned?: ReturnType<typeof useLivePreview>;
 }
 
 /**
@@ -79,19 +88,15 @@ interface GuideCanvasProps {
  * with the channel column beside it kept level with the rows. Cells and channels are the
  * focusables; the focus engine scrolls both axes to reveal the one it lands on.
  */
-export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudRow, onProgramPress, onProgramLongPress, onChannelPress, onChannelLongPress }: GuideCanvasProps) {
+export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudRow, onProgramPress, onProgramLongPress, onChannelPress, onChannelLongPress, pinned }: GuideCanvasProps) {
   const { rows, windowStartMs, windowEndMs, nowMs, timersByProgramId, recordingChannelIds, isLoading, error, retry, holdWindow, loadMoreRows } = guide;
   const isScreenFocused = useIsFocused();
   const { onAccent } = useCardPalette();
 
   const insets = useSafeAreaInsets();
-  // Phone: the column reopens the way it was last left.
-  const [initialCompact] = useState(() => !IS_TV && getLiveTvPreferences().compactColumn);
-  const [compact, setCompact] = useState(initialCompact);
-  const handleCompactChange = useCallback((next: boolean) => {
-    setCompact(next);
-    updateLiveTvPreferences({ compactColumn: next });
-  }, []);
+  // Phone: the column reopens at the stop it was last left on.
+  const [columnStop, setColumnStop] = useState<ColumnStop>(() => (IS_TV ? "default" : getLiveTvPreferences().columnStop));
+  const compact = columnStop === "closed";
 
   const scrollX = useSharedValue(0);
   const columnRef = useAnimatedRef<Animated.FlatList<JellyfinItem>>();
@@ -102,32 +107,81 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   const rulerShift = useMemo(() => ({ transform: [{ translateX: RNAnimated.multiply(nativeScrollX, -1) }] }), [nativeScrollX]);
   // The channel column's live width and the whole guide's width, both driven from the UI thread
   // so the resize drag never re-renders the two lists.
-  const columnW = useSharedValue(initialCompact ? METRICS.compactColumnWidth : METRICS.channelColumnWidth);
+  const columnW = useSharedValue(compact ? METRICS.compactColumnWidth : METRICS.channelColumnWidth);
   const canvasW = useSharedValue(0);
+  const scrollY = useSharedValue(0);
+  // The width the rows are laid out for; the rows take a new height only once a drag has sprung to rest.
+  const [committedWidth, setCommittedWidth] = useState(compact ? METRICS.compactColumnWidth : METRICS.channelColumnWidth);
+  const committedW = useSharedValue(committedWidth);
+  // Past the default stop the card grows with the column and the row with the card; below it the card keeps its size.
+  const cardWidth = Math.max(committedWidth, METRICS.channelColumnWidth);
+  const sized = useMemo(() => (IS_TV ? METRICS : { ...METRICS, channelColumnWidth: cardWidth, rowHeight: guideRowHeight(cardWidth) }), [cardWidth]);
+  // While dragging wider, each card grows from its left edge, cropped by its row; dragging narrower crops it at the seam.
+  const cardScale = useDerivedValue(() => Math.max(1, Math.max(columnW.get(), METRICS.channelColumnWidth) / Math.max(committedW.get(), METRICS.channelColumnWidth)));
+  // The pinned player parks, still playing, from the drag until the band is measured at the new width.
+  const [resizing, setResizing] = useState(false);
+  const handleResizeStart = useCallback(() => setResizing(true), []);
+  // The player draws above every screen, so the column's grip travels only below the pinned band.
+  const [pinnedBandHeight, setPinnedBandHeight] = useState(0);
   const [viewportWidth, setViewportWidth] = useState(0);
   // The window never holds less than GUIDE_SPAN_MINUTES, so this density keeps every state of the
   // grid, loading and no-listings rows included, at least as wide as the viewport.
   const metrics = useMemo(() => {
     const fill = viewportWidth / GUIDE_SPAN_MINUTES;
-    return fill > METRICS.pxPerMinute ? { ...METRICS, pxPerMinute: fill } : METRICS;
-  }, [viewportWidth]);
+    return fill > sized.pxPerMinute ? { ...sized, pxPerMinute: fill } : sized;
+  }, [viewportWidth, sized]);
   const spanPx = ((windowEndMs - windowStartMs) / MINUTE_MS) * metrics.pxPerMinute;
-  const handleColumnSettle = useCallback((width: number) => setViewportWidth(canvasW.get() - width + SEAM_REACH), [canvasW]);
+  // The top row before a stop change, so the lists open on it again at the new row height.
+  const keepRowRef = useRef<number | null>(null);
+  const commitWidth = useCallback(
+    (width: number) => {
+      keepRowRef.current = Math.round(scrollY.get() / sized.rowHeight);
+      committedW.set(width);
+      setCommittedWidth(width);
+      setResizing(false);
+      setViewportWidth(canvasW.get() - width + SEAM_REACH);
+    },
+    [canvasW, committedW, scrollY, sized.rowHeight],
+  );
+  const handleColumnSettle = useCallback(
+    (stop: ColumnStop) => {
+      // VoiceOver's step moves the column with no drag to say so.
+      setResizing(true);
+      if (stop !== columnStop) {
+        setColumnStop(stop);
+        updateLiveTvPreferences({ columnStop: stop });
+      }
+    },
+    [columnStop],
+  );
+  const handleDetent = useCallback(() => void selectionFeedback(), []);
   const resize = useColumnResize({
     columnW,
     canvasW,
     minWidth: METRICS.compactColumnWidth,
-    maxWidth: METRICS.channelColumnWidth,
-    initialCompact,
-    onCompactChange: handleCompactChange,
+    defaultWidth: METRICS.channelColumnWidth,
     onSettle: handleColumnSettle,
+    onRest: commitWidth,
+    onResizeStart: handleResizeStart,
+    onDetent: handleDetent,
   });
   const [canvasHeight, setCanvasHeight] = useState(0);
   const handleCanvasLayout = useCallback((event: LayoutChangeEvent) => {
     setViewportWidth(event.nativeEvent.layout.width);
     setCanvasHeight(event.nativeEvent.layout.height);
   }, []);
-  const handleGuideLayout = useCallback((event: LayoutChangeEvent) => canvasW.set(event.nativeEvent.layout.width), [canvasW]);
+  // The wide stop shrinks on a guide narrower than it, so it is set once the guide's width is known, and again on rotation.
+  const handleGuideLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      const width = event.nativeEvent.layout.width;
+      canvasW.set(width);
+      if (columnStop !== "wide") return;
+      const wide = wideColumnWidth(width, METRICS.channelColumnWidth);
+      columnW.set(wide);
+      commitWidth(wide);
+    },
+    [canvasW, columnStop, columnW, commitWidth],
+  );
   // The corner tracks the column's live width.
   const cornerWidthStyle = useAnimatedStyle(() => ({ width: columnW.get() }));
   const { gesture: scrubGesture, stop: stopScrub } = useRulerScrub(gridRef, scrollX, Math.max(0, spanPx + SEAM_REACH - viewportWidth));
@@ -183,13 +237,12 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
   // Only the list the viewer is moving scrolls the other, so the two never chase each other.
   // A drag picks it on phone; on TV focus picks it, since a focus scroll fires no drag.
   const driver = useSharedValue<"grid" | "column">("grid");
-  const scrollY = useSharedValue(0);
   const verticalHandler = useAnimatedScrollHandler({
     onBeginDrag: () => {
       driver.value = "grid";
     },
     onScroll: (event) => {
-      scrollY.value = event.contentOffset.y;
+      scrollY.set(event.contentOffset.y);
       if (driver.value === "grid") scrollTo(columnRef, 0, event.contentOffset.y, false);
     },
   });
@@ -211,6 +264,18 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
     },
     [driver, rowsRef],
   );
+  // A stop change lays the rows out at a new height: the row that was on top stays on top.
+  useEffect(() => {
+    const row = keepRowRef.current;
+    if (row === null) return;
+    keepRowRef.current = null;
+    const offset = row * sized.rowHeight;
+    driver.set("grid");
+    runOnUI(() => {
+      "worklet";
+      scrollTo(rowsRef, 0, offset, false);
+    })();
+  }, [sized.rowHeight, driver, rowsRef]);
   // Another group, or another day, opens at its first channel and the window's start; the old rows hold until its first page replaces them.
   const rewindKey = `${filter}|${windowStartMs}`;
   const lastRewindRef = useRef(rewindKey);
@@ -396,7 +461,10 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
     (restoreFocusNode(source, cellNodesRef.current, cardNodesRef.current) as { requestTVFocus?: () => void } | undefined)?.requestTVFocus?.();
   }, [isScreenFocused]);
 
-  const channels = useMemo(() => rows.map((row) => row.channel), [rows]);
+  // The pinned channel moves out of both lists into the band above them, so it is never listed twice.
+  const pinnedId = pinned?.channel?.Id ?? null;
+  const listRows = useMemo(() => (pinnedId ? rows.filter((row) => row.channel.Id !== pinnedId) : rows), [rows, pinnedId]);
+  const channels = useMemo(() => listRows.map((row) => row.channel), [listRows]);
   // TV: the focused row lands as the lowest whole row, so every focus scroll rests on a row edge, the last row's too.
   const snap = rowSnap(canvasHeight, METRICS.rowHeight);
   const rowSnapOffset = IS_TV ? snap.offset : undefined;
@@ -448,7 +516,13 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
       handleCellHandle,
     ],
   );
-  const getItemLayout = useCallback((_data: ArrayLike<GuideRowData> | null | undefined, index: number) => ({ length: METRICS.rowHeight, offset: METRICS.rowHeight * index, index }), []);
+  const rowHeight = sized.rowHeight;
+  const getItemLayout = useCallback((_data: ArrayLike<GuideRowData> | null | undefined, index: number) => ({ length: rowHeight, offset: rowHeight * index, index }), [rowHeight]);
+  // The pinned channel's airing programme, for its band.
+  const pinnedProgram = useMemo(() => {
+    if (!pinnedId) return undefined;
+    return rows.find((row) => row.channel.Id === pinnedId)?.programs.find((program) => isAiring(program, nowMs));
+  }, [rows, pinnedId, nowMs]);
   const keyExtractor = useCallback((row: GuideRowData) => row.channel.Id, []);
 
   // The day strip fills the corner; the column's seam grip is the phone's one resize handle.
@@ -523,11 +597,32 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
           <TVFocusGuideView style={styles.entryGuide} destinations={cellsFocused && topFocusHandle !== undefined ? [topFocusHandle] : [entryHandle]} />
         </View>
       ) : null}
+      {pinned?.channel ? (
+        <GuidePinnedBand
+          channel={pinned.channel}
+          program={pinnedProgram}
+          metrics={sized}
+          compact={compact}
+          bare={viewportWidth > 0 && viewportWidth < PINNED_INFO_MIN_WIDTH}
+          columnWidth={columnW}
+          cardScale={cardScale}
+          resizing={resizing}
+          opening={pinned.opening}
+          playsRecording={pinned.playsRecording}
+          nowMs={nowMs}
+          onSlot={pinned.setSlot}
+          onOpen={pinned.open}
+          onClose={pinned.close}
+          onRecordStart={pinned.expectRecording}
+          onRecordSettled={pinned.recordingSettled}
+          onHeight={setPinnedBandHeight}
+        />
+      ) : null}
       <View style={styles.bandRow}>
         <GuideChannelColumn
           channels={channels}
           recordingChannelIds={recordingChannelIds}
-          metrics={METRICS}
+          metrics={sized}
           listRef={columnRef}
           onScroll={columnHandler}
           listHeight={listHeight}
@@ -540,6 +635,8 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
           onChannelFocus={handleChannelFocus}
           onFirstHandle={onEntryHandle}
           onCardNode={IS_TV ? handleCardNode : undefined}
+          cardScale={IS_TV ? undefined : cardScale}
+          dimmed={pinnedId !== null}
           onEndReached={loadMoreRows}
         />
         <TVFocusGuideView style={styles.scrollHost} onLayout={handleCanvasLayout} onFocusEnter={IS_TV ? handleCellsEnter : undefined} onFocusLeave={IS_TV ? handleCellsLeave : undefined}>
@@ -554,8 +651,9 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
             contentContainerStyle={{ width: spanPx + SEAM_REACH }}>
             <Animated.FlatList
               ref={rowsRef}
-              data={rows}
+              data={listRows}
               renderItem={renderRow}
+              itemLayoutAnimation={IS_TV ? undefined : PIN_SHIFT}
               keyExtractor={keyExtractor}
               getItemLayout={getItemLayout}
               snapToAlignment={IS_TV ? "item" : undefined}
@@ -592,11 +690,13 @@ export function GuideCanvas({ guide, filter, topFocusHandle, onEntryHandle, hudR
       {IS_TV ? null : (
         <GuideColumnDivider
           columnW={columnW}
-          topInset={METRICS.rulerHeight + HUD_BAR_HEIGHT}
+          topInset={METRICS.rulerHeight + HUD_BAR_HEIGHT + (pinned?.channel ? pinnedBandHeight : 0)}
           bottomInset={TAB_BAR_HEIGHT + insets.bottom}
           gesture={resize.seam}
           gripY={resize.gripY}
           bandH={resize.bandH}
+          stop={columnStop}
+          onStep={resize.step}
         />
       )}
       {/* After the divider: the red mark sits on top of the seam line. */}

@@ -34,11 +34,3 @@ export function rankHits(hits: SubtitleHit[], query: SubtitleQuery): SubtitleHit
     .sort((a, b) => b.score - a.score || a.position - b.position)
     .map((entry) => entry.hit);
 }
-
-/** The one hit a batch may take without asking: a hash match, or the only hit there is. */
-export function autoPick(hits: SubtitleHit[]): SubtitleHit | null {
-  const hash = hits.find((hit) => hit.hashMatch && !hit.machineTranslated);
-  if (hash) return hash;
-  const usable = hits.filter((hit) => !hit.machineTranslated && !hit.forced);
-  return usable.length === 1 ? usable[0] : null;
-}

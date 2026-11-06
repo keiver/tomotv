@@ -7,15 +7,22 @@
  * not what the hook does with it.
  */
 import React from "react";
+import { StyleSheet, View } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 import Video from "react-native-video";
+import { DismissPan } from "@/components/dismiss-pan";
 import { PlayerHost } from "@/components/player-host";
 import type { PlayerHostBridge } from "@/contexts/PlayerSessionContext";
 import { useVideoPlayback } from "@/hooks/useVideoPlayback";
 import { t } from "@/services/i18n";
 
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
-jest.mock("@/services/playbackHold", () => ({ setPlaybackHold: jest.fn(), isPlaybackHeld: jest.fn(() => false), onPlaybackHoldChange: jest.fn(() => () => {}) }));
+jest.mock("@/services/playbackHold", () => ({
+  MULTIVIEW_PLAYBACK_OWNER: "multiview",
+  setPlaybackHold: jest.fn(),
+  isPlaybackHeld: jest.fn(() => false),
+  onPlaybackHoldChange: jest.fn(() => () => {}),
+}));
 const mockAutoPlay = { enabled: true };
 jest.mock("@/services/jellyfinApi", () => ({
   getPosterUrl: jest.fn(() => "https://server/poster.jpg"),
@@ -86,6 +93,8 @@ let sourceUri: string | null = null;
 let stateType: string | null = null;
 /** Whether a reported ERROR still has a rung left. */
 let canRetry = false;
+/** The hook's loading overlay, which a loaded item still shows until it plays. */
+let loadingOverlay = false;
 /** The item details the hook has fetched. */
 let details: { Id: string; Name: string; Type?: string } | null = null;
 const hookCalls: { videoId: string; skip?: boolean }[] = [];
@@ -114,7 +123,7 @@ function hookResult() {
     maxBitRate: null,
     videoCallbacks,
     state: stateType === "ERROR" ? { type: "ERROR", error: "failed", canRetryWithTranscode: canRetry } : { type: stateType ?? (sourceUri ? "PLAYING" : "IDLE") },
-    showLoadingOverlay: false,
+    showLoadingOverlay: loadingOverlay,
     pause: hookPause,
     retry: jest.fn(),
     videoDetails: details,
@@ -146,6 +155,24 @@ async function playWithPipUp() {
 
 let renderer: TestRenderer.ReactTestRenderer;
 
+/** IS_MAC is read once at load, so a Mac host is a fresh module graph. */
+function loadMacHost(): typeof PlayerHost {
+  let MacHost!: typeof PlayerHost;
+  const shared = { react: React, rn: require("react-native"), video: Video, hook: require("@/hooks/useVideoPlayback") };
+  jest.isolateModules(() => {
+    jest.doMock("react", () => shared.react);
+    jest.doMock("react-native", () => shared.rn);
+    jest.doMock("react-native-video", () => shared.video);
+    jest.doMock("@/hooks/useVideoPlayback", () => shared.hook);
+    jest.doMock("@/utils/hostEnvironment", () => ({ ...jest.requireActual("@/utils/hostEnvironment"), IS_MAC: true }));
+    MacHost = require("@/components/player-host").PlayerHost;
+  });
+  return MacHost;
+}
+
+/** Whether the opaque cover over the inline player is rendered. */
+const covered = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAll((node) => node.props.testID === "player-curtain").length > 0;
+
 /** The videoId the host last asked the hook for, or null while it is idle. */
 const requestedVideoId = () => {
   const last = hookCalls[hookCalls.length - 1];
@@ -161,6 +188,7 @@ describe("PlayerHost", () => {
     sourceUri = null;
     stateType = null;
     canRetry = false;
+    loadingOverlay = false;
     details = null;
     mockVideoMounts.count = 0;
     mockQueue.queue = [];
@@ -806,20 +834,11 @@ describe("PlayerHost", () => {
       }
     });
 
-    it("on a Mac, sends the route back as soon as the window starts", async () => {
-      // IS_MAC is read once at load, so the Mac host is a fresh module graph.
-      let MacHost!: typeof PlayerHost;
-      const shared = { react: React, rn: require("react-native"), video: Video, hook: require("@/hooks/useVideoPlayback") };
-      jest.isolateModules(() => {
-        jest.doMock("react", () => shared.react);
-        jest.doMock("react-native", () => shared.rn);
-        jest.doMock("react-native-video", () => shared.video);
-        jest.doMock("@/hooks/useVideoPlayback", () => shared.hook);
-        jest.doMock("@/utils/hostEnvironment", () => ({ ...jest.requireActual("@/utils/hostEnvironment"), IS_MAC: true }));
-        MacHost = require("@/components/player-host").PlayerHost;
-      });
+    it("on a Mac, sends the route back once AVKit's dismissal for the window lands", async () => {
+      const MacHost = loadMacHost();
       const onPipStarted = jest.fn();
-      handlersRef.current = { onPlaybackEnd: jest.fn(), onPipStarted };
+      const onRequestBack = jest.fn();
+      handlersRef.current = { onPlaybackEnd: jest.fn(), onPipStarted, onRequestBack };
       let macRenderer!: TestRenderer.ReactTestRenderer;
       await act(async () => {
         macRenderer = TestRenderer.create(<MacHost />);
@@ -831,12 +850,18 @@ describe("PlayerHost", () => {
       await act(async () => {
         macRenderer.update(<MacHost />);
       });
+      await act(async () => {
+        macRenderer.root.findByType(Video).props.onFullscreenPlayerDidPresent();
+        macRenderer.root.findByType(Video).props.onPictureInPictureStatusChanged({ isActive: true });
+      });
+      expect(onPipStarted).not.toHaveBeenCalled();
 
       await act(async () => {
-        macRenderer.root.findByType(Video).props.onPictureInPictureStatusChanged({ isActive: true });
+        macRenderer.root.findByType(Video).props.onFullscreenPlayerDidDismiss();
       });
 
       expect(onPipStarted).toHaveBeenCalledTimes(1);
+      expect(onRequestBack).not.toHaveBeenCalled();
       await act(async () => macRenderer.unmount());
     });
 
@@ -933,6 +958,412 @@ describe("PlayerHost", () => {
 
       expect(videoRef.current.setFullScreen).toHaveBeenCalledWith(true);
       expect(requestedVideoId()).toBe("ep-1");
+    });
+  });
+
+  describe("the inline player under AVKit's presentation", () => {
+    const video = () => renderer.root.findByType(Video);
+    const stageOnScreen = () => renderer.root.findByType(DismissPan).props.pointerEvents === "auto";
+
+    async function playOnPhone(videoRef: { current: { setFullScreen: jest.Mock; restoreUserInterfaceForPictureInPictureStopCompleted: jest.Mock } }) {
+      mockUseVideoPlayback.mockImplementation((config: { videoId: string; skip?: boolean }) => {
+        hookCalls.push({ videoId: config.videoId, skip: config.skip });
+        return { ...hookResult(), videoRef };
+      });
+      await act(async () => {
+        bridge().requestSession({ videoId: "movie-1", sessionKey: "key-1" });
+      });
+      sourceUri = "http://stream/1";
+      await act(async () => {
+        renderer.update(<PlayerHost />);
+      });
+      await act(async () => {
+        video().props.onLoad({ naturalSize: { width: 1920, height: 1080 } });
+      });
+    }
+
+    it("on the phone, covers the inline player on the stage before AVKit's presentation lands", async () => {
+      const videoRef = { current: { setFullScreen: jest.fn(), restoreUserInterfaceForPictureInPictureStopCompleted: jest.fn() } };
+      await playOnPhone(videoRef);
+
+      expect(videoRef.current.setFullScreen).toHaveBeenCalledWith(true);
+      expect(stageOnScreen()).toBe(true);
+      expect(covered(renderer)).toBe(true);
+    });
+
+    it("on the phone, covers the inline player on the stage from a PiP restore until AVKit presents it again", async () => {
+      const videoRef = { current: { setFullScreen: jest.fn(), restoreUserInterfaceForPictureInPictureStopCompleted: jest.fn() } };
+      handlersRef.current = { onPlaybackEnd: jest.fn(), onPipStarted: () => bridge().stopSession() };
+      await playOnPhone(videoRef);
+      await act(async () => {
+        video().props.onFullscreenPlayerDidPresent();
+        video().props.onPictureInPictureStatusChanged({ isActive: true });
+      });
+      await act(async () => {
+        video().props.onFullscreenPlayerDidDismiss();
+      });
+      await act(async () => {
+        bridge().releaseRoute({ videoId: "movie-1", sessionKey: "key-1" });
+      });
+      handlersRef.current = null;
+      await act(async () => {
+        video().props.onRestoreUserInterfaceForPictureInPictureStop();
+      });
+
+      handlersRef.current = { onPlaybackEnd: jest.fn() };
+      await act(async () => {
+        bridge().requestSession({ videoId: "movie-1", sessionKey: "key-2", adopt: true });
+      });
+      expect(stageOnScreen()).toBe(true);
+      expect(covered(renderer)).toBe(true);
+
+      videoRef.current.setFullScreen.mockClear();
+      await act(async () => {
+        video().props.onPictureInPictureStatusChanged({ isActive: false });
+      });
+      expect(videoRef.current.setFullScreen).toHaveBeenCalledWith(true);
+      expect(covered(renderer)).toBe(true);
+    });
+
+    it("on a Mac, presents the player on load and covers the inline player", async () => {
+      const MacHost = loadMacHost();
+      const videoRef = { current: { setFullScreen: jest.fn(), restoreUserInterfaceForPictureInPictureStopCompleted: jest.fn() } };
+      mockUseVideoPlayback.mockImplementation((config: { videoId: string; skip?: boolean }) => {
+        hookCalls.push({ videoId: config.videoId, skip: config.skip });
+        return { ...hookResult(), videoRef };
+      });
+      let macRenderer!: TestRenderer.ReactTestRenderer;
+      await act(async () => {
+        macRenderer = TestRenderer.create(<MacHost />);
+      });
+      await act(async () => {
+        bridge().requestSession({ videoId: "movie-1", sessionKey: "key-1" });
+      });
+      sourceUri = "http://stream/1";
+      await act(async () => {
+        macRenderer.update(<MacHost />);
+      });
+      await act(async () => {
+        macRenderer.root.findByType(Video).props.onLoad({ naturalSize: { width: 1920, height: 1080 } });
+      });
+
+      expect(videoRef.current.setFullScreen).toHaveBeenCalledWith(true);
+      expect(covered(macRenderer)).toBe(true);
+      await act(async () => macRenderer.unmount());
+    });
+  });
+
+  describe("an inline session in Live TV's pinned band", () => {
+    const video = () => renderer.root.findByType(Video);
+    const stage = () => renderer.root.findByType(DismissPan);
+    const card = { x: 0, y: 300, width: 160, height: 90 };
+    const videoRef = {
+      current: {
+        setFullScreen: jest.fn(),
+        restoreUserInterfaceForPictureInPictureStopCompleted: jest.fn(),
+        enterPictureInPicture: jest.fn(),
+        exitPictureInPicture: jest.fn(),
+        resume: jest.fn(),
+      },
+    };
+
+    async function playInline() {
+      mockUseVideoPlayback.mockImplementation((config: { videoId: string; skip?: boolean }) => {
+        hookCalls.push({ videoId: config.videoId, skip: config.skip });
+        return { ...hookResult(), videoRef };
+      });
+      handlersRef.current = { onPlaybackEnd: jest.fn(), onRequestBack: jest.fn(), onPipStarted: jest.fn() };
+      await act(async () => {
+        bridge().setInlineFrame(card);
+        bridge().requestSession({ videoId: "channel-1", sessionKey: "live-tv:1", isLive: true, inline: true });
+      });
+      sourceUri = "http://stream/channel-1";
+      await act(async () => {
+        renderer.update(<PlayerHost />);
+      });
+      await act(async () => {
+        video().props.onLoad({ naturalSize: { width: 1920, height: 1080 } });
+      });
+    }
+    const pipStatus = async (isActive: boolean) => {
+      await act(async () => {
+        video().props.onPictureInPictureStatusChanged({ isActive });
+      });
+    };
+
+    beforeEach(() => {
+      Object.values(videoRef.current).forEach((fn) => fn.mockClear());
+    });
+
+    it("holds the link as Multiview's owner for Multiview's spot with the sound, and as video for anything else", async () => {
+      const { setPlaybackHold } = jest.requireMock("@/services/playbackHold") as { setPlaybackHold: jest.Mock };
+      setPlaybackHold.mockClear();
+      await act(async () => {
+        bridge().requestSession({ videoId: "channel-1", sessionKey: "multiview:1", isLive: true, inline: true, multiview: true });
+      });
+      expect(setPlaybackHold).toHaveBeenCalledWith("multiview", true);
+      expect(setPlaybackHold).not.toHaveBeenCalledWith("video", true);
+    });
+
+    it("plays the picture with sound and no controls in the band's slot, leaving its touches to the band, never presented and never starting PiP", async () => {
+      await playInline();
+
+      expect(videoRef.current.setFullScreen).not.toHaveBeenCalled();
+      expect(video().props.muted).toBe(false);
+      expect(video().props.controls).toBe(false);
+      // Filled like every clip around it; the presented player keeps AVKit's own whole picture.
+      expect(video().props.resizeMode).toBe("cover");
+      expect(video().props.enterPictureInPictureOnLeave).toBeUndefined();
+      expect(covered(renderer)).toBe(false);
+      expect(stage().props.pointerEvents).toBe("none");
+      expect(StyleSheet.flatten(stage().props.style)).toMatchObject({ position: "absolute", left: 0, top: 300, width: 160, height: 90 });
+      expect(videoRef.current.enterPictureInPicture).not.toHaveBeenCalled();
+    });
+
+    it("draws the band's overlay over the inline picture and takes touches only for it, with the drag to leave off", async () => {
+      await playInline();
+      expect(stage().props.enabled).toBe(false);
+      await act(async () => {
+        bridge().setInlineOverlay(<View testID="band-overlay" />);
+      });
+
+      expect(renderer.root.findAll((node) => node.props.testID === "band-overlay").length).toBeGreaterThan(0);
+      expect(stage().props.pointerEvents).toBe("box-none");
+
+      await act(async () => {
+        bridge().setInlineOverlay(null);
+      });
+      expect(stage().props.pointerEvents).toBe("none");
+    });
+
+    it("mutes the inline picture when the band asks, and plays it with sound again when it asks back", async () => {
+      await playInline();
+      await act(async () => {
+        bridge().setInlineMuted(true);
+      });
+      expect(video().props.muted).toBe(true);
+
+      await act(async () => {
+        bridge().setInlineMuted(false);
+      });
+      expect(video().props.muted).toBe(false);
+    });
+
+    it("draws no overlay while the inline player is parked", async () => {
+      await playInline();
+      await act(async () => {
+        bridge().setInlineOverlay(<View testID="band-overlay" />);
+        bridge().setInlineFrame(null);
+      });
+
+      expect(renderer.root.findAll((node) => node.props.testID === "band-overlay")).toHaveLength(0);
+      expect(stage().props.pointerEvents).toBe("none");
+    });
+
+    it("parks through a channel switch, keeping the session, and comes back to the slot once the new channel plays", async () => {
+      await playInline();
+      await act(async () => {
+        bridge().switchLiveChannel({ videoId: "channel-2", videoName: "Two", picked: true });
+      });
+      sourceUri = null;
+      stateType = "IDLE";
+      await act(async () => {
+        renderer.update(<PlayerHost />);
+      });
+      expect(StyleSheet.flatten(stage().props.style)).not.toMatchObject({ top: 300, width: 160 });
+      expect(handlersRef.current?.onRequestBack).not.toHaveBeenCalled();
+      expect(videoRef.current.exitPictureInPicture).not.toHaveBeenCalled();
+
+      sourceUri = "http://stream/channel-2";
+      stateType = "PLAYING";
+      await act(async () => {
+        renderer.update(<PlayerHost />);
+      });
+      expect(StyleSheet.flatten(stage().props.style)).toMatchObject({ top: 300, width: 160 });
+      expect(videoRef.current.enterPictureInPicture).not.toHaveBeenCalled();
+    });
+
+    it("parks while the band has no slot, the closed column's audio-only state, and keeps playing", async () => {
+      await playInline();
+      await act(async () => {
+        bridge().setInlineFrame(null);
+      });
+
+      expect(StyleSheet.flatten(stage().props.style)).not.toMatchObject({ top: 300, width: 160 });
+      expect(requestedVideoId()).toBe("channel-1");
+      expect(handlersRef.current?.onRequestBack).not.toHaveBeenCalled();
+    });
+
+    it("opens the presented player once the channel loads when full screen was asked for while it opened, instead of a window", async () => {
+      mockUseVideoPlayback.mockImplementation((config: { videoId: string; skip?: boolean }) => {
+        hookCalls.push({ videoId: config.videoId, skip: config.skip });
+        return { ...hookResult(), videoRef };
+      });
+      handlersRef.current = { onPlaybackEnd: jest.fn(), onRequestBack: jest.fn(), onPipStarted: jest.fn() };
+      stateType = "FETCHING_METADATA";
+      await act(async () => {
+        bridge().setInlineFrame(card);
+        bridge().requestSession({ videoId: "channel-1", sessionKey: "live-tv:1", isLive: true, inline: true });
+      });
+      await act(async () => {
+        bridge().presentFullscreen();
+      });
+      expect(videoRef.current.setFullScreen).not.toHaveBeenCalled();
+
+      sourceUri = "http://stream/channel-1";
+      stateType = "PLAYING";
+      await act(async () => {
+        renderer.update(<PlayerHost />);
+      });
+      await act(async () => {
+        video().props.onLoad({ naturalSize: { width: 1920, height: 1080 } });
+      });
+
+      expect(videoRef.current.setFullScreen).toHaveBeenCalledWith(true);
+      expect(videoRef.current.enterPictureInPicture).not.toHaveBeenCalled();
+    });
+
+    it("opens the presented player once the channel plays when full screen was asked for after it loaded but before it played", async () => {
+      mockUseVideoPlayback.mockImplementation((config: { videoId: string; skip?: boolean }) => {
+        hookCalls.push({ videoId: config.videoId, skip: config.skip });
+        return { ...hookResult(), videoRef };
+      });
+      handlersRef.current = { onPlaybackEnd: jest.fn(), onRequestBack: jest.fn(), onPipStarted: jest.fn() };
+      stateType = "FETCHING_METADATA";
+      loadingOverlay = true;
+      await act(async () => {
+        bridge().setInlineFrame(card);
+        bridge().requestSession({ videoId: "channel-1", sessionKey: "live-tv:1", isLive: true, inline: true });
+      });
+      sourceUri = "http://stream/channel-1";
+      stateType = "READY";
+      await act(async () => {
+        renderer.update(<PlayerHost />);
+      });
+      await act(async () => {
+        video().props.onLoad({ naturalSize: { width: 1920, height: 1080 } });
+      });
+      await act(async () => {
+        bridge().presentFullscreen();
+      });
+      expect(videoRef.current.setFullScreen).not.toHaveBeenCalled();
+
+      stateType = "PLAYING";
+      loadingOverlay = false;
+      await act(async () => {
+        renderer.update(<PlayerHost />);
+      });
+
+      expect(videoRef.current.setFullScreen).toHaveBeenCalledWith(true);
+      expect(videoRef.current.enterPictureInPicture).not.toHaveBeenCalled();
+    });
+
+    it("leaves the slot while AVKit's own PiP window has the picture, and comes back to it when the window closes, keeping the session", async () => {
+      await playInline();
+      await pipStatus(true);
+      expect(StyleSheet.flatten(stage().props.style)).not.toMatchObject({ top: 300, width: 160 });
+
+      await pipStatus(false);
+
+      expect(StyleSheet.flatten(stage().props.style)).toMatchObject({ top: 300, width: 160 });
+      expect(handlersRef.current?.onRequestBack).not.toHaveBeenCalled();
+      expect(videoRef.current.setFullScreen).not.toHaveBeenCalled();
+    });
+
+    it("answers AVKit's return button so the picture goes back to the slot", async () => {
+      await playInline();
+      await pipStatus(true);
+
+      await act(async () => {
+        video().props.onRestoreUserInterfaceForPictureInPictureStop();
+      });
+
+      expect(videoRef.current.restoreUserInterfaceForPictureInPictureStopCompleted).toHaveBeenCalledWith(true);
+      expect(videoRef.current.setFullScreen).not.toHaveBeenCalled();
+    });
+
+    it("goes back to its band when the viewer closes the presented player, keeping the session", async () => {
+      await playInline();
+      await act(async () => {
+        bridge().presentFullscreen();
+      });
+      expect(videoRef.current.setFullScreen).toHaveBeenCalledWith(true);
+      await act(async () => {
+        video().props.onFullscreenPlayerDidPresent();
+      });
+
+      await act(async () => {
+        video().props.onFullscreenPlayerDidDismiss();
+      });
+
+      expect(handlersRef.current?.onRequestBack).not.toHaveBeenCalled();
+      expect(requestedVideoId()).toBe("channel-1");
+      expect(videoRef.current.enterPictureInPicture).not.toHaveBeenCalled();
+    });
+
+    it("closes only the presented player on a dismiss ask, and the session keeps playing in its band", async () => {
+      await playInline();
+      await act(async () => {
+        bridge().presentFullscreen();
+      });
+      await act(async () => {
+        video().props.onFullscreenPlayerDidPresent();
+      });
+
+      let dismissed = false;
+      await act(async () => {
+        dismissed = bridge().dismissFullscreen();
+      });
+      expect(dismissed).toBe(true);
+      expect(videoRef.current.setFullScreen).toHaveBeenLastCalledWith(false);
+      await act(async () => {
+        video().props.onFullscreenPlayerDidDismiss();
+      });
+
+      expect(handlersRef.current?.onRequestBack).not.toHaveBeenCalled();
+      expect(requestedVideoId()).toBe("channel-1");
+    });
+
+    it("answers a dismiss ask with false when the inline session is not presented", async () => {
+      await playInline();
+
+      expect(bridge().dismissFullscreen()).toBe(false);
+      expect(videoRef.current.setFullScreen).not.toHaveBeenCalled();
+    });
+
+    it("answers a dismiss ask with false for a presented session that is not inline", async () => {
+      mockUseVideoPlayback.mockImplementation((config: { videoId: string; skip?: boolean }) => {
+        hookCalls.push({ videoId: config.videoId, skip: config.skip });
+        return { ...hookResult(), videoRef };
+      });
+      await act(async () => {
+        bridge().requestSession({ videoId: "movie-1", sessionKey: "key-1" });
+      });
+      sourceUri = "http://stream/1";
+      await act(async () => {
+        renderer.update(<PlayerHost />);
+      });
+      await act(async () => {
+        video().props.onLoad({ naturalSize: { width: 1920, height: 1080 } });
+      });
+      await act(async () => {
+        video().props.onFullscreenPlayerDidPresent();
+      });
+
+      expect(bridge().dismissFullscreen()).toBe(false);
+      expect(videoRef.current.setFullScreen).not.toHaveBeenCalledWith(false);
+    });
+
+    it("ignores a full screen ask for a session that is not inline", async () => {
+      await act(async () => {
+        bridge().requestSession({ videoId: "movie-1", sessionKey: "key-1" });
+      });
+
+      await act(async () => {
+        bridge().presentFullscreen();
+      });
+
+      expect(videoRef.current.setFullScreen).not.toHaveBeenCalled();
     });
   });
 

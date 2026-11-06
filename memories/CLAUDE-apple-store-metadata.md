@@ -19,6 +19,7 @@ Complete App Store metadata including app name, description, keywords, screensho
 - Naming "Tomo TV, a Jellyfin Client" is the branding doc's own example: never propose a rename or logo change.
 - App Review Notes must be filled for any new platform submission; adding a platform is a new-app review.
 - What's New: a few short lines, one user benefit each, in the viewer's words. No internals (engine, codecs, M3U/playlist, focus targets, row counts, timings) and no niche fixes; those stay in CHANGELOG.
+- A new What's New line goes at the top of its version's block, in every language: the English block is each build's TestFlight What to Test, so testers read the latest change first.
 - iOS 27 Generated Subtitles stay out of copy until approved.
 
 ---
@@ -105,6 +106,63 @@ No analytics, no tracking, no ads, no account with us. Your credentials stay in 
 Tomo TV ships no media, channels, playlists or guides. It plays what your Jellyfin server and the sources you add provide, and you are responsible for having the right to access them.
 
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
+```
+
+### What's New (2.2.15), macOS (1106 / 4000)
+
+```text
+- Multiview: watch several live channels at once and pick the one you hear
+- Live TV previews no longer use up your HDHomeRun's tuners
+- Jumping ahead in a video no longer freezes the picture
+- Live TV: click a channel to watch it pinned above the guide as you keep browsing, and make the picture bigger with its expand button
+- Videos start sooner after you open an item's page
+- Live channels start faster
+- A live channel that stutters as it starts pauses once to catch up, instead of stopping again and again
+- The picture shows the moment playback starts
+- Regional subtitles, like Latin American and European Spanish, and SDH subtitles show as separate choices in the subtitle menu
+- A subtitle you pick while a video plays no longer stays blank
+- Live TV: on a provider that allows one stream, a channel opened right after its preview no longer fails
+- A live channel no longer starts with no sound
+- A live channel that can't play shows its error instead of retrying forever
+- Videos play in the system player, sized to the window
+- The Find Subtitles panel has a close button, and Escape closes it
+```
+
+### What's New (2.2.15), iOS (1014 / 4000)
+
+```text
+- Multiview: watch several live channels at once and pick the one you hear
+- Live TV previews no longer use up your HDHomeRun's tuners
+- Jumping ahead in a video no longer freezes the picture
+- Live TV: tap a channel to watch it pinned above the guide as you keep browsing, and swipe it down for a bigger picture
+- Videos start sooner after you open an item's page
+- Live channels start faster
+- A live channel that stutters as it starts pauses once to catch up, instead of stopping again and again
+- The picture shows the moment playback starts
+- Regional subtitles, like Latin American and European Spanish, and SDH subtitles show as separate choices in the subtitle menu
+- A subtitle you pick while a video plays no longer stays blank
+- Live TV: on a provider that allows one stream, a channel opened right after its preview no longer fails
+- A live channel no longer starts with no sound
+- A live channel that can't play shows its error instead of retrying forever
+- The Find Subtitles panel has a close button
+```
+
+### What's New (2.2.15), tvOS (918 / 4000)
+
+```text
+- Multiview: watch several live channels at once and pick the one you hear
+- Live TV previews no longer use up your HDHomeRun's tuners
+- Jumping ahead in a video no longer freezes the picture
+- Videos start sooner after you open an item's page
+- Live channels start faster
+- A live channel that stutters as it starts pauses once to catch up, instead of stopping again and again
+- The picture and the sound start together, the moment playback starts
+- Regional subtitles, like Latin American and European Spanish, and SDH subtitles show as separate choices in the subtitle menu
+- A subtitle you pick while a video plays no longer stays blank
+- Live TV: on a provider that allows one stream, a channel opened right after its preview no longer fails
+- A live channel no longer starts with no sound
+- A live channel that can't play shows its error instead of retrying forever
+- Folders keep their layout as more items load
 ```
 
 ### What's New (2.2.14), macOS (1090 / 4000)
@@ -577,6 +635,63 @@ Tomo TV enthält keine Medien, Kanäle, Wiedergabelisten oder Fernsehprogramme. 
 Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin und steht in keiner Verbindung zum Jellyfin-Projekt und wird von ihm nicht unterstützt. Jellyfin ist eine Marke des jeweiligen Inhabers.
 ```
 
+#### What's New (2.2.15), macOS (1268 / 4000)
+
+```text
+- Multiview: Sieh mehrere Live-Kanäle gleichzeitig und wähle, welchen du hörst
+- Live-TV-Vorschauen belegen keine Tuner deines HDHomeRun mehr
+- Ein Sprung nach vorn in einem Video friert das Bild nicht mehr ein
+- Live-TV: Klicke auf einen Kanal, um ihn über dem Fernsehprogramm angeheftet zu sehen, während du weiterstöberst, und vergrößere das Bild mit seiner Vergrößern-Taste
+- Videos starten schneller, nachdem du die Seite eines Titels geöffnet hast
+- Live-Kanäle starten schneller
+- Ein Live-Kanal, der beim Start stockt, hält einmal kurz an, statt immer wieder zu stoppen
+- Das Bild erscheint, sobald die Wiedergabe beginnt
+- Regionale Untertitel, etwa lateinamerikanisches und europäisches Spanisch, und SDH-Untertitel erscheinen im Untertitelmenü als eigene Einträge
+- Ein Untertitel, den du während der Wiedergabe wählst, bleibt nicht mehr leer
+- Live-TV: bei einem Anbieter mit nur einem Stream schlägt ein Kanal, der direkt nach seiner Vorschau geöffnet wird, nicht mehr fehl
+- Ein Live-Kanal startet nicht mehr ohne Ton
+- Ein Live-Kanal, der nicht abspielen kann, zeigt seinen Fehler, statt es endlos neu zu versuchen
+- Videos laufen im Systemplayer, in der Größe des Fensters
+- Das Fenster „Untertitel suchen“ hat eine Schließen-Taste, und Esc schließt es
+```
+
+#### What's New (2.2.15), iOS (1183 / 4000 chars)
+
+```text
+- Multiview: Sieh mehrere Live-Kanäle gleichzeitig und wähle, welchen du hörst
+- Live-TV-Vorschauen belegen keine Tuner deines HDHomeRun mehr
+- Ein Sprung nach vorn in einem Video friert das Bild nicht mehr ein
+- Live-TV: Tippe auf einen Kanal, um ihn über dem Fernsehprogramm angeheftet zu sehen, während du weiterstöberst, und wische ihn für ein größeres Bild nach unten
+- Videos starten schneller, nachdem du die Seite eines Titels geöffnet hast
+- Live-Kanäle starten schneller
+- Ein Live-Kanal, der beim Start stockt, hält einmal kurz an, statt immer wieder zu stoppen
+- Das Bild erscheint, sobald die Wiedergabe beginnt
+- Regionale Untertitel, etwa lateinamerikanisches und europäisches Spanisch, und SDH-Untertitel erscheinen im Untertitelmenü als eigene Einträge
+- Ein Untertitel, den du während der Wiedergabe wählst, bleibt nicht mehr leer
+- Live-TV: bei einem Anbieter mit nur einem Stream schlägt ein Kanal, der direkt nach seiner Vorschau geöffnet wird, nicht mehr fehl
+- Ein Live-Kanal startet nicht mehr ohne Ton
+- Ein Live-Kanal, der nicht abspielen kann, zeigt seinen Fehler, statt es endlos neu zu versuchen
+- Das Fenster „Untertitel suchen“ hat eine Schließen-Taste
+```
+
+#### What's New (2.2.15), tvOS (1031 / 4000 chars)
+
+```text
+- Multiview: Sieh mehrere Live-Kanäle gleichzeitig und wähle, welchen du hörst
+- Live-TV-Vorschauen belegen keine Tuner deines HDHomeRun mehr
+- Ein Sprung nach vorn in einem Video friert das Bild nicht mehr ein
+- Videos starten schneller, nachdem du die Seite eines Titels geöffnet hast
+- Live-Kanäle starten schneller
+- Ein Live-Kanal, der beim Start stockt, hält einmal kurz an, statt immer wieder zu stoppen
+- Bild und Ton starten zusammen, sobald die Wiedergabe beginnt
+- Regionale Untertitel, etwa lateinamerikanisches und europäisches Spanisch, und SDH-Untertitel erscheinen im Untertitelmenü als eigene Einträge
+- Ein Untertitel, den du während der Wiedergabe wählst, bleibt nicht mehr leer
+- Live-TV: bei einem Anbieter mit nur einem Stream schlägt ein Kanal, der direkt nach seiner Vorschau geöffnet wird, nicht mehr fehl
+- Ein Live-Kanal startet nicht mehr ohne Ton
+- Ein Live-Kanal, der nicht abspielen kann, zeigt seinen Fehler, statt es endlos neu zu versuchen
+- Ordner behalten ihr Layout, während weitere Titel laden
+```
+
 #### What's New (2.2.14), macOS (1238 / 4000)
 
 ```text
@@ -1025,6 +1140,63 @@ Tomo TV ne fournit aucun média, chaîne, liste de lecture ni guide. L'app lit c
 Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'est ni affilié au projet Jellyfin ni approuvé par lui. Jellyfin est une marque de son détenteur respectif.
 ```
 
+#### What's New (2.2.15), macOS (1337 / 4000)
+
+```text
+- Multivue : regardez plusieurs chaînes en direct à la fois et choisissez celle que vous entendez
+- Les aperçus de la TV en direct n'occupent plus les tuners de votre HDHomeRun
+- Avancer loin dans une vidéo ne fige plus l'image
+- TV en direct : cliquez sur une chaîne pour la regarder épinglée au-dessus du guide pendant que vous continuez à naviguer, et agrandissez l'image avec son bouton d'agrandissement
+- Les vidéos démarrent plus vite une fois la page d'un titre ouverte
+- Les chaînes en direct démarrent plus vite
+- Une chaîne en direct qui saccade au démarrage fait une seule pause pour se rattraper, au lieu de s'arrêter encore et encore
+- L'image s'affiche dès que la lecture commence
+- Les sous-titres régionaux, comme l'espagnol d'Amérique latine et d'Espagne, et les sous-titres SDH sont des choix distincts dans le menu des sous-titres
+- Un sous-titre choisi pendant la lecture ne reste plus vide
+- TV en direct : chez un fournisseur qui n'autorise qu'un flux, une chaîne ouverte juste après son aperçu n'échoue plus
+- Une chaîne en direct ne démarre plus sans le son
+- Une chaîne en direct qui ne peut pas être lue affiche son erreur au lieu de réessayer sans fin
+- Les vidéos s'ouvrent dans le lecteur du système, à la taille de la fenêtre
+- Le panneau Chercher des sous-titres a un bouton de fermeture, et Échap le ferme
+```
+
+#### What's New (2.2.15), iOS (1229 / 4000 chars)
+
+```text
+- Multivue : regardez plusieurs chaînes en direct à la fois et choisissez celle que vous entendez
+- Les aperçus de la TV en direct n'occupent plus les tuners de votre HDHomeRun
+- Avancer loin dans une vidéo ne fige plus l'image
+- TV en direct : touchez une chaîne pour la regarder épinglée au-dessus du guide pendant que vous continuez à naviguer, et balayez-la vers le bas pour agrandir l'image
+- Les vidéos démarrent plus vite une fois la page d'un titre ouverte
+- Les chaînes en direct démarrent plus vite
+- Une chaîne en direct qui saccade au démarrage fait une seule pause pour se rattraper, au lieu de s'arrêter encore et encore
+- L'image s'affiche dès que la lecture commence
+- Les sous-titres régionaux, comme l'espagnol d'Amérique latine et d'Espagne, et les sous-titres SDH sont des choix distincts dans le menu des sous-titres
+- Un sous-titre choisi pendant la lecture ne reste plus vide
+- TV en direct : chez un fournisseur qui n'autorise qu'un flux, une chaîne ouverte juste après son aperçu n'échoue plus
+- Une chaîne en direct ne démarre plus sans le son
+- Une chaîne en direct qui ne peut pas être lue affiche son erreur au lieu de réessayer sans fin
+- Le panneau Chercher des sous-titres a un bouton de fermeture
+```
+
+#### What's New (2.2.15), tvOS (1102 / 4000 chars)
+
+```text
+- Multivue : regardez plusieurs chaînes en direct à la fois et choisissez celle que vous entendez
+- Les aperçus de la TV en direct n'occupent plus les tuners de votre HDHomeRun
+- Avancer loin dans une vidéo ne fige plus l'image
+- Les vidéos démarrent plus vite une fois la page d'un titre ouverte
+- Les chaînes en direct démarrent plus vite
+- Une chaîne en direct qui saccade au démarrage fait une seule pause pour se rattraper, au lieu de s'arrêter encore et encore
+- L'image et le son démarrent ensemble, dès que la lecture commence
+- Les sous-titres régionaux, comme l'espagnol d'Amérique latine et d'Espagne, et les sous-titres SDH sont des choix distincts dans le menu des sous-titres
+- Un sous-titre choisi pendant la lecture ne reste plus vide
+- TV en direct : chez un fournisseur qui n'autorise qu'un flux, une chaîne ouverte juste après son aperçu n'échoue plus
+- Une chaîne en direct ne démarre plus sans le son
+- Une chaîne en direct qui ne peut pas être lue affiche son erreur au lieu de réessayer sans fin
+- Les dossiers gardent leur disposition pendant que les titres suivants se chargent
+```
+
 #### What's New (2.2.14), macOS (1253 / 4000)
 
 ```text
@@ -1471,6 +1643,63 @@ Sin analítica, sin rastreo, sin anuncios, sin cuenta con nosotros. Tus credenci
 Tomo TV no incluye contenido, canales, listas de reproducción ni guías. Reproduce lo que ofrecen tu servidor Jellyfin y las fuentes que añades. Tú eres responsable de tener derecho a usarlos.
 
 Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin, y no está afiliado al proyecto Jellyfin ni respaldado por él. Jellyfin es una marca de su titular correspondiente.
+```
+
+#### What's New (2.2.15), macOS (1278 / 4000)
+
+```text
+- Multivista: mira varios canales en vivo a la vez y elige cuál escuchas
+- Las vistas previas de TV en vivo ya no ocupan los sintonizadores de tu HDHomeRun
+- Saltar adelante en un video ya no congela la imagen
+- TV en vivo: haz clic en un canal para verlo fijado sobre la guía mientras sigues navegando, y amplía la imagen con su botón para ampliar
+- Los videos empiezan antes cuando abres la página de un título
+- Los canales en vivo empiezan más rápido
+- Un canal en vivo que se entrecorta al empezar hace una sola pausa para ponerse al día, en lugar de detenerse una y otra vez
+- La imagen aparece en cuanto empieza la reproducción
+- Los subtítulos regionales, como el español latinoamericano y el de España, y los subtítulos SDH aparecen como opciones separadas en el menú de subtítulos
+- Un subtítulo que eliges durante la reproducción ya no se queda en blanco
+- TV en vivo: con un proveedor que permite un solo stream, un canal abierto justo después de su vista previa ya no falla
+- Un canal en vivo ya no empieza sin sonido
+- Un canal en vivo que no puede reproducirse muestra su error en lugar de reintentar sin fin
+- Los videos se reproducen en el reproductor del sistema, al tamaño de la ventana
+- El panel Buscar subtítulos tiene un botón para cerrar, y Esc lo cierra
+```
+
+#### What's New (2.2.15), iOS (1181 / 4000 chars)
+
+```text
+- Multivista: mira varios canales en vivo a la vez y elige cuál escuchas
+- Las vistas previas de TV en vivo ya no ocupan los sintonizadores de tu HDHomeRun
+- Saltar adelante en un video ya no congela la imagen
+- TV en vivo: toca un canal para verlo fijado sobre la guía mientras sigues navegando, y deslízalo hacia abajo para ver la imagen más grande
+- Los videos empiezan antes cuando abres la página de un título
+- Los canales en vivo empiezan más rápido
+- Un canal en vivo que se entrecorta al empezar hace una sola pausa para ponerse al día, en lugar de detenerse una y otra vez
+- La imagen aparece en cuanto empieza la reproducción
+- Los subtítulos regionales, como el español latinoamericano y el de España, y los subtítulos SDH aparecen como opciones separadas en el menú de subtítulos
+- Un subtítulo que eliges durante la reproducción ya no se queda en blanco
+- TV en vivo: con un proveedor que permite un solo stream, un canal abierto justo después de su vista previa ya no falla
+- Un canal en vivo ya no empieza sin sonido
+- Un canal en vivo que no puede reproducirse muestra su error en lugar de reintentar sin fin
+- El panel Buscar subtítulos tiene un botón para cerrar
+```
+
+#### What's New (2.2.15), tvOS (1073 / 4000 chars)
+
+```text
+- Multivista: mira varios canales en vivo a la vez y elige cuál escuchas
+- Las vistas previas de TV en vivo ya no ocupan los sintonizadores de tu HDHomeRun
+- Saltar adelante en un video ya no congela la imagen
+- Los videos empiezan antes cuando abres la página de un título
+- Los canales en vivo empiezan más rápido
+- Un canal en vivo que se entrecorta al empezar hace una sola pausa para ponerse al día, en lugar de detenerse una y otra vez
+- La imagen y el sonido empiezan juntos, en cuanto empieza la reproducción
+- Los subtítulos regionales, como el español latinoamericano y el de España, y los subtítulos SDH aparecen como opciones separadas en el menú de subtítulos
+- Un subtítulo que eliges durante la reproducción ya no se queda en blanco
+- TV en vivo: con un proveedor que permite un solo stream, un canal abierto justo después de su vista previa ya no falla
+- Un canal en vivo ya no empieza sin sonido
+- Un canal en vivo que no puede reproducirse muestra su error en lugar de reintentar sin fin
+- Las carpetas conservan su disposición mientras cargan más títulos
 ```
 
 #### What's New (2.2.14), macOS (1208 / 4000)
@@ -2470,11 +2699,27 @@ Check App Store Connect for the last uploaded build before choosing the next num
 ## Localization
 
 **Current:** English, German, French and Spanish, since 2.2.6, following the device language
-(`services/i18n`). The bundle declares no `CFBundleLocalizations`.
+(`services/i18n`). The store's Languages line comes from the `.lproj` folders in the binary,
+not from the listing: `expo.locales` in `app.json` writes one per language at prebuild. A new
+language needs an entry there as well as its catalogue. Measured 2026-11-03: Apple's Developer.app
+has no `CFBundleLocalizations` and its store languages match its `.lproj` folders exactly.
+
 **Priority languages for a future release:**
 
 1. Japanese (ja)
 2. Portuguese (pt-BR)
+
+---
+
+## Accessibility
+
+The Accessibility Nutrition Labels are App Store Connect data, one declaration per device. They go
+live the moment they are published, not with a version, so `scripts/appstore/accessibility.json`
+keeps one entry per app version and each device gets the entry of the version live on its platform
+(iPhone and iPad follow iOS, Mac follows macOS, Apple TV follows tvOS). A live version without an
+entry is skipped. `npm run archive -- <build> --upload` keeps them in step; usage and the manual
+commands are in `docs/RELEASING.md` ("Accessibility labels"). Apple's evaluation criteria decide
+each value: a feature is true only when every common task works with it on that device.
 
 ---
 

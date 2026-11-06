@@ -29,6 +29,8 @@ extension RemuxSession {
         let iframeFrames = iframeGrabber
         let iframes = iframeStore
         stateLock.unlock()
+        LowLatencyPlayerAsset.unregister(token: token)
+        signalParts()
         frames?.stop()
         iframeFrames?.stop()
         iframes?.stop()

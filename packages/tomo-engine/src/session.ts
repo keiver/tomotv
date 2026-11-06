@@ -1,7 +1,7 @@
 import { engineLog } from "./config";
 import { attributeSession, forgetSession, watchEngineFailure, watchEngineLink, watchEnginePlan, watchEngineStage, watchEngineTier } from "./events";
 import { engineModule, isLocalRemuxAvailable } from "./native";
-import { LIVE_BUFFER_SECONDS, LIVE_SEGMENT_SECONDS } from "./playbackConstants";
+import { LIVE_BUFFER_SECONDS, LIVE_COPY_CUT_SECONDS, LIVE_SEGMENT_SECONDS } from "./playbackConstants";
 import type { SourcePosition, SubtitleRendition } from "./subtitles";
 
 /** One audio track of a session, as the native side reads it (LocalRemuxer.startRemux). */
@@ -60,6 +60,8 @@ export interface EngineSessionConfig {
   frameRate: number;
   bandwidth: number;
   readAheadSegments: number;
+  /** Segments a session cuts before any player asks for one (a prewarm); absent or 0 is no limit. */
+  idleReadAheadSegments?: number;
   startOffsetSeconds: number;
   tiers: EngineTierConfig[];
   isLive: boolean;
@@ -79,6 +81,16 @@ export interface EngineSessionConfig {
   livePlaylist?: boolean;
   /** Live: seconds of output the media playlists wait for before answering, the player's start buffer. */
   liveBufferSeconds?: number;
+  /** Live copy lane: the cut threshold past a segment's open keyframe; `liveSegmentSeconds` when absent. */
+  liveCopyCutSeconds?: number;
+  /** Live: TARGETDURATION is the nearest integer of the longest segment the cut allows, not its ceiling. */
+  liveTargetNearest?: boolean;
+  /** Live: serve LL-HLS parts when the input is continuous (MPEG-TS); off when absent. */
+  liveLowLatency?: boolean;
+  /** Live LL-HLS: the PART-TARGET in seconds; 0.5 when absent. */
+  livePartSeconds?: number;
+  /** Live LL-HLS: the least TARGETDURATION in seconds, fixed for the session; 4 when absent. */
+  liveLowLatencyTargetSeconds?: number;
   stopRequests?: EngineStopRequest[];
   /**
    * The open input names its own range, size, rate and bit rate, and whichever of `audioTracks`,
@@ -141,7 +153,11 @@ export function liveSessionConfig(input: LiveSessionInput): EngineSessionConfig 
     tiers: [],
     isLive: true,
     liveSegmentSeconds: LIVE_SEGMENT_SECONDS,
+    liveCopyCutSeconds: LIVE_COPY_CUT_SECONDS,
+    liveTargetNearest: true,
     liveBufferSeconds: Number.isFinite(buffer) && buffer > 0 ? buffer : 0,
+    // LL-HLS on the first start step; a channel stepped up after a poor start opens plain with its buffer.
+    ...(buffer <= LIVE_BUFFER_SECONDS ? { liveLowLatency: true, liveLowLatencyTargetSeconds: 0 } : {}),
     ...(input.windowSeconds && input.windowSeconds > 0 ? { liveWindowSeconds: input.windowSeconds } : {}),
     ...(input.httpHeaders && Object.keys(input.httpHeaders).length > 0 ? { httpHeaders: input.httpHeaders } : {}),
     ...(input.originKey ? { liveOriginKey: input.originKey } : {}),
@@ -202,6 +218,15 @@ export function describedSessionConfig(input: DescribedSessionInput): EngineSess
 }
 
 const setLimits = new Map<string, number>();
+const budgetListeners = new Set<() => void>();
+
+/** Called whenever setOriginConnectionBudget changes a provider's limit. */
+export function subscribeOriginConnectionBudget(listener: () => void): () => void {
+  budgetListeners.add(listener);
+  return () => {
+    budgetListeners.delete(listener);
+  };
+}
 
 /**
  * How many connections a provider allows this device at once, for every read that names `originKey`;
@@ -212,11 +237,25 @@ export async function setOriginConnectionBudget(originKey: string, connections: 
   const limit = Number.isFinite(connections) && connections > 0 ? Math.floor(connections) : 0;
   try {
     await engineModule().setOriginBudget(originKey, limit);
+    const before = setLimits.get(originKey);
     if (limit > 0) setLimits.set(originKey, limit);
     else setLimits.delete(originKey);
+    if ((setLimits.get(originKey) ?? 0) !== (before ?? 0)) for (const listener of budgetListeners) listener();
     return true;
   } catch (error) {
     engineLog().warn("Failed to set an origin's connection budget", error, { service: "LocalRemux" });
+    return false;
+  }
+}
+
+/** A provider's own stated limit, held by the engine as learned (never above a lower one), not as the viewer's. False without the method. */
+export async function learnOriginConnectionBudget(originKey: string, connections: number): Promise<boolean> {
+  if (!isLocalRemuxAvailable() || !originKey || !(connections >= 1) || typeof engineModule().learnOriginBudget !== "function") return false;
+  try {
+    await engineModule().learnOriginBudget(originKey, Math.floor(connections));
+    return true;
+  } catch (error) {
+    engineLog().warn("Failed to learn an origin's connection budget", error, { service: "LocalRemux" });
     return false;
   }
 }
@@ -328,6 +367,11 @@ export async function startSession(config: EngineSessionConfig, options: StartSe
 /** Session token from the master URL startSession resolved, or null. */
 export function localRemuxToken(masterUrl: string | null | undefined): string | null {
   return masterUrl?.split("/").at(-2) ?? null;
+}
+
+/** The loopback URL a player's asset URL stands for: an LL-HLS session's asset reads it under the `tomo-ll` scheme. */
+export function playerSourceUrl(assetUrl: string): string {
+  return assetUrl.startsWith("tomo-ll://") ? `http://${assetUrl.slice("tomo-ll://".length)}` : assetUrl;
 }
 
 /**
@@ -453,6 +497,8 @@ export type EngineProgress = {
   sourceRetryAfterSeconds?: number;
   /** Live: seconds of output a player bound now would hold ahead of it. */
   bufferedSeconds?: number;
+  /** Live: the session serves LL-HLS parts, so its first playlist answer is its own start gate. */
+  lowLatency?: boolean;
 };
 
 export async function engineProgress(token: string): Promise<EngineProgress | null> {
@@ -472,6 +518,7 @@ export async function engineProgress(token: string): Promise<EngineProgress | nu
         ? { sourceRetryAfterSeconds: progress.sourceRetryAfterSeconds }
         : {}),
       ...(typeof progress.bufferedSeconds === "number" && Number.isFinite(progress.bufferedSeconds) ? { bufferedSeconds: progress.bufferedSeconds } : {}),
+      ...(progress.lowLatency === true ? { lowLatency: true } : {}),
     };
   } catch (error) {
     engineLog().warn("Engine progress read failed", error, { service: "LocalRemux", token });

@@ -292,7 +292,7 @@ function RootLayoutInner() {
                         : { headerShown: false, presentation: "transparentModal", animation: "fade", contentStyle: { backgroundColor: "transparent" } }
                     }
                   />
-                  {/* The guide's Recordings, Channels and Schedule: TV crossfades like video-info, phone
+                  {/* The guide's Recordings and Channels: TV crossfades like video-info, phone
                       pushes under a transparent native bar whose back chevron returns to the guide. */}
                   <Stack.Screen
                     name="recordings"
@@ -321,6 +321,51 @@ function RootLayoutInner() {
                             headerTitle: t("liveTv.channels"),
                             headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
                             headerBackTitle: t("liveTv.title"),
+                          }
+                    }
+                  />
+                  <Stack.Screen
+                    name="multiview"
+                    options={
+                      Platform.isTV
+                        ? { headerShown: false, animation: "fade" }
+                        : {
+                            headerShown: true,
+                            headerTransparent: true,
+                            headerShadowVisible: false,
+                            headerTitle: t("liveTv.multiview"),
+                            headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                            headerBackTitle: t("liveTv.channels"),
+                          }
+                    }
+                  />
+                  <Stack.Screen
+                    name="multiview-pick"
+                    options={
+                      Platform.isTV
+                        ? { headerShown: false, animation: "fade" }
+                        : {
+                            headerShown: true,
+                            headerTransparent: true,
+                            headerShadowVisible: false,
+                            headerTitle: t("liveTv.multiviewChange"),
+                            headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                            headerBackTitle: t("liveTv.multiview"),
+                          }
+                    }
+                  />
+                  <Stack.Screen
+                    name="multiview-layout"
+                    options={
+                      Platform.isTV
+                        ? { headerShown: false, animation: "fade" }
+                        : {
+                            headerShown: true,
+                            headerTransparent: true,
+                            headerShadowVisible: false,
+                            headerTitle: t("liveTv.multiviewLayout"),
+                            headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
+                            headerBackTitle: t("liveTv.multiview"),
                           }
                     }
                   />
@@ -445,21 +490,6 @@ function RootLayoutInner() {
                               headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
                               headerBackTitle: t("liveTv.channels"),
                             }
-                    }
-                  />
-                  <Stack.Screen
-                    name="schedule"
-                    options={
-                      Platform.isTV
-                        ? { headerShown: false, animation: "fade" }
-                        : {
-                            headerShown: true,
-                            headerTransparent: true,
-                            headerShadowVisible: false,
-                            headerTitle: t("liveTv.scheduled"),
-                            headerTitleStyle: { color: COLORS.TEXT_PRIMARY },
-                            headerBackTitle: t("liveTv.title"),
-                          }
                     }
                   />
                   {/* Root route (covers the tabs) so the native tab bar can't steal focus while the

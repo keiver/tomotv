@@ -317,6 +317,22 @@ final class TrackActivationTests: XCTestCase {
         XCTAssertTrue(session.subtitleSegment(streamIndex: 4, segment: 1)?.contains("TEXT 4 again") ?? false, "the track decoded from the start still has its cues")
     }
 
+    func testAPickedTextTrackCountsOnlyTheReadFromItsRestart() throws {
+        let session = try threeAudioSession(subtitles: [text(4, isDefault: true), text(5)], name: "three-audio-two-text")
+        defer { session.stop() }
+        XCTAssertNotNil(session.segmentURL(0))
+        settle { session.reachedEnd }
+        XCTAssertNotNil(session.subtitleSegment(streamIndex: 5, segment: 1))
+        settle { session.reachedEnd }
+        session.stateLock.lock()
+        let picked = session.readSpansLocked(streamIndex: 5)
+        let fromStart = session.readSpansLocked(streamIndex: 4)
+        session.stateLock.unlock()
+        XCTAssertFalse(picked.isEmpty)
+        XCTAssertTrue(picked.allSatisfy { $0.from >= 5.5 }, "the read before the pick counted for the picked track: \(picked)")
+        XCTAssertTrue(fromStart.contains { $0.from < 0.5 }, "the track decoded from the start keeps the first read: \(fromStart)")
+    }
+
     func testAPickedImageTrackGetsItsDecoderAndSets() throws {
         let session = try threeAudioSession(subtitles: [image(4)], pgs: true, name: "three-audio-pgs")
         defer { session.stop() }

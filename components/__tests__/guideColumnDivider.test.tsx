@@ -36,7 +36,9 @@ describe("GuideColumnDivider", () => {
     const bandH = shared(0);
     let renderer!: TestRenderer.ReactTestRenderer;
     await act(async () => {
-      renderer = TestRenderer.create(<GuideColumnDivider columnW={shared(200) as never} topInset={0} bottomInset={0} gesture={{} as never} gripY={gripY as never} bandH={bandH as never} />);
+      renderer = TestRenderer.create(
+        <GuideColumnDivider columnW={shared(200) as never} topInset={0} bottomInset={0} gesture={{} as never} gripY={gripY as never} bandH={bandH as never} stop="default" onStep={jest.fn()} />,
+      );
     });
     const band = renderer.root.findAll((node) => node.type === View && typeof node.props.onLayout === "function")[0];
     await act(async () => band.props.onLayout({ nativeEvent: { layout: { x: 0, y: 0, width: 48, height: 800 } } }));
@@ -46,16 +48,43 @@ describe("GuideColumnDivider", () => {
     expect(bandH.get()).toBe(300);
     expect(gripY.get()).toBe((300 - 64) / 2);
   });
+
+  it("is an adjustable control VoiceOver reads by its stop and steps a stop wider or narrower", async () => {
+    const onStep = jest.fn();
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(
+        <GuideColumnDivider columnW={shared(240) as never} topInset={0} bottomInset={0} gesture={{} as never} gripY={shared(0) as never} bandH={shared(0) as never} stop="wide" onStep={onStep} />,
+      );
+    });
+    const grip = renderer.root.findByProps({ accessibilityRole: "adjustable" });
+    expect(grip.props.accessibilityLabel).toBe("Channel column");
+    expect(grip.props.accessibilityValue).toEqual({ text: "Wide cards" });
+    grip.props.onAccessibilityAction({ nativeEvent: { actionName: "decrement" } });
+    grip.props.onAccessibilityAction({ nativeEvent: { actionName: "increment" } });
+    expect(onStep.mock.calls).toEqual([[-1], [1]]);
+  });
 });
 
 describe("useColumnResize", () => {
-  const drag = async (translationX: number, translationY = 0) => {
+  const drag = async (translationX: number, translationY = 0, velocityX = 0, startWidth = 176) => {
     const onSettle = jest.fn();
-    const columnW = shared(150);
+    lastRest.mockClear();
+    resizeStart.mockClear();
+    detent.mockClear();
+    const columnW = shared(startWidth);
     let seam!: { handlers: Record<string, PanHandler> };
     function Probe() {
-      seam = useColumnResize({ columnW: columnW as never, canvasW: shared(400) as never, minWidth: 77, maxWidth: 150, initialCompact: false, onCompactChange: () => undefined, onSettle })
-        .seam as never;
+      seam = useColumnResize({
+        columnW: columnW as never,
+        canvasW: shared(400) as never,
+        minWidth: 74,
+        defaultWidth: 176,
+        onSettle,
+        onRest: lastRest,
+        onResizeStart: resizeStart,
+        onDetent: detent,
+      }).seam as never;
       return null;
     }
     await act(async () => {
@@ -63,12 +92,64 @@ describe("useColumnResize", () => {
     });
     seam.handlers.begin();
     seam.handlers.update({ translationX, translationY });
-    seam.handlers.finalize();
+    (seam.handlers.finalize as unknown as (event: { velocityX: number }) => void)({ velocityX });
     return onSettle;
   };
+  const lastRest = jest.fn();
+  const detent = jest.fn();
 
-  it("reports the magnet's width when a resize ends", async () => {
-    expect(await drag(-30)).toHaveBeenCalledWith(77);
+  it("ticks once as a drag passes halfway to the next stop, and not while it stays near its own", async () => {
+    await drag(50);
+    expect(detent).toHaveBeenCalledTimes(1);
+    await drag(20);
+    expect(detent).not.toHaveBeenCalled();
+  });
+  const resizeStart = jest.fn();
+
+  it("says a resize started once the drag commits across, and never for a slide along the seam", async () => {
+    await drag(50);
+    expect(resizeStart).toHaveBeenCalledTimes(1);
+    await drag(0, 40);
+    expect(resizeStart).not.toHaveBeenCalled();
+  });
+
+  it("settles on the closed stop when let go nearer the logo width", async () => {
+    expect(await drag(-80)).toHaveBeenCalledWith("closed", 74);
+  });
+
+  it("settles on the wide stop, 240pt, when let go nearer it", async () => {
+    expect(await drag(50)).toHaveBeenCalledWith("wide", 240);
+  });
+
+  it("follows a fling to the next stop even when let go nearer the last one", async () => {
+    expect(await drag(10, 0, 1500)).toHaveBeenCalledWith("wide", 240);
+  });
+
+  it("stops a hard flick from closed on the default stop", async () => {
+    expect(await drag(90, 0, 3000, 74)).toHaveBeenCalledWith("default", 176);
+  });
+
+  it("opens from closed to wide only when pulled well past the default stop", async () => {
+    expect(await drag(110, 0, 0, 74)).toHaveBeenCalledWith("default", 176);
+    expect(await drag(260, 0, 0, 74)).toHaveBeenCalledWith("wide", 240);
+  });
+
+  it("lays the lists out at the new width only once the column has sprung to rest there", async () => {
+    const reanimated = jest.requireMock("react-native-reanimated") as { withSpring: (to: number, config: unknown, done?: (finished: boolean) => void) => number };
+    const spring = reanimated.withSpring;
+    const landings: ((finished: boolean) => void)[] = [];
+    reanimated.withSpring = (to, _config, done) => {
+      if (done) landings.push(done);
+      return to;
+    };
+    try {
+      await drag(50);
+      expect(lastRest).not.toHaveBeenCalled();
+      landings.forEach((land) => land(true));
+      expect(lastRest).toHaveBeenCalledWith(240);
+    } finally {
+      reanimated.withSpring = spring;
+    }
   });
 
   it("reports nothing for a slide along the seam", async () => {

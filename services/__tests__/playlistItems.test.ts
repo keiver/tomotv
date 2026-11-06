@@ -17,7 +17,7 @@ jest.mock("expo-secure-store", () => ({
   deleteItemAsync: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock("@/services/libraryManager", () => ({ libraryManager: { clearCache: jest.fn() } }));
-jest.mock("../jellyfin/accounts", () => ({ getSavedAccounts: jest.fn(async () => []) }));
+jest.mock("../jellyfin/accountIndex", () => ({ getSavedAccounts: jest.fn(async () => []) }));
 
 const SERVER = "http://192.168.1.100:8096";
 const OPEN_POLICY = { MaxParentalRating: null, BlockUnratedItems: [], BlockedTags: [], AllowedTags: [] };

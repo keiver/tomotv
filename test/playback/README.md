@@ -12,7 +12,20 @@ npm run test:playback -- --only T05,T07      # subset (also forces manifest-skip
 npm run test:playback -- --update-baselines  # rewrite baselines from a KNOWN-GOOD build
 npm run test:playback -- --udid <UDID>       # target and boot a specific simulator
 npm run test:playback -- --list              # print the manifest and exit
+npm run test:playback -- --release           # build Release for the simulator, install it, then run
+npm run test:playback -- --app <path.app>    # install a simulator build first, then run
 ```
+
+## Release builds
+
+The suite runs a Release build in a simulator: the code and JS bundle that ship, with `__DEV__` off and no Metro. The probe, `dev-session` and `dev-prefs` links answer in any build compiled for a simulator (`SUITE_LINKS_ENABLED` in `utils/hostEnvironment.ts`) and in no build compiled for a device, so TestFlight and App Store binaries never arm them.
+
+```
+npm run test:playback -- --udid <UDID> --release   # builds tvos/ for a TV simulator, ios/ for iPhone and iPad
+npm run build:sim-release -- tvos                  # the same build alone; prints the .app path for --app
+```
+
+The build reads the trees `npm run prebuild:dual` leaves. `--release` and `--app` install over the simulator's current build, so the app keeps its sign-in and the dev build is replaced until the next `npm run ios`. The run prints `App: <version> (<build>), JS in the app` for a Release build and `JS from Metro` for a dev build.
 
 ## First-time setup
 
@@ -173,7 +186,7 @@ The prewarm does not cover a COLD bundle for a platform Metro has not built yet.
 
 1. Force-quit the app, reset the item's resume position via the API.
 2. `xcrun simctl openurl <sim> "tomotv://player?videoId=<id>&probe=<listener URL>"` (on a device, `devicectl device process launch --payload-url`) cold-starts the app straight into the real player screen, which autoplays.
-3. `services/playbackProbe.ts` (armed ONLY by a `probe` param and `__DEV__`, inert otherwise) POSTs each event to the driver's HTTP listener as it happens: chosen mode, stream URL, errors, retries, positions. The item ends on an event (`ended`, a fatal error, or progress past `progressMin`); the only other bound is the play window plus 60s. A simulator reaches the listener on `127.0.0.1`; a device on the Mac address of the interface that routes to the device's Jellyfin session (`PROBE_HOST` overrides it). Each item's events are saved to the run's work directory.
+3. `services/playbackProbe.ts` (armed ONLY by a `probe` param in a dev or simulator build, `SUITE_LINKS_ENABLED`; inert otherwise) POSTs each event to the driver's HTTP listener as it happens: chosen mode, stream URL, errors, retries, positions. The item ends on an event (`ended`, a fatal error, or progress past `progressMin`); the only other bound is the play window plus 60s. A simulator reaches the listener on `127.0.0.1`; a device on the Mac address of the interface that routes to the device's Jellyfin session (`PROBE_HOST` overrides it). Each item's events are saved to the run's work directory.
 4. After the play window, with the app still alive so the remux session survives, the driver ffprobes the loopback master playlist and hashes the first 30s, then compares against `baselines/<TNN>.json`.
 5. Force-quit, next item.
 

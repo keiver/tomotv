@@ -6,13 +6,14 @@ import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import type { JellyfinProgram } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
+import { namedAction } from "@/utils/namedAction";
 import { pinOffset, visibleSpan } from "@/components/live-tv/guide-pin";
-import { formatClock, formatClockRange, programCategory, standInChannelId } from "@/utils/guide";
+import { formatClock, formatClockRange, movedPastTap, programCategory, standInChannelId } from "@/utils/guide";
 import { liveFrameReel, subscribeLiveFrame } from "@/services/liveFrames";
 import { t } from "@/services/i18n";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useCallback, useMemo, useState, useSyncExternalStore } from "react";
-import { findNodeHandle, LayoutChangeEvent, Platform, Pressable, Animated as RNAnimated, StyleSheet, Text, useAnimatedValue, View } from "react-native";
+import React, { useCallback, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { findNodeHandle, type GestureResponderEvent, LayoutChangeEvent, Platform, Pressable, Animated as RNAnimated, StyleSheet, Text, useAnimatedValue, View } from "react-native";
 
 const IS_TV = Platform.isTV;
 const NO_INFO = /^\s*no info(rmation)?( available)?\s*$/i;
@@ -161,8 +162,22 @@ function GuideCellComponent({
     setFocused(false);
     onBlur?.(program);
   }, [onBlur, program]);
-  const press = useCallback(() => onPress(program), [onPress, program]);
+  // Phone: a touch that travels before it lifts is a drag or a palm, not a tap.
+  const pressStartRef = useRef<{ pageX: number; pageY: number } | null>(null);
+  const pressIn = useCallback((event: GestureResponderEvent) => {
+    pressStartRef.current = { pageX: event.nativeEvent.pageX, pageY: event.nativeEvent.pageY };
+  }, []);
+  const press = useCallback(
+    (event?: GestureResponderEvent) => {
+      const start = pressStartRef.current;
+      pressStartRef.current = null;
+      if (!IS_TV && movedPastTap(start, event?.nativeEvent)) return;
+      onPress(program);
+    },
+    [onPress, program],
+  );
   const longPress = useCallback(() => onLongPress(program), [onLongPress, program]);
+  const detailsAction = useMemo(() => namedAction("details", t("info.details"), longPress), [longPress]);
 
   const cellStyle = [styles.cell, standIn && styles.cellQuiet, { left, width, height }];
   const accessibilityLabel = episodeTitle ? `${episodeTitle}, ${programName}` : programName;
@@ -190,7 +205,7 @@ function GuideCellComponent({
           </View>
           {/* Grabbed frames lead the slot line with their clock time; the slot follows unchanged. */}
           {reelShown ? (
-            <Text style={[styles.meta, past && styles.textPast]} numberOfLines={1}>
+            <Text style={styles.meta} numberOfLines={1}>
               {seenLead}
               {seenClock}
               {seenTail}
@@ -198,7 +213,7 @@ function GuideCellComponent({
               {meta}
             </Text>
           ) : (
-            <Text style={[styles.meta, past && styles.textPast]} numberOfLines={1}>
+            <Text style={styles.meta} numberOfLines={1}>
               {meta}
             </Text>
           )}
@@ -235,6 +250,7 @@ function GuideCellComponent({
         ) : (
           <AnimatedPressable
             ref={handleRef}
+            onPressIn={pressIn}
             onPress={press}
             onLongPress={longPress}
             onFocus={handleFocus}
@@ -264,6 +280,7 @@ function GuideCellComponent({
             tvParallaxProperties={{ enabled: false }}
             accessibilityRole="button"
             accessibilityLabel={accessibilityLabel}
+            {...detailsAction}
             style={[styles.focusable, spanStyle]}
             testID="guide-cell-focusable"
           />
@@ -277,7 +294,15 @@ function GuideCellComponent({
       {body}
     </View>
   ) : (
-    <Pressable isTVSelectable={false} onPress={press} onLongPress={longPress} style={cellStyle}>
+    <Pressable
+      isTVSelectable={false}
+      onPressIn={pressIn}
+      onPress={press}
+      onLongPress={longPress}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      {...detailsAction}
+      style={cellStyle}>
       {body}
     </Pressable>
   );
@@ -403,8 +428,9 @@ const styles = StyleSheet.create({
     fontSize: IS_TV ? 17 : 10,
     fontWeight: "400",
   },
+  // A colour, not an opacity: the trailing show name keeps its own 4.5:1 grey.
   textPast: {
-    opacity: 0.5,
+    color: COLORS.TEXT_SECONDARY,
   },
   cellQuiet: {
     backgroundColor: COLORS.SURFACE_SUNKEN,

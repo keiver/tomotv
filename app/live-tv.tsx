@@ -1,6 +1,6 @@
 import { AmbientBackground } from "@/components/ambient-background";
 import { GuideCanvas } from "@/components/live-tv/guide-canvas";
-import { GuideCornerActions, HUD_ACTION_ICON, HudAction, scheduleSymbol } from "@/components/live-tv/guide-corner-actions";
+import { GuideCornerActions, HUD_ACTION_ICON, HudAction, MULTIVIEW_SYMBOL, RECORDINGS_SYMBOL } from "@/components/live-tv/guide-corner-actions";
 import { GuideHud } from "@/components/live-tv/guide-hud";
 import { SfSymbolIcon } from "@/components/sf-symbol-icon";
 import { gridEdgePadding, LIBRARY_ROOT_TITLE } from "@/constants/app";
@@ -12,9 +12,11 @@ import { useAuthSession } from "@/hooks/useAuthSession";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { useChannelFavoritesSync } from "@/hooks/useChannelFavoritesSync";
 import { invalidateGuideReads, useGuide } from "@/hooks/useGuide";
+import { useLivePreview } from "@/hooks/useLivePreview";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { useIsRecording } from "@/hooks/useRecordingStatus";
 import { refreshExternalGuide } from "@/services/externalGuide";
+import { recenterLiveRing, releaseLiveRing } from "@/services/liveRing";
 import { t } from "@/services/i18n";
 import { invalidateLiveTvSearchIndex, warmLiveTvSearch } from "@/services/jellyfinApi";
 import { dismissToast, showToast } from "@/services/toast";
@@ -36,7 +38,7 @@ const PHONE_REFRESH_CELL_WIDTH = 44;
 const TAB_BAR_GUIDE_HEIGHT = 1;
 
 /**
- * The Live TV screen: the guide, whose channel column tunes on select, with Recordings and
+ * The Live TV screen: the guide, whose channel column tunes on select (pinned at the guide's top off TV), with Recordings and
  * Schedule one press away. The livetv tab's root on TV; a pushed root-stack route on phone.
  * Signed out, the tab keeps its trigger (static-trigger rule) and shows the connect widget.
  */
@@ -130,12 +132,37 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
     showToast({ id: "guide-refresh", title: t(outcome.title), kind: outcome.kind });
   }, [guideWorking, guideFailed, hasListings, isFocused]);
 
-  const tune = useCallback(
-    (channelId: string, channelName: string) => {
+  // Phone, iPad and Mac pin the channel at the top of the guide, playing with sound; TV opens the player.
+  const pinned = useLivePreview();
+  const { pin: pinChannel, fullscreen: pinnedFullscreen } = pinned;
+  // The pinned channel's guide neighbours are kept cutting in the engine, so a tap on one plays at once.
+  const pinnedId = pinned.channel?.Id ?? null;
+  const pinnedPlaying = pinnedId !== null && !pinned.opening;
+  const guideChannels = useMemo(() => guide.rows.map((row) => row.channel), [guide.rows]);
+  useEffect(() => {
+    if (IS_TV || !pinnedId || guideChannels.length === 0) return;
+    recenterLiveRing(guideChannels, pinnedId, pinnedPlaying);
+  }, [guideChannels, pinnedId, pinnedPlaying]);
+  useEffect(() => {
+    if (IS_TV || !pinnedId) return;
+    return () => {
+      void releaseLiveRing();
+    };
+  }, [pinnedId]);
+  const openChannelPlayer = useCallback(
+    (channel: JellyfinItem) => {
+      if (pinnedFullscreen(channel.Id)) return;
       showGlobalLoader();
-      router.push({ pathname: "/player", params: { videoId: channelId, videoName: channelName, live: "1" } });
+      router.push({ pathname: "/player", params: { videoId: channel.Id, videoName: channel.Name, live: "1" } });
     },
-    [router, showGlobalLoader],
+    [router, showGlobalLoader, pinnedFullscreen],
+  );
+  const tune = useCallback(
+    (channel: JellyfinItem) => {
+      if (IS_TV) openChannelPlayer(channel);
+      else pinChannel(channel);
+    },
+    [openChannelPlayer, pinChannel],
   );
   const openProgram = useCallback(
     (program: JellyfinProgram, channel: JellyfinItem) => {
@@ -152,22 +179,26 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
     (program: JellyfinProgram, channel: JellyfinItem) => {
       const startMs = Date.parse(program.StartDate ?? "");
       const endMs = Date.parse(program.EndDate ?? "");
-      if (startMs <= nowRef.current && nowRef.current < endMs) tune(channel.Id, channel.Name);
+      // A programme on now opens its channel's player, the pinned one's without reopening it; only the channel column pins.
+      if (startMs <= nowRef.current && nowRef.current < endMs) openChannelPlayer(channel);
       else openProgram(program, channel);
     },
-    [tune, openProgram],
+    [openChannelPlayer, openProgram],
   );
-  const handleChannelPress = useCallback((channel: JellyfinItem) => tune(channel.Id, channel.Name), [tune]);
+  const handleChannelPress = tune;
   const openChannel = useCallback((channel: JellyfinItem) => router.push({ pathname: "/video-info", params: { videoId: channel.Id, name: channel.Name } }), [router]);
   const openRecordings = useCallback(() => router.push("/recordings"), [router]);
-  const openSchedule = useCallback(() => router.push("/schedule"), [router]);
   const openChannels = useCallback(() => router.push("/channels"), [router]);
+  // Multiview opens on the pinned channel when one plays, as a channel's info panel opens it; else on the stored spots.
+  const canMultiview = guide.rows.length >= 2;
+  const pinnedName = pinned.channel?.Name ?? "";
+  const openMultiview = useCallback(() => router.push(pinnedId ? { pathname: "/multiview", params: { channelId: pinnedId, channelName: pinnedName } } : "/multiview"), [router, pinnedId, pinnedName]);
 
   // TV frames the column half a grid edge in; phone runs it flush to the screen edge.
   const edgeLeft = IS_TV ? gridEdgePadding(insets?.left ?? 0, IS_TV) / 2 : (insets?.left ?? 0);
   // Phone: the transparent native header floats over the content, so the body starts under it.
   const topClearance = IS_TV ? 10 + (insets?.top ?? 0) - TAB_BAR_GUIDE_HEIGHT : headerHeight + (IS_PAD ? 20 : 8);
-  // Phone: Channels, Recordings and Schedule are native bar items; TV draws them as labelled glass pills.
+  // Phone: Channels, Multiview and Recordings are native bar items; TV draws them as the corner's cells.
   const screenOptions = useMemo<NativeStackNavigationOptions>(
     () =>
       IS_TV
@@ -183,18 +214,20 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
                 tintColor: accent,
                 onPress: openChannels,
               },
-              { type: "button", label: t("liveTv.recordings"), icon: { type: "sfSymbol", name: "record.circle" }, tintColor: accent, onPress: openRecordings },
-              // Badged and red while a recording runs: the Schedule screen behind it is where it stops.
+              ...(canMultiview
+                ? [{ type: "button" as const, label: t("liveTv.multiview"), icon: { type: "sfSymbol" as const, name: MULTIVIEW_SYMBOL }, tintColor: accent, onPress: openMultiview }]
+                : []),
+              // Red while a recording runs: the Recordings screen behind it is where it stops.
               {
                 type: "button",
-                label: t("liveTv.scheduled"),
-                icon: { type: "sfSymbol", name: scheduleSymbol(recording) },
+                label: t("liveTv.recordings"),
+                icon: { type: "sfSymbol", name: RECORDINGS_SYMBOL },
                 tintColor: recording ? COLORS.DESTRUCTIVE : accent,
-                onPress: openSchedule,
+                onPress: openRecordings,
               },
             ],
           },
-    [params.name, openRecordings, openChannels, openSchedule, recording, accent],
+    [params.name, openRecordings, openChannels, canMultiview, openMultiview, recording, accent],
   );
   // Built apart from the canvas so the compiler keys it on the band's own inputs, not every guide render.
   const hudRow = (
@@ -205,8 +238,8 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
           <GuideCornerActions
             filtered={filtered}
             onChannels={openChannels}
+            onMultiview={canMultiview ? openMultiview : undefined}
             onRecordings={openRecordings}
-            onSchedule={openSchedule}
             onRefreshGuide={refreshGuide}
             refreshing={guide.isUpdating}
             recording={recording}
@@ -250,6 +283,7 @@ function LiveTvScreen({ refreshed, onRefresh: refreshGuide }: LiveTvScreenProps)
               onProgramLongPress={openProgram}
               onChannelPress={handleChannelPress}
               onChannelLongPress={openChannel}
+              pinned={IS_TV ? undefined : pinned}
             />
           </TVFocusGuideView>
         )}

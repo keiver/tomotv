@@ -45,6 +45,7 @@ import {
   type SubtitleRendition,
   type VideoStreamInfo,
 } from "@keiver/tomo-engine";
+import { liveStartBufferSeconds } from "@keiver/tomo-live";
 
 import { JELLYFIN_TIME } from "@/services/jellyfin/constants";
 import { audioCatalogue, playbackMediaStreams, sourcePosition, type AudioCatalogueTrack } from "@/services/jellyfin/audioTracks";
@@ -155,6 +156,8 @@ queueMicrotask(syncPosterQueuePause);
  * this knob rides the session config, so tuning is a reload, not a rebuild.
  */
 const REMUX_READ_AHEAD_SEGMENTS = 20;
+/** Segments a prewarm cuts before the player asks: the open done, about 12 s of source read. */
+const PREWARM_IDLE_SEGMENTS = 2;
 
 // Slipstream (memories/CLAUDE-slipstream.md): one loopback master carrying the
 // device's stream copy and this server-fed ladder, AVPlayer switching natively
@@ -734,7 +737,14 @@ export async function startLocalRemux(
   // prewarm: a live ring neighbour no player reads yet, kept out of the plan and probe the playing session owns.
   // selectedSubtitleIndex: the track the stored choice lands on, decoded from the start with the default and forced ones.
   // audioLanguage: live, the language made the default rendition; the stored audio preference when absent.
-  options: { prewarm?: boolean; liveWindowSeconds?: number; serverVideoOnly?: boolean; livePriority?: "preview" | "ring"; selectedSubtitleIndex?: number | null; audioLanguage?: string } = {},
+  options: {
+    prewarm?: boolean;
+    liveWindowSeconds?: number;
+    serverVideoOnly?: boolean;
+    livePriority?: "preview" | "ring" | "playback";
+    selectedSubtitleIndex?: number | null;
+    audioLanguage?: string;
+  } = {},
 ): Promise<string> {
   if (!isLocalRemuxAvailable()) {
     throw new Error("Local remux native module not available on this platform");
@@ -753,6 +763,7 @@ export async function startLocalRemux(
       liveSessionConfig({
         inputUrl: videoItem.liveStreamUrl ?? getVideoStreamUrl(videoItem.Id, videoItem),
         itemId: videoItem.Id,
+        bufferSeconds: liveStartBufferSeconds(videoItem.Id),
         ...(videoItem.liveHttpHeaders ? { httpHeaders: videoItem.liveHttpHeaders } : {}),
         ...(videoItem.liveOriginKey ? { originKey: videoItem.liveOriginKey } : {}),
         ...(videoItem.livePlaylist ? { playlist: true } : {}),
@@ -910,6 +921,7 @@ export async function startLocalRemux(
       frameRate,
       bandwidth,
       readAheadSegments: REMUX_READ_AHEAD_SEGMENTS,
+      ...(options.prewarm ? { idleReadAheadSegments: PREWARM_IDLE_SEGMENTS } : {}),
       // EXT-X-START resume: AVPlayer opens at the offset; its first segment
       // request drives the producer's seek-restart there (no position-zero
       // production, no post-load auto-seek).

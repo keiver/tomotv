@@ -8,12 +8,26 @@ import { clearLiveFrameFocus, setLiveFrameFocus } from "@/services/liveFrames";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { isFavoriteChannel, type LiveTvPreferences } from "@/services/liveTvPreferences";
 import type { JellyfinItem } from "@/types/jellyfin";
-import type { GuideMetrics } from "@/utils/guide";
-import React, { useCallback, type ComponentProps } from "react";
+import { guideMetrics, type GuideMetrics } from "@/utils/guide";
+import React, { useCallback, useEffect, type ComponentProps } from "react";
 import { findNodeHandle, Platform, StyleSheet, View } from "react-native";
-import Animated, { type AnimatedRef, Extrapolation, interpolate, type ScrollHandlerProcessed, type SharedValue, useAnimatedStyle } from "react-native-reanimated";
+import Animated, {
+  type AnimatedRef,
+  Extrapolation,
+  interpolate,
+  LinearTransition,
+  type ScrollHandlerProcessed,
+  type SharedValue,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 
 const IS_TV = Platform.isTV;
+/** The default stop's width: the card and the logo tile cross-fade between the closed stop and this. */
+const DEFAULT_COLUMN_WIDTH = guideMetrics(IS_TV).channelColumnWidth;
+/** Both lists' rows close over a channel leaving for the pinned band, and open for one coming back. */
+export const PIN_SHIFT = LinearTransition.duration(260);
 const channelIds = (channel: JellyfinItem) => [channel.Id];
 const favoriteMark = (preferences: LiveTvPreferences, channel: JellyfinItem) => (isFavoriteChannel(preferences, channel) ? ("heart" as const) : undefined);
 
@@ -41,10 +55,18 @@ interface GuideChannelColumnProps {
   /** TV: the first card's native node, the strip's way down into the guide (the canvas cells sit
       in a scrolled expanse the focus engine cannot enter geometrically). */
   onFirstHandle?: (handle: number | undefined) => void;
-  /** TV: each card's node by channel, so the canvas can hand Left focus out of a scrolled grid. */
+  /** TV: each card's node by channel, to hand Left focus out of a scrolled grid. */
   onCardNode?: ComponentProps<typeof GuideChannelCard>["onNode"];
   onEndReached?: () => void;
+  /** Phone: each card's growth from its left edge while the column is dragged wider, 1 at rest. */
+  cardScale?: SharedValue<number>;
+  /** Phone: a channel is pinned above the lists, so every card here dims under it. */
+  dimmed?: boolean;
 }
+
+/** A card's opacity while another channel is pinned above the list. */
+const DIMMED_CARD = 0.4;
+const DIM_MS = 250;
 
 /**
  * One video card per channel beside the canvas, each one tuning its channel on select. The card
@@ -67,7 +89,13 @@ export function GuideChannelColumn({
   onFirstHandle,
   onCardNode,
   onEndReached,
+  cardScale,
+  dimmed = false,
 }: GuideChannelColumnProps) {
+  const cardLight = useSharedValue(1);
+  useEffect(() => {
+    cardLight.set(withTiming(dimmed ? DIMMED_CARD : 1, { duration: DIM_MS }));
+  }, [dimmed, cardLight]);
   const preferences = useLiveTvPreferences();
   const { viewabilityPairs, visibleChannelIds } = useLiveFrameViewport("guide", preferences.autoUpdate, channels, channelIds);
   const firstCardRef = useCallback(
@@ -125,11 +153,29 @@ export function GuideChannelColumn({
             recording={recordingChannelIds.has(item.Id)}
             onPress={onChannelPress}
             onLongPress={onChannelLongPress}
+            cardScale={cardScale}
+            cardLight={cardLight}
           />
         )}
       </View>
     ),
-    [metrics, rowSnapOffset, columnWidth, compact, preferences, recordingChannelIds, onChannelPress, onChannelLongPress, cardFocus, cardBlur, firstCardRef, onCardNode, visibleChannelIds],
+    [
+      metrics,
+      rowSnapOffset,
+      columnWidth,
+      compact,
+      preferences,
+      recordingChannelIds,
+      onChannelPress,
+      onChannelLongPress,
+      cardFocus,
+      cardBlur,
+      firstCardRef,
+      onCardNode,
+      visibleChannelIds,
+      cardScale,
+      cardLight,
+    ],
   );
   const getItemLayout = useCallback(
     (_data: ArrayLike<JellyfinItem> | null | undefined, index: number) => ({ length: metrics.rowHeight, offset: metrics.rowHeight * index, index }),
@@ -144,6 +190,7 @@ export function GuideChannelColumn({
         ref={listRef}
         data={channels}
         renderItem={renderItem}
+        itemLayoutAnimation={IS_TV ? undefined : PIN_SHIFT}
         keyExtractor={(item) => item.Id}
         getItemLayout={getItemLayout}
         snapToAlignment={IS_TV ? "item" : undefined}
@@ -183,11 +230,15 @@ function ChannelMorph({
   recording,
   onPress,
   onLongPress,
+  cardScale,
+  cardLight,
 }: {
   channel: JellyfinItem;
   index: number;
   metrics: GuideMetrics;
   columnWidth: SharedValue<number>;
+  cardScale?: SharedValue<number>;
+  cardLight: SharedValue<number>;
   compact: boolean;
   inView: boolean;
   titleIcon?: "heart";
@@ -195,14 +246,14 @@ function ChannelMorph({
   onPress: (channel: JellyfinItem) => void;
   onLongPress: (channel: JellyfinItem) => void;
 }) {
-  const range = [metrics.compactColumnWidth, metrics.channelColumnWidth];
+  const range = [metrics.compactColumnWidth, DEFAULT_COLUMN_WIDTH];
   const cardStyle = useAnimatedStyle(() => {
     const t = interpolate(columnWidth.get(), range, [0, 1], Extrapolation.CLAMP);
-    return { opacity: t, transform: [{ scale: 0.8 + 0.2 * t }] };
+    return { opacity: t * cardLight.get(), transform: [{ scale: (0.8 + 0.2 * t) * (cardScale?.get() ?? 1) }] };
   });
   const tileStyle = useAnimatedStyle(() => {
     const t = interpolate(columnWidth.get(), range, [0, 1], Extrapolation.CLAMP);
-    return { opacity: 1 - t, transform: [{ scale: 1 + 0.4 * t }] };
+    return { opacity: (1 - t) * cardLight.get(), transform: [{ scale: 1 + 0.4 * t }] };
   });
   return (
     <>
@@ -235,8 +286,9 @@ const styles = StyleSheet.create({
   column: {
     overflow: "hidden",
   },
-  // The program rows' grid line, so the card above it reads as the row's first cell.
+  // The program rows' grid line, so the card above it reads as the row's first cell. A card grown by a drag is cropped to it.
   row: {
+    overflow: "hidden",
     justifyContent: "center",
     borderBottomWidth: 1,
     borderBottomColor: GRID_LINE,

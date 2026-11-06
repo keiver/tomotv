@@ -34,7 +34,6 @@
     "audio": [
       {
         "action": "copy",
-        "rendition": "a0",
         "source": {
           "bitRate": 640000,
           "channels": 6,
@@ -59,7 +58,7 @@
   },
   "video": {
     "policy": "copy",
-    "digest": "2b5927906ca994ab0e63818f1641badb",
+    "digest": "e743451e212e5c694e459a62a165d18b",
     "frames": 722,
     "lastPtsSec": 30.04
   },

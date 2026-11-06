@@ -20,7 +20,7 @@ import { COLORS } from "@/constants/colors";
 import { getRecoveryStatus, RecoveryStatus, subscribeRecoveryStatus } from "@/services/connectionRecovery";
 import { isFolder, signOut } from "@/services/jellyfinApi";
 import { FolderStackEntry, JellyfinItem } from "@/types/jellyfin";
-import { isStrandedAboveLastRow, packArtworkRows, packColumnRows, PackedRow } from "@/utils/artworkRows";
+import { heldLayout, isStrandedAboveLastRow, packArtworkRows, packColumnRows, PackedRow } from "@/utils/artworkRows";
 import { cleanLabel } from "@/utils/cleanLabel";
 import { logger } from "@/utils/logger";
 import { cardResumeProgress } from "@/utils/resumeProgress";
@@ -107,6 +107,8 @@ interface LibraryGridProps {
   noAmbient?: boolean;
   /** The loaded-empty body in place of the folder's own, under the same bar (the wall's no-channels state). */
   emptyContent?: React.ReactNode;
+  /** Above the cards, inside the list's header: the Recordings screen's schedule. */
+  leadContent?: React.ReactNode;
 }
 
 /**
@@ -142,6 +144,7 @@ export function LibraryGrid({
   headerTrailing,
   noAmbient = false,
   emptyContent,
+  leadContent,
 }: LibraryGridProps) {
   const router = useRouter();
   const palette = useCardPalette();
@@ -293,11 +296,15 @@ export function LibraryGrid({
   const zoom = useCardZoom();
   const rowHeights = useMemo(() => slotRowHeights(windowWidth, windowHeight, insets.left, insets.right, IS_TV, "grid", zoom), [windowWidth, windowHeight, insets.left, insets.right, zoom]);
   // TV folders mixing posters with wide cards sit on fixed columns: a wide card spans two, its art cropped to fill.
-  const columnGrid = useMemo(() => {
+  const mixedShapes = useMemo(() => {
     if (!IS_TV || liveChannels) return false;
     const shapes = new Set(items.map((item) => (item.Type === "Episode" ? "landscape" : itemSlotShape(item.PrimaryImageAspectRatio))));
     return shapes.has("portrait") && shapes.size > 1;
   }, [items, liveChannels]);
+  const [heldColumnGrid, setHeldColumnGrid] = useState<boolean | null>(null);
+  const nextColumnGrid = heldLayout(heldColumnGrid, items.length, mixedShapes);
+  if (nextColumnGrid !== heldColumnGrid) setHeldColumnGrid(nextColumnGrid);
+  const columnGrid = nextColumnGrid ?? false;
   const packedRows = useMemo(
     () =>
       columnGrid
@@ -355,9 +362,11 @@ export function LibraryGrid({
   // TV renders the breadcrumb bar as the list's own header, ahead of row 0. The list takes
   // getItemLayout offsets as given, so the bar's measured height has to ride in them.
   const hasFolderHeader = IS_TV && !isFolderLoading;
+  // The lead content above the cards rides in the same measured header, on every platform.
+  const hasListHeader = (hasFolderHeader || !!leadContent) && !isFolderLoading;
   const [headerHeight, setHeaderHeight] = useState<number | null>(null);
   const handleHeaderLayout = useCallback((event: LayoutChangeEvent) => setHeaderHeight(event.nativeEvent.layout.height), []);
-  const headerLength = hasFolderHeader ? (headerHeight ?? 0) : 0;
+  const headerLength = hasListHeader ? (headerHeight ?? 0) : 0;
 
   // Exact row geometry, off the same pack math the cards render with: cardHeight is the row's
   // unified OUTER card height (container padding included) and every label rides an absolutely
@@ -688,7 +697,7 @@ export function LibraryGrid({
     if (!focusItemId || targetRowIndex < 0 || focusedTargetRef.current === focusItemId) return;
     if (IS_TV && !isScreenFocused) return; // covered screen — see isScreenFocused
     // Scrolling before the header has measured lands the row short by its height.
-    if (hasFolderHeader && headerHeight === null) return;
+    if (hasListHeader && headerHeight === null) return;
     focusedTargetRef.current = focusItemId;
     scrollFailuresRef.current = 0;
     // Phone: the list rests under the transparent bar at a negative offset, and scrollToIndex floors
@@ -716,7 +725,7 @@ export function LibraryGrid({
       schedule(tryFocus, 100);
     };
     schedule(tryFocus, 60);
-  }, [focusItemId, targetRowIndex, isScreenFocused, focusTargetCard, schedule, hasFolderHeader, headerHeight, rowLayout, contentLength, windowHeight]);
+  }, [focusItemId, targetRowIndex, isScreenFocused, focusTargetCard, schedule, hasListHeader, headerHeight, rowLayout, contentLength, windowHeight]);
 
   // Two-phase focus handoff. Removing the FOCUSED holder in the SAME commit that first mounts the
   // grid made the focus engine race the native layout of 15 fresh cells; when it lost, focus sat
@@ -838,24 +847,27 @@ export function LibraryGrid({
   // branch too: a filter selection that matches nothing must still leave a way back into the panel.
   // The bar waits for the folder content (hidden while isFolderLoading) because rendering it early
   // would flicker when the CTA lands and let Filters claim focus before the first card exists.
-  const folderHeader = hasFolderHeader ? (
+  const folderHeader = hasListHeader ? (
     <View onLayout={handleHeaderLayout}>
-      <LibraryHeader
-        stack={crumbs ?? []}
-        onGoHome={handleGoHome}
-        homeAsBack={homeAsBack}
-        onOpenFilters={onOpenFilters}
-        action={headerAction}
-        secondaryAction={headerSecondaryAction}
-        trailing={headerTrailing}
-        activeFilterCount={activeFilterCount}
-        onFiltersButtonRef={handleFiltersButtonRef}
-        onFiltersFocusChange={handleFiltersFocusChange}
-        // Loaded-empty only (the bar doesn't render while loading): keeps focus on a visible
-        // control when there is no card to take it. Never from a covered screen: that claim is
-        // app-wide, not screen-local (see isScreenFocused).
-        filtersButtonHasPreferredFocus={items.length === 0 && isScreenFocused}
-      />
+      {hasFolderHeader ? (
+        <LibraryHeader
+          stack={crumbs ?? []}
+          onGoHome={handleGoHome}
+          homeAsBack={homeAsBack}
+          onOpenFilters={onOpenFilters}
+          action={headerAction}
+          secondaryAction={headerSecondaryAction}
+          trailing={headerTrailing}
+          activeFilterCount={activeFilterCount}
+          onFiltersButtonRef={handleFiltersButtonRef}
+          onFiltersFocusChange={handleFiltersFocusChange}
+          // Loaded-empty only (the bar doesn't render while loading): keeps focus on a visible
+          // control when there is no card to take it. Never from a covered screen: that claim is
+          // app-wide, not screen-local (see isScreenFocused).
+          filtersButtonHasPreferredFocus={items.length === 0 && isScreenFocused}
+        />
+      ) : null}
+      {leadContent}
     </View>
   ) : null;
 

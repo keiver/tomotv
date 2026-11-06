@@ -1,11 +1,9 @@
 /**
- * The job list a search screen shows: one job per file, each with its own query, language,
- * results and pick. Pure transitions here; the runner below walks them a few at a time.
+ * A video's search job: its query, language, results and pick. Pure transitions here; the runner
+ * below walks the idle ones.
  */
 import type { JellyfinVideoItem } from "@/types/jellyfin";
-import { sameLanguage } from "./languages";
 import { queryLabel, subtitleQuery } from "./query";
-import { autoPick } from "./rank";
 import type { Refusal } from "./chain";
 import type { SubtitleHit, SubtitleJob, SubtitleQuery } from "./types";
 
@@ -15,19 +13,9 @@ function cleanTitle(item: JellyfinVideoItem): string {
   return item.Name?.trim() || item.Path?.split(/[\\/]/).pop() || item.Id;
 }
 
-/** Whether the file already carries a text subtitle in the language, inside it or beside it. */
-export function hasTextSubtitleIn(item: Pick<JellyfinVideoItem, "MediaStreams">, language: string): boolean {
-  return (item.MediaStreams ?? []).some((stream) => stream.Type === "Subtitle" && !/pgs|dvd|vobsub|dvb|xsub/i.test(stream.Codec ?? "") && sameLanguage(stream.Language, language));
-}
-
 export function makeJob(item: JellyfinVideoItem, language: string): SubtitleJob {
   const query = subtitleQuery(item);
   return { item, label: queryLabel(query), title: cleanTitle(item), query, language, status: "idle", results: [], note: null, picked: null, applied: null, error: null };
-}
-
-/** Jobs for a set of videos, the ones already subtitled in the language left out unless asked to keep them. */
-export function makeJobs(items: JellyfinVideoItem[], language: string, skipSubtitled: boolean = true): SubtitleJob[] {
-  return items.filter((item) => !skipSubtitled || !hasTextSubtitleIn(item, language)).map((item) => makeJob(item, language));
 }
 
 export function withLanguage(jobs: SubtitleJob[], language: string): SubtitleJob[] {
@@ -61,15 +49,6 @@ export function jobApplied(jobs: SubtitleJob[], index: number, applied: NonNulla
 /** Back to the results with the error; the pick stays so the error line can name it. */
 export function jobApplyFailed(jobs: SubtitleJob[], index: number, error: string): SubtitleJob[] {
   return jobs.map((job, at) => (at === index ? { ...job, status: "found", error } : job));
-}
-
-/** Jobs whose results hold a pick safe to take without asking, with that pick. */
-export function takeMatches(jobs: SubtitleJob[]): { index: number; hit: SubtitleHit }[] {
-  return jobs.flatMap((job, index) => {
-    if (job.status !== "found") return [];
-    const hit = autoPick(job.results);
-    return hit ? [{ index, hit }] : [];
-  });
 }
 
 /** One line for the state column from a chain's refusals, as source names the screen translates. */

@@ -7,6 +7,8 @@ jest.mock("@/services/toast", () => ({ showToast: jest.fn() }));
 jest.mock("@/services/jellyfinApi", () => ({
   cancelTimer: jest.fn(async () => undefined),
   createTimer: jest.fn(async () => undefined),
+  deleteItem: jest.fn(async () => undefined),
+  deleteRecording: jest.fn(async () => undefined),
   fetchInProgressRecording: jest.fn(async () => null),
   fetchTimerDefaults: jest.fn(async (programId?: string) => ({ ProgramId: programId, PrePaddingSeconds: 0 })),
   fetchTimers: jest.fn(async () => []),
@@ -23,10 +25,12 @@ jest.mock("@/services/recordingStatus", () => {
   };
 });
 jest.mock("@/services/jellyfin/session", () => ({ getCachedConfig: jest.fn(() => ({ server: "", apiKey: "", userId: "", deviceId: "" })) }));
+jest.mock("@/services/refusedRecordings", () => ({ hideRefusedRecording: jest.fn() }));
 // Mirrors the engine: a successful call updates the held set and returns it; a simulated failure resolves without
 // touching the set (the real setOriginRecording swallows engine errors and resolves, never rejecting).
 const mockHeld = new Set<string>();
 jest.mock("@keiver/tomo-engine", () => ({
+  learnOriginConnectionBudget: jest.fn(async () => true),
   setOriginRecording: jest.fn(async (originKey: string, active: boolean) => {
     if (active) mockHeld.add(originKey);
     else mockHeld.delete(originKey);
@@ -47,10 +51,13 @@ jest.mock("@keiver/tomo-live", () => ({
   providerStreamsInUse: jest.fn(async () => null),
 }));
 
-import { cancelTimer, createTimer, fetchInProgressRecording, fetchTimers, readRecordingStart } from "@/services/jellyfinApi";
+import { cancelTimer, createTimer, deleteItem, deleteRecording, fetchInProgressRecording, fetchTimers, readRecordingStart } from "@/services/jellyfinApi";
 import {
+  ADMIT_WAIT_MS,
   adjacentPlayableChannelId,
   admitOnOneConnection,
+  admitUntilPlaying,
+  cancelRecording,
   checkNewRecording,
   heldRecording,
   isAdmitting,
@@ -64,8 +71,9 @@ import {
   stopRecordingCheck,
   syncRecordingHolds,
 } from "@/services/recordingHold";
+import { hideRefusedRecording } from "@/services/refusedRecordings";
 import { showToast } from "@/services/toast";
-import { originConnectionLimit, originConnections, setOriginRecording } from "@keiver/tomo-engine";
+import { learnOriginConnectionBudget, originConnectionLimit, originConnections, setOriginRecording } from "@keiver/tomo-engine";
 import { providerStreamsInUse } from "@keiver/tomo-live";
 
 const NOW = Date.parse("2026-10-22T20:00:00Z");
@@ -396,14 +404,127 @@ describe("waiting for the provider to free its stream", () => {
     expect(recreate).toHaveBeenCalledTimes(1);
   });
 
-  it("starts anyway after 30 s when the provider keeps counting every stream", async () => {
+  it("never starts while the provider counts every stream, and keeps holding the provider past two minutes", async () => {
     (providerStreamsInUse as jest.Mock).mockResolvedValue({ active: 1, max: 1 });
-    let done = false;
-    void reserveForRecording("ch-a").then(() => (done = true));
-    await jest.advanceTimersByTimeAsync(29_000);
-    expect(done).toBe(false);
-    await jest.advanceTimersByTimeAsync(1_500);
-    expect(done).toBe(true);
+    let reservation: Awaited<ReturnType<typeof reserveForRecording>> | undefined;
+    void reserveForRecording("ch-a").then((result) => (reservation = result));
+    await jest.advanceTimersByTimeAsync(10 * 60_000);
+    expect(reservation).toBeUndefined();
+    expect(setOriginRecording).not.toHaveBeenCalledWith("a.example", false);
+    (providerStreamsInUse as jest.Mock).mockResolvedValue({ active: 0, max: 1 });
+    await jest.advanceTimersByTimeAsync(500);
+    expect(reservation?.free).toBe(true);
+  });
+
+  it("keeps waiting through a failed account read once the provider has answered", async () => {
+    (originConnectionLimit as jest.Mock).mockReturnValue(null);
+    (originConnections as jest.Mock).mockResolvedValue({ budget: null, active: 0, held: false });
+    (providerStreamsInUse as jest.Mock).mockResolvedValueOnce({ active: 1, max: 1 }).mockResolvedValueOnce(null).mockResolvedValueOnce({ active: 1, max: 1 }).mockResolvedValue({ active: 0, max: 1 });
+    let reservation: Awaited<ReturnType<typeof reserveForRecording>> | undefined;
+    void reserveForRecording("ch-a").then((result) => (reservation = result));
+    await jest.advanceTimersByTimeAsync(400);
+    expect(reservation).toBeUndefined();
+    await jest.advanceTimersByTimeAsync(1_000);
+    expect(reservation?.free).toBe(true);
+  });
+
+  it("gives up without a timer when the viewer cancels or the span ends, and lets the provider go", async () => {
+    (providerStreamsInUse as jest.Mock).mockResolvedValue({ active: 1, max: 1 });
+    const cancel = new AbortController();
+    const cancelled = reserveForRecording("ch-a", { signal: cancel.signal });
+    await jest.advanceTimersByTimeAsync(1_000);
+    cancel.abort();
+    await jest.advanceTimersByTimeAsync(500);
+    expect((await cancelled)?.free).toBe(false);
+    expect(setOriginRecording).toHaveBeenLastCalledWith("a.example", false);
+    const ended = reserveForRecording("ch-a", { endMs: Date.now() + 2_000 });
+    await jest.advanceTimersByTimeAsync(3_000);
+    expect((await ended)?.free).toBe(false);
+  });
+});
+
+describe("a provider's own limit", () => {
+  beforeEach(() => {
+    (originConnectionLimit as jest.Mock).mockReturnValue(null);
+    (originConnections as jest.Mock).mockResolvedValue({ budget: null, active: 0, held: false });
+  });
+
+  it("is read from its account once, and a limit of 1 is handed to the engine as learned", async () => {
+    (providerStreamsInUse as jest.Mock).mockResolvedValue({ active: 0, max: 1 });
+    expect((await reserveForRecording("ch-a"))?.free).toBe(true);
+    expect((await reserveForRecording("ch-a2"))?.free).toBe(true);
+    expect(learnOriginConnectionBudget).toHaveBeenCalledWith("a.example", 1);
+    expect(providerStreamsInUse).toHaveBeenCalledTimes(3);
+  });
+
+  it("leaves a provider allowing more than one, or without an account, alone", async () => {
+    (providerStreamsInUse as jest.Mock).mockResolvedValue({ active: 0, max: 2 });
+    expect(await reserveForRecording("ch-a")).toBeNull();
+    (providerStreamsInUse as jest.Mock).mockResolvedValue(null);
+    expect(await reserveForRecording("ch-b")).toBeNull();
+    expect(learnOriginConnectionBudget).not.toHaveBeenCalled();
+    expect(setOriginRecording).not.toHaveBeenCalled();
+  });
+});
+
+describe("a refused recording", () => {
+  it("is deleted, and a refusal while this device read the provider teaches the engine that count", async () => {
+    serveRecordings([timer("t1", "ch-a", 0, 60_000, "InProgress"), timer("t2", "ch-a", 0, 60_000, "InProgress")], [EMPTY, REFUSAL, VIDEO]);
+    (originConnections as jest.Mock).mockResolvedValueOnce({ budget: null, active: 1, held: false });
+    const recreate = jest.fn(async () => {
+      await (createTimer as jest.Mock)();
+    });
+    const checked = checkNewRecording("ch-a", undefined, recreate);
+    await jest.advanceTimersByTimeAsync(3_000);
+    await checked;
+    expect(learnOriginConnectionBudget).toHaveBeenCalledWith("a.example", 1);
+    expect(deleteItem).toHaveBeenCalledWith("rec-t1");
+    expect(deleteRecording).not.toHaveBeenCalled();
+    expect(recreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("has its entry dropped and hidden when the account may not delete files", async () => {
+    serveRecordings([timer("t1", "ch-a", 0, 60_000, "InProgress"), timer("t2", "ch-a", 0, 60_000, "InProgress")], [EMPTY, REFUSAL, VIDEO]);
+    (deleteItem as jest.Mock).mockRejectedValueOnce(new Error("Failed to delete item: 401"));
+    const checked = checkNewRecording(
+      "ch-a",
+      undefined,
+      jest.fn(async () => {
+        await (createTimer as jest.Mock)();
+      }),
+    );
+    await jest.advanceTimersByTimeAsync(3_000);
+    await checked;
+    expect(hideRefusedRecording).toHaveBeenCalledWith("rec-t1");
+    expect(deleteRecording).toHaveBeenCalledWith("rec-t1");
+  });
+
+  it("is cleared once the viewer stops it, and a stopped recording that holds video is kept", async () => {
+    serveRecordings([timer("t1", "ch-a", 0, 60_000, "InProgress")], [REFUSAL]);
+    await cancelRecording("t1");
+    await jest.advanceTimersByTimeAsync(500);
+    expect(cancelTimer).toHaveBeenCalledWith("t1", "rec-t1");
+    expect(deleteItem).toHaveBeenCalledWith("rec-t1");
+    (deleteItem as jest.Mock).mockClear();
+    serveRecordings([timer("t2", "ch-a", 0, 60_000, "InProgress")], [VIDEO]);
+    await cancelRecording("t2");
+    await jest.advanceTimersByTimeAsync(500);
+    expect(deleteItem).not.toHaveBeenCalled();
+  });
+});
+
+describe("a scheduled recording on a one-connection provider this device reads", () => {
+  it("is let go at its warning a minute ahead, then checked for the stream once it starts", async () => {
+    const soon = timer("t", "ch-a", 50_000, 300_000);
+    mockStatus.active = [soon];
+    (originConnections as jest.Mock).mockResolvedValue({ budget: 1, active: 1, held: false });
+    syncRecordingHolds(NOW);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(setOriginRecording).toHaveBeenCalledWith("a.example", true);
+    serveRecordings([{ ...soon, Status: "InProgress" }], [VIDEO]);
+    (originConnections as jest.Mock).mockResolvedValue({ budget: 1, active: 0, held: true });
+    await jest.advanceTimersByTimeAsync(51_000);
+    expect(readRecordingStart).toHaveBeenCalledWith("rec-t");
   });
 });
 
@@ -411,16 +532,16 @@ describe("reserveForRecording", () => {
   it("marks the provider recording and resolves once this device's reads close, with no further wait", async () => {
     (originConnections as jest.Mock).mockResolvedValueOnce({ budget: 1, active: 1, held: true }).mockResolvedValueOnce({ budget: 1, active: 1, held: true });
     let done = false;
-    const reserved = reserveForRecording("ch-a").then((release) => {
+    const reserved = reserveForRecording("ch-a").then((reservation) => {
       done = true;
-      return release;
+      return reservation;
     });
     await jest.advanceTimersByTimeAsync(0);
     expect(setOriginRecording).toHaveBeenCalledWith("a.example", true);
     expect(done).toBe(false);
     await jest.advanceTimersByTimeAsync(500);
     expect(done).toBe(true);
-    (await reserved)?.();
+    (await reserved)?.release();
     expect(setOriginRecording).toHaveBeenLastCalledWith("a.example", false);
   });
 
@@ -441,6 +562,24 @@ describe("admitOnOneConnection", () => {
     (originConnections as jest.Mock).mockResolvedValue({ budget: 2, active: 0, held: false });
     await admitOnOneConnection("ch-b");
     expect(isAdmitting("ch-b")).toBe(false);
+  });
+
+  it("stops opening a refused channel again 20 s after its first admit, however often its open admits it again", async () => {
+    const start = 1_000_000;
+    admitUntilPlaying("ch-a", start);
+    admitUntilPlaying("ch-a", start + 15_000);
+    expect(isAdmitting("ch-a", start + ADMIT_WAIT_MS - 1)).toBe(true);
+    expect(isAdmitting("ch-a", start + ADMIT_WAIT_MS)).toBe(false);
+    admitUntilPlaying(null);
+    admitUntilPlaying("ch-a", start + ADMIT_WAIT_MS);
+    expect(isAdmitting("ch-a", start + ADMIT_WAIT_MS + 1)).toBe(true);
+  });
+
+  it("answers a provider a recording holds from the same read and admits nothing", async () => {
+    (originConnections as jest.Mock).mockClear().mockResolvedValue({ budget: 1, active: 1, held: true });
+    expect(await admitOnOneConnection("ch-a")).toBe(true);
+    expect(isAdmitting("ch-a")).toBe(false);
+    expect(originConnections).toHaveBeenCalledTimes(1);
   });
 });
 

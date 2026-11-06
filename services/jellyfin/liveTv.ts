@@ -5,16 +5,17 @@
  */
 import { JellyfinItem, JellyfinMediaSource, JellyfinProgram, JellyfinSeriesTimer, JellyfinTimer, JellyfinVideoItem } from "@/types/jellyfin";
 import { CACHE } from "@/constants/app";
-import { engineCodecAllowlists } from "@/services/localRemux";
+import { engineCodecAllowlists } from "@keiver/tomo-engine";
 import { activeGuideUrls, fetchExternalAiringPrograms } from "@/services/externalGuide";
 import { channelListKey, favoriteKey, getLiveTvPreferences, type ChannelFavorite, type LiveTvCategory } from "@/services/liveTvPreferences";
 import { setPlaybackStage } from "@/services/playbackStage";
+import { withoutRefusedRecordings } from "@/services/refusedRecordings";
 import { cachedRequest } from "@/services/requestCache";
 import { logger } from "@/utils/logger";
-import { invalidateRecordingReads } from "./cacheKeys";
+import { invalidateItemRemoved, invalidateRecordingReads } from "./cacheKeys";
 import { applyChannelEdits } from "./channelEdits";
 import * as SecureStore from "expo-secure-store";
-import { getSavedAccounts } from "./accounts";
+import { getSavedAccounts } from "./accountIndex";
 import { accountTokenKey, API_TIMEOUTS } from "./constants";
 import { fetchWithTimeout } from "./http";
 import { rawLiveInput } from "./liveInput";
@@ -49,6 +50,11 @@ function liveDeviceProfile() {
     CodecProfiles: [],
     SubtitleProfiles: [],
   };
+}
+
+/** A channel only a hardware tuner carries: HdHomerunHost.GetMediaSource names it Protocol Udp with the device's HTTP base URL as Path. */
+export function isHardwareTunerSource(source: JellyfinMediaSource): boolean {
+  return /^udp$/i.test(source.Protocol ?? "") && /^https?:\/\//i.test(source.Path ?? "");
 }
 
 /** Jellyfin's relay of an open tuner stream (a shared TS stream, an HDHomeRun): a byte copy of the channel. */
@@ -111,8 +117,11 @@ export async function fillAiringFromGuides<T extends JellyfinVideoItem>(channels
   }
 }
 
-/** One page of channels in the server's channel order; the whole list when no page is asked for. */
-export async function fetchChannels(page: { startIndex?: number; limit?: number; sortBy?: "SortName" | "Name"; favorite?: boolean } = {}): Promise<{ items: JellyfinItem[]; total?: number }> {
+/** One page of channels in the server's channel order; the whole list when no page is asked for.
+ *  `fetched` counts the server's rows before hidden channels are dropped: the next page starts there. */
+export async function fetchChannels(
+  page: { startIndex?: number; limit?: number; sortBy?: "SortName" | "Name"; favorite?: boolean } = {},
+): Promise<{ items: JellyfinItem[]; total?: number; fetched: number }> {
   const config = await getConfig();
   if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
   const query = new URLSearchParams({
@@ -134,7 +143,8 @@ export async function fetchChannels(page: { startIndex?: number; limit?: number;
   );
   if (!response.ok) throwRequestError(response, `Failed to fetch channels: ${response.status}`);
   const json = await response.json();
-  return { items: applyChannelEdits(await fillAiringFromGuides((json.Items ?? []) as JellyfinItem[])), total: json.TotalRecordCount };
+  const rows = (json.Items ?? []) as JellyfinItem[];
+  return { items: applyChannelEdits(await fillAiringFromGuides(rows)), total: json.TotalRecordCount, fetched: rows.length };
 }
 
 /**
@@ -333,9 +343,9 @@ async function manifestOrigin(source: JellyfinMediaSource): Promise<ChannelOrigi
  * A channel's origin for a frame grab, off the read-only PlaybackInfo: nothing is opened on the
  * server, and the playlist goes as given (the engine picks the variant a card needs, through its
  * own HTTP, which App Transport Security does not gate). Null for a channel the server carries,
- * "untuned" for one it lists that no tuner carries.
+ * "untuned" for one it lists that no tuner carries, "tuner" for one only a hardware tuner carries.
  */
-export async function resolveChannelOrigin(channelId: string): Promise<ChannelOrigin | "untuned" | null> {
+export async function resolveChannelOrigin(channelId: string): Promise<ChannelOrigin | "untuned" | "tuner" | null> {
   const config = await getConfig();
   if (!config.server || !config.apiKey || !config.userId) throw new Error("Jellyfin server not configured.");
   const headers = { Accept: "application/json", Authorization: getAuthHeader(config.deviceId, config.apiKey) };
@@ -350,6 +360,7 @@ export async function resolveChannelOrigin(channelId: string): Promise<ChannelOr
   const source: JellyfinMediaSource | undefined = info.MediaSources?.[0];
   // Jellyfin's placeholder when no tuner lists the channel (LiveTvMediaSourceProvider.cs): the item's own id, no path.
   if (source && !source.Path && source.Id === channelId) return "untuned";
+  if (source && isHardwareTunerSource(source)) return "tuner";
   if (source && !isManifestSource(source)) {
     const raw = await rawLiveInput(source);
     return raw ? { url: raw.url, originKey: raw.originKey, ...(raw.headers ? { headers: raw.headers } : {}) } : null;
@@ -382,9 +393,21 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
   };
   // A ring neighbour opens in the background and must not narrate over the channel on screen.
   if (!options.quiet) setPlaybackStage("opening");
-  const infoRequest = fetchWithTimeout(`${config.server}/Items/${channelId}/PlaybackInfo?UserId=${config.userId}`, { method: "POST", headers, body: JSON.stringify(body) }, API_TIMEOUTS.EXTENDED);
-  // The item's failure surfaces at once; an open that still goes through beside it is released as it lands.
-  const releaseOpenWhenItLands = () => void infoRequest.then((response) => (response.ok ? closeOpenedStream(response, origin) : undefined)).catch(() => {});
+  // Every open of a channel gets the same LiveStreamId, and the server keeps one stream per id: an open landing before
+  // the last one's close would leave the older stream, and its tuner, past any close.
+  // Bounded: an open the server never answers would otherwise hold every later open of the channel.
+  await waitAtMost(closingByChannel.get(channelId), API_TIMEOUTS.EXTENDED);
+  // Not aborted at the deadline: the server finishes an open the device stopped waiting for, and that open is closed as it lands.
+  const infoRequest = fetch(`${config.server}/Items/${channelId}/PlaybackInfo?UserId=${config.userId}`, { method: "POST", headers, body: JSON.stringify(body) });
+  // The item's failure surfaces at once; an open that still goes through beside it is released as it lands, and the
+  // channel's next open waits for that.
+  const releaseOpenWhenItLands = () => {
+    const released = infoRequest.then((response) => (response.ok ? closeOpenedStream(response, origin, channelId) : undefined)).catch(() => {});
+    closingByChannel.set(channelId, released);
+    void released.finally(() => {
+      if (closingByChannel.get(channelId) === released) closingByChannel.delete(channelId);
+    });
+  };
   let itemResponse: Response | null = null;
   try {
     itemResponse = item ? null : await fetchWithTimeout(`${config.server}/Items/${channelId}?userId=${config.userId}&EnableUserData=true`, { headers }, API_TIMEOUTS.NORMAL);
@@ -396,7 +419,19 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
     releaseOpenWhenItLands();
     throwRequestError(itemResponse, `Failed to fetch channel: ${itemResponse.status}`);
   }
-  const infoResponse = await infoRequest;
+  let deadline: ReturnType<typeof setTimeout> | null = null;
+  const late = new Promise<never>((_, reject) => {
+    deadline = setTimeout(() => reject(Object.assign(new Error("Aborted"), { name: "AbortError" })), API_TIMEOUTS.EXTENDED);
+  });
+  let infoResponse: Response;
+  try {
+    infoResponse = await Promise.race([infoRequest, late]);
+  } catch (error) {
+    releaseOpenWhenItLands();
+    throw error;
+  } finally {
+    if (deadline) clearTimeout(deadline);
+  }
   if (!infoResponse.ok) throwRequestError(infoResponse, `Failed to open channel: ${infoResponse.status}`);
   const [channel] = await fillAiringFromGuides<JellyfinVideoItem>([item ?? (await itemResponse!.json())]);
   const info = await infoResponse.json();
@@ -417,18 +452,19 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
     }
   } catch (error) {
     // The server holds the tuner for an open nobody will play.
-    void closeLiveStream(source.LiveStreamId, origin);
+    void closeLiveStream(source.LiveStreamId, origin, channelId);
     throw error;
   }
   if (!input) {
     // An open that answered with a stream nobody can play still holds the tuner.
-    void closeLiveStream(source.LiveStreamId, origin);
+    void closeLiveStream(source.LiveStreamId, origin, channelId);
     if (!options.remux) return openChannel(channelId, channel, { ...options, remux: true });
     throw new Error(`The server can carry ${channel.Name} only by re-encoding it${info.ErrorCode ? ` (${info.ErrorCode})` : ""}`);
   }
   clearOpenFailure(channelId);
   if (source.LiveStreamId) {
     openOrigins.set(source.LiveStreamId, origin);
+    channelOfStream.set(source.LiveStreamId, channelId);
     recordOpen(source.LiveStreamId, { server: config.server, deviceId: config.deviceId });
   }
   logger.info("Live channel opened", {
@@ -453,10 +489,10 @@ export async function openChannel(channelId: string, item?: JellyfinVideoItem, o
 }
 
 /** The live stream an open's PlaybackInfo answer names, closed; nothing when it named none. */
-async function closeOpenedStream(infoResponse: Response, origin: LiveOrigin): Promise<void> {
+async function closeOpenedStream(infoResponse: Response, origin: LiveOrigin, channelId: string): Promise<void> {
   try {
     const info = (await infoResponse.json()) as { MediaSources?: JellyfinMediaSource[] };
-    await closeLiveStream(info.MediaSources?.[0]?.LiveStreamId, origin);
+    await closeLiveStream(info.MediaSources?.[0]?.LiveStreamId, origin, channelId);
   } catch (error) {
     logger.warn("Live open could not be read back for its close", error, { service: "LiveTv" });
   }
@@ -467,11 +503,37 @@ type LiveOrigin = { server: string; deviceId: string; apiKey: string };
 /** The server and credentials each open this run made went out on; a switch must not redirect its close. */
 const openOrigins = new Map<string, LiveOrigin>();
 
+function waitAtMost(work: Promise<void> | undefined, ms: number): Promise<void> {
+  if (!work) return Promise.resolve();
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  return Promise.race([work, new Promise<void>((resolve) => (timer = setTimeout(resolve, ms)))]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+/** The channel each open this run made is of, so its next open waits for the close. */
+const channelOfStream = new Map<string, string>();
+/** Per channel, the close in flight that its next open waits for. */
+const closingByChannel = new Map<string, Promise<void>>();
+
 /**
  * Release the tuner on the server that opened it; the server holds it for every open that never closes.
  * A 2xx or 4xx ends the record of the open; a 5xx or no answer keeps it, so the close is retried at the next launch or foreground.
  */
-export async function closeLiveStream(liveStreamId: string | null | undefined, origin?: LiveOrigin): Promise<void> {
+export function closeLiveStream(liveStreamId: string | null | undefined, origin?: LiveOrigin, channelId?: string): Promise<void> {
+  const channel = channelId ?? (liveStreamId ? channelOfStream.get(liveStreamId) : undefined);
+  if (liveStreamId) channelOfStream.delete(liveStreamId);
+  const closing = sendClose(liveStreamId, origin);
+  if (channel) {
+    closingByChannel.set(channel, closing);
+    void closing.finally(() => {
+      if (closingByChannel.get(channel) === closing) closingByChannel.delete(channel);
+    });
+  }
+  return closing;
+}
+
+async function sendClose(liveStreamId: string | null | undefined, origin?: LiveOrigin): Promise<void> {
   if (!liveStreamId) return;
   try {
     const config = origin ?? openOrigins.get(liveStreamId) ?? (await getConfig());
@@ -656,7 +718,7 @@ export async function fetchRecordings(): Promise<{ items: JellyfinItem[]; total?
     `/LiveTv/Recordings?${await userQuery({ enableImages: "true", enableUserData: "true", fields: "PrimaryImageAspectRatio,Overview", sortBy: "StartDate", sortOrder: "Descending" })}`,
   );
   const json = await response.json();
-  return { items: (json.Items ?? []) as JellyfinItem[], total: json.TotalRecordCount };
+  return { items: withoutRefusedRecordings((json.Items ?? []) as JellyfinItem[]), total: json.TotalRecordCount };
 }
 
 /** The recording a timer is writing now; null while it has none. */
@@ -664,6 +726,13 @@ export async function fetchInProgressRecording(timerId: string): Promise<Jellyfi
   const response = await liveTvRequest(`/LiveTv/Recordings?${await userQuery({ isInProgress: "true" })}`, {}, API_TIMEOUTS.QUICK);
   const json = (await response.json()) as { Items?: (JellyfinItem & { TimerId?: string })[] };
   return json.Items?.find((item) => item.TimerId === timerId) ?? null;
+}
+
+/** Drops a recording's library entry under the Live TV permission; the server leaves its file on disk. */
+export async function deleteRecording(itemId: string): Promise<void> {
+  await liveTvRequest(`/LiveTv/Recordings/${encodeURIComponent(itemId)}`, { method: "DELETE" });
+  await invalidateAfterTimerWrite(itemId);
+  invalidateItemRemoved((await getConfig()).userId, itemId);
 }
 
 /** The first bytes of a recording's file as written so far; empty while nothing has reached disk (the server answers 416). */

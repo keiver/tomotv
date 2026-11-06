@@ -135,7 +135,7 @@ describe("useGuide", () => {
   };
 
   it("lists the pending channels again after a sort change", async () => {
-    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1, fetched: 1 });
     (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
     mockPending.mockImplementation(pendingAfter);
     const ref = await mount();
@@ -147,7 +147,7 @@ describe("useGuide", () => {
   });
 
   it("asks for the page after the server's last one itself while the tuner playlists are still loading", async () => {
-    (fetchChannels as jest.Mock).mockImplementation(async ({ startIndex }: { startIndex: number }) => ({ items: startIndex === 0 ? [channel(1)] : [], total: 1 }));
+    (fetchChannels as jest.Mock).mockImplementation(async ({ startIndex }: { startIndex: number }) => ({ items: startIndex === 0 ? [channel(1)] : [], total: 1, fetched: startIndex === 0 ? 1 : 0 }));
     (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
     mockPending.mockResolvedValueOnce({ pending: [], hasMore: true, waiting: true }).mockImplementation(pendingAfter);
     const ref = await mount();
@@ -171,7 +171,7 @@ describe("useGuide", () => {
   });
 
   it("a sign-in elsewhere drops the last server's rows and programs before the new server's land", async () => {
-    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1, fetched: 1 });
     (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program("old", "c1", 0, 30, startMs)]);
     const ref = await mount();
     expect(ref.current!.get().rows[0].programs.map((p) => p.Id)).toEqual(["old"]);
@@ -182,7 +182,7 @@ describe("useGuide", () => {
     expect(ref.current!.get().rows).toEqual([]);
     expect(ref.current!.get().isLoading).toBe(true);
 
-    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1, fetched: 1 });
     (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program("new", "c1", 0, 30, startMs)]);
     await act(async () => signInElsewhere());
     await settle();
@@ -190,7 +190,7 @@ describe("useGuide", () => {
   });
 
   it("drops the last sign-in's timers when they land after the switch", async () => {
-    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1, fetched: 1 });
     (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
     let landOld: (timers: unknown[]) => void = () => {};
     (fetchTimers as jest.Mock).mockReturnValueOnce(new Promise((resolve) => (landOld = resolve)));
@@ -246,7 +246,7 @@ describe("useGuide", () => {
   it("falls back to the playlist-declared guide for channels the server has no programs for", async () => {
     const { fetchTunerData } = jest.requireMock("@/services/jellyfin/tunerGroups") as { fetchTunerData: jest.Mock };
     const { fetchExternalPrograms } = jest.requireMock("@/services/externalGuide") as { fetchExternalPrograms: jest.Mock };
-    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2)], total: 2 });
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2)], total: 2, fetched: 2 });
     (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program("a", "c1", 0, 60, startMs)]);
     fetchTunerData.mockResolvedValue({ groups: [], tvgById: { c2: "B.us@SD" }, tvgNameById: {}, tvgUrls: ["http://g/auto.xml.gz"] });
     fetchExternalPrograms.mockImplementation(async (_urls: string[], wanted: { channelId: string }[], windowMs: { from: number }) =>
@@ -263,7 +263,7 @@ describe("useGuide", () => {
     const { fetchExternalPrograms } = jest.requireMock("@/services/externalGuide") as { fetchExternalPrograms: jest.Mock };
     const { updateLiveTvPreferences } = jest.requireActual("@/services/liveTvPreferences") as typeof import("@/services/liveTvPreferences");
     updateLiveTvPreferences({ guideUrls: ["http://mine/guide.xml"] });
-    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1, fetched: 1 });
     (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
     fetchTunerData.mockRejectedValueOnce(new Error("403"));
     await mount();
@@ -272,7 +272,7 @@ describe("useGuide", () => {
   });
 
   it("loads the channels, the first page of programs and the timers", async () => {
-    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2)], total: 2 });
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2)], total: 2, fetched: 2 });
     (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program("a", "c1", 0, 60, startMs), program("b", "c2", 30, 90, startMs)]);
     (fetchTimers as jest.Mock).mockResolvedValue([{ Id: "t1", Name: "a", ProgramId: "a", StartDate: "", EndDate: "", Status: "New" }]);
 
@@ -300,7 +300,7 @@ describe("useGuide", () => {
   });
 
   it("a reopen serves channels, programs and horizon from the cached reads, until an invalidation", async () => {
-    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1, fetched: 1 });
     (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program("a", "c1", 0, 30, startMs)]);
     const ref = await mount();
     expect(ref.current!.get().rows[0].programs.map((p) => p.Id)).toEqual(["a"]);
@@ -325,6 +325,7 @@ describe("useGuide", () => {
     (fetchChannels as jest.Mock).mockImplementation(async ({ startIndex, limit }: { startIndex: number; limit: number }) => ({
       items: many.slice(startIndex, startIndex + limit),
       total: many.length,
+      fetched: many.slice(startIndex, startIndex + limit).length,
     }));
     (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ channelIds, startMs }: { channelIds: string[]; startMs: number }) =>
       channelIds.map((id) => program(`${id}-${startMs}`, id, 0, 30, startMs)),
@@ -372,7 +373,7 @@ describe("useGuide", () => {
         held = true;
         await new Promise<void>((resolve) => (release = resolve));
       }
-      return { items: many.slice(startIndex, startIndex + limit), total: many.length };
+      return { items: many.slice(startIndex, startIndex + limit), total: many.length, fetched: many.slice(startIndex, startIndex + limit).length };
     });
     (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
     return () => release();
@@ -438,7 +439,7 @@ describe("useGuide", () => {
     const { fetchTunerData } = jest.requireMock("@/services/jellyfin/tunerGroups") as { fetchTunerData: jest.Mock };
     const { fetchExternalPrograms } = jest.requireMock("@/services/externalGuide") as { fetchExternalPrograms: jest.Mock };
     const url = "http://g/auto.xml.gz";
-    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2)], total: 2 });
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2)], total: 2, fetched: 2 });
     (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program("a", "c1", 0, 60, startMs)]);
     fetchTunerData.mockResolvedValue({ groups: [], tvgById: { c2: "B.us@SD" }, tvgNameById: {}, tvgUrls: [url] });
     fetchExternalPrograms.mockImplementation(async (_urls: string[], wanted: { channelId: string }[], windowMs: { from: number }) =>
@@ -456,7 +457,7 @@ describe("useGuide", () => {
   });
 
   it("reloads the list after a tuner playlist held back by playback downloads", async () => {
-    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1, fetched: 1 });
     (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
     await mount();
     expect(fetchTimers).toHaveBeenCalledTimes(1);
@@ -471,7 +472,7 @@ describe("useGuide", () => {
     const { fetchExternalPrograms } = jest.requireMock("@/services/externalGuide") as { fetchExternalPrograms: jest.Mock };
     const { updateLiveTvPreferences } = jest.requireActual("@/services/liveTvPreferences") as typeof import("@/services/liveTvPreferences");
     const url = "http://g/auto.xml.gz";
-    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2)], total: 2 });
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2)], total: 2, fetched: 2 });
     (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program("a", "c1", 0, 60, startMs)]);
     fetchTunerData.mockResolvedValue({ groups: [], tvgById: { c2: "B.us@SD" }, tvgNameById: {}, tvgUrls: [url] });
     fetchExternalPrograms.mockImplementation(async (_urls: string[], wanted: { channelId: string }[], windowMs: { from: number }) =>
@@ -491,7 +492,7 @@ describe("useGuide", () => {
     const { fetchExternalPrograms } = jest.requireMock("@/services/externalGuide") as { fetchExternalPrograms: jest.Mock };
     const { updateLiveTvPreferences } = jest.requireActual("@/services/liveTvPreferences") as typeof import("@/services/liveTvPreferences");
     const url = "http://g/auto.xml.gz";
-    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2)], total: 2 });
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2)], total: 2, fetched: 2 });
     (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program("a", "c1", 0, 60, startMs)]);
     fetchTunerData.mockResolvedValue({ groups: [], tvgById: { c2: "B.us@SD" }, tvgNameById: {}, tvgUrls: [url] });
     let land!: () => void;
@@ -514,7 +515,7 @@ describe("useGuide", () => {
     const { fetchExternalPrograms } = jest.requireMock("@/services/externalGuide") as { fetchExternalPrograms: jest.Mock };
     const { updateLiveTvPreferences } = jest.requireActual("@/services/liveTvPreferences") as typeof import("@/services/liveTvPreferences");
     const url = "http://g/auto.xml.gz";
-    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2)], total: 2 });
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2)], total: 2, fetched: 2 });
     (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program(`a-${startMs}`, "c1", 0, 60, startMs)]);
     fetchTunerData.mockResolvedValue({ groups: [], tvgById: { c2: "B.us@SD" }, tvgNameById: {}, tvgUrls: [url] });
     fetchExternalPrograms.mockImplementation(async (_urls: string[], wanted: { channelId: string }[], windowMs: { from: number }) =>
@@ -543,7 +544,7 @@ describe("useGuide", () => {
   });
 
   it("a channel's health verdict leaves the rows untouched while Hide offline is off, and drops a down channel once it is on", async () => {
-    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(41), channel(42)], total: 2 });
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(41), channel(42)], total: 2, fetched: 2 });
     (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
     const ref = await mount();
     const rows = ref.current!.get().rows;
@@ -562,7 +563,7 @@ describe("useGuide", () => {
 
   it("a row whose programmes have not landed keeps one programme list across a rows rebuild", async () => {
     mockPreferences = { ...mockPreferences, hideOffline: true };
-    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(51), channel(52)], total: 2 });
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(51), channel(52)], total: 2, fetched: 2 });
     (fetchGuidePrograms as jest.Mock).mockReturnValue(new Promise(() => {}));
     const ref = await mount();
     const before = ref.current!.get().rows;
@@ -576,7 +577,7 @@ describe("useGuide", () => {
   it("replaces every requested channel on refresh, including empty responses and removed tails", async () => {
     const { fetchTunerData } = jest.requireMock("@/services/jellyfin/tunerGroups") as { fetchTunerData: jest.Mock };
     fetchTunerData.mockResolvedValue({ groups: [], tvgById: {}, tvgNameById: {}, tvgUrls: [] });
-    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2)], total: 2 });
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2)], total: 2, fetched: 2 });
     (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [
       program("a", "c1", 0, 30, startMs),
       program("tail", "c1", 30, 60, startMs),
@@ -600,7 +601,7 @@ describe("useGuide", () => {
     const { fetchTunerData } = jest.requireMock("@/services/jellyfin/tunerGroups") as { fetchTunerData: jest.Mock };
     const { fetchExternalProgramWindow } = jest.requireMock("@/services/externalGuide") as { fetchExternalProgramWindow: jest.Mock };
     fetchTunerData.mockResolvedValue({ groups: [], tvgById: {}, tvgNameById: {}, tvgUrls: ["http://g/refresh.xml"] });
-    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2), channel(3)], total: 3 });
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2), channel(3)], total: 3, fetched: 3 });
     (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program("old-server", "c1", 0, 30, startMs)]);
     fetchExternalProgramWindow.mockImplementationOnce(async (_urls: string[], _wanted: unknown, window: { from: number }) => ({
       programs: [program("epg:c2", "c2", 0, 30, window.from), program("epg:c3", "c3", 0, 30, window.from)],
@@ -641,7 +642,7 @@ describe("useGuide", () => {
     const lastFetch = () => (fetchGuidePrograms as jest.Mock).mock.calls.at(-1)![0] as { channelIds: string[]; startMs: number; endMs: number };
 
     it("loads toward the stretch asked for and lets go of the listings two spans behind it", async () => {
-      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1, fetched: 1 });
       listEveryStretch();
       const ref = await mount();
       const start = await walkRight(ref, 3);
@@ -650,7 +651,7 @@ describe("useGuide", () => {
     });
 
     it("a channel whose listings end behind the loaded stretch keeps its last programme, so its row never reads as one without listings", async () => {
-      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2)], total: 2 });
+      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2)], total: 2, fetched: 2 });
       const { fetchTunerData } = jest.requireMock("@/services/jellyfin/tunerGroups") as { fetchTunerData: jest.Mock };
       fetchTunerData.mockResolvedValue({ groups: [], tvgById: {}, tvgNameById: {}, tvgUrls: [] });
       // Channel 2 has listings in the first two spans only; the first fetch opens on the window's start.
@@ -666,7 +667,7 @@ describe("useGuide", () => {
     });
 
     it("a jump loads the stretch asked for alone, and going back serves the let-go span from the cache", async () => {
-      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1, fetched: 1 });
       listEveryStretch();
       const ref = await mount();
       const start = ref.current!.get().windowStartMs;
@@ -687,7 +688,7 @@ describe("useGuide", () => {
     });
 
     it("ends at the picked day's midnight: a stretch crossing it loads up to it, one past it loads nothing", async () => {
-      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1, fetched: 1 });
       listEveryStretch();
       const ref = await mount();
       const tomorrow = guideDays(Date.now())[1];
@@ -709,7 +710,7 @@ describe("useGuide", () => {
     });
 
     it("opens on today at the current half hour, and on a picked day at its midnight with the listings reloaded for it", async () => {
-      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1, fetched: 1 });
       (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program(`p-${startMs}`, "c1", 0, 30, startMs)]);
       const ref = await mount();
       const now = Date.now();
@@ -736,7 +737,7 @@ describe("useGuide", () => {
     });
 
     it("marks the days up to the server guide's end as having listings, the rest as none, and a loaded day as having them whatever the server said", async () => {
-      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1, fetched: 1 });
       const now = Date.now();
       const days = guideDays(now);
       (fetchGuideHorizon as jest.Mock).mockResolvedValue(days[6] + 10 * 60 * MINUTE_MS);
@@ -755,7 +756,7 @@ describe("useGuide", () => {
       const { updateLiveTvPreferences } = jest.requireActual("@/services/liveTvPreferences") as typeof import("@/services/liveTvPreferences");
       updateLiveTvPreferences({ guideUrls: ["http://mine/guide.xml"] });
       fetchTunerData.mockResolvedValue({ groups: [], tvgById: {}, tvgNameById: {}, tvgUrls: [] });
-      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1, fetched: 1 });
       (fetchGuideHorizon as jest.Mock).mockResolvedValue(guideDays(Date.now())[0] + 10 * 60 * MINUTE_MS);
       (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
       let ref: React.RefObject<HookRef | null>;
@@ -771,7 +772,7 @@ describe("useGuide", () => {
       const { fetchTunerData } = jest.requireMock("@/services/jellyfin/tunerGroups") as { fetchTunerData: jest.Mock };
       const { updateLiveTvPreferences } = jest.requireActual("@/services/liveTvPreferences") as typeof import("@/services/liveTvPreferences");
       fetchTunerData.mockResolvedValue({ groups: [], tvgById: {}, tvgNameById: {}, tvgUrls: [] });
-      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1, fetched: 1 });
       (fetchGuideHorizon as jest.Mock).mockResolvedValue(guideDays(Date.now())[0] + 10 * 60 * MINUTE_MS);
       (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
       const ref = await mount();
@@ -793,7 +794,7 @@ describe("useGuide", () => {
     });
 
     it("knows no day's listings before the server answers", async () => {
-      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1, fetched: 1 });
       (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
       (fetchGuideHorizon as jest.Mock).mockReturnValue(new Promise(() => {}));
       const ref = await mount();
@@ -806,6 +807,7 @@ describe("useGuide", () => {
       (fetchChannels as jest.Mock).mockImplementation(async ({ startIndex, limit }: { startIndex: number; limit: number }) => ({
         items: many.slice(startIndex, startIndex + limit),
         total: many.length,
+        fetched: many.slice(startIndex, startIndex + limit).length,
       }));
       listEveryStretch();
       const ref = await mount();
@@ -816,7 +818,7 @@ describe("useGuide", () => {
     });
 
     it("a group change opens the next group at the window's start and lets go of the last group's listings", async () => {
-      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+      (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1, fetched: 1 });
       (fetchListedChannels as jest.Mock).mockResolvedValue([channel(2)]);
       listEveryStretch();
       const ref = await mount();
@@ -838,7 +840,7 @@ describe("useGuide", () => {
   });
 
   it("keeps the previous programmes when their refresh fails", async () => {
-    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1 });
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1)], total: 1, fetched: 1 });
     (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [program("a", "c1", 0, 30, startMs)]);
     const ref = await mount();
     (fetchGuidePrograms as jest.Mock).mockRejectedValueOnce(new Error("offline"));
@@ -850,7 +852,7 @@ describe("useGuide", () => {
   });
 
   it("reports a failed load and retries on request", async () => {
-    (fetchChannels as jest.Mock).mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce({ items: [channel(1)], total: 1 });
+    (fetchChannels as jest.Mock).mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce({ items: [channel(1)], total: 1, fetched: 1 });
     (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
     const ref = await mount();
     expect(ref.current!.get().error).toBe("offline");
@@ -873,7 +875,7 @@ describe("useGuide minute tick", () => {
     clearRequestCache();
     mockPreferences = { version: 1, autoUpdate: true, filter: "all", sort: "number", favorites: [], groups: [], playlistEdits: {}, categoryEdits: {}, hideOffline: false };
     (fetchTimers as jest.Mock).mockResolvedValue([]);
-    (fetchChannels as jest.Mock).mockResolvedValue({ items: [], total: 0 });
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [], total: 0, fetched: 0 });
     (fetchGuidePrograms as jest.Mock).mockResolvedValue([]);
     jest.spyOn(AppState, "addEventListener").mockImplementation((type, handler) => {
       // The request cache registers a memoryWarning listener too; keep the hook's change handler.
@@ -900,7 +902,7 @@ describe("useGuide minute tick", () => {
 
   it("a channel recording started after the last tick wears REC and marks the cells its span overlaps", async () => {
     const recorded = { Id: "t1", Name: "Channel 1", ChannelId: "c1", StartDate: new Date(at(12, 28, 45)).toISOString(), EndDate: new Date(at(13, 28, 45)).toISOString(), Status: "InProgress" };
-    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2)], total: 2 });
+    (fetchChannels as jest.Mock).mockResolvedValue({ items: [channel(1), channel(2)], total: 2, fetched: 2 });
     (fetchGuidePrograms as jest.Mock).mockImplementation(async ({ startMs }: { startMs: number }) => [
       program("a", "c1", 0, 30, startMs),
       program("b", "c1", 30, 60, startMs),

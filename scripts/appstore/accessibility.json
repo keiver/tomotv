@@ -1,0 +1,46 @@
+{
+  "2.2.15": {
+    "IPHONE": {
+      "supportsVoiceover": false,
+      "supportsVoiceControl": false,
+      "supportsLargerText": false,
+      "supportsDarkInterface": true,
+      "supportsDifferentiateWithoutColorAlone": false,
+      "supportsSufficientContrast": true,
+      "supportsReducedMotion": true,
+      "supportsCaptions": true,
+      "supportsAudioDescriptions": false
+    },
+    "IPAD": {
+      "supportsVoiceover": false,
+      "supportsVoiceControl": false,
+      "supportsLargerText": false,
+      "supportsDarkInterface": true,
+      "supportsDifferentiateWithoutColorAlone": false,
+      "supportsSufficientContrast": true,
+      "supportsReducedMotion": true,
+      "supportsCaptions": true,
+      "supportsAudioDescriptions": false
+    },
+    "MAC": {
+      "supportsVoiceover": false,
+      "supportsVoiceControl": false,
+      "supportsDarkInterface": true,
+      "supportsDifferentiateWithoutColorAlone": false,
+      "supportsSufficientContrast": true,
+      "supportsReducedMotion": true,
+      "supportsCaptions": true,
+      "supportsAudioDescriptions": false
+    },
+    "APPLE_TV": {
+      "supportsVoiceover": false,
+      "supportsLargerText": false,
+      "supportsDarkInterface": true,
+      "supportsDifferentiateWithoutColorAlone": false,
+      "supportsSufficientContrast": true,
+      "supportsReducedMotion": true,
+      "supportsCaptions": true,
+      "supportsAudioDescriptions": false
+    }
+  }
+}

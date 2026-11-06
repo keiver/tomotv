@@ -1,5 +1,6 @@
 /** The info panel on a guide programme or a channel: Watch while it airs, the record controls, the channel's Groups. */
 import React from "react";
+import { Alert } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 import { useLocalSearchParams } from "expo-router";
 import { Image } from "expo-image";
@@ -24,6 +25,7 @@ const mockReplace = jest.fn();
 jest.mock("expo-router", () => ({
   useLocalSearchParams: jest.fn(),
   useRouter: () => ({ push: mockPush, replace: mockReplace, back: jest.fn() }),
+  useNavigationContainerRef: () => ({ isReady: () => false }),
 }));
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn(), debug: jest.fn(), warn: jest.fn() } }));
 jest.mock("@/hooks/useSubtitlePanel", () => ({ useSubtitlePanel: () => ({ available: true, open: jest.fn(), offsetMs: 0 }) }));
@@ -67,9 +69,11 @@ jest.mock("@/services/jellyfinApi", () => ({
   subscribeAuthChange: jest.fn(() => () => {}),
   clearResumePosition: jest.fn(async () => {}),
   deleteItem: jest.fn(async () => {}),
+  fetchInProgressRecording: jest.fn(async () => null),
   fetchIsAdministrator: jest.fn(async () => true),
   isLiveChannel: (item: { Type?: string } | null) => item?.Type === "TvChannel",
   fetchItemDetails: jest.fn(),
+  fetchVideoDetails: jest.fn(async () => null),
   fetchFolderMediaKinds: jest.fn(async () => null),
   fetchItemFolderPath: jest.fn(async () => [{ id: "channels-folder" }]),
   getBackdropUrl: () => null,
@@ -145,6 +149,8 @@ const press = async (tree: TestRenderer.ReactTestRenderer, title: string) => {
 describe("Video info: live items", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // The record confirmation answers Record.
+    jest.spyOn(Alert, "alert").mockImplementation((_title, _message, buttons) => buttons?.find((button) => button.style !== "cancel")?.onPress?.());
     (fetchTimerDefaults as jest.Mock).mockResolvedValue({ ProgramId: "p1", Name: "Football Live" });
     (createTimer as jest.Mock).mockResolvedValue(undefined);
     (createSeriesTimer as jest.Mock).mockResolvedValue(undefined);

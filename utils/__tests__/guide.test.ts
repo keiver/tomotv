@@ -20,6 +20,7 @@ import {
   guideDays,
   guideDayWindow,
   guideMetrics,
+  guideRowHeight,
   guideRefreshOutcome,
   guideWindowStart,
   isActiveTimer,
@@ -30,6 +31,9 @@ import {
   MINUTE_MS,
   mountSpanFor,
   NO_GUIDE_PREFIX,
+  columnDragWidth,
+  settleColumnStop,
+  pinTapAction,
   programCategory,
   restoreFocusNode,
   revealOffset,
@@ -38,6 +42,12 @@ import {
   rulerTicks,
   standInChannelId,
   trimPrograms,
+  wideColumnWidth,
+  bandExtendedSize,
+  bandSwipeToggles,
+  movedPastTap,
+  settleStop,
+  stopDragValue,
 } from "../guide";
 import { __setLocaleForTests } from "@/services/i18n";
 
@@ -491,5 +501,170 @@ describe("guideMetrics", () => {
     expect(Number.isInteger(metrics.channelColumnWidth)).toBe(true);
     expect(Number.isInteger(metrics.rowHeight)).toBe(true);
     expect(metrics.cardInset).toEqual({ vertical: 0, horizontal: 0 });
+  });
+});
+
+describe("pinTapAction", () => {
+  it("pins the tapped channel when nothing is pinned", () => {
+    expect(pinTapAction("c1", null, "idle")).toBe("start");
+  });
+
+  it("pins again when the session it had is gone or was left in a detached PiP window", () => {
+    expect(pinTapAction("c1", "c1", "idle")).toBe("start");
+    expect(pinTapAction("c1", "c1", "pip-detached")).toBe("start");
+  });
+
+  it("switches the pin to another channel", () => {
+    expect(pinTapAction("c2", "c1", "video")).toBe("switch");
+    expect(pinTapAction("c2", "c1", "loading")).toBe("switch");
+  });
+
+  it("does nothing on the pinned channel's own card while it opens or plays", () => {
+    expect(pinTapAction("c1", "c1", "video")).toBe("none");
+    expect(pinTapAction("c1", "c1", "loading")).toBe("none");
+  });
+
+  it("retries the pinned channel once it failed", () => {
+    expect(pinTapAction("c1", "c1", "error")).toBe("retry");
+  });
+});
+
+describe("guideRowHeight", () => {
+  it("is the card's 16:9 height plus the row's line, at every column width", () => {
+    expect(guideRowHeight(176)).toBe(100);
+    expect(guideRowHeight(362)).toBe(205);
+    expect(guideRowHeight(368)).toBe(208);
+  });
+
+  it("gives the default metrics their row height", () => {
+    expect(guideMetrics(false).rowHeight).toBe(guideRowHeight(176));
+  });
+});
+
+describe("wideColumnWidth", () => {
+  it("is 240pt wherever the guide has room, leaving the rest to the rows", () => {
+    expect(wideColumnWidth(402, 176)).toBe(240);
+    expect(wideColumnWidth(1366, 176)).toBe(240);
+  });
+
+  it("is 90% of a guide narrower than that, and never under the default card", () => {
+    expect(wideColumnWidth(250, 176)).toBe(225);
+    expect(wideColumnWidth(150, 176)).toBe(176);
+  });
+});
+
+describe("columnDragWidth", () => {
+  const stops = { closed: 74, default: 176, wide: 240 };
+
+  it("follows the finger between the stops either side of where the drag began", () => {
+    expect(columnDragWidth(74, 60, stops)).toBe(134);
+    expect(columnDragWidth(176, 40, stops)).toBe(216);
+    expect(columnDragWidth(176, -80, stops)).toBe(96);
+  });
+
+  it("holds the column back past the default stop on a drag from closed, so it takes a pull to go wider", () => {
+    expect(columnDragWidth(74, 152, stops)).toBeCloseTo(176 + 50 * 0.3);
+    expect(columnDragWidth(74, 166, stops)).toBeLessThan(208);
+  });
+
+  it("holds it back the same way past the default stop on a drag from wide", () => {
+    expect(columnDragWidth(240, -114, stops)).toBeCloseTo(176 - 50 * 0.3);
+  });
+
+  it("follows at most 16pt past the closed and wide stops", () => {
+    expect(columnDragWidth(176, 500, stops)).toBe(256);
+    expect(columnDragWidth(176, -500, stops)).toBe(58);
+  });
+});
+
+describe("bandExtendedSize", () => {
+  it("spans the guide's full width at 16:9 when the name and buttons sit under it", () => {
+    expect(bandExtendedSize(352, 874, false)).toEqual({ width: 352, height: 198 });
+  });
+
+  it("holds the picture to half the window's height, as in landscape", () => {
+    expect(bandExtendedSize(800, 360, false)).toEqual({ width: 320, height: 180 });
+  });
+
+  it("keeps room beside the picture for the name and buttons, up to 640pt wide", () => {
+    expect(bandExtendedSize(700, 1366, true)).toEqual({ width: 440, height: 247.5 });
+    expect(bandExtendedSize(1200, 1366, true)).toEqual({ width: 640, height: 360 });
+  });
+
+  it("never goes below zero in a narrow guide", () => {
+    expect(bandExtendedSize(200, 1366, true)).toEqual({ width: 0, height: 0 });
+  });
+});
+
+describe("movedPastTap", () => {
+  it("counts a lift more than 10pt from the touch down as moved, and 10pt or less as a tap", () => {
+    expect(movedPastTap({ pageX: 0, pageY: 0 }, { pageX: 8, pageY: 6 })).toBe(false);
+    expect(movedPastTap({ pageX: 0, pageY: 0 }, { pageX: 9, pageY: 6 })).toBe(true);
+    expect(movedPastTap({ pageX: 50, pageY: 50 }, { pageX: 50, pageY: 20 })).toBe(true);
+  });
+
+  it("lets the press through when either point is missing", () => {
+    expect(movedPastTap(null, { pageX: 90, pageY: 90 })).toBe(false);
+    expect(movedPastTap({ pageX: 0, pageY: 0 }, undefined)).toBe(false);
+    expect(movedPastTap({ pageX: 0, pageY: 0 }, {})).toBe(false);
+  });
+});
+
+describe("bandSwipeToggles", () => {
+  it("opens the larger picture on a swipe down past 40pt or a fast flick down, and only from the normal size", () => {
+    expect(bandSwipeToggles(60, 0, false)).toBe(true);
+    expect(bandSwipeToggles(20, 900, false)).toBe(true);
+    expect(bandSwipeToggles(60, 0, true)).toBe(false);
+  });
+
+  it("closes the larger picture on a swipe up past 40pt or a fast flick up, and only from the larger size", () => {
+    expect(bandSwipeToggles(-60, 0, true)).toBe(true);
+    expect(bandSwipeToggles(-20, -900, true)).toBe(true);
+    expect(bandSwipeToggles(-60, 0, false)).toBe(false);
+  });
+
+  it("ignores a short, slow swipe and a flick against the drag", () => {
+    expect(bandSwipeToggles(20, 100, false)).toBe(false);
+    expect(bandSwipeToggles(-10, 900, false)).toBe(false);
+  });
+});
+
+describe("stopDragValue and settleStop over three stops", () => {
+  const stops = [99, 149, 198];
+
+  it("stops a flick from the row's size at the middle stop, however fast", () => {
+    expect(settleStop(140, 3000, 99, stops)).toBe(1);
+  });
+
+  it("holds a drag back past the middle stop when it began at the row's size", () => {
+    expect(stopDragValue(99, 100, stops)).toBeCloseTo(149 + 50 * 0.3);
+  });
+});
+
+describe("settleColumnStop", () => {
+  const stops = { closed: 74, default: 176, wide: 240 };
+
+  it("rests on the stop nearest where the column was let go", () => {
+    expect(settleColumnStop(100, 0, 176, stops)).toBe("closed");
+    expect(settleColumnStop(190, 0, 176, stops)).toBe("default");
+    expect(settleColumnStop(220, 0, 176, stops)).toBe("wide");
+  });
+
+  it("carries a fling on to the next stop", () => {
+    expect(settleColumnStop(200, 1200, 176, stops)).toBe("wide");
+    expect(settleColumnStop(160, -800, 176, stops)).toBe("closed");
+  });
+
+  it("stops a flick from closed on the default stop, however fast", () => {
+    expect(settleColumnStop(150, 3000, 74, stops)).toBe("default");
+    expect(settleColumnStop(190, 3000, 74, stops)).toBe("default");
+  });
+
+  it("goes from closed to wide only when pulled past the default stop to nearer wide", () => {
+    expect(settleColumnStop(212, 0, 74, stops)).toBe("wide");
+  });
+
+  it("stops a flick from wide on the default stop too", () => {
+    expect(settleColumnStop(150, -3000, 240, stops)).toBe("default");
   });
 });

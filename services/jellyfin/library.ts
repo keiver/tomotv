@@ -12,6 +12,7 @@ import { sortItems } from "@/utils/librarySort";
 import { addFavoriteIds, getFavoriteIds, isFavoritesLoaded } from "@/services/favoritesCache";
 import { updateLiveTvAvailability } from "@/services/liveTvAvailability";
 import { playedOverride } from "@/services/playedCache";
+import { withoutRefusedRecordings } from "@/services/refusedRecordings";
 import { cachedRequest } from "@/services/requestCache";
 import { CACHE } from "@/constants/app";
 import { logger } from "@/utils/logger";
@@ -422,7 +423,7 @@ export async function fetchFilteredVideos(parentId: string, filters: LibraryFilt
 
           const data: JellyfinVideosResponse = await response.json();
           const items = data.Items || [];
-          allItems.push(...items);
+          allItems.push(...withoutRefusedRecordings(items));
 
           const total = data.TotalRecordCount;
           startIndex += items.length;

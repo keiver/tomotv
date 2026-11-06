@@ -70,6 +70,42 @@ final class MasterPlaylistTests: XCTestCase {
         XCTAssertTrue(lines[1].contains(",CHARACTERISTICS=\"public.accessibility.transcribes-spoken-dialog,public.accessibility.describes-music-and-sound\""))
     }
 
+    private func named(_ index: Int, _ name: String, _ language: String) -> RemuxSubtitle {
+        RemuxSubtitle(index: index, name: name, language: language, vttUrl: "http://x/\(index).vtt", localVtt: "",
+                      isDefault: false, isForced: false, isImage: false, isEngineText: false)
+    }
+
+    private func subtitleLines(_ subs: [RemuxSubtitle]) throws -> [Substring] {
+        try playlist(subs: subs).split(separator: "\n").filter { $0.hasPrefix("#EXT-X-MEDIA:TYPE=SUBTITLES") }
+    }
+
+    /// AVFoundation names a rendition from LANGUAGE and CHARACTERISTICS only, never NAME (measured on the Mac:
+    /// three "eng" tracks all read "English"), and AVKit's menu lists one entry per name.
+    func testATrackTitleNamingARegionOrScriptGoesIntoItsLanguageTag() throws {
+        let lines = try subtitleLines([
+            named(11, "Latin American - Spanish - SUBRIP", "spa"), named(12, "Spanish - SUBRIP", "spa"),
+            named(13, "European - Spanish - SUBRIP", "spa"),
+            named(16, "Canadian - French - SUBRIP", "fra"), named(17, "French - SUBRIP", "fra"),
+            named(32, "Brazilian - Portuguese - SUBRIP", "por"), named(33, "European - Portuguese - SUBRIP", "por"),
+            named(43, "Simplified - Chinese - SUBRIP", "zho"), named(44, "Traditional - Chinese - SUBRIP", "chi"),
+            named(6, "European - Catalan - SUBRIP", "cat"),
+        ])
+        let languages = lines.map { line in line.components(separatedBy: "LANGUAGE=\"")[1].components(separatedBy: "\"")[0] }
+        XCTAssertEqual(languages, ["es-419", "spa", "es-ES", "fr-CA", "fra", "pt-BR", "pt-PT", "zh-Hans", "zh-Hant", "cat"])
+    }
+
+    func testATagThatAlreadyNamesARegionIsKept() throws {
+        let lines = try subtitleLines([named(2, "Latin American - Spanish", "es-MX")])
+        XCTAssertTrue(lines[0].contains("LANGUAGE=\"es-MX\""), String(lines[0]))
+    }
+
+    /// HLS authoring spec 4.5. Device log 2026-11-02: Jellyfin reported IsHearingImpaired false for a track titled "SDH".
+    func testATrackTitledSdhDeclaresSdhCharacteristics() throws {
+        let lines = try subtitleLines([named(3, "English - SUBRIP", "eng"), named(4, "SDH - English - SUBRIP", "eng")])
+        XCTAssertFalse(lines[0].contains("CHARACTERISTICS"))
+        XCTAssertTrue(lines[1].contains(",CHARACTERISTICS=\"public.accessibility.transcribes-spoken-dialog,public.accessibility.describes-music-and-sound\""))
+    }
+
     /// RFC 8216: DEFAULT=YES requires AUTOSELECT=YES. The pair inverted makes
     /// AVFoundation reject the entire master playlist with a bare -12642.
     func testDefaultYesIsNeverPairedWithAutoselectNo() throws {

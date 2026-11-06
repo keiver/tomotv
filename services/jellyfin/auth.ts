@@ -12,7 +12,7 @@ import { API_TIMEOUTS, STORAGE_KEYS } from "./constants";
 import { notifyAuthChange } from "./events";
 import { clearContentCaches, getAuthHeader, getOrCreateDeviceId, refreshConfig, setSavedConnectionStatus } from "./session";
 import { upsertSavedServer } from "./connection";
-import { upsertAccount } from "./accounts";
+import { upsertAccount } from "./accountIndex";
 import { warmBitrateMemory } from "./bitrateTest";
 /**
  * Check if Quick Connect is enabled on the server.

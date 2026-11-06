@@ -50,8 +50,9 @@ Consensus: the in-app switcher with saved per-user tokens is the proven pattern.
 
 ## Shipped early (2026-08-19)
 
-The account store landed ahead of 3.2.0: `services/jellyfin/accounts.ts`
-(`jellyfin_accounts` index + per-account token keys + per-account deviceId),
+The account store landed ahead of 3.2.0: `services/jellyfin/accountIndex.ts`
+(`jellyfin_accounts` index + per-account token keys + per-account deviceId) and
+`services/jellyfin/accounts.ts` (the switch flow),
 `saveAuthResult` upserts accounts, `activateAccount` validates via `/Users/Me`
 and fills the active slot, and the server list offers "Continue as <user>" on
 saved cards (`hooks/useSelectSavedServer.ts`). Sign Out keeps saved accounts.

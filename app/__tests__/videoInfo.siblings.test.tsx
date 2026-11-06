@@ -14,6 +14,7 @@ import TestRenderer, { act } from "react-test-renderer";
 jest.mock("expo-router", () => ({
   useLocalSearchParams: jest.fn(),
   useRouter: () => ({ back: jest.fn(), push: jest.fn(), replace: jest.fn() }),
+  useNavigationContainerRef: () => ({ isReady: () => false }),
 }));
 jest.mock("react-native-gesture-handler", () => {
   const { View } = require("react-native");

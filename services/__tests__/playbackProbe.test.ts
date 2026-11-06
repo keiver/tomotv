@@ -167,6 +167,19 @@ describe("playbackProbe suite sink", () => {
 
     expect(bodies.map((b) => JSON.parse(b).event)).toEqual(["start", "mode"]);
   });
+
+  it("sends nothing to the driver when the suite links are off, as in a release build on a device", async () => {
+    const fetchMock = jest.fn(async () => ({ ok: true, status: 200 }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    await jest.isolateModulesAsync(async () => {
+      jest.doMock("@/utils/hostEnvironment", () => ({ ...jest.requireActual("@/utils/hostEnvironment"), SUITE_LINKS_ENABLED: false }));
+      const probe = require("../playbackProbe") as typeof import("../playbackProbe");
+      probe.setPlaybackProbeEnabled("http://10.0.0.2:9000/probe", "item-c");
+      probe.probeEmit("mode", { mode: "direct" });
+      await new Promise((resolve) => setImmediate(resolve));
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("playbackProbe session sink", () => {

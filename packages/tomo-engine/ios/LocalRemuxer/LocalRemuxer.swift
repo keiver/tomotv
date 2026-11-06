@@ -201,7 +201,7 @@ class LocalRemuxer: RCTEventEmitter {
 
     // MARK: - Routing
 
-    private static func route(_ path: String) -> LocalHTTPResponse {
+    private static func route(_ path: String, query: [String: String]) -> LocalHTTPResponse {
         let parts = path.split(separator: "/").map(String.init)
         guard parts.count == 2 else { return .notFound }
 
@@ -232,7 +232,7 @@ class LocalRemuxer: RCTEventEmitter {
             return .notFound
         }
         guard let current else { return .notFound }
-        return current.route(parts[1])
+        return current.route(parts[1], query: query)
     }
 
     // MARK: - JS API
@@ -269,6 +269,11 @@ class LocalRemuxer: RCTEventEmitter {
     ///   liveAudioLanguage: String? : live: the audio track made the default, by language; the source's default when absent
     ///   livePlaylist: Bool?        : live: the input is an HLS playlist whatever its URL's extension
     ///   liveBufferSeconds: Double? : live: seconds of output the media playlists wait for, the player's start buffer
+    ///   liveCopyCutSeconds: Double? : live copy lane: the cut threshold past a segment's open keyframe (liveSegmentSeconds when absent)
+    ///   liveTargetNearest: Bool?   : live: TARGETDURATION is the nearest integer of the longest allowed segment, not its ceiling
+    ///   liveLowLatency: Bool?      : live: serve LL-HLS parts when the input is continuous (MPEG-TS)
+    ///   livePartSeconds: Double?   : live LL-HLS: the PART-TARGET (default 0.5)
+    ///   liveLowLatencyTargetSeconds: Int? : live LL-HLS: the least TARGETDURATION, fixed for the session (default 4)
     ///   describesInput: Bool?      : the open input names its own range, size, rate and bit rate, and the audio tracks,
     ///                                subtitles and durationSeconds the config leaves empty; the master waits for it
     ///
@@ -357,6 +362,7 @@ class LocalRemuxer: RCTEventEmitter {
                 frameRate: (config["frameRate"] as? Double) ?? 0,
                 bandwidth: (config["bandwidth"] as? Int) ?? 0,
                 readAheadSegments: (config["readAheadSegments"] as? Int) ?? 0,
+                idleReadAheadSegments: (config["idleReadAheadSegments"] as? Int) ?? 0,
                 tiers: (config["tiers"] as? [[String: Any]] ?? []).map { t in
                     TierConfig(
                         playlistUrl: (t["playlistUrl"] as? String) ?? "",
@@ -384,6 +390,11 @@ class LocalRemuxer: RCTEventEmitter {
                 liveAudioLanguage: (config["liveAudioLanguage"] as? String) ?? "",
                 livePlaylist: (config["livePlaylist"] as? Bool) ?? false,
                 liveBufferSeconds: (config["liveBufferSeconds"] as? Double) ?? 0,
+                liveCopyCutSeconds: (config["liveCopyCutSeconds"] as? Double) ?? 0,
+                liveTargetNearest: (config["liveTargetNearest"] as? Bool) ?? false,
+                liveLowLatency: (config["liveLowLatency"] as? Bool) ?? false,
+                livePartSeconds: (config["livePartSeconds"] as? Double) ?? 0.5,
+                liveLowLatencyTargetSeconds: (config["liveLowLatencyTargetSeconds"] as? Int) ?? 4,
                 primaryVideoCodecs: (config["primaryVideoCodecs"] as? String) ?? "",
                 primaryVideoBandwidth: (config["primaryVideoBandwidth"] as? Int) ?? 0,
                 sourceBandwidth: (config["sourceBandwidth"] as? Int) ?? 0,
@@ -487,7 +498,7 @@ class LocalRemuxer: RCTEventEmitter {
         // Bound before anything is torn down. The old sessions are unreachable either way, but
         // a bind that throws here used to take them with it and leave no server behind: a
         // second player reading its own session lost it to another player's failed start.
-        let fresh = LocalHTTPServer(route: route)
+        let fresh = LocalHTTPServer(route: route(_:query:))
         let freshPort = try fresh.start()
 
         if let server {
@@ -945,6 +956,17 @@ class LocalRemuxer: RCTEventEmitter {
         rejecter _: @escaping RCTPromiseRejectBlock
     ) {
         LiveConnectionBroker.shared.setBudget(budget.intValue, for: key as String)
+        resolve(nil)
+    }
+
+    /// A provider's own limit read from its account, held like one its refusals taught; never above a lower one known.
+    @objc func learnOriginBudget(
+        _ key: NSString,
+        budget: NSNumber,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter _: @escaping RCTPromiseRejectBlock
+    ) {
+        LiveConnectionBroker.shared.learnBudget(budget.intValue, for: key as String)
         resolve(nil)
     }
 

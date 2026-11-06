@@ -6,10 +6,15 @@ import XCTest
 /// The app's routing (LocalRemuxer.route) for one session, served over the loopback the way the app serves it.
 func serveOverLoopback(_ session: RemuxSession, onRequest: ((String) -> Void)? = nil) throws -> (LocalHTTPServer, URL) {
     let m3u8 = "application/vnd.apple.mpegurl"
-    let server = LocalHTTPServer { path in
+    let server = LocalHTTPServer { (path: String, query: [String: String]) -> LocalHTTPResponse in
         let parts = path.split(separator: "/").map(String.init)
         guard parts.count == 2, parts[0] == session.token else { return .notFound }
         let name = parts[1]
+        // An LL-HLS session's names go through the session's own routing; the query rides along for the callback.
+        if session.servesParts {
+            onRequest?(query.isEmpty ? name : name + "?" + query.keys.sorted().map { "\($0)=\(query[$0]!)" }.joined(separator: "&"))
+            return session.route(name, query: query)
+        }
         onRequest?(name)
         switch name {
         case "master.m3u8": return .data(Data(session.masterPlaylist().utf8), contentType: m3u8)

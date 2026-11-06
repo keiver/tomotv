@@ -1,10 +1,16 @@
 import ExpoModulesCore
 import UIKit
 
-/// A channel card's preview: hosts a player from PreviewPlayerPool while its clip plays. Its clip loops.
+/// A channel card's preview: hosts a player from PreviewPlayerPool while its clip plays. Its clip loops. A live tile
+/// plays its engine session instead, muted unless it has the sound.
 final class LiveClipView: ExpoView {
   private(set) var url: URL?
+  private(set) var live = false
+  private(set) var muted = true
   private var claim: DispatchWorkItem?
+  let onFailed = EventDispatcher()
+  let onPlaying = EventDispatcher()
+  private var playing = false
   #if os(tvOS)
   private static let settle: TimeInterval = 0
   #else
@@ -35,10 +41,38 @@ final class LiveClipView: ExpoView {
     if url == nil { release() } else { play() }
   }
 
+  /// Props arrive in any order: a card that turns live after its player was lent takes a fresh one in live mode.
+  func setLive(_ live: Bool) {
+    guard live != self.live else { return }
+    self.live = live
+    guard window != nil, url != nil, PreviewPlayerPool.shared.hosts(self) else { return }
+    release()
+    play()
+  }
+
+  func setMuted(_ muted: Bool) {
+    self.muted = muted
+    PreviewPlayerPool.shared.player(in: self)?.setMuted(muted)
+  }
+
+  /// A live tile's player failed or none was free: its session plays to nobody, so the app is told. A clip card keeps its frame.
+  func playerFailed(_ code: Int) {
+    guard live else { return }
+    playerPlaying(false)
+    onFailed(["code": code])
+  }
+
+  /// A live tile's session starts or stops progressing in its player, so the app can show it loading until it plays.
+  func playerPlaying(_ playing: Bool) {
+    guard playing != self.playing else { return }
+    self.playing = playing
+    onPlaying(["playing": playing])
+  }
+
   private func play() {
     claim?.cancel()
     claim = nil
-    if Self.settle == 0 || PreviewPlayerPool.shared.hosts(self) {
+    if Self.settle == 0 || live || PreviewPlayerPool.shared.hosts(self) {
       if let url { PreviewPlayerPool.shared.show(url, in: self) }
       return
     }
@@ -55,5 +89,6 @@ final class LiveClipView: ExpoView {
     claim?.cancel()
     claim = nil
     PreviewPlayerPool.shared.release(from: self)
+    playerPlaying(false)
   }
 }

@@ -133,6 +133,7 @@ function item(overrides: Partial<JellyfinVideoItem> & { streams?: any[] } = {}):
 
 beforeEach(() => {
   jest.clearAllMocks();
+  updateUiPreferences({ serverTranscoding: "linkOrFile" });
   (getCachedConfig as jest.Mock).mockReturnValue({ server: "http://server:8096", apiKey: "k", userId: "u" });
   mockDecodeSupport.mockResolvedValue({ hevc: true, hevcMain10: true, av1: false, h264MaxHeight: null, hevcMaxHeight: null });
   mockStartRemux.mockResolvedValue("http://127.0.0.1:5000/token/master.m3u8");
@@ -2706,8 +2707,11 @@ describe("startLocalRemux on a live channel", () => {
     expect(config.describesInput).toBe(true);
     expect(config.audioTracks).toEqual([]);
     expect(config.subtitles).toEqual([]);
-    expect(config.liveBufferSeconds).toBe(15);
-    expect(config.liveSegmentSeconds).toBe(2);
+    expect(config.liveBufferSeconds).toBe(2);
+    expect(config.liveSegmentSeconds).toBe(1);
+    expect(config.liveCopyCutSeconds).toBe(0.4);
+    expect(config.liveTargetNearest).toBe(true);
+    expect(config.liveLowLatency).toBe(true);
     expect(config.inputUrl).toBe("http://server:8096/LiveTv/LiveStreamFiles/x/stream.ts?ApiKey=k");
     expect(config.durationSeconds).toBe(0);
     expect(config.startOffsetSeconds).toBe(0);

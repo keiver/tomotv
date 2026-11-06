@@ -33,6 +33,7 @@ enum LocalHTTPResponse {
     /// of the same master (measured; WWDC17 514 says the same of permanent errors).
     case gone
     case temporarilyUnavailable
+    case badRequest
 }
 
 /// One segment response in flight. The server marks it abandoned when the player closes the
@@ -106,7 +107,7 @@ final class LocalHTTPServer {
 
     /// Routes a request path (e.g. "/abc123/master.m3u8") to a response.
     /// Called on `workQueue`; may block (segment-wait logic).
-    private let route: (String) -> LocalHTTPResponse
+    private let route: (String, [String: String]) -> LocalHTTPResponse
 
     private(set) var port: UInt16 = 0
     /// Every request, timed (drills). Set before start().
@@ -178,7 +179,22 @@ final class LocalHTTPServer {
     }
 
     init(route: @escaping (String) -> LocalHTTPResponse) {
+        self.route = { path, _ in route(path) }
+    }
+
+    /// The route also takes the request's query parameters (LL-HLS `_HLS_msn`, `_HLS_part`).
+    init(route: @escaping (String, [String: String]) -> LocalHTTPResponse) {
         self.route = route
+    }
+
+    static func queryParameters(_ target: Substring) -> [String: String] {
+        guard let query = target.split(separator: "?", maxSplits: 1).dropFirst().first else { return [:] }
+        var parameters: [String: String] = [:]
+        for pair in query.split(separator: "&") {
+            let field = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            parameters[String(field[0])] = field.count > 1 ? String(field[1]) : ""
+        }
+        return parameters
     }
 
     /// Bind to an ephemeral port on the loopback interface. Returns the port.
@@ -297,6 +313,7 @@ final class LocalHTTPServer {
             return
         }
         let path = String(parts[1].split(separator: "?").first ?? "")
+        let query = Self.queryParameters(parts[1])
 
         // Single-range support: AVPlayer occasionally probes with Range requests.
         let rangeHeader = head.components(separatedBy: "\r\n")
@@ -318,7 +335,7 @@ final class LocalHTTPServer {
             let traced = { (status: Int, bytes: Int) -> (DispatchTime?) -> Void in
                 { [weak self] firstBody in self?.record(path, status: status, bytes: bytes, started: started, firstBody: firstBody) }
             }
-            switch self.route(path) {
+            switch self.route(path, query) {
             case .data(let data, let contentType):
                 // Authoring spec 10.1: playlists go out gzip-encoded to a client that takes it.
                 if acceptsGzip, contentType == "application/vnd.apple.mpegurl", let packed = Self.gzip(data) {
@@ -351,6 +368,8 @@ final class LocalHTTPServer {
                 self.send(connection, status: "410 Gone", contentType: "text/plain", body: Data(), onDone: traced(410, 0))
             case .temporarilyUnavailable:
                 self.send(connection, status: "503 Service Unavailable", contentType: "text/plain", body: Data(), extraHeaders: "Retry-After: 1\r\n", onDone: traced(503, 0))
+            case .badRequest:
+                self.send(connection, status: "400 Bad Request", contentType: "text/plain", body: Data(), onDone: traced(400, 0))
             case .notFound:
                 NSLog("[LocalHTTPServer] 404 %@", path)
                 self.send(connection, status: "404 Not Found", contentType: "text/plain", body: Data(), onDone: traced(404, 0))

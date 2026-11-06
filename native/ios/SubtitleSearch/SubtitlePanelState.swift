@@ -21,8 +21,12 @@ public struct SubtitlePanelLanguage: Codable, Equatable {
 public struct SubtitlePanelResult: Codable, Equatable {
     public let id: String
     public let name: String
-    /// Source, downloads, rating and author, joined for the second line.
+    /// Downloads, rating and byline in words, joined: what VoiceOver reads for the row.
     public let meta: String
+    public let downloads: Int?
+    public let rating: Double?
+    /// The author and any source other than OpenSubtitles, joined.
+    public let byline: String
     public let badges: [String]
     public let monogram: String
     public let hashMatch: Bool
@@ -31,10 +35,16 @@ public struct SubtitlePanelResult: Codable, Equatable {
     /// The timing controls under the row of the kept pick that is playing, nil on every other row.
     public let timing: SubtitlePanelTrack?
 
-    public init(id: String, name: String, meta: String, badges: [String], monogram: String, hashMatch: Bool, applying: Bool, applied: Bool, timing: SubtitlePanelTrack? = nil) {
+    public init(
+        id: String, name: String, meta: String, downloads: Int? = nil, rating: Double? = nil, byline: String = "", badges: [String], monogram: String, hashMatch: Bool, applying: Bool,
+        applied: Bool, timing: SubtitlePanelTrack? = nil
+    ) {
         self.id = id
         self.name = name
         self.meta = meta
+        self.downloads = downloads
+        self.rating = rating
+        self.byline = byline
         self.badges = badges
         self.monogram = monogram
         self.hashMatch = hashMatch
@@ -97,37 +107,20 @@ public struct SubtitlePanelConfirm: Codable, Equatable {
     }
 }
 
-/// One button for the whole set: applies every hash match and lone result at once.
-public struct SubtitlePanelTakeAll: Codable, Equatable {
-    public let label: String
-    public let busy: Bool
-
-    public init(label: String, busy: Bool) {
-        self.label = label
-        self.busy = busy
-    }
-}
-
-/// One video's search: its own query, state and results. A lone job shows no heading.
+/// The video's search: its query, state and results.
 public struct SubtitlePanelJob: Codable, Equatable {
     /// The item id the query and pick events name.
     public let id: String
-    /// The episode mark ("S04E06"), empty for a movie or a lone video.
-    public let label: String
-    /// The video's title, empty when the job is the whole search.
-    public let heading: String
     public let query: String
-    /// Searching, N results, nothing found, saved: the line by the heading or field.
+    /// Searching, N results, nothing found, saved: the line under the field.
     public let stateLine: String
     /// A source that refused this session, or why a save stayed on the device; empty otherwise.
     public let note: String
     public let busy: Bool
     public let results: [SubtitlePanelResult]
 
-    public init(id: String, label: String, heading: String, query: String, stateLine: String, note: String, busy: Bool, results: [SubtitlePanelResult]) {
+    public init(id: String, query: String, stateLine: String, note: String, busy: Bool, results: [SubtitlePanelResult]) {
         self.id = id
-        self.label = label
-        self.heading = heading
         self.query = query
         self.stateLine = stateLine
         self.note = note
@@ -146,33 +139,30 @@ public struct SubtitlePanelState: Codable, Equatable {
     public let confirm: SubtitlePanelConfirm?
     public let languages: [SubtitlePanelLanguage]
     public let selectedLanguage: String
-    /// Set while hash matches wait: the one button that takes them all.
-    public let takeAll: SubtitlePanelTakeAll?
-    /// "N files already have the language", or empty.
-    public let skippedLine: String
-    /// Shown when no job exists: every file subtitled, or nothing to search; empty otherwise.
-    public let emptyLine: String
     public let queryPlaceholder: String
     /// The search button's word.
     public let searchLabel: String
-    public let jobs: [SubtitlePanelJob]
+    /// The close button's word, off the TV.
+    public let closeLabel: String
+    /// False while the video plays under the panel in the player: the screen behind stays sharp.
+    public let blurBehind: Bool
+    public let job: SubtitlePanelJob
 
     public init(
-        title: String, credit: String = "", accent: String = "", confirm: SubtitlePanelConfirm? = nil, languages: [SubtitlePanelLanguage], selectedLanguage: String, takeAll: SubtitlePanelTakeAll? = nil,
-        skippedLine: String = "", emptyLine: String = "", queryPlaceholder: String, searchLabel: String, jobs: [SubtitlePanelJob]
+        title: String, credit: String = "", accent: String = "", confirm: SubtitlePanelConfirm? = nil, languages: [SubtitlePanelLanguage], selectedLanguage: String,
+        queryPlaceholder: String, searchLabel: String, closeLabel: String = "", blurBehind: Bool = true, job: SubtitlePanelJob
     ) {
+        self.blurBehind = blurBehind
         self.title = title
         self.credit = credit
         self.accent = accent
         self.confirm = confirm
         self.languages = languages
         self.selectedLanguage = selectedLanguage
-        self.takeAll = takeAll
-        self.skippedLine = skippedLine
-        self.emptyLine = emptyLine
         self.queryPlaceholder = queryPlaceholder
         self.searchLabel = searchLabel
-        self.jobs = jobs
+        self.closeLabel = closeLabel
+        self.job = job
     }
 
     /// The state a React Native dictionary describes, or nil when a required field is missing.

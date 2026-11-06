@@ -66,7 +66,7 @@ export interface GuideMetrics {
 export function guideMetrics(isTV: boolean): GuideMetrics {
   const channelColumnWidth = isTV ? 368 : 176;
   const padding = slotCardPadding(isTV);
-  const rowHeight = Math.round(channelColumnWidth / GRID.LIVE_RATIO) + 1;
+  const rowHeight = guideRowHeight(channelColumnWidth);
   // The compact column holds a portrait card the row's own height, capping the row: padded on the left only.
   const compactColumnWidth = isTV ? channelColumnWidth : Math.round((rowHeight - 1) * GRID.PORTRAIT_RATIO + padding);
   const cardInset = { vertical: 0, horizontal: 0 };
@@ -395,4 +395,141 @@ export function channelWindow<T extends { Id: string }>(channels: readonly T[], 
   const count = Math.min(channels.length, ahead + 1);
   const at = (offset: number) => channels[(index + offset + channels.length) % channels.length].Id;
   return [...new Set([at(-1), ...Array.from({ length: count }, (_, offset) => at(offset))])];
+}
+
+export type PinTap = "start" | "switch" | "retry" | "none";
+
+/** What a channel card's tap does to Live TV's pinned channel: pin it, switch the pin to it, or retry the pinned one once it failed. */
+export function pinTapAction(tappedId: string, pinnedId: string | null, hostMode: string): PinTap {
+  if (pinnedId === null || hostMode === "idle" || hostMode === "pip-detached") return "start";
+  if (tappedId !== pinnedId) return "switch";
+  return hostMode === "error" ? "retry" : "none";
+}
+
+/** The guide's row height for a channel column this wide: the card's 16:9 picture and the row's line. */
+export function guideRowHeight(columnWidth: number): number {
+  "worklet";
+  return Math.round(columnWidth / GRID.LIVE_RATIO) + 1;
+}
+
+export type ColumnStop = "closed" | "default" | "wide";
+
+/** The wide stop's card, a multiple of 16 like the default one. */
+const WIDE_COLUMN_MAX = 240;
+/** On a guide narrower than that, the wide stop leaves this share of it to the rows. */
+const WIDE_COLUMN_RATIO = 0.9;
+
+/** The wide stop's width: 240pt, or 90% of a narrower guide, never under the default card. */
+export function wideColumnWidth(guideWidth: number, defaultWidth: number): number {
+  "worklet";
+  return Math.max(defaultWidth, Math.min(WIDE_COLUMN_MAX, guideWidth * WIDE_COLUMN_RATIO));
+}
+const COLUMN_STOPS: readonly ColumnStop[] = ["closed", "default", "wide"];
+/** A fling carries a dragged size this many seconds of its speed past where the finger let go. */
+const STOP_FLING_S = 0.15;
+/** Past the stops either side of where a drag began, the size follows the finger at this fraction: those stops hold it back. */
+const STOP_PULL = 0.3;
+/** How far a size follows past its outermost stops at most. */
+const STOP_OVERPULL = 16;
+
+/** The index of the value in `stops` (ascending) nearest `value`. */
+export function nearestStop(value: number, stops: readonly number[]): number {
+  "worklet";
+  let best = 0;
+  for (let index = 1; index < stops.length; index++) {
+    if (Math.abs(stops[index] - value) < Math.abs(stops[best] - value)) best = index;
+  }
+  return best;
+}
+
+/** A dragged size for a drag of `translation` from `start` over ascending `stops`: the finger's own up to the stops either side of the one it began on, held back past them. */
+export function stopDragValue(start: number, translation: number, stops: readonly number[]): number {
+  "worklet";
+  const from = nearestStop(start, stops);
+  const lower = stops[Math.max(0, from - 1)];
+  const upper = stops[Math.min(stops.length - 1, from + 1)];
+  const raw = start + translation;
+  const held = raw > upper ? upper + (raw - upper) * STOP_PULL : raw < lower ? lower - (lower - raw) * STOP_PULL : raw;
+  return Math.min(stops[stops.length - 1] + STOP_OVERPULL, Math.max(stops[0] - STOP_OVERPULL, held));
+}
+
+/** The stop a dragged size rests on: a fling moves it at most to the stop beside the one the drag began on; a pull past that one lands where it was let go. */
+export function settleStop(value: number, velocity: number, start: number, stops: readonly number[]): number {
+  "worklet";
+  const from = nearestStop(start, stops);
+  const at = nearestStop(value, stops);
+  if (Math.abs(at - from) > 1) return at;
+  const flung = nearestStop(value + velocity * STOP_FLING_S, stops);
+  return Math.min(from + 1, Math.max(from - 1, flung));
+}
+
+function columnWidths(stops: Record<ColumnStop, number>): number[] {
+  "worklet";
+  return [stops.closed, stops.default, stops.wide];
+}
+
+/** The stop nearest a width: the one a drag is passing, and the one the column rests on. */
+export function columnStopAt(width: number, stops: Record<ColumnStop, number>): ColumnStop {
+  "worklet";
+  return COLUMN_STOPS[nearestStop(width, columnWidths(stops))];
+}
+
+/** The stop one step from `stop` toward `direction` (+1 wider, -1 narrower), held at the ends. */
+export function columnStopStep(stop: ColumnStop, direction: 1 | -1): ColumnStop {
+  "worklet";
+  const index = COLUMN_STOPS.indexOf(stop) + direction;
+  return COLUMN_STOPS[Math.min(COLUMN_STOPS.length - 1, Math.max(0, index))];
+}
+
+/** The column's width for a drag of `translationX` from `startWidth`: the finger's own up to the stops either side of the one it began on, held back past them. */
+export function columnDragWidth(startWidth: number, translationX: number, stops: Record<ColumnStop, number>): number {
+  "worklet";
+  return stopDragValue(startWidth, translationX, columnWidths(stops));
+}
+
+/**
+ * Where the column rests after a drag that began at `startWidth`: a fling moves it at most to the stop beside the one it
+ * began on, so closed to wide takes a pull past the default stop, never a flick.
+ */
+export function settleColumnStop(width: number, velocityX: number, startWidth: number, stops: Record<ColumnStop, number>): ColumnStop {
+  "worklet";
+  return COLUMN_STOPS[settleStop(width, velocityX, startWidth, columnWidths(stops))];
+}
+
+/** The pinned band's larger picture is at most this share of the window's height, so some guide stays in view. */
+const BAND_MAX_HEIGHT_RATIO = 0.5;
+/** The larger picture's widest, beside its name and buttons on iPad and Mac. */
+const BAND_MAX_WIDTH = 640;
+/** The room kept beside the larger picture for the channel's name and the two buttons. */
+const BAND_INFO_ROOM = 260;
+
+/** How far, in points, a finger may travel between touch down and lift for the touch to count as a tap. */
+const TAP_SLOP = 10;
+
+/** Whether a touch that lifted at `end` after going down at `start` travelled too far to be a tap. */
+export function movedPastTap(start: { pageX: number; pageY: number } | null, end: { pageX?: number; pageY?: number } | undefined): boolean {
+  if (!start || end?.pageX === undefined || end.pageY === undefined) return false;
+  return Math.hypot(end.pageX - start.pageX, end.pageY - start.pageY) > TAP_SLOP;
+}
+
+/** How far, in points, or how fast, in points per second, a vertical swipe on the pinned band goes to switch its size. */
+const BAND_SWIPE_DISTANCE = 40;
+const BAND_SWIPE_VELOCITY = 500;
+
+/** Whether a finished vertical swipe on the pinned band switches its size: down opens the larger picture, up closes it. */
+export function bandSwipeToggles(translationY: number, velocityY: number, extended: boolean): boolean {
+  "worklet";
+  const down = translationY > BAND_SWIPE_DISTANCE || (translationY > 0 && velocityY > BAND_SWIPE_VELOCITY);
+  const up = translationY < -BAND_SWIPE_DISTANCE || (translationY < 0 && velocityY < -BAND_SWIPE_VELOCITY);
+  return extended ? up : down;
+}
+
+/**
+ * The pinned band's larger picture at 16:9: the guide's full width when its name and buttons sit on it, or up to
+ * 640pt with room kept beside it for them; never taller than half the window.
+ */
+export function bandExtendedSize(guideWidth: number, windowHeight: number, infoBeside: boolean): { width: number; height: number } {
+  const room = infoBeside ? Math.min(BAND_MAX_WIDTH, guideWidth - BAND_INFO_ROOM) : guideWidth;
+  const width = Math.max(0, Math.min(room, windowHeight * BAND_MAX_HEIGHT_RATIO * GRID.LIVE_RATIO));
+  return { width, height: width / GRID.LIVE_RATIO };
 }

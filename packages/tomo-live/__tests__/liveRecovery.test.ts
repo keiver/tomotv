@@ -18,6 +18,11 @@ it("stops only on a failure no reopen fixes", () => {
   expect(planLiveRecovery({ attempts: 0, permanent: true })).toEqual({ reopen: false });
 });
 
+it("stops a channel that has not played since the viewer chose it after four reopens", () => {
+  expect([0, 1, 2, 3, 4, 9].map((attempts) => planLiveRecovery({ attempts, permanent: false, played: false }).reopen)).toEqual([true, true, true, true, false, false]);
+  expect(planLiveRecovery({ attempts: 9, permanent: false, played: true })).toEqual({ reopen: true, delayMs: 5000 });
+});
+
 it("counts from zero again once the channel played a minute without a drop", () => {
   expect(liveReopenCount(4, LIVE_RECOVERY_RESET_MS - 1)).toBe(4);
   expect(liveReopenCount(4, LIVE_RECOVERY_RESET_MS)).toBe(0);

@@ -19,6 +19,7 @@ import {
   fetchItemDetails,
   fetchItemFolderPath,
   fetchLibraryRootCount,
+  fetchVideoDetails,
   getBackdropUrl,
   getLogoUrl,
   getPersonImageUrl,
@@ -52,7 +53,7 @@ import { useLiveClip, useLiveFrame, useLiveFrameSeenAt } from "@/hooks/useLiveFr
 import { useChannelHealth } from "@/hooks/useChannelHealth";
 import { useLiveTvPreferences } from "@/hooks/useLiveTvPreferences";
 import { invalidateChannelListReads, withChannelEdits } from "@/services/jellyfin/channelEdits";
-import { hideChannel, renameChannel } from "@/services/liveTvPreferences";
+import { getLiveTvPreferences, hideChannel, renameChannel, updateLiveTvPreferences } from "@/services/liveTvPreferences";
 import { usePlaybackHeld } from "@/hooks/usePlaybackHeld";
 import { LIVE_FRAME_TRANSITION_MS } from "@/services/liveFrames";
 import { folderPosterSource, heroArtBoxed, heroArtFrame, heroBoxFrame } from "@/services/itemArtwork";
@@ -60,7 +61,7 @@ import { useFolderDownload } from "@/hooks/useFolderDownload";
 import { useItemDownload } from "@/hooks/useItemDownload";
 import { downloadsSupported } from "@/services/downloads/paths";
 import { useIsAdministrator } from "@/hooks/useIsAdministrator";
-import { useShowInFolder } from "@/hooks/useShowInFolder";
+import { useShowInFolder, whenRootStateSettles } from "@/hooks/useShowInFolder";
 import { CATEGORY_LABELS } from "@/utils/channelGroups";
 import { useLiveTvManagement } from "@/hooks/useLiveTvManagement";
 import { useRecordActions } from "@/hooks/useRecordActions";
@@ -69,6 +70,7 @@ import { recordingInProgress } from "@/services/recordingHold";
 import { EXTERNAL_GUIDE_PREFIX, formatClock, formatClockRange, formatDayLabel, isAiring, programCategory, programTimes } from "@/utils/guide";
 import { readGuideProgram } from "@/utils/programInfo";
 import { PlaybackLane, predictPlaybackLane } from "@/services/localRemux";
+import { prewarmItemPage } from "@/services/vodPrewarm";
 import { JellyfinItem, JellyfinMediaStream, JellyfinProgram } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
 import { formatDuration } from "@/utils/formatDuration";
@@ -81,7 +83,7 @@ import { subscribe as subscribeSyncPlay } from "@/services/syncPlayManager";
 import { Ionicons } from "@expo/vector-icons";
 import { Image, type ImageRef } from "expo-image";
 
-import { useRouter } from "expo-router";
+import { useNavigationContainerRef, useRouter } from "expo-router";
 import React, { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Alert, findNodeHandle, Platform, ScrollView, StyleSheet, Text, TVFocusGuideView, useWindowDimensions, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -89,6 +91,7 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { t } from "@/services/i18n";
+import { showToast } from "@/services/toast";
 
 const IS_TV = Platform.isTV;
 // iPad and Mac centre the panel's card and stack its CTAs content-sized; iPhone's card sits on the bottom edge.
@@ -164,6 +167,14 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   const heroRise = IS_TV ? TV_CONTENT_RISE : 0;
 
   const [details, setDetails] = useState<JellyfinItem | null>(null);
+  // The shown page warms the player's own read and its engine session; a channel's read opens a tuner, so never one.
+  const warmId = active && details && !guideProgram && !isFolder(details) && !isLiveChannel(details) && !isBook(details) && !isPhoto(details) ? details.Id : null;
+  useEffect(() => {
+    if (!warmId) return;
+    void fetchVideoDetails(warmId).catch(() => null);
+    prewarmItemPage(warmId);
+    return () => prewarmItemPage(null);
+  }, [warmId]);
   // The clock at the moment details landed; render stays pure and the elapsed line is a snapshot.
   const [detailsAtMs, setDetailsAtMs] = useState(0);
   const [failed, setFailed] = useState(false);
@@ -340,6 +351,12 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
       { text: t("info.startOver"), onPress: () => void handleStartOver() },
     ]);
   }, [details, handleStartOver]);
+  const onStartOverAction = useCallback(
+    (event: { nativeEvent: { actionName: string } }) => {
+      if (event.nativeEvent.actionName === "startOver") confirmStartOver();
+    },
+    [confirmStartOver],
+  );
 
   // Play everything of one kind under a container. Same phone/TV rule as handlePlay.
   const handlePlayFolder = useCallback(
@@ -497,6 +514,16 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
     void showInFolder(details, { dismissFirst: true });
   }, [details, showInFolder]);
 
+  // Multiview opens with this channel on the main stage, pushed once the panel's dismissal has landed.
+  const navigationRef = useNavigationContainerRef();
+  const handleWatchInMultiview = useCallback(async () => {
+    if (!details) return;
+    const before = navigationRef.isReady() ? navigationRef.getRootState() : undefined;
+    router.back();
+    await whenRootStateSettles(navigationRef, before);
+    router.push({ pathname: "/multiview", params: { channelId: details.Id, channelName: details.Name ?? "" } });
+  }, [details, router, navigationRef]);
+
   const subtitlePanel = useSubtitlePanel(details?.Id ?? "", null);
   const handleFindSubtitles = useCallback(() => {
     if (!details) return;
@@ -541,8 +568,8 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   const liveSlot = timedProgram && liveTimes ? formatClockRange(liveTimes.startMs, liveTimes.endMs) : null;
   const liveChannel = !!details && isLiveChannel(details);
   const live = !!liveProgram || liveChannel;
-  // A video, or a container holding some: never a channel, a programme, a song, a photo or a book.
-  const canFindSubtitles = !!details && !live && !audio && !photo && !book && subtitlePanel.available && (isContainer ? !!mediaKinds?.video : true);
+  // A single video: never a folder, series, season, channel, programme, song, photo or book.
+  const canFindSubtitles = !!details && !isContainer && !live && !audio && !photo && !book && subtitlePanel.available;
   const liveChannelId = (liveProgram ? details?.ChannelId : liveChannel ? details?.Id : undefined) ?? "";
   const liveChannelName = cleanLabel(liveProgram ? details?.ChannelName : liveChannel ? details?.Name : undefined);
   const canManage = useLiveTvManagement(live);
@@ -556,6 +583,15 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   const recordTimer = recording.timer;
   const programAiring = !!liveProgram && detailsAtMs > 0 && isAiring(liveProgram, detailsAtMs);
   const programEnded = !!liveProgram && detailsAtMs > 0 && programTimes(liveProgram).endMs <= detailsAtMs;
+  // A programme still to come can be queued to take Multiview's sound spot when it starts.
+  const programUpcoming = !!liveProgram && !!liveChannelId && !!liveTimes && detailsAtMs > 0 && liveTimes.startMs > detailsAtMs;
+  const handleMultiviewWhenStarts = () => {
+    if (!liveProgram || !liveTimes) return;
+    const entry = { channelId: liveChannelId, name: liveProgram.Name ?? "", startMs: liveTimes.startMs, endMs: liveTimes.endMs };
+    const others = getLiveTvPreferences().multiviewQueue.filter((queued) => !(queued.channelId === entry.channelId && queued.startMs === entry.startMs));
+    updateLiveTvPreferences({ multiviewQueue: [...others, entry] });
+    showToast(t("liveTv.multiviewQueued"));
+  };
   const watchable = !!liveChannelId && (liveChannel || programAiring);
   // While the channel airs, its last grabbed picture and preview clip outrank its art.
   const liveArtChannel = watchable ? liveChannelId : "";
@@ -811,8 +847,10 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
     ...(shareable && folderInRow ? [{ key: "share", icon: "share-outline" as const, label: t("common.share"), word: t("info.word.share"), onPress: () => void handleShare() }] : []),
     ...(canDownloadFolder ? [{ key: "downloadAll", icon: "arrow-down" as const, label: t("info.downloadAll"), word: t("info.word.download"), onPress: handleDownloadFolder }] : []),
     ...(canFindSubtitles ? [{ key: "subtitles", icon: "text-outline" as const, label: t("info.findSubtitles"), word: t("info.word.subtitles"), onPress: handleFindSubtitles }] : []),
+    ...(programUpcoming ? [{ key: "multiviewQueue", icon: "alarm-outline" as const, label: t("liveTv.multiviewWhenStarts"), word: t("info.word.multiview"), onPress: handleMultiviewWhenStarts }] : []),
     ...(liveChannel
       ? [
+          { key: "multiview", symbol: "rectangle.3.group", label: t("liveTv.watchInMultiview"), word: t("info.word.multiview"), onPress: () => void handleWatchInMultiview() },
           { key: "rename", icon: "pencil-outline" as const, label: t("liveTv.renameChannel"), word: t("info.word.rename"), onPress: handleRenameChannel },
           { key: "hide", icon: "eye-off-outline" as const, label: t("liveTv.hideChannel"), word: t("info.word.hide"), onPress: handleHideChannel },
         ]
@@ -855,6 +893,16 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
           disabled={recording.busy !== null}
           icon={<Ionicons name={recordTimer.Status === "InProgress" ? "stop-circle-outline" : "close-circle-outline"} size={IS_TV ? 34 : 22} color={COLORS.DESTRUCTIVE} />}
           onPress={recording.cancel}
+        />
+      ) : recording.busy === "waiting" ? (
+        <FocusableButton
+          ref={watchable ? undefined : leadCtaRef}
+          title={t("liveTv.waitingForConnection")}
+          variant="record"
+          style={pairButton}
+          hasTVPreferredFocus={!watchable}
+          icon={<Ionicons name="close-circle-outline" size={IS_TV ? 34 : 22} color={COLORS.DESTRUCTIVE} />}
+          onPress={recording.cancelWaiting}
         />
       ) : (
         <FocusableButton
@@ -958,6 +1006,8 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
             icon={<Ionicons name={photo ? "expand" : book ? "book-outline" : "play"} size={IS_TV ? 34 : 22} color={palette.onAccent} />}
             onPress={handlePlay}
             onLongPress={startOver ? confirmStartOver : undefined}
+            accessibilityActions={startOver ? [{ name: "startOver", label: t("info.startOver") }] : undefined}
+            onAccessibilityAction={startOver ? onStartOverAction : undefined}
             accessibilityHint={startOver ? t("info.startOverHint") : undefined}
             progress={cardResumeProgress(details)}
           />
@@ -1117,22 +1167,10 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
       </View>
     ) : null
   ) : (
-    <CardDragScroll
-      active={active}
-      pointerEvents={shown ? "auto" : "none"}
-      onContentSizeChange={() => setContentSized(true)}
-      style={[IS_TV ? styles.scroll : styles.padScroll, !shown && styles.unseen]}
-      contentContainerStyle={IS_TV ? [styles.footedContent, !groupChannel && styles.tvContentPad] : groupChannel ? styles.footedContent : styles.cardContentPad}
-      showsVerticalScrollIndicator={false}>
-      {/* Artwork heading on both platforms, whole; the scrim fades it into
-          the panel. Artless items keep the same hero with the brand face
-          (layer-front) centered in it, the cards' no-poster mark. */}
-      <View
-        style={[styles.hero, heroHeight > 0 && { height: heroHeight }, heroRise > 0 && { marginBottom: -heroRise }]}
-        onLayout={(event) => {
-          setHeroWidth(event.nativeEvent.layout.width);
-          setHeroMeasured(true);
-        }}>
+    <View style={IS_TV ? styles.flex : styles.padBody}>
+      {/* The artwork holds still behind the scroll; the scrim and the content's fill ride up over it.
+          Artless items keep the same hero with the brand face (layer-front) centered in it, the cards' no-poster mark. */}
+      <View pointerEvents="none" style={[styles.heroArt, heroHeight > 0 && { height: heroHeight }, !shown && styles.unseen]}>
         {liveFrame ? (
           <View pointerEvents="none" style={[styles.liveArt, { height: heroArtArea }]}>
             <Image
@@ -1166,58 +1204,76 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
             accessibilityLabel={t("a11y.artwork").replace("{title}", title)}
           />
         )}
-        <View style={[StyleSheet.absoluteFill, styles.heroScrim, footScrim]} />
-        {/* Above the fade: a box has edges of its own to show. */}
-        {!liveFrame && heroRef && heroArt && heroBoxed ? (
-          <Animated.View pointerEvents="none" style={[heroCropStyle, heroFadeStyle]}>
-            <Image key={heroUri} source={heroRef} style={StyleSheet.absoluteFill} contentFit="contain" transition={0} accessible accessibilityLabel={t("a11y.artwork").replace("{title}", title)} />
-          </Animated.View>
-        ) : null}
       </View>
-      {/* The card's own lip and rim, re-painted above the opaque artwork and down to the card's foot.
+      <CardDragScroll
+        active={active}
+        pointerEvents={shown ? "auto" : "none"}
+        onContentSizeChange={() => setContentSized(true)}
+        style={[IS_TV ? styles.scroll : styles.padScroll, !shown && styles.unseen]}
+        contentContainerStyle={IS_TV ? [styles.footedContent, !groupChannel && styles.tvContentPad] : groupChannel ? styles.footedContent : styles.cardContentPad}
+        showsVerticalScrollIndicator={false}>
+        {/* Opaque from the hero's foot down, under every focusable, so the content covers the artwork as it scrolls. */}
+        <View pointerEvents="none" style={[styles.contentFill, { top: heroHeight }]} />
+        <View
+          pointerEvents="none"
+          style={[styles.hero, heroHeight > 0 && { height: heroHeight }, heroRise > 0 && { marginBottom: -heroRise }]}
+          onLayout={(event) => {
+            setHeroWidth(event.nativeEvent.layout.width);
+            setHeroMeasured(true);
+          }}>
+          <View style={[StyleSheet.absoluteFill, styles.heroScrim, footScrim]} />
+          {/* Above the fade: a box has edges of its own to show. */}
+          {!liveFrame && heroRef && heroArt && heroBoxed ? (
+            <Animated.View pointerEvents="none" style={[heroCropStyle, heroFadeStyle]}>
+              <Image key={heroUri} source={heroRef} style={StyleSheet.absoluteFill} contentFit="contain" transition={0} accessible accessibilityLabel={t("a11y.artwork").replace("{title}", title)} />
+            </Animated.View>
+          ) : null}
+        </View>
+        {/* The card's own lip and rim, re-painted above the opaque artwork and down to the card's foot.
           Outside the hero, whose clip would end it there; mounted before the title, CTAs and footer so it
           sits under every focusable. */}
-      {IS_TV && <View pointerEvents="none" style={styles.heroEdge} />}
-      {/* Title sits below the hero; on TV it and the CTAs ride up onto its foot (heroRise). */}
-      <View style={[styles.heroTitleWrap, logoUri ? styles.heroLogoBelow : styles.heroTitleBelow, !IS_TV && styles.cardPad]}>
-        {logoUri ? (
-          <Image source={{ uri: logoUri }} style={[styles.heroLogo, { width: logoWidth }]} contentFit="contain" transition={200} accessible accessibilityLabel={title} />
-        ) : (
-          <Text style={styles.heroTitle} numberOfLines={2}>
-            {title}
-          </Text>
-        )}
-        {!!contextLine && <Text style={styles.heroContext}>{contextLine}</Text>}
-      </View>
-      <View style={IS_TV ? styles.tvPad : styles.cardPad}>
-        {!!metaLine && <Text style={[styles.metaLine, styles.metaBlock]}>{metaLine}</Text>}
-        {channelOffline && (
-          <View style={[styles.laneRow, metaLine ? styles.laneBlock : styles.metaBlock]}>
-            <Ionicons name="cloud-offline" size={IS_TV ? 24 : 15} color={COLORS.TEXT_SECONDARY} />
-            <Text style={styles.metaLine}>{t("liveTv.offline")}</Text>
-          </View>
-        )}
-        {(recordingNow || recordTimer?.Status === "InProgress" || !!recordTimer?.SeriesTimerId) && (
-          <View style={[styles.laneRow, styles.laneBlock]}>
-            <View style={[styles.laneDot, { backgroundColor: COLORS.DESTRUCTIVE }]} />
-            <Text style={styles.recordingNowText}>{recordingNow || recordTimer?.Status === "InProgress" ? t("liveTv.recordingNow") : t("liveTv.seriesRules")}</Text>
-          </View>
-        )}
-        {sections}
-      </View>
-      {/* The guide's groups bar in the card's footer. */}
-      {details && groupChannel && (
-        <>
-          {/* Pushes the footer to the card's foot when the content is short. */}
-          <View style={styles.footerGap} />
-          <SectionFooter focusable>
-            <View style={styles.groupFooter}>
-              <ChannelGroupBand channel={groupChannel} nextFocusUp={leadCtaHandle} cornerRadius={IS_TV ? undefined : PAD_CARD_RADIUS} />
+        {IS_TV && <View pointerEvents="none" style={styles.heroEdge} />}
+        {/* Title sits below the hero; on TV it and the CTAs ride up onto its foot (heroRise). */}
+        <View style={[styles.heroTitleWrap, logoUri ? styles.heroLogoBelow : styles.heroTitleBelow, !IS_TV && styles.cardPad]}>
+          {logoUri ? (
+            <Image source={{ uri: logoUri }} style={[styles.heroLogo, { width: logoWidth }]} contentFit="contain" transition={200} accessible accessibilityLabel={title} />
+          ) : (
+            <Text style={styles.heroTitle} numberOfLines={2}>
+              {title}
+            </Text>
+          )}
+          {!!contextLine && <Text style={styles.heroContext}>{contextLine}</Text>}
+        </View>
+        <View style={IS_TV ? styles.tvPad : styles.cardPad}>
+          {!!metaLine && <Text style={[styles.metaLine, styles.metaBlock]}>{metaLine}</Text>}
+          {channelOffline && (
+            <View style={[styles.laneRow, metaLine ? styles.laneBlock : styles.metaBlock]}>
+              <Ionicons name="cloud-offline" size={IS_TV ? 24 : 15} color={COLORS.TEXT_SECONDARY} />
+              <Text style={styles.metaLine}>{t("liveTv.offline")}</Text>
             </View>
-          </SectionFooter>
-        </>
-      )}
-    </CardDragScroll>
+          )}
+          {(recordingNow || recordTimer?.Status === "InProgress" || !!recordTimer?.SeriesTimerId) && (
+            <View style={[styles.laneRow, styles.laneBlock]}>
+              <View style={[styles.laneDot, { backgroundColor: COLORS.DESTRUCTIVE }]} />
+              <Text style={styles.recordingNowText}>{recordingNow || recordTimer?.Status === "InProgress" ? t("liveTv.recordingNow") : t("liveTv.seriesRules")}</Text>
+            </View>
+          )}
+          {sections}
+        </View>
+        {/* The guide's groups bar in the card's footer. */}
+        {details && groupChannel && (
+          <>
+            {/* Pushes the footer to the card's foot when the content is short. */}
+            <View style={styles.footerGap} />
+            <SectionFooter focusable>
+              <View style={styles.groupFooter}>
+                <ChannelGroupBand channel={groupChannel} nextFocusUp={leadCtaHandle} cornerRadius={IS_TV ? undefined : PAD_CARD_RADIUS} />
+              </View>
+            </SectionFooter>
+          </>
+        )}
+      </CardDragScroll>
+    </View>
   );
 
   // The route owns the touch chrome (backdrop, card frame, close button): it stays put while the pages slide.
@@ -1290,9 +1346,29 @@ const styles = StyleSheet.create({
     width: "100%",
     height: IS_TV ? 460 : 240,
     justifyContent: "flex-end",
+    overflow: "hidden",
+  },
+  // The touch card fits its content up to its max height; the scroll inside shrinks to it.
+  padBody: {
+    flexShrink: 1,
+  },
+  // The still artwork layer behind the scroll, the hero's size.
+  heroArt: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: IS_TV ? 460 : 240,
     backgroundColor: COLORS.SURFACE,
     // The top-anchored crop overhangs the foot of the hero.
     overflow: "hidden",
+  },
+  contentFill: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: `${HERO_FADE_RGB}1)`,
   },
   // Bottom stop matches the surface under the hero: the section bg on TV, the sheet on phone.
   heroScrim: {
@@ -1534,7 +1610,7 @@ const styles = StyleSheet.create({
   // rather than truncating, so a file can always be located from what is shown.
   filePath: {
     fontSize: IS_TV ? 18 : 12,
-    color: COLORS.TEXT_QUATERNARY,
+    color: COLORS.TEXT_TERTIARY,
     marginTop: 4,
   },
   detailTable: {

@@ -7,7 +7,7 @@ import type { MediaSegmentWindow } from "@/services/jellyfinApi";
 import { logger } from "@/utils/logger";
 
 /**
- * The protocol between the /player route and PlayerHost. The route drives
+ * The protocol between PlayerHost and the screen that owns its session (the /player route, or Live TV's pinned channel). The route drives
  * playback through these commands and renders from the state the host publishes.
  */
 
@@ -52,6 +52,18 @@ export interface PlayerSessionRequest {
   advance?: boolean;
   /** An item of the play queue: a window with no route left rolls into the next one itself. */
   queueMode?: boolean;
+  /** Plays with AVKit's controls in the frame the screen reports (setInlineFrame), instead of AVKit's presented player. */
+  inline?: boolean;
+  /** Multiview's spot with the sound: the tiles and the sampler keep running beside it. */
+  multiview?: boolean;
+}
+
+/** Where an inline player draws, in window coordinates. */
+export interface InlineFrame {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 /** Which session a route believes it owns. */
@@ -115,10 +127,22 @@ export interface PlayerHostBridge {
   togglePlay: () => void;
   /** Letterbox off and on again: the Mac's double click. */
   toggleVideoFill: () => void;
+  /** Where an inline session plays; null parks it, still playing, while the screen shows none. */
+  setInlineFrame: (frame: InlineFrame | null) => void;
+  /** Drawn over an inline session's picture, never over the presented player; null draws nothing. */
+  setInlineOverlay: (overlay: ReactNode | null) => void;
+  /** An inline session plays without sound; an item that is not inline always has its sound. */
+  setInlineMuted: (muted: boolean) => void;
+  /** An inline session goes to AVKit's presented player. */
+  presentFullscreen: () => void;
+  /** An inline session's presented player closes and the session plays on in its frame; false when none is presented. */
+  dismissFullscreen: () => boolean;
 }
 
 interface PlayerSessionContextValue extends PlayerSessionSnapshot, PlayerHostBridge {
   setHandlers: (handlers: PlayerSessionHandlers | null) => void;
+  /** Unregisters these handlers, and only these: a screen that took over keeps its own. */
+  clearHandlers: (handlers: PlayerSessionHandlers) => void;
 }
 
 const IDLE_SNAPSHOT: PlayerSessionSnapshot = {
@@ -158,7 +182,14 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
    * that describe INTENT are held here and replayed at registration; the rest need a live
    * host by definition. Nothing in this file may depend on mount order.
    */
-  const pendingRef = useRef<{ request?: PlayerSessionRequest; tvConfig?: PlayerTvConfig; routePresented?: boolean }>({});
+  const pendingRef = useRef<{
+    request?: PlayerSessionRequest;
+    tvConfig?: PlayerTvConfig;
+    routePresented?: boolean;
+    inlineFrame?: InlineFrame | null;
+    inlineOverlay?: ReactNode | null;
+    inlineMuted?: boolean;
+  }>({});
 
   const registerHost = useCallback((bridge: PlayerHostBridge | null) => {
     bridgeRef.current = bridge;
@@ -169,6 +200,9 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
     if (pending.request) bridge.requestSession(pending.request);
     if (pending.tvConfig) bridge.setTvConfig(pending.tvConfig);
     if (pending.routePresented) bridge.signalRoutePresented();
+    if (pending.inlineFrame !== undefined) bridge.setInlineFrame(pending.inlineFrame);
+    if (pending.inlineOverlay !== undefined) bridge.setInlineOverlay(pending.inlineOverlay);
+    if (pending.inlineMuted !== undefined) bridge.setInlineMuted(pending.inlineMuted);
   }, []);
 
   /** Commands that only mean something while a host is live. A miss is a bug, not a state. */
@@ -183,6 +217,9 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
 
   const setHandlers = useCallback((handlers: PlayerSessionHandlers | null) => {
     handlersRef.current = handlers;
+  }, []);
+  const clearHandlers = useCallback((handlers: PlayerSessionHandlers) => {
+    if (handlersRef.current === handlers) handlersRef.current = null;
   }, []);
 
   // Latest wins for all three: they are the current intent, not a log of calls.
@@ -244,6 +281,32 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
   const seekBy = useCallback((offsetSeconds: number) => withHost("seekBy", (bridge) => bridge.seekBy(offsetSeconds)), [withHost]);
   const togglePlay = useCallback(() => withHost("togglePlay", (bridge) => bridge.togglePlay()), [withHost]);
   const toggleVideoFill = useCallback(() => withHost("toggleVideoFill", (bridge) => bridge.toggleVideoFill()), [withHost]);
+  const setInlineFrame = useCallback((frame: InlineFrame | null) => {
+    const bridge = bridgeRef.current;
+    if (!bridge) {
+      pendingRef.current.inlineFrame = frame;
+      return;
+    }
+    bridge.setInlineFrame(frame);
+  }, []);
+  const setInlineOverlay = useCallback((overlay: ReactNode | null) => {
+    const bridge = bridgeRef.current;
+    if (!bridge) {
+      pendingRef.current.inlineOverlay = overlay;
+      return;
+    }
+    bridge.setInlineOverlay(overlay);
+  }, []);
+  const setInlineMuted = useCallback((muted: boolean) => {
+    const bridge = bridgeRef.current;
+    if (!bridge) {
+      pendingRef.current.inlineMuted = muted;
+      return;
+    }
+    bridge.setInlineMuted(muted);
+  }, []);
+  const presentFullscreen = useCallback(() => withHost("presentFullscreen", (bridge) => bridge.presentFullscreen()), [withHost]);
+  const dismissFullscreen = useCallback(() => bridgeRef.current?.dismissFullscreen() ?? false, []);
 
   const value = useMemo(
     () => ({
@@ -262,7 +325,13 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
       seekBy,
       togglePlay,
       toggleVideoFill,
+      setInlineFrame,
+      setInlineOverlay,
+      setInlineMuted,
+      presentFullscreen,
+      dismissFullscreen,
       setHandlers,
+      clearHandlers,
     }),
     [
       snapshot,
@@ -280,7 +349,13 @@ export function PlayerSessionProvider({ children }: { children: ReactNode }) {
       seekBy,
       togglePlay,
       toggleVideoFill,
+      setInlineFrame,
+      setInlineOverlay,
+      setInlineMuted,
+      presentFullscreen,
+      dismissFullscreen,
       setHandlers,
+      clearHandlers,
     ],
   );
 

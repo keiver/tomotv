@@ -63,6 +63,39 @@ final class LivePlaylistTests: XCTestCase {
         XCTAssertLessThan(out.range(of: "#EXT-X-START")!.lowerBound, out.range(of: "#EXTINF")!.lowerBound)
     }
 
+    func testAStartOffsetUnderTwoAndAHalfTargetsIsLeftOutForThePlayerToPick() {
+        XCTAssertNil(RemuxSession.publishedLiveStart(2, target: 4))
+        XCTAssertNil(RemuxSession.publishedLiveStart(8, target: 4))
+        XCTAssertEqual(RemuxSession.publishedLiveStart(10, target: 4), 10)
+        XCTAssertNil(RemuxSession.publishedLiveStart(nil, target: 4))
+    }
+
+    func testTheTargetRoundsTheLongestSegmentTheCutAllowsToTheNearestSecondOnlyWhenAsked() throws {
+        let cases: [(nearest: Bool, cut: Double, gap: Double, target: Int)] = [
+            (false, 0, 2, 3), (true, 0, 2, 3), (false, 0.4, 2, 3), (true, 0.4, 2.002, 2), (true, 0.4, 1, 1), (true, 0.4, 0.5, 1), (true, 0.4, 4, 4),
+        ]
+        for c in cases {
+            var config = makeConfig(durationSeconds: 0, isLive: true, liveSegmentSeconds: 1)
+            config.liveTargetNearest = c.nearest
+            config.liveCopyCutSeconds = c.cut
+            let s = try RemuxSession(config: config)
+            defer { s.stop() }
+            s.stateLock.lock()
+            s.maxKeyframeGapSeconds = c.gap
+            s.stateLock.unlock()
+            XCTAssertEqual(s.liveTarget(), c.target, "nearest \(c.nearest), cut \(c.cut), keyframe gap \(c.gap)")
+        }
+    }
+
+    func testTheCopyCutThresholdLeavesTheTranscodeLaneOnTheSegmentTarget() throws {
+        var config = makeConfig(durationSeconds: 0, isLive: true, liveSegmentSeconds: 1)
+        config.liveCopyCutSeconds = 0.4
+        let s = try RemuxSession(config: config)
+        defer { s.stop() }
+        XCTAssertEqual(s.liveCutSeconds(transcoding: false), 0.4)
+        XCTAssertEqual(s.liveCutSeconds(transcoding: true), 1)
+    }
+
     func testTheStartOffsetIsFixedByTheFirstPlaylistAndCoversWhatItListed() throws {
         let s = try RemuxSession(config: makeConfig(durationSeconds: 0, isLive: true, liveSegmentSeconds: 2))
         defer { s.stop() }

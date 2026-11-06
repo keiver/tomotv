@@ -68,6 +68,11 @@ describe("errorClassification", () => {
     it("names a channel whose provider a recording holds", () => {
       expect(classifyPlaybackError(new Error("live origin is held by a recording"))).toBe(PlaybackErrorType.RECORDING_HOLD);
     });
+
+    it("names a recording whose file holds no video, and no other message", () => {
+      expect(classifyPlaybackError(new Error("Recording has no video"))).toBe(PlaybackErrorType.EMPTY_RECORDING);
+      expect(classifyPlaybackError(new Error("This recording has no video signal yet"))).not.toBe(PlaybackErrorType.EMPTY_RECORDING);
+    });
   });
 
   describe("getPlaybackErrorMessage", () => {

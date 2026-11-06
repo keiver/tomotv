@@ -21,6 +21,7 @@
     "audio": [
       {
         "action": "encode",
+        "active": true,
         "encoder": "flac",
         "output": {
           "bitDepth": 24,
@@ -66,7 +67,7 @@
     "lastPtsSec": 30
   },
   "audio": {
-    "frames": 287,
-    "lastPtsSec": 29.91
+    "frames": 288,
+    "lastPtsSec": 29.99
   }
 }

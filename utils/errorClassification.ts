@@ -28,6 +28,8 @@ export enum PlaybackErrorType {
   PROVIDER_LIMIT = "PROVIDER_LIMIT",
   /** A recording holds the channel's provider, whose limit is one connection. */
   RECORDING_HOLD = "RECORDING_HOLD",
+  /** A recording's file holds a provider's refusal, not video. */
+  EMPTY_RECORDING = "EMPTY_RECORDING",
   UNKNOWN = "UNKNOWN",
 }
 
@@ -36,6 +38,10 @@ const ERROR_PATTERNS: { type: PlaybackErrorType; patterns: RegExp[] }[] = [
   {
     type: PlaybackErrorType.RECORDING_HOLD,
     patterns: [/held by a recording/i],
+  },
+  {
+    type: PlaybackErrorType.EMPTY_RECORDING,
+    patterns: [/^Recording has no video$/],
   },
   {
     type: PlaybackErrorType.PROTECTED,
@@ -135,6 +141,7 @@ const PLAYBACK_ERROR_KEYS: Record<PlaybackErrorType, StringKey> = {
   [PlaybackErrorType.PROTECTED]: "player.error.protected",
   [PlaybackErrorType.PROVIDER_LIMIT]: "player.error.providerLimit",
   [PlaybackErrorType.RECORDING_HOLD]: "player.error.providerLimit",
+  [PlaybackErrorType.EMPTY_RECORDING]: "player.error.emptyRecording",
   [PlaybackErrorType.UNKNOWN]: "player.error.unknown",
 };
 

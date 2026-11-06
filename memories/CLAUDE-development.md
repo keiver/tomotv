@@ -93,6 +93,13 @@ See: `app.json` → `ios.infoPlist.NSAppTransportSecurity`
 
 ---
 
+## Native code
+
+- Any Swift file subclassing RCTEventEmitter needs a literal `import React`.
+- After a native change: `swift build --package-path packages/tomo-engine` (or `--package-path native/ios`), then only the touched Swift tests.
+
+---
+
 ## App Store Submission
 
 Before submitting to App Store, verify:

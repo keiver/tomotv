@@ -63,10 +63,18 @@ const mockStopSession = jest.fn();
 const mockSeekBy = jest.fn();
 const mockTogglePlay = jest.fn();
 const mockToggleVideoFill = jest.fn();
+const mockDismissFullscreen = jest.fn(() => false);
 const mockHandlersRef = { current: null as { onRequestBack: () => void } | null };
 const mockSession = { hostMode: "idle" as string };
 jest.mock("@/contexts/PlayerSessionContext", () => ({
-  usePlayerSession: () => ({ hostMode: mockSession.hostMode, stopSession: mockStopSession, seekBy: mockSeekBy, togglePlay: mockTogglePlay, toggleVideoFill: mockToggleVideoFill }),
+  usePlayerSession: () => ({
+    hostMode: mockSession.hostMode,
+    stopSession: mockStopSession,
+    seekBy: mockSeekBy,
+    togglePlay: mockTogglePlay,
+    toggleVideoFill: mockToggleVideoFill,
+    dismissFullscreen: mockDismissFullscreen,
+  }),
   usePlayerSessionHost: () => ({ handlersRef: mockHandlersRef }),
 }));
 
@@ -112,6 +120,17 @@ describe("Mac key dispatch", () => {
     act(() => mockPress?.("escape"));
     expect(onRequestBack).toHaveBeenCalledTimes(1);
     expect(mockRouter.back).not.toHaveBeenCalled();
+  });
+
+  it("closes only the presented player on Escape over a pinned channel, leaving the route's session alone", () => {
+    mockSession.hostMode = "video";
+    mockDismissFullscreen.mockReturnValueOnce(true);
+    const onRequestBack = jest.fn();
+    mockHandlersRef.current = { onRequestBack };
+    mount();
+    act(() => mockPress?.("escape"));
+    expect(mockDismissFullscreen).toHaveBeenCalledTimes(1);
+    expect(onRequestBack).not.toHaveBeenCalled();
   });
 
   it("ends the session itself when no route is listening", () => {

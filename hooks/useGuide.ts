@@ -314,13 +314,13 @@ export function useGuide(): GuideState {
         await landPrograms(items);
         return { hasMore: false, pageLength: items.length };
       }
-      const { items, total } = await cachedRequest(
+      const { items, total, fetched } = await cachedRequest(
         `guide:channels:page:${channelSortParam(sort)}:all:${startIndex}`,
         () => fetchChannels({ startIndex, limit: GUIDE_CHANNEL_PAGE, sortBy: channelSortParam(sort) }),
         GUIDE_READ_TTL_MS,
       );
-      const loaded = startIndex + items.length;
-      let hasMore = total !== undefined ? loaded < total : items.length >= GUIDE_CHANNEL_PAGE;
+      const loaded = startIndex + fetched;
+      let hasMore = total !== undefined ? loaded < total : fetched >= GUIDE_CHANNEL_PAGE;
       let page = items;
       let waiting = false;
       if (!hasMore) {
@@ -332,7 +332,7 @@ export function useGuide(): GuideState {
       }
       land.channels(page);
       await landPrograms(page);
-      return { hasMore, pageLength: page.length, waiting };
+      return { hasMore, pageLength: fetched + page.length - items.length, waiting };
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [sort, list, category, categoryEdit, playlistIds, fetchPrograms, editsKey],

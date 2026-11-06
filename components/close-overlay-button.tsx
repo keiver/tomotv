@@ -5,16 +5,33 @@ import { t } from "@/services/i18n";
 
 interface CloseOverlayButtonProps {
   onPress: () => void;
-  /** Placement (position/top/left/right) — the circle is GlassIconButton's. */
+  /** Placement (position/top/left/right); the circle is GlassIconButton's. */
   style?: StyleProp<ViewStyle>;
   accessibilityHint?: string;
+  /** A smaller circle for tight rows, its ✕ scaled with it; the touch target stays 44pt and more. */
+  compact?: boolean;
+  /** The ✕'s colour; the primary text colour by default. */
+  color?: string;
+  /** The circle's diameter, its ✕ scaled with it; overrides `compact`. */
+  size?: number;
 }
 
 /**
  * Floating ✕ for the info panel, on the same material as the photo viewer's close and the mini
  * player's pill: it sits over the item's hero, which is the case the glass is for.
- * TV never renders it — the remote's Menu/back pops the screen natively.
+ * TV never renders it: the remote's Menu/back pops the screen natively.
  */
-export function CloseOverlayButton({ onPress, style, accessibilityHint }: CloseOverlayButtonProps) {
-  return <GlassIconButton icon="close" iconSize={26} style={style} onPress={onPress} accessibilityLabel={t("common.close")} accessibilityHint={accessibilityHint} />;
+export function CloseOverlayButton({ onPress, style, accessibilityHint, compact = false, color, size }: CloseOverlayButtonProps) {
+  return (
+    <GlassIconButton
+      icon="close"
+      color={color}
+      iconSize={size ? Math.round(size * 0.58) : compact ? 18 : 26}
+      size={size ?? (compact ? 32 : undefined)}
+      style={style}
+      onPress={onPress}
+      accessibilityLabel={t("common.close")}
+      accessibilityHint={accessibilityHint}
+    />
+  );
 }

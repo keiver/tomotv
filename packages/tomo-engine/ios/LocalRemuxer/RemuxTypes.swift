@@ -131,6 +131,8 @@ struct RemuxConfig {
     /// Producer read-ahead depth in segments; 0 means the built-in default.
     /// Config-driven from JS so the cushion is tunable without a rebuild.
     let readAheadSegments: Int
+    /// Segments produced before any player has asked for one; 0 means no limit beyond `readAheadSegments`.
+    var idleReadAheadSegments: Int = 0
     /// Slipstream ladder (memories/CLAUDE-slipstream.md): server transcode
     /// variants, sorted ascending by bandwidth. Empty (every non-gateway
     /// session) keeps the fixed 6s grid untouched. The first rung's playlist
@@ -169,6 +171,17 @@ struct RemuxConfig {
     var livePlaylist = false
     /// Live: seconds of output the media playlists wait for before they answer, the player's start buffer; 0 answers on the first segment.
     var liveBufferSeconds: Double = 0
+    /// Live copy lane: the cut threshold past a segment's open keyframe; 0 is `liveSegmentSeconds`. The transcode lane keeps the target.
+    var liveCopyCutSeconds: Double = 0
+    /// Live: TARGETDURATION is the nearest integer of the longest segment the cut allows, not its ceiling (RFC 8216 4.3.3.1).
+    var liveTargetNearest = false
+    /// Live: serve LL-HLS parts (draft-pantos-hls-rfc8216bis 4.4.4.9) when the input is continuous (MPEG-TS).
+    var liveLowLatency = false
+    /// Live LL-HLS: the PART-TARGET, fixed for the session.
+    var livePartSeconds: Double = 0.5
+    /// Live LL-HLS: the least TARGETDURATION, fixed at the first answer, which comes at the first part, before a second keyframe
+    /// shows the source's interval. 0: the first answer waits for the first full segment and the target is fixed from it.
+    var liveLowLatencyTargetSeconds = 4
     var primaryVideoCodecs = ""
     var primaryVideoBandwidth = 0
     var sourceBandwidth = 0

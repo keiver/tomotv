@@ -61,7 +61,7 @@ extension RemuxSession {
         // Segment times count from the session anchor; cues, audio and read spans are in source time.
         let anchor = sessionAnchorSeconds ?? 0
         let playhead = segmentStartSeconds(lastRequestedSegment) + anchor
-        let known = embedded ? readSpanLocked(containing: playhead) : nil
+        let known = embedded ? readSpanLocked(containing: playhead, streamIndex: streamIndex) : nil
         stateLock.unlock()
         if embedded && known == nil { return .failed("notRead") }
 
@@ -119,11 +119,10 @@ extension RemuxSession {
         return .aligned(offsetMs: found.offsetMs, confidence: found.confidence)
     }
 
-    /// The stretch of source time the read loop has passed without a break that holds `time`, the
-    /// only part of an embedded track whose cues are known. Caller holds stateLock.
-    func readSpanLocked(containing time: Double) -> ClosedRange<Double>? {
-        var spans = readSpans
-        if let from = readSpanFrom { spans.append((from: from, upTo: readSpanUpTo)) }
+    /// The stretch of source time the read loop has passed without a break that holds `time`, with the
+    /// track's decoder open when `streamIndex` is given: the only part of its cues that is known. Caller holds stateLock.
+    func readSpanLocked(containing time: Double, streamIndex: Int? = nil) -> ClosedRange<Double>? {
+        let spans = readSpansLocked(streamIndex: streamIndex)
         var merged: [(from: Double, upTo: Double)] = []
         for span in spans.sorted(by: { $0.from < $1.from }) {
             if let last = merged.last, span.from <= last.upTo {

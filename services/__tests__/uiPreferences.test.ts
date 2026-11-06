@@ -1,15 +1,15 @@
-/** The device preferences: posters on and the server asked when needed by default, a stored document reads back, a change persists and notifies. */
+/** The device preferences: posters on and the server asked only for unsupported files by default, a stored document reads back, a change persists and notifies. */
 import { DEFAULT_UI_PREFERENCES, getUiPreferences, parseUiPreferences, subscribeUiPreferences, UI_PREFERENCES_KEY, updateUiPreferences } from "@/services/uiPreferences";
 import { Settings } from "react-native";
 
 jest.mock("@/utils/logger", () => ({ logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
 
 describe("uiPreferences", () => {
-  it("starts with device generated posters on, server transcoding as the server allows, the gold cards and the folder colour on", () => {
+  it("starts with device generated posters on, server transcoding only for unsupported files, the gold cards and the folder colour on", () => {
     expect(DEFAULT_UI_PREFERENCES).toEqual({
-      version: 1,
+      version: 2,
       devicePosters: true,
-      serverTranscoding: "linkOrFile",
+      serverTranscoding: "fileOnly",
       cardTheme: { id: "gold", name: "", accent: "#FFC312" },
       background: "artwork",
       showLyrics: true,
@@ -22,7 +22,15 @@ describe("uiPreferences", () => {
       cardSize: 1,
     });
     expect(getUiPreferences().devicePosters).toBe(true);
-    expect(getUiPreferences().serverTranscoding).toBe("linkOrFile");
+    expect(getUiPreferences().serverTranscoding).toBe("fileOnly");
+  });
+
+  it("reads a version 1 document's When needed as Only for unsupported files, and keeps every other level and every version 2 choice", () => {
+    expect(parseUiPreferences(JSON.stringify({ version: 1, serverTranscoding: "linkOrFile" })).serverTranscoding).toBe("fileOnly");
+    expect(parseUiPreferences(JSON.stringify({ serverTranscoding: "linkOrFile" })).serverTranscoding).toBe("fileOnly");
+    expect(parseUiPreferences(JSON.stringify({ version: 1, serverTranscoding: "never" })).serverTranscoding).toBe("never");
+    expect(parseUiPreferences(JSON.stringify({ version: 2, serverTranscoding: "linkOrFile" })).serverTranscoding).toBe("linkOrFile");
+    expect(parseUiPreferences(JSON.stringify({ version: 1, serverTranscoding: "linkOrFile" })).version).toBe(2);
   });
 
   it("reads the card size as any zoom from the smallest card up to the trusted largest, and falls back on 1 otherwise", () => {

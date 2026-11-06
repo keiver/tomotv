@@ -1,6 +1,7 @@
 import { COLORS } from "@/constants/colors";
 import { useFinishLogin } from "@/hooks/useFinishLogin";
 import { saveAuthResult } from "@/services/jellyfinApi";
+import { SUITE_LINKS_ENABLED } from "@/utils/hostEnvironment";
 import { logger } from "@/utils/logger";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect } from "react";
@@ -17,7 +18,7 @@ type DevSessionParams = {
 };
 
 /**
- * Dev builds only: installs a session minted outside the app, so a simulator signs in
+ * Dev and simulator builds only: installs a session minted outside the app, so a simulator signs in
  * from a shell. tomotv://dev-session?server=&token=&userId=&userName=&serverName=&serverId=&deviceId=
  */
 export default function DevSessionScreen() {
@@ -26,7 +27,7 @@ export default function DevSessionScreen() {
   const router = useRouter();
 
   useEffect(() => {
-    if (!__DEV__ || !server || !token || !userId) {
+    if (!SUITE_LINKS_ENABLED || !server || !token || !userId) {
       router.dismissTo("/");
       return;
     }

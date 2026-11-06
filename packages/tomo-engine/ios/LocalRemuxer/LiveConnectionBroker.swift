@@ -99,6 +99,16 @@ final class LiveConnectionBroker {
         victims.forEach { $0.onRevoke() }
     }
 
+    /// The provider stated its limit without a refusal: kept as a learned budget, never above one already known.
+    func learnBudget(_ budget: Int, for key: String) {
+        guard budget > 0 else { return }
+        cond.lock()
+        learnLocked(key: key, limit: budget)
+        let victims = previewsWithoutSpareLocked(key: key, limit: budgets[key] ?? budget) + heldVictimsLocked(key)
+        cond.unlock()
+        victims.forEach { $0.onRevoke() }
+    }
+
     func isHeld(_ key: String) -> Bool {
         cond.lock()
         defer { cond.unlock() }

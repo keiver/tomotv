@@ -6,7 +6,7 @@ const liveListeners = mockLiveListeners;
 const failureListeners = mockFailureListeners;
 const mockStopped: string[] = [];
 jest.mock("@keiver/tomo-engine", () => ({
-  LIVE_BUFFER_SECONDS: 15,
+  LIVE_BUFFER_SECONDS: 2,
   isRecordingHoldFailure: jest.requireActual("@keiver/tomo-engine").isRecordingHoldFailure,
   engineProgress: async () => null,
   localRemuxToken: (url: string) => /^http:\/\/127\.0\.0\.1\/([^/]+)\//.exec(url)?.[1] ?? null,
@@ -24,8 +24,9 @@ jest.mock("@keiver/tomo-engine", () => ({
 }));
 
 import { LIVE_RECOVERY_RESET_MS } from "../src/liveRecovery";
-import { LiveDropCounter, LivePlayback, watchLiveSession } from "../src/liveSession";
+import { LiveDropCounter, LivePlayback, startBufferedSeconds, watchLiveSession } from "../src/liveSession";
 import type { RingSession } from "../src/liveRing";
+import { noteLiveStall, resetLiveStartBuffersForTests } from "../src/startBuffer";
 
 beforeEach(() => {
   liveListeners.clear();
@@ -188,24 +189,46 @@ describe("LivePlayback open and play", () => {
     return urls;
   }
 
-  it("hands the URL over only once the session holds 15 s", async () => {
+  it("passes the start gate at once for an LL-HLS session and counts the buffer otherwise", () => {
+    const progress = { alive: true, bytesRead: 1, readSeconds: 0, elapsedSeconds: 0.4, bufferedSeconds: 0.5 };
+    expect(startBufferedSeconds({ ...progress, lowLatency: true })).toBe(Number.POSITIVE_INFINITY);
+    expect(startBufferedSeconds(progress)).toBe(0.5);
+    expect(startBufferedSeconds(null)).toBeNull();
+  });
+
+  it("hands the URL over only once the session holds 2 s", async () => {
     let buffered = 0;
     const urls = buffering(() => buffered);
     await flush();
-    buffered = 14.9;
+    buffered = 1.9;
     jest.advanceTimersByTime(250);
     await flush();
     expect(urls).toEqual([]);
-    buffered = 15;
+    buffered = 2;
     jest.advanceTimersByTime(250);
     await flush();
     expect(urls).toEqual(["http://127.0.0.1/t-ls-1/master.m3u8"]);
   });
 
-  it("hands the URL over at the 35 s deadline when the session never holds 15 s", async () => {
-    const urls = buffering(() => 8);
+  it("waits for the 6 s step on a channel that stalled early on an earlier start", async () => {
+    noteLiveStall("c1", 0);
+    let buffered = 2;
+    const urls = buffering(() => buffered);
     await flush();
-    for (let step = 0; step < 139; step++) {
+    jest.advanceTimersByTime(250);
+    await flush();
+    expect(urls).toEqual([]);
+    buffered = 6;
+    jest.advanceTimersByTime(250);
+    await flush();
+    expect(urls).toEqual(["http://127.0.0.1/t-ls-1/master.m3u8"]);
+    resetLiveStartBuffersForTests();
+  });
+
+  it("hands the URL over at the 22 s deadline when the session never holds 2 s", async () => {
+    const urls = buffering(() => 1);
+    await flush();
+    for (let step = 0; step < 87; step++) {
       jest.advanceTimersByTime(250);
       await flush();
     }
@@ -524,6 +547,27 @@ it("asks for a fresh start with a growing wait when a session ends, across the c
     { reopen: true, delayMs: 500 },
     { reopen: true, delayMs: 1000 },
   ]);
+});
+
+it("ends a channel that never played after its fifth failed open, and keeps reopening one that played", () => {
+  const unplayed = new LiveDropCounter();
+  const onEnded = jest.fn();
+  for (let n = 0; n < 5; n++) {
+    watchLiveSession(`u${n}`, unplayed, { onEnded });
+    failureListeners.get(`u${n}`)!({ token: `u${n}`, message: "engine failed: open_input: Invalid data found when processing input" });
+  }
+  expect(onEnded.mock.calls.map(([, decision]) => decision.reopen)).toEqual([true, true, true, true, false]);
+
+  const played = new LiveDropCounter();
+  played.notePlaying();
+  onEnded.mockClear();
+  for (let n = 0; n < 5; n++) {
+    watchLiveSession(`p${n}`, played, { onEnded });
+    failureListeners.get(`p${n}`)!({ token: `p${n}`, message: "live input lost: the origin ended the stream" });
+  }
+  expect(onEnded.mock.calls.every(([, decision]) => decision.reopen)).toBe(true);
+  played.reset();
+  expect(played.played).toBe(false);
 });
 
 it("starts the wait over once the channel played a minute without a drop", () => {

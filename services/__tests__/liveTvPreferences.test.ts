@@ -62,9 +62,23 @@ describe("live TV preferences", () => {
       guideSourcesOff: [],
       recordingMinutes: 120,
       hideOffline: false,
-      compactColumn: false,
+      columnStop: "default",
       connectionLimits: {},
+      multiview: { layout: "bigThree", spots: [], chosen: [] },
+      multiviewQueue: [],
     });
+    // Multiview keeps a known layout, as many spots as it has, and picks only for channels in a spot.
+    expect(parseLiveTvPreferences({ multiview: { layout: "bigTwo", spots: ["a", "", "c", "d"], chosen: ["a", "z", 3] } }).multiview).toEqual({
+      layout: "bigTwo",
+      spots: ["a", null, "c"],
+      chosen: ["a"],
+    });
+    expect(parseLiveTvPreferences({ multiview: { layout: "grid9", spots: "a" } }).multiview).toEqual({ layout: "bigThree", spots: [], chosen: [] });
+    // A layout from an earlier build reads as the default, its spots kept up to the default's count.
+    expect(parseLiveTvPreferences({ multiview: { layout: "two", spots: ["a", "b"], chosen: ["a"], strip: false } }).multiview).toEqual({ layout: "bigThree", spots: ["a", "b"], chosen: ["a"] });
+    // A queued programme survives whole and not yet over.
+    const ahead = { channelId: "c", name: "Match", startMs: Date.now() + 60_000, endMs: Date.now() + 3_600_000 };
+    expect(parseLiveTvPreferences({ multiviewQueue: [ahead, { ...ahead, endMs: Date.now() - 1 }, { ...ahead, name: 7 }, null] }).multiviewQueue).toEqual([ahead]);
     // A connection limit survives only as a listed number under a host; anything else is dropped.
     expect(parseLiveTvPreferences({ connectionLimits: { "iptv.example": 1, "two.example": 5, "six.example": 6, "text.example": "2", "": 1 } }).connectionLimits).toEqual({
       "iptv.example": 1,
@@ -93,8 +107,28 @@ describe("live TV preferences", () => {
     // Hide offline survives only as a boolean; anything else falls back to off.
     expect(parseLiveTvPreferences({ hideOffline: true }).hideOffline).toBe(true);
     expect(parseLiveTvPreferences({ hideOffline: "yes" }).hideOffline).toBe(false);
-    expect(parseLiveTvPreferences({ compactColumn: true }).compactColumn).toBe(true);
-    expect(parseLiveTvPreferences({ compactColumn: 1 }).compactColumn).toBe(false);
+    // The column's stop survives only as one of its three; a collapsed column from before the three stops reads as closed.
+    expect(parseLiveTvPreferences({ columnStop: "wide" }).columnStop).toBe("wide");
+    expect(parseLiveTvPreferences({ columnStop: "huge" }).columnStop).toBe("default");
+    expect(parseLiveTvPreferences({ compactColumn: true }).columnStop).toBe("closed");
+    expect(parseLiveTvPreferences({ compactColumn: 1 }).columnStop).toBe("default");
+  });
+
+  it("opens the guide's channel column at the wide stop on iPad and Mac, and at the default stop on iPhone and Apple TV", () => {
+    const stopOn = (device: string) => {
+      let stop: string | undefined;
+      jest.isolateModules(() => {
+        jest.doMock("@/utils/hostEnvironment", () => ({ THIS_DEVICE: device }));
+        const preferences = require("@/services/liveTvPreferences") as typeof import("@/services/liveTvPreferences");
+        stop = preferences.parseLiveTvPreferences({ compactColumn: false }).columnStop;
+        expect(preferences.parseLiveTvPreferences({ columnStop: "default" }).columnStop).toBe("default");
+      });
+      return stop;
+    };
+    expect(stopOn("iPad")).toBe("wide");
+    expect(stopOn("Mac")).toBe("wide");
+    expect(stopOn("iPhone")).toBe("default");
+    expect(stopOn("Apple TV")).toBe("default");
   });
 
   it("reads a favorites-only document from the previous build as the Favorites filter", () => {
@@ -376,6 +410,19 @@ describe("favorites and groups per user", () => {
     expect(again.preferences.getLiveTvPreferences().hidden).toEqual([{ id: "x", number: "9.1", name: "KQED" }]);
     expect(again.preferences.getLiveTvPreferences().renames).toEqual([{ name: "Al Jazeera English", displayName: "AJE" }]);
   });
+
+  it("keeps each user's Multiview spots and queue apart, and reads them back after a relaunch", () => {
+    const { preferences, signIn } = load();
+    const arrangement = { layout: "rowThree" as const, spots: ["x", "y", null, "p", null, null], chosen: ["x"] };
+    const queued = { channelId: "y", name: "Match", startMs: Date.now() + 60_000, endMs: Date.now() + 3_600_000 };
+    signIn("a");
+    preferences.updateLiveTvPreferences({ multiview: arrangement, multiviewQueue: [queued] });
+    signIn("b");
+    expect(preferences.getLiveTvPreferences()).toMatchObject({ multiview: DEFAULT_LIVE_TV_PREFERENCES.multiview, multiviewQueue: [] });
+    const again = load();
+    again.signIn("a");
+    expect(again.preferences.getLiveTvPreferences()).toMatchObject({ multiview: arrangement, multiviewQueue: [queued] });
+  });
 });
 
 describe("hidden and renamed channels", () => {
@@ -398,6 +445,18 @@ describe("hidden and renamed channels", () => {
     expect(isHiddenChannel(getLiveTvPreferences(), kqedPlus)).toBe(false);
     unhideChannel({ number: "9.1", name: "KQED" });
     expect(getLiveTvPreferences().hidden).toEqual([]);
+  });
+
+  it("empties the multiview spot of a channel when it is hidden, and of a hidden channel stored in a spot", () => {
+    updateLiveTvPreferences({ multiview: { layout: "bigThree", spots: ["a", "x", null, "c"], chosen: ["a", "x"] } });
+    hideChannel({ Id: "x", ...kqed });
+    expect(getLiveTvPreferences().multiview).toEqual({ layout: "bigThree", spots: ["a", null, null, "c"], chosen: ["a"] });
+    unhideChannel({ number: "9.1", name: "KQED" });
+    expect(parseLiveTvPreferences({ hidden: [{ id: "c", name: "Hidden" }], multiview: { layout: "bigThree", spots: ["a", "b", "c"], chosen: ["c"] } }).multiview).toEqual({
+      layout: "bigThree",
+      spots: ["a", "b", null],
+      chosen: [],
+    });
   });
 
   it("renames a channel, keys the rename by the server's name, and removes it for an empty or unchanged name", () => {

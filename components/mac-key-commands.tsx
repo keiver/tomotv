@@ -27,7 +27,7 @@ export interface MacKeyState {
 }
 
 /**
- * The rule, exported so it can be read and tested on its own — the same reason
+ * The rule, exported so it can be read and tested on its own, the same reason
  * leavingByPan is exported from dismiss-pan.tsx, and it decides the same thing:
  * whether a live session is about to be torn down.
  *
@@ -84,8 +84,7 @@ export function macKeyAction(key: MacKey, state: MacKeyState): MacKeyAction {
 }
 
 /**
- * Hardware keys on the Mac, where the player is inline and carries no ✕ and no
- * Menu button.
+ * Hardware keys on the Mac, which has no Menu button.
  *
  * The single subscriber on purpose: two of them would let one press both pop the
  * player and pop the route behind it. Mounted beside PlayerHost, above the
@@ -100,7 +99,7 @@ export function MacKeyCommands() {
 }
 
 function MacKeyCommandsListener() {
-  const { hostMode, stopSession, seekBy, togglePlay, toggleVideoFill } = usePlayerSession();
+  const { hostMode, stopSession, seekBy, togglePlay, toggleVideoFill, dismissFullscreen } = usePlayerSession();
   const { handlersRef } = usePlayerSessionHost();
 
   // Read when a key arrives rather than resubscribed on every playback state change.
@@ -157,6 +156,7 @@ function MacKeyCommandsListener() {
           // Exactly what the drag gesture and the tvOS Menu press do. handleBack in
           // app/player.tsx pops its OWN navigator, which is what keeps a folder from
           // going with it.
+          if (dismissFullscreen()) return;
           handlersRef.current?.onRequestBack();
           return;
         case "endSession":
@@ -219,7 +219,7 @@ function MacKeyCommandsListener() {
           return;
       }
     });
-  }, [handlersRef, stopSession, seekBy, togglePlay, toggleVideoFill]);
+  }, [handlersRef, stopSession, seekBy, togglePlay, toggleVideoFill, dismissFullscreen]);
 
   return null;
 }

@@ -25,11 +25,14 @@ extension RemuxSession {
         let inRange = config.isLive ? n >= firstRetainedSegment : n < segmentCount
         let done = rendition?.completed.contains(n) == true
         let dead = failed || cancelled
+        let landing = rendition.flatMap { landingSegmentLocked(n, $0) }
+        if landing != nil, !sourceReleased { lastPrimaryDemandAt = Date() }
         // The copy serving counts too: a rung left for the copy is as idle as one left for another rung.
         if prefix.isEmpty, !config.isLive, !config.tiers.isEmpty { segmentsServed += 1 }
         stateLock.unlock()
         // A segment no stream will fill is answered by segmentURL with a stand-in, never a 404.
         if dead || !inRange { return .notFound }
+        if let landing { return .data(landing, contentType: "video/iso.segment") }
         if prefix.isEmpty, !config.isLive, !config.tiers.isEmpty { stopIdleRungs() }
         if done, let rendition {
             let file = dir.appendingPathComponent(rendition.segmentName(n))
@@ -94,6 +97,7 @@ extension RemuxSession {
             }
         }
         let deadline = Date().addingTimeInterval(20)
+        awaitCopyGrid(deadline: 20)
         var availableRendition = rendition(withPrefix: prefix)
         while availableRendition == nil {
             stateLock.lock()
@@ -259,11 +263,11 @@ extension RemuxSession {
     @discardableResult
     func seekForStrandedLocked(_ n: Int, prefix: String, producing: Int) -> Bool {
         let behind = n < producing
-        let ahead = n > producing + Self.seekAheadSegments
+        let ahead = n > producing + seekAheadWindow
         guard behind || ahead else { return false }
         // A segment cut and still landing on disk is made, not missing: the wait sees it complete.
         if behind, renditions.first(where: { $0.prefix == prefix })?.writing.contains(n) == true { return false }
-        if ahead, activationGeneration, n <= activationSpanEnd + Self.seekAheadSegments { return false }
+        if ahead, activationGeneration, n <= activationSpanEnd + seekAheadWindow { return false }
         // A jump empties AVPlayer's buffer; refilling it is a start, not a drain.
         playerBufferFilled = false
         if behind, !prefix.isEmpty, renditions.first.map({ $0.completed.contains(n) || $0.writing.contains(n) }) == true {

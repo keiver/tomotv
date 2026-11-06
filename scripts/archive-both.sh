@@ -7,9 +7,15 @@
 #   npm run archive -- <buildNumber> --upload   # same, then upload all three to App Store Connect
 #                                               # (--upload also composes and uploads the
 #                                               #  screenshots and the listing text, every
-#                                               #  store language)
+#                                               #  store language, and sets each build's
+#                                               #  TestFlight What to Test from the English
+#                                               #  What's New, and publishes each device's
+#                                               #  accessibility labels from the entry of the
+#                                               #  version live on its platform)
 #   npm run archive -- <buildNumber> --upload --notes
 #                                               # and translate missing release notes first
+#   npm run archive -- <buildNumber> --upload --no-testflight
+#                                               # upload without the external TestFlight submission
 #   --nuke-node-modules                         # any mode: wipe node_modules and `npm ci`
 #                                               # (default `npm i` keeps the tested tree;
 #                                               #  the lockfile is never deleted)
@@ -52,18 +58,20 @@ source scripts/native-build-lock.sh
 BUILD_NUMBER="${1:-}"
 UPLOAD=0
 NOTES=0
+TESTFLIGHT=1
 NUKE_NODE_MODULES=0
 for arg in "${@:2}"; do
   case "$arg" in
     --upload) UPLOAD=1 ;;
     --notes) NOTES=1 ;;
+    --no-testflight) TESTFLIGHT=0 ;;
     --nuke-node-modules) NUKE_NODE_MODULES=1 ;;
     *) echo "Unknown option: $arg" >&2; exit 1 ;;
   esac
 done
 
 if [[ ! "$BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
-  echo "Usage: npm run archive -- <buildNumber> [--upload [--notes]] [--nuke-node-modules]" >&2
+  echo "Usage: npm run archive -- <buildNumber> [--upload [--notes] [--no-testflight]] [--nuke-node-modules]" >&2
   echo "Build number must be a positive integer (check the last one in App Store Connect)." >&2
   exit 1
 fi
@@ -181,6 +189,11 @@ if [[ $NOTES -eq 1 && $UPLOAD -eq 0 ]]; then
   exit 1
 fi
 
+if [[ $TESTFLIGHT -eq 0 && $UPLOAD -eq 0 ]]; then
+  echo "--no-testflight only runs with --upload." >&2
+  exit 1
+fi
+
 if [[ $UPLOAD -eq 1 && $HAVE_CREDS -eq 0 ]]; then
   echo "--upload requires ASC_KEY_ID and ASC_ISSUER_ID (see .env.archive template in the script header)." >&2
   exit 1
@@ -196,6 +209,7 @@ if [[ $UPLOAD -eq 1 ]]; then
     node scripts/appstore-upload-meta.mjs --check-online
   fi
   node scripts/appstore-shots.mjs --check-captures
+  node scripts/appstore-accessibility.mjs --prepare
   echo ""
 fi
 
@@ -351,7 +365,7 @@ build_platform() {
 
 # ---------------------------------------------------------------- pipeline
 
-STEPS=$([[ $UPLOAD -eq 1 ]] && echo 8 || echo 5)
+STEPS=$([[ $UPLOAD -eq 1 ]] && echo 10 || echo 5)
 
 echo "[1/$STEPS] Stamping build number $BUILD_NUMBER into app.json"
 node -e 'const fs=require("fs");const n=process.argv[1];const s=fs.readFileSync("app.json","utf8");const out=s.replace(/("buildNumber":\s*")[^"]*(")/,"$1"+n+"$2");if(!out.includes(`"buildNumber": "${n}"`))throw new Error("buildNumber not stamped in app.json");fs.writeFileSync("app.json",out);' "$BUILD_NUMBER"
@@ -378,6 +392,24 @@ build_platform macOS "generic/platform=macOS,variant=Mac Catalyst" macos macosx 
 echo "[5/$STEPS] tvOS"
 build_platform tvOS "generic/platform=tvOS" appletvos appletvos 1 scripts/exportOptions-tvos.plist
 
+if [[ $UPLOAD -eq 1 ]]; then
+  echo "[6/$STEPS] TestFlight"
+  if [[ $TESTFLIGHT -eq 0 ]]; then
+    if node scripts/appstore-testflight.mjs "$BUILD_NUMBER" --no-submit; then
+      RESULTS+=("testflight | What to Test set, external submission skipped (--no-testflight)")
+    else
+      echo "Setting What to Test failed; the build is uploaded, set it in App Store Connect." >&2
+      RESULTS+=("testflight | What to Test FAILED, set it for build $BUILD_NUMBER by hand")
+    fi
+  elif node scripts/appstore-testflight.mjs "$BUILD_NUMBER"; then
+    RESULTS+=("testflight | build $BUILD_NUMBER submitted where the review slot was free (see above)")
+  else
+    echo "External TestFlight step failed; the build is uploaded, submit it in App Store Connect." >&2
+    RESULTS+=("testflight | FAILED, submit build $BUILD_NUMBER by hand")
+  fi
+  echo ""
+fi
+
 # ---------------------------------------------------------------- summary
 
 # ------------------------------------------------------- store screenshots
@@ -390,7 +422,7 @@ build_platform tvOS "generic/platform=tvOS" appletvos appletvos 1 scripts/export
 # Captures are taken by hand. --render composes those staged files directly;
 # an archive must not import unrelated screenshots from the Desktop.
 if [[ $UPLOAD -eq 1 ]]; then
-  echo "[6/$STEPS] Screenshots"
+  echo "[7/$STEPS] Screenshots"
   npm run shots -- --render || { echo "Screenshot composition failed; the build is uploaded, the shots are not." >&2; exit 1; }
   # --create-version: the binary for this version just went up, so opening its
   # draft to hang the shots on is intended, not the silent open the flag guards.
@@ -411,13 +443,22 @@ if [[ $UPLOAD -eq 1 ]]; then
 
   # A language with screenshots and no description cannot be submitted, so the
   # text goes up in the same run as the pictures.
-  echo "[7/$STEPS] Listing text"
+  echo "[8/$STEPS] Listing text"
   npm run meta:upload || { echo "Listing text upload failed; the build and shots are uploaded, the text is not." >&2; exit 1; }
   RESULTS+=("listing text | uploaded, every store language, platforms held by a review skipped (see above)")
 
-  echo "[8/$STEPS] Build $BUILD_NUMBER on the $VERSION versions"
+  echo "[9/$STEPS] Build $BUILD_NUMBER on the $VERSION versions"
   node scripts/appstore-attach-build.mjs "$BUILD_NUMBER" || { echo "Selecting the build failed; everything is uploaded, pick build $BUILD_NUMBER in App Store Connect." >&2; exit 1; }
   RESULTS+=("build $BUILD_NUMBER | selected on the open $VERSION versions, platforms held by a review skipped (see above)")
+
+  # Labels go live at once, so each device gets the entry of the version live on its platform.
+  echo "[10/$STEPS] Accessibility labels"
+  if node scripts/appstore-accessibility.mjs --publish; then
+    RESULTS+=("accessibility | each device carries its live version's entry (see above)")
+  else
+    echo "Accessibility labels failed; everything else is uploaded. Run npm run meta:a11y -- --publish." >&2
+    RESULTS+=("accessibility | FAILED, run npm run meta:a11y -- --publish")
+  fi
 fi
 
 echo "Done. TomoTV $VERSION ($BUILD_NUMBER)"
@@ -426,4 +467,4 @@ for r in "${RESULTS[@]}"; do
 done
 echo ""
 echo "Archives are in Xcode Organizer. Working tree is in tvOS state."
-echo "Remember to commit the app.json build number bump."
+echo "Remember to commit the app.json build number bump$([[ $UPLOAD -eq 1 ]] && echo ' and scripts/appstore/accessibility.json')."

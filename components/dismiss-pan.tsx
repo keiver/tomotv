@@ -13,7 +13,7 @@ const FLICK_DISTANCE = 64;
 /**
  * Whether a finished pan was somebody leaving.
  *
- * A worklet, and exported so the rule can be read and tested off the UI thread — it is the
+ * A worklet, and exported so the rule can be read and tested off the UI thread: it is the
  * whole gesture, and both halves of it were wrong.
  *
  * `success` is false when the handler left ACTIVE for CANCELLED or FAILED, which RNGH runs
@@ -37,6 +37,8 @@ interface DismissPanProps {
   onDismiss: () => void;
   style?: StyleProp<ViewStyle>;
   pointerEvents?: ViewProps["pointerEvents"];
+  /** False leaves the stage's touches to what it holds: the pinned player's own buttons. */
+  enabled?: boolean;
   children: React.ReactNode;
 }
 
@@ -45,7 +47,7 @@ interface DismissPanProps {
  *
  * The phone's way out of a surface that carries no chrome of its own. The player host's stage
  * and the route's loading canvas both cover the whole app with no header, no back item, and no
- * pop gesture that can reach the navigator underneath — so when AVKit's presented player is not
+ * pop gesture that can reach the navigator underneath, so when AVKit's presented player is not
  * on screen there is nothing left to leave by. Vertical intent only; a horizontal drag falls
  * through to AVKit's scrubber.
  *
@@ -55,7 +57,7 @@ interface DismissPanProps {
  *
  * Inert on tvOS, which pops with Menu and must not gain a view above its focusables.
  */
-export function DismissPan({ onDismiss, style, pointerEvents, children }: DismissPanProps) {
+export function DismissPan({ onDismiss, style, pointerEvents, enabled = true, children }: DismissPanProps) {
   const translateY = useSharedValue(0);
 
   const dismiss = useCallback(() => {
@@ -66,6 +68,7 @@ export function DismissPan({ onDismiss, style, pointerEvents, children }: Dismis
   const pan = useMemo(
     () =>
       Gesture.Pan()
+        .enabled(enabled)
         .activeOffsetY(24)
         .failOffsetX([-20, 20])
         .onUpdate((event) => {
@@ -80,7 +83,7 @@ export function DismissPan({ onDismiss, style, pointerEvents, children }: Dismis
           }
           translateY.set(withTiming(0, { duration: 160 }));
         }),
-    [dismiss, translateY],
+    [dismiss, enabled, translateY],
   );
 
   const dragStyle = useAnimatedStyle(() => ({ transform: [{ translateY: translateY.get() }] }));

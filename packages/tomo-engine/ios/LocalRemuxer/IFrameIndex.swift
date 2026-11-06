@@ -25,9 +25,23 @@ struct KeyframeIndex {
     /// I-frame tables assume about one a second, and a dense MP4 index lists every half second.
     static let minimumGapSeconds = 1.0
 
+    /// Every keyframe a seekable source indexes, unthinned. `timestamps` sit on presentation time;
+    /// `seekTimestamps` are the index's own, which a seek on the stream takes.
+    struct Entries {
+        let timestamps: [Int64]
+        let seekTimestamps: [Int64]
+        let positions: [Int64]
+        let sizes: [Int]
+        let timeBase: AVRational
+    }
+
     /// The full index of a seekable Matroska, WebM, MP4/MOV or AVI source (measured: each lists
     /// every keyframe; TS, PS and FLV list only what was read). Matroska loads its Cues on a seek.
     static func read(input: UnsafeMutablePointer<AVFormatContext>, streamIndex: Int32) -> KeyframeIndex? {
+        entries(input: input, streamIndex: streamIndex).flatMap(thinned)
+    }
+
+    static func entries(input: UnsafeMutablePointer<AVFormatContext>, streamIndex: Int32) -> Entries? {
         guard let stream = input.pointee.streams[Int(streamIndex)],
               let io = input.pointee.pb, io.pointee.seekable & 1 != 0 else { return nil }
         let format = input.pointee.iformat.map { String(cString: $0.pointee.name) } ?? ""
@@ -44,6 +58,7 @@ struct KeyframeIndex {
             keyframes.append((entry.pointee.timestamp, entry.pointee.pos, Int(entry.pointee.size)))
         }
         keyframes.sort { $0.timestamp < $1.timestamp }
+        let seekTimestamps = keyframes.map(\.timestamp)
         // MP4 indexes decode times (mov.c); the first keyframe is the stream's first picture, so its
         // presentation is the stream's start, and the shift carries every keyframe onto presentation time.
         if names.contains("mov"), stream.pointee.start_time != Int64(bitPattern: 0x8000_0000_0000_0000),
@@ -51,10 +66,15 @@ struct KeyframeIndex {
             let shift = stream.pointee.start_time - first
             keyframes = keyframes.map { ($0.timestamp + shift, $0.position, $0.size) }
         }
-        let kept = thinnedIndices(keyframes.map(\.timestamp), timeBase: stream.pointee.time_base)
+        return Entries(timestamps: keyframes.map(\.timestamp), seekTimestamps: seekTimestamps,
+                       positions: keyframes.map(\.position), sizes: keyframes.map(\.size), timeBase: stream.pointee.time_base)
+    }
+
+    static func thinned(_ entries: Entries) -> KeyframeIndex? {
+        let kept = thinnedIndices(entries.timestamps, timeBase: entries.timeBase)
         guard kept.count >= 2 else { return nil }
-        return KeyframeIndex(timestamps: kept.map { keyframes[$0].timestamp }, timeBase: stream.pointee.time_base,
-                             positions: kept.map { keyframes[$0].position }, sizes: kept.map { keyframes[$0].size })
+        return KeyframeIndex(timestamps: kept.map { entries.timestamps[$0] }, timeBase: entries.timeBase,
+                             positions: kept.map { entries.positions[$0] }, sizes: kept.map { entries.sizes[$0] })
     }
 
     static func thinned(_ sorted: [Int64], timeBase: AVRational) -> KeyframeIndex? {

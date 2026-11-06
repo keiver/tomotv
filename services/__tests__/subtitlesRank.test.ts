@@ -1,4 +1,4 @@
-import { autoPick, nameSimilarity, rankHits } from "@/services/subtitles/rank";
+import { nameSimilarity, rankHits } from "@/services/subtitles/rank";
 import type { SubtitleHit, SubtitleQuery } from "@/services/subtitles/types";
 
 const query: SubtitleQuery = { kind: "movie", keywords: "Some Film", year: 2020, fileName: "Some.Film.2020.1080p.BluRay.x264-GRP" };
@@ -61,22 +61,5 @@ describe("nameSimilarity", () => {
   it("is the share of the file name's words the release carries", () => {
     expect(nameSimilarity("Some.Film.2020.1080p", "Some Film 2020 720p")).toBeCloseTo(0.75);
     expect(nameSimilarity("", "anything")).toBe(0);
-  });
-});
-
-describe("autoPick", () => {
-  it("takes a hash match", () => {
-    expect(autoPick([hit({ id: "a" }), hit({ id: "b", hashMatch: true })])?.id).toBe("b");
-  });
-
-  it("takes a lone usable hit and nothing from several", () => {
-    expect(autoPick([hit({ id: "only" })])?.id).toBe("only");
-    expect(autoPick([hit({ id: "a" }), hit({ id: "b" })])).toBeNull();
-    expect(autoPick([hit({ id: "only" }), hit({ id: "mt", machineTranslated: true })])?.id).toBe("only");
-  });
-
-  it("takes nothing from an empty list or a machine translation alone", () => {
-    expect(autoPick([])).toBeNull();
-    expect(autoPick([hit({ id: "mt", machineTranslated: true })])).toBeNull();
   });
 });

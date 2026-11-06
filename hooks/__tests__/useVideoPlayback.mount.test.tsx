@@ -11,6 +11,7 @@ import TestRenderer, { act } from "react-test-renderer";
 import { useVideoPlayback, type VideoPlaybackConfig, type VideoPlaybackResult } from "@/hooks/useVideoPlayback";
 import { DIRECT_STALL_DEADLINE_MS, ENGINE_SEGMENT_DEADLINE_MS, LIVE_STALL_DEADLINE_MS, SUBTITLE_CAPTURE_SETTLE_MS, VOD_OPEN_DEADLINE_MS } from "@/hooks/videoPlayback/constants";
 import { AUTOMATIC_RETRY_BUDGET_MS } from "@/hooks/videoPlayback/errorRecovery";
+import { liveStartBufferSeconds, resetLiveStartBuffersForTests } from "@keiver/tomo-live";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 import {
   closeLiveStream,
@@ -1124,6 +1125,21 @@ describe("useVideoPlayback (mounted)", () => {
         expect(mockTranscodeUrl).not.toHaveBeenCalled();
       });
 
+      it("at Only for files, ends at the error once a round adds no bytes, with no device verdict and no server", async () => {
+        updateUiPreferences({ serverTranscoding: "fileOnly" });
+        mockDetails.mockResolvedValue(videoItem({ MediaSources: [{ Id: "source-1", Container: "mkv", Bitrate: 6_000_000 }] }));
+        mockProgress = () => ({ alive: true, bytesRead: 5_000_000, readSeconds: 19, elapsedSeconds: 20 });
+        const { ref } = await mount({ videoId: "video-1" });
+        await act(async () => jest.advanceTimersByTime(20_000));
+        await act(flush);
+        expect(ref.current!.get().state.type).toBe("CREATING_STREAM");
+        await act(async () => jest.advanceTimersByTime(20_000));
+        await act(flush);
+        expect(ref.current!.get().state).toMatchObject({ type: "ERROR", ref: { id: "PB-ENGINE-NOSEG", lane: "ENG" } });
+        expect(recordTimeoutVerdict).not.toHaveBeenCalled();
+        expect(mockTranscodeUrl).not.toHaveBeenCalled();
+      });
+
       it("records no verdict for a session that read nothing", async () => {
         mockProgress = () => ({ alive: true, bytesRead: 0, readSeconds: 0, elapsedSeconds: 20 });
         const { ref } = await mount({ videoId: "video-1" });
@@ -1540,6 +1556,56 @@ describe("useVideoPlayback (mounted)", () => {
         expect(ref.current!.get().state.type).not.toBe("ERROR");
       } finally {
         jest.useRealTimers();
+      }
+    });
+
+    it("holds a live channel that stalls in its first minute for the gap to its next start buffer, then plays", async () => {
+      resetLiveStartBuffersForTests();
+      mockDetails.mockResolvedValue(originChannel());
+      const { ref } = await mount({ videoId: "video-1" });
+
+      jest.useFakeTimers();
+      try {
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onPlaybackStateChanged({ isPlaying: true, isSeeking: false } as never);
+          ref.current!.get().play();
+        });
+        await act(async () => {
+          jest.advanceTimersByTime(5_000);
+          ref.current!.get().videoCallbacks.onBuffer({ isBuffering: true });
+        });
+        expect(ref.current!.get().paused).toBe(true);
+        expect(liveStartBufferSeconds("video-1")).toBe(6);
+        await act(async () => {
+          jest.advanceTimersByTime(4_000);
+        });
+        expect(ref.current!.get().paused).toBe(false);
+      } finally {
+        jest.useRealTimers();
+        resetLiveStartBuffersForTests();
+      }
+    });
+
+    it("leaves a live channel's start buffer alone when it stalls after its first minute", async () => {
+      resetLiveStartBuffersForTests();
+      mockDetails.mockResolvedValue(originChannel());
+      const { ref } = await mount({ videoId: "video-1" });
+
+      jest.useFakeTimers();
+      try {
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onPlaybackStateChanged({ isPlaying: true, isSeeking: false } as never);
+          ref.current!.get().play();
+        });
+        await act(async () => {
+          jest.advanceTimersByTime(61_000);
+          ref.current!.get().videoCallbacks.onBuffer({ isBuffering: true });
+        });
+        expect(ref.current!.get().paused).toBe(false);
+        expect(liveStartBufferSeconds("video-1")).toBe(2);
+      } finally {
+        jest.useRealTimers();
+        resetLiveStartBuffersForTests();
       }
     });
 
@@ -3037,6 +3103,17 @@ describe("useVideoPlayback (mounted)", () => {
           ref.current!.get().videoCallbacks.onPlaybackStateChanged({ isPlaying: true, isSeeking: false } as never);
           tick(ref, 0);
           await new Promise((resolve) => setTimeout(resolve, 600));
+        });
+        expect(ref.current!.get().state.type).toBe("PLAYING");
+        expect(ref.current!.get().showLoadingOverlay).toBe(false);
+      });
+
+      it("and drops it the moment the player reports playing, with no wait for steady playback", async () => {
+        const { ref } = await mount({ videoId: "video-1" });
+        await unpaused(ref);
+        await act(async () => {
+          ref.current!.get().videoCallbacks.onPlaybackStateChanged({ isPlaying: true, isSeeking: false } as never);
+          tick(ref, 0);
         });
         expect(ref.current!.get().state.type).toBe("PLAYING");
         expect(ref.current!.get().showLoadingOverlay).toBe(false);

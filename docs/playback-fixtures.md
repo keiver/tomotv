@@ -1,6 +1,6 @@
 # Playback fixtures
 
-Every file the playback suite plays, as ffprobe version 9.0.1 reads it, generated 2026-10-15. Stream facts are ffprobe's, scan type and HDR metadata come from the first decoded video frame, and the SHA-256 identifies the exact bytes described. Browsable with a codec index in [`playback-fixtures.html`](playback-fixtures.html); results per file are in [`playback-coverage.md`](playback-coverage.md).
+Every file the playback suite plays, as ffprobe version 9.0.1 reads it, generated 2026-11-05. Stream facts are ffprobe's, scan type and HDR metadata come from the first decoded video frame, and the SHA-256 identifies the exact bytes described. Browsable with a codec index in [`playback-fixtures.html`](playback-fixtures.html); results per file are in [`playback-coverage.md`](playback-coverage.md).
 
 ### T01
 
@@ -777,6 +777,7 @@ Every file the playback suite plays, as ffprobe version 9.0.1 reads it, generate
 | 0 | video | asv1 (ASUS V1), tag ASV1 | 1280x720, yuv420p, 24 fps, progressive, range tv, encoder Lavc61.19.101 asv1 |  |  |  |
 | 1 | audio | aac (AAC (Advanced Audio Coding)), LC, mp4a.40.2 | 44,100 Hz, 1ch mono, fltp, encoder Lavc61.19.101 aac |  |  |  |
 | 2 | subtitle | subrip (SubRip subtitle) | encoder Lavc61.19.101 srt | eng |  |  |
+| sidecar | subtitle | subrip | `T44 SERVER Theora SRT subsync.eng.srt`, 3,456 bytes, SHA-256 `9beb5319345fe081b8ca5c29b977f8cf3cba6e6047244e266d2bc0934314accd` | | | |
 
 ### T45
 
@@ -798,6 +799,7 @@ Every file the playback suite plays, as ffprobe version 9.0.1 reads it, generate
 | 0 | video | asv1 (ASUS V1), tag ASV1 | 1280x960, SAR 9:5, DAR 12:5, yuv420p, 23.976 fps, progressive, range tv, matrix bt709, transfer bt709, primaries bt709, 4,613 kb/s (container statistics tag), encoder Lavc61.19.101 asv1 |  |  | default |
 | 1 | audio | eac3 (ATSC A/52B (AC-3, E-AC-3)), ec-3 | 48,000 Hz, 6ch 5.1(side), fltp, 640 kb/s | eng |  | default |
 | 2 | subtitle | subrip (SubRip subtitle) |  | eng | English SDH |  |
+| sidecar | subtitle | subrip | `T45 SERVER DivX3 SDH subsync.eng.srt`, 3,088 bytes, SHA-256 `5b2d78434d8d1af39bd045ee0869fc9a10e9c59760e68a381242b77a79315bc3` | | | |
 
 ### T50
 
@@ -2047,7 +2049,7 @@ Every file the playback suite plays, as ffprobe version 9.0.1 reads it, generate
 | Streams | 1 |
 | Container tags | COMPATIBLE_BRANDS=isomav01iso2mp41; MAJOR_BRAND=isom; MINOR_VERSION=512; ENCODER=Lavf62.12.103 |
 | Origin | unverified |
-| Expected lane | On-device remux, validate none |
+| Expected lane | Server transcode, validate none |
 
 | # | Type | Codec | Detail | Language | Title | Flags |
 | --- | --- | --- | --- | --- | --- | --- |

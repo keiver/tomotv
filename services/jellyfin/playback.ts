@@ -5,6 +5,7 @@
  */
 import { JellyfinVideoItem } from "@/types/jellyfin";
 import { cachedRequest } from "@/services/requestCache";
+import { withoutRefusedRecordings } from "@/services/refusedRecordings";
 import { CACHE } from "@/constants/app";
 import { logger } from "@/utils/logger";
 import { fetchWithTimeout } from "./http";
@@ -86,7 +87,7 @@ async function postPlaybackReport(path: "/Sessions/Playing" | "/Sessions/Playing
 
     if (!response.ok) {
       logger.warn(`Playback report failed: ${response.status}`, { service: "JellyfinAPI", path, itemId: body.ItemId });
-    } else {
+    } else if (path !== "/Sessions/Playing/Progress") {
       logger.debug("Playback report sent", {
         service: "JellyfinAPI",
         path,
@@ -101,7 +102,7 @@ async function postPlaybackReport(path: "/Sessions/Playing" | "/Sessions/Playing
       reportQuietUntil = Date.now() + REPORT_QUIET_MS;
       logger.info("Playback reporting paused, the server is unreachable", { service: "JellyfinAPI", quietMs: REPORT_QUIET_MS });
     }
-    logger.warn("Playback report error", error, { service: "JellyfinAPI", path, itemId: body.ItemId });
+    logger.warn("Playback report error", { service: "JellyfinAPI", path, itemId: body.ItemId, error: error instanceof Error ? error.name : String(error) });
   }
 }
 
@@ -229,7 +230,7 @@ export async function fetchResumeItems(limit = 20): Promise<JellyfinVideoItem[] 
           }
 
           const data = await response.json();
-          return (data.Items ?? []) as JellyfinVideoItem[];
+          return withoutRefusedRecordings((data.Items ?? []) as JellyfinVideoItem[]);
         } catch (error) {
           throw error;
         }
@@ -304,7 +305,7 @@ export async function fetchRecentlyPlayed(limit = 12): Promise<JellyfinVideoItem
           }
 
           const data = await response.json();
-          return (data.Items ?? []) as JellyfinVideoItem[];
+          return withoutRefusedRecordings((data.Items ?? []) as JellyfinVideoItem[]);
         } catch (error) {
           throw error;
         }

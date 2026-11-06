@@ -2,14 +2,14 @@
 //  MacKeyCommands.swift
 //  TomoTV
 //
-//  Hardware keyboard support for the Mac build, where the player is inline and
-//  carries no ✕ and no Menu button. Nothing here arms anywhere else: the view
+//  Hardware keyboard support for the Mac build, which has no Menu button.
+//  Nothing here arms anywhere else: the view
 //  controller is compiled for iOS only and both halves check the host at runtime.
 //
 //  The controller is installed by plugins/withMacKeyCommands.js through the react
 //  delegate's createRootViewController extension point. That is deliberate: the
 //  root view controller is the one responder that is an ancestor of every chain in
-//  the app, AVKit's inline player included, and key commands are collected from the
+//  the app, AVKit's player included, and key commands are collected from the
 //  first responder upwards, so anything AVKit answers itself still wins.
 //
 
@@ -82,7 +82,8 @@ final class MacKeyCommandsViewController: UIViewController {
         // discovery surface an iOS binary has on a Mac.
         escape.discoverabilityTitle = "Back"
 
-        var commands = [escape]
+        // The subtitle sheet closes itself on Escape; this one would pop the route under it.
+        var commands = Self.subtitlePanelIsUp(over: self) ? [] : [escape]
         // A command outranks the field it would otherwise type into, so every binding
         // but Escape is withdrawn while the viewer is editing.
         if Self.editingResponder(in: view.window) == nil {
@@ -152,12 +153,6 @@ final class MacKeyCommandsViewController: UIViewController {
         return recognizer
     }()
 
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        guard MacKeyCommands.isMacHost else { return }
-        view.addGestureRecognizer(doubleClick)
-    }
-
     /// Only while a player owns the contextual keys, so a double click anywhere else in the app
     /// stays the app's own.
     @objc
@@ -169,7 +164,10 @@ final class MacKeyCommandsViewController: UIViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        guard MacKeyCommands.isMacHost, !isFirstResponder else { return }
+        guard MacKeyCommands.isMacHost else { return }
+        // On the window, not this view: the presented player is not inside this view.
+        if doubleClick.view == nil { view.window?.addGestureRecognizer(doubleClick) }
+        guard !isFirstResponder else { return }
         let claimed = becomeFirstResponder()
         NSLog("[MacKeyCommands] first responder claimed: \(claimed)")
     }
@@ -205,6 +203,15 @@ final class MacKeyCommandsViewController: UIViewController {
     }
     #endif
 
+    private static func subtitlePanelIsUp(over root: UIViewController) -> Bool {
+        var presented = root.presentedViewController
+        while let current = presented {
+            if current is SubtitleSearchPanelViewController { return true }
+            presented = current.presentedViewController
+        }
+        return false
+    }
+
     /// The focused text input, if there is one. Walked rather than asked for:
     /// UIKit exposes no public accessor for the current first responder.
     private static func editingResponder(in root: UIView?) -> UIView? {
@@ -225,7 +232,7 @@ extension MacKeyCommandsViewController: UIGestureRecognizerDelegate {
         true
     }
 
-    /// The recognizer sits on the root view and sees every click in the window. Only the
+    /// The recognizer sits on the window and sees every click in it. Only the
     /// picture counts: nothing outside the player, and none of AVKit's own controls.
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         var responder: UIResponder? = touch.view

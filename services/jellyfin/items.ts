@@ -10,6 +10,7 @@ import { FolderStackEntry, JellyfinFolderResponse, JellyfinItem, JellyfinMediaSt
 import { cachedRequest, invalidateRequest } from "@/services/requestCache";
 import { CACHE } from "@/constants/app";
 import { downloadedItem } from "@/services/downloads/localSource";
+import { withoutRefusedRecordings } from "@/services/refusedRecordings";
 import { logger } from "@/utils/logger";
 import { orderSortNameTies } from "@/utils/seasonEpisode";
 import { retryWithBackoff } from "@/utils/retry";
@@ -476,13 +477,6 @@ export async function requestLibraryItems(
 
   const url = `${config.server}/Items?userId=${config.userId}&${query.toString()}`;
 
-  logger.debug("Requesting library items", {
-    service: "JellyfinAPI",
-    url,
-    server: config.server,
-    userId: config.userId,
-  });
-
   try {
     const response = await fetchWithTimeout(
       url,
@@ -508,7 +502,7 @@ export async function requestLibraryItems(
 
     const data: JellyfinVideosResponse = await response.json();
     return {
-      items: data.Items || [],
+      items: withoutRefusedRecordings(data.Items || []),
       total: data.TotalRecordCount,
     };
   } catch (error) {

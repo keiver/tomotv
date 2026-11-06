@@ -1,9 +1,12 @@
-import { glassTint } from "@/components/glass-button";
+import { CONTROL_TINT } from "@/components/glass-icon-button";
 import { GlassSurface } from "@/components/glass-surface";
 import { useCardPalette } from "@/hooks/useCardPalette";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
-import { StyleSheet } from "react-native";
+import { StyleSheet, View } from "react-native";
+
+/** The grip's diameter, shared with the pinned band's buttons on the picture so the two read as one set. */
+export const GRIP_SIZE = 42;
 
 interface GuideGripProps {
   /** The circle's diameter. */
@@ -11,20 +14,30 @@ interface GuideGripProps {
   arrowSize: number;
 }
 
-/** The column's resize handle: an accent glass circle holding a nested left/right arrow pair. */
+/**
+ * The column's resize handle: a nested left/right arrow pair in the accent on the same glass as the pinned band's
+ * buttons, with a shadow to lift it off a bright picture.
+ */
 export function GuideGrip({ size, arrowSize }: GuideGripProps) {
   const { accent } = useCardPalette();
   return (
-    <GlassSurface style={[styles.glass, { width: size, height: size }]} radius={size / 2} tintColor={glassTint(accent)} interactive>
-      <Ionicons name="chevron-back" size={arrowSize} color={accent} style={styles.nestLeft} />
-      <Ionicons name="chevron-forward" size={arrowSize} color={accent} style={styles.nestRight} />
-    </GlassSurface>
+    <View style={[styles.lift, { borderRadius: size / 2 }]}>
+      <GlassSurface style={[styles.disc, { width: size, height: size }]} radius={size / 2} tintColor={CONTROL_TINT}>
+        <Ionicons name="chevron-back" size={arrowSize} color={accent} style={styles.nestLeft} />
+        <Ionicons name="chevron-forward" size={arrowSize} color={accent} style={styles.nestRight} />
+      </GlassSurface>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  // Shape comes from GlassSurface's radius: a borderRadius or overflow here masks the material.
-  glass: {
+  lift: {
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 6,
+  },
+  disc: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",

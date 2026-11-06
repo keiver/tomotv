@@ -1,22 +1,28 @@
 import AVFoundation
+import TomoEngine
 import UIKit
 
 /// One channel card's preview player, lent out by PreviewPlayerPool. A clip loops with a hard cut at every seam, and a
 /// newer one takes over at the next. One item, sought back to its start at each end: AVPlayerLooper's item churn logs
 /// a CoreMedia line per seam and six per swap (measured), this logs none per seam. Muted, never external, never
-/// keeping the display awake; the layer stays hidden until a frame is ready.
+/// keeping the display awake; the layer stays hidden until a frame is ready. A live tile plays an engine session instead.
 final class PreviewPlayer {
   private let player = AVPlayer()
   private let playerLayer = AVPlayerLayer()
   private var current: URL?
   private var pending: URL?
+  private var live = false
   private var readyObservation: NSKeyValueObservation?
   private var endObserver: NSObjectProtocol?
   private var itemObservation: NSKeyValueObservation?
   private var itemStatusObservation: NSKeyValueObservation?
+  private var controlObservation: NSKeyValueObservation?
+  private var reportedPlaying = false
   private(set) weak var host: UIView?
   /// The clip cannot play, with its AVError code: an item the decoder refused.
   var onFailure: ((PreviewPlayer, Int) -> Void)?
+  /// A live session starts or stops progressing: `AVPlayer.timeControlStatus` enters or leaves `.playing`.
+  var onPlaying: ((PreviewPlayer, Bool) -> Void)?
 
   init() {
     player.isMuted = true
@@ -33,27 +39,47 @@ final class PreviewPlayer {
     itemObservation = player.observe(\.currentItem, options: [.new]) { [weak self] observed, _ in
       DispatchQueue.main.async { self?.watch(observed.currentItem) }
     }
+    controlObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
+      DispatchQueue.main.async { self?.report() }
+    }
   }
 
-  /// `view` takes the layer and plays `url`; the previous host is left showing its card underneath.
-  func attach(to view: UIView, playing url: URL) {
+  // Read on the main queue, not from the change: a player lent on since the change reports its own state.
+  private func report() {
+    let live = self.live && player.timeControlStatus == .playing
+    guard live != reportedPlaying else { return }
+    reportedPlaying = live
+    onPlaying?(self, live)
+  }
+
+  /// `view` takes the layer and plays `url`; the previous host is left showing its card underneath. `live`: an engine
+  /// session's playlist, played as it is cut, never looped.
+  func attach(to view: UIView, playing url: URL, live: Bool = false) {
     host = view
     // Hidden before it moves, so the new card never shows the last card's frame or an empty player.
     hide()
     playerLayer.removeFromSuperlayer()
     view.layer.addSublayer(playerLayer)
     layout(in: view)
+    self.live = live
+    player.preventsDisplaySleepDuringVideoPlayback = live
     // A card that just took over starts its own clip at once, never on the last card's seam.
     start(url)
   }
 
-  /// The host's newer clip takes over at the next seam.
+  /// The host's newer clip takes over at the next seam; a live tile's new session at once.
   func show(_ url: URL) {
     guard url != current else {
       pending = nil
       return
     }
-    if player.currentItem == nil { start(url) } else { pending = url }
+    if live || player.currentItem == nil { start(url) } else { pending = url }
+  }
+
+  /// Sound for the tile that has it; every other tile stays muted.
+  func setMuted(_ muted: Bool) {
+    if !muted { try? AVAudioSession.sharedInstance().setCategory(.playback) }
+    player.isMuted = muted
   }
 
   /// Idle and off the card, ready for the next one.
@@ -61,6 +87,10 @@ final class PreviewPlayer {
     host = nil
     hide()
     start(nil)
+    live = false
+    reportedPlaying = false
+    player.isMuted = true
+    player.preventsDisplaySleepDuringVideoPlayback = false
     playerLayer.removeFromSuperlayer()
   }
 
@@ -96,6 +126,12 @@ final class PreviewPlayer {
     endObserver = nil
     current = url
     pending = nil
+    if let url, live {
+      let item = AVPlayerItem(asset: LowLatencyPlayerAsset.asset(for: url) ?? AVURLAsset(url: url))
+      player.replaceCurrentItem(with: item)
+      player.play()
+      return
+    }
     // A clip the sweep already took leaves the card on its frame. A swap on the same card stays visible: a hard cut.
     guard let url, FileManager.default.fileExists(atPath: url.path) else {
       player.replaceCurrentItem(with: nil)

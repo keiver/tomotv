@@ -10,6 +10,7 @@ import {
   subscribeEngineThroughput,
 } from "@keiver/tomo-engine";
 import { AppState } from "react-native";
+import { isTunerChannel, noteTunerChannel, tunerChannelKnown } from "./channelOrigin";
 import { liveChannels } from "./config";
 import { noteOpenFailed, openRecentlyFailed } from "./openFailures";
 import { playlistChannelById } from "./playlistChannels";
@@ -184,6 +185,13 @@ async function heat(channelId: string): Promise<void> {
   let details: unknown = null;
   let token: string | null = null;
   try {
+    if (!tunerChannelKnown(channelId)) noteTunerChannel(channelId, (await channels.resolveOrigin(channelId)) === "tuner");
+    // A hardware tuner is the household's: only the viewer playing the channel opens it.
+    if (isTunerChannel(channelId)) {
+      coldUntil.set(channelId, Date.now() + COLD_ONLY_MS);
+      return;
+    }
+    if (!current()) return;
     details = await channels.resolve(channelId, { quiet: true });
     // A manifest resolve holds nothing open, so it keeps for a flip after the ring cooled.
     if (channels.streamUrl(details) && !channels.holdsOpen(details)) warm.set(channelId, { details, at: Date.now() });
@@ -242,6 +250,13 @@ function wireMemoryWarning(): void {
   AppState.addEventListener("memoryWarning", () => coolDown("memory warning"));
 }
 
+function learnTuner(channelId: string): void {
+  void Promise.resolve()
+    .then(() => liveChannels().resolveOrigin(channelId))
+    .then((resolved) => noteTunerChannel(channelId, resolved === "tuner"))
+    .catch((error) => engineLog().debug("Live ring: channel origin unread", { service: "LiveRing", channelId, error: String(error) }));
+}
+
 /**
  * Move the ring onto `centerId`. The engine neighbours start only while the center plays, so a
  * burst of swipes does not start a session per channel passed.
@@ -252,7 +267,9 @@ export function recenterLiveRing(ring: readonly string[], centerId: string, play
   // A new center is a flip (or the first channel opened); a lane retry keeps the old window.
   if (center !== centerId) armSurfWindow();
   center = centerId;
-  wanted = new Set(ringAround(ring, centerId, HOT_RADIUS).filter((id) => !coldOnly(id)));
+  // Known before the viewer leaves it, so a tuner channel is never kept hot behind them.
+  if (!tunerChannelKnown(centerId)) learnTuner(centerId);
+  wanted = new Set(ringAround(ring, centerId, HOT_RADIUS).filter((id) => !coldOnly(id) && !isTunerChannel(id)));
   trim();
   if (playing && surfing()) {
     for (const id of wanted) {
@@ -293,7 +310,7 @@ export function takeRingSession<Item = unknown>(channelId: string): Promise<Ring
 
 /** Keeps a channel the player left mid-surf, still cutting segments, so flipping back is instant. False: stop it. */
 export function retainLiveSession<Item = unknown>(channel: HotChannel<Item>): boolean {
-  if (!active || !surfing() || hot.has(channel.channelId) || channelOnOneConnection(channel.channelId)) return false;
+  if (!active || !surfing() || hot.has(channel.channelId) || channelOnOneConnection(channel.channelId) || isTunerChannel(channel.channelId)) return false;
   const entry: HotEntry = { ...channel, segmentsCut: READY_SEGMENTS, ready: true, unsubscribe: () => {} };
   watch(entry);
   hot.set(channel.channelId, entry);

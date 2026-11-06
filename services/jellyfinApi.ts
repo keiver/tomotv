@@ -32,16 +32,8 @@ export {
   waitForConfig,
 } from "./jellyfin/session";
 
-export {
-  activateAccount,
-  getAccountsForServer,
-  getSavedAccounts,
-  getSavedServersWithAccounts,
-  relocateAccounts,
-  removeAccount,
-  removeSavedServerAndAccounts,
-  upsertAccount,
-} from "./jellyfin/accounts";
+export { activateAccount, getAccountsForServer, getSavedServersWithAccounts, removeSavedServerAndAccounts } from "./jellyfin/accounts";
+export { getSavedAccounts, relocateAccounts, removeAccount, upsertAccount } from "./jellyfin/accountIndex";
 export type { ActivateAccountResult } from "./jellyfin/accounts";
 
 export { DEMO_ADDRESS, DEMO_SERVER_URL, DEMO_USERNAME, JELLYFIN_TIME } from "./jellyfin/constants";
@@ -66,6 +58,7 @@ export {
   closeLiveStream,
   createSeriesTimer,
   createTimer,
+  deleteRecording,
   fetchCategoryChannelIds,
   fetchChannelOrder,
   fetchChannelsByIds,

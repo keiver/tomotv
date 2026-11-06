@@ -47,6 +47,36 @@ extension RemuxSession {
         }
     }
 
+    /// The title's words, lowercased.
+    static func titleWords(_ title: String) -> [String] {
+        title.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+    }
+
+    /// Region or script subtags (RFC 5646 2.2.3, 2.2.4) a track title names, by the language's registered primary subtag.
+    private static let titledVariants: [(languages: Set<String>, primary: String, words: [[String]], subtag: String)] = [
+        (["spa", "es"], "es", [["latin", "american"], ["latin", "america"]], "419"),
+        (["spa", "es"], "es", [["european"], ["castilian"], ["spain"]], "ES"),
+        (["por", "pt"], "pt", [["brazilian"], ["brazil"]], "BR"),
+        (["por", "pt"], "pt", [["european"], ["portugal"]], "PT"),
+        (["fra", "fre", "fr"], "fr", [["canadian"], ["canada"]], "CA"),
+        (["zho", "chi", "zh"], "zh", [["simplified"]], "Hans"),
+        (["zho", "chi", "zh"], "zh", [["traditional"]], "Hant"),
+    ]
+
+    /// The LANGUAGE a subtitle rendition declares: the region or script its title names joins the tag, so same-language
+    /// members differ in LANGUAGE (RFC 8216 4.3.4.1.1). A tag that already has subtags is kept.
+    static func subtitleLanguageTag(_ language: String, title: String) -> String {
+        let code = language.lowercased()
+        guard !code.contains("-"), !code.contains("_") else { return language }
+        let words = titleWords(title)
+        let variant = titledVariants.first { variant in
+            variant.languages.contains(code) && variant.words.contains { phrase in
+                words.indices.contains { start in Array(words[start...].prefix(phrase.count)) == phrase }
+            }
+        }
+        return variant.map { "\($0.primary)-\($0.subtag)" } ?? language
+    }
+
     static func codecTokens(_ codecs: String) -> [String] {
         codecs.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
@@ -119,6 +149,19 @@ extension RemuxSession {
                 tierUnavailableReason = tierUnavailableReason ?? "playlist unavailable before grid publication"
             }
             stateLock.unlock()
+        }
+    }
+
+    /// Blocks (bounded) until the copy has settled its grid at the opening keyframe, or let its source go.
+    /// Serving threads only: the pipeline decides it and must never wait here. A timeout lets the
+    /// grid as it stands be named; the pipeline keeps it once a playlist has.
+    func awaitCopyGrid(deadline: TimeInterval) {
+        guard !config.isLive else { return }
+        _ = waitUntil(deadline: deadline) { [weak self] in
+            guard let self else { return true }
+            self.stateLock.lock()
+            defer { self.stateLock.unlock() }
+            return !self.pipelineStarted || self.copyGridDecided || self.failed || self.cancelled || self.sourceReleased
         }
     }
 
@@ -205,6 +248,7 @@ extension RemuxSession {
 
     func masterPlaylist() -> String {
         awaitGrid()
+        awaitCopyGrid(deadline: masterBudgetLeft())
         // Live and self-described: the tracks and the captions come off the open input, not from a probe.
         if config.isLive || config.describesInput {
             _ = waitUntil(deadline: 40) { [weak self] in
@@ -231,7 +275,11 @@ extension RemuxSession {
                 return self.primaryInitWritten || self.failed || self.cancelled
             }
         }
-        let offered = tierOffered
+        stateLock.lock()
+        let latched = copyLatched
+        stateLock.unlock()
+        // A latched copy let the rungs' grid go: the session is still one with rungs, and it lists the copy alone.
+        let offered = tierOffered || latched
         stateLock.lock()
         let awaitLocalOutput = pipelineStarted && !offered && !config.isLive
         stateLock.unlock()
@@ -246,7 +294,7 @@ extension RemuxSession {
             }
         }
         stateLock.lock()
-        let copyOnly = offered && !sourceUnusable && copyLeadsLocked(linkBps: testLinkBps ?? wireLinkBps ?? playlistLinkBps ?? 0)
+        let copyOnly = offered && !sourceUnusable && (latched || copyLeadsLocked(linkBps: testLinkBps ?? wireLinkBps ?? playlistLinkBps ?? 0))
         // From here the session's length is on the record: every playlist must share this grid.
         gridPublished = true
         stateLock.unlock()
@@ -338,7 +386,7 @@ extension RemuxSession {
             let name = subtitleNames[position]
             let isDefault = position == defaultSubtitle
             var line = "#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"subs\",NAME=\"\(name)\""
-            line += ",LANGUAGE=\"\(Self.playlistQuotedValue(sub.language.isEmpty ? "und" : sub.language))\""
+            line += ",LANGUAGE=\"\(Self.playlistQuotedValue(Self.subtitleLanguageTag(sub.language.isEmpty ? "und" : sub.language, title: sub.name)))\""
             // DEFAULT=YES without AUTOSELECT=YES makes AVFoundation reject the master (-12642).
             // AUTOSELECT=NO hides a track from tvOS automatic subtitles, which then mark it On and draw nothing.
             line += isDefault ? ",DEFAULT=YES" : ",DEFAULT=NO"
@@ -375,7 +423,7 @@ extension RemuxSession {
             // on that pair has never run on a device.
             line += ",FORCED=NO"
             // Authoring spec 4.5; it also keeps an SDH track distinct from a same-language one (RFC 8216 4.3.4.1.1).
-            if sub.isHearingImpaired {
+            if sub.isHearingImpaired || Self.titleWords(sub.name).contains("sdh") {
                 line += ",CHARACTERISTICS=\"public.accessibility.transcribes-spoken-dialog,public.accessibility.describes-music-and-sound\""
             }
             line += ",URI=\"sub\(sub.index).m3u8\"\n"
@@ -648,6 +696,7 @@ extension RemuxSession {
     func mediaPlaylist(prefix: String = "") -> String {
         if config.isLive { return livePlaylist(prefix: prefix) }
         awaitGrid()
+        awaitCopyGrid(deadline: Self.subtitleSegmentWaitSeconds)
         stateLock.lock()
         gridPublished = true
         stateLock.unlock()
@@ -697,21 +746,48 @@ extension RemuxSession {
 
     /// Live TARGETDURATION: never below the longest retained segment, and it only ever rises.
     /// A copied segment runs to the next keyframe, so a GOP longer than the headroom lifts it.
-    func liveTarget() -> Int {
+    /// `fixing`: LL-HLS only, a media playlist's answer, which fixes the target; any other read before it does not.
+    func liveTarget(fixing: Bool = false) -> Int {
         stateLock.lock()
         defer { stateLock.unlock() }
         let longest = liveDurations.values.max() ?? 0
-        let target = max(liveTargetDuration ?? 0, max(1, Int(ceil(max(liveCapSecondsLocked(), longest)))))
+        let bound = max(liveCapSecondsLocked(), longest)
+        let needed = max(1, Int(config.liveTargetNearest ? bound.rounded() : ceil(bound)))
+        // LL-HLS: the target is fixed at the first answer (draft-pantos-hls-rfc8216bis 6.2.1: it MUST NOT change), until a
+        // copied segment rounds past it; then it rises as the plain target does.
+        if lowLatencyInput {
+            if let fixed = liveTargetDuration {
+                let rounded = Int(longest.rounded())
+                guard rounded > fixed else { return fixed }
+                if !liveTargetExceeded {
+                    liveTargetExceeded = true
+                    NSLog("[LocalRemuxer] a %.2fs live segment rounds past the LL-HLS target %d; the target rises to %d", longest, fixed, rounded)
+                }
+                liveTargetDuration = rounded
+                return rounded
+            }
+            let target = max(needed, config.liveLowLatencyTargetSeconds)
+            if fixing { liveTargetDuration = target }
+            return target
+        }
+        let target = max(liveTargetDuration ?? 0, needed)
         liveTargetDuration = target
         return target
     }
 
-    /// TARGETDURATION headroom over the segment target: a full source keyframe interval on a copy
-    /// lane (segments run one GOP long when the interval exceeds the target), a fixed margin where
+    /// TARGETDURATION headroom over the cut threshold: a full source keyframe interval on a copy
+    /// lane (segments run one GOP long when the interval exceeds the threshold), a fixed margin where
     /// the encoder forces keyframes at the target. Under stateLock.
     func liveCapSecondsLocked() -> Double {
-        if renditions.first?.videoTranscoder != nil { return config.liveSegmentSeconds + 0.5 }
-        return config.liveSegmentSeconds + max(maxKeyframeGapSeconds, config.liveSegmentSeconds)
+        let transcoding = renditions.first?.videoTranscoder != nil
+        if transcoding { return config.liveSegmentSeconds + 0.5 }
+        let cut = liveCutSeconds(transcoding: false)
+        return cut + max(maxKeyframeGapSeconds, cut)
+    }
+
+    /// How far past a live segment's open keyframe the cut waits: `liveCopyCutSeconds` on the copy lane when set, else the segment target.
+    func liveCutSeconds(transcoding: Bool) -> Double {
+        !transcoding && config.liveCopyCutSeconds > 0 ? config.liveCopyCutSeconds : config.liveSegmentSeconds
     }
 
     static func liveInitName(prefix: String, generation: Int) -> String {
@@ -744,7 +820,7 @@ extension RemuxSession {
         return Self.renderLivePlaylist(
             prefix: prefix, target: target, firstRetained: first, segments: segments,
             durations: durations, generationStarts: starts, discontinuitiesRemoved: removed, dates: dates, fallbackDuration: config.liveSegmentSeconds,
-            startOffset: startOffset)
+            startOffset: Self.publishedLiveStart(startOffset, target: target))
     }
 
     /// How far behind the newest segment the player starts: everything the first playlist listed, the
@@ -754,6 +830,13 @@ extension RemuxSession {
             liveStartSeconds = segments.reduce(0) { $0 + (durations[$1] ?? config.liveSegmentSeconds) }
         }
         return liveStartSeconds
+    }
+
+    /// The start offset a live playlist publishes: none below 2.5 target durations, where AVPlayer rejects it (-16831,
+    /// measured: 8s refused and 10s taken at a 4s target, LiveAVPlayerTests).
+    static func publishedLiveStart(_ offset: Double?, target: Int) -> Double? {
+        guard let offset, offset >= Double(target) * 2.5 else { return nil }
+        return offset
     }
 
     /// A rendition's playlist may answer: once a segment exists, and the first answer of the session
@@ -779,13 +862,18 @@ extension RemuxSession {
     /// The image track's live playlist: the primary rendition's window, one cue-less VTT per segment.
     func liveSubtitlePlaylist(_ sub: RemuxSubtitle) -> String {
         guard let rendition = rendition(withPrefix: "") else { return "#EXTM3U\n" }
-        _ = waitUntil(deadline: liveFirstAnswerDeadline) { [weak self] in
+        // LL-HLS: no start buffer and no EXT-X-START, the first full segment answers; and a report for every other playlist (Appendix B.1).
+        let lowLatency = servesParts
+        let ready: () -> Bool = { [weak self] in
             guard let self else { return true }
             self.stateLock.lock()
             defer { self.stateLock.unlock() }
-            return self.liveAnswerReadyLocked(rendition) || self.failed || self.cancelled
+            let answers = lowLatency ? !rendition.completed.isEmpty : self.liveAnswerReadyLocked(rendition)
+            return answers || self.failed || self.cancelled
         }
-        let target = liveTarget()
+        _ = lowLatency ? waitForParts(deadline: liveFirstAnswerDeadline, ready) : waitUntil(deadline: liveFirstAnswerDeadline, ready)
+        let target = liveTarget(fixing: true)
+        let subtitles = lowLatency ? sessionSubtitles() : []
         stateLock.lock()
         let first = firstRetainedSegment
         let segments = rendition.completed.filter { $0 >= first }.sorted()
@@ -793,11 +881,13 @@ extension RemuxSession {
         let dates = liveDates
         let starts = liveGenerationStarts
         let removed = liveDiscontinuitiesRemoved
-        let startOffset = liveStartOffsetLocked(segments: segments, durations: durations)
+        let startOffset = lowLatency ? nil : liveStartOffsetLocked(segments: segments, durations: durations)
+        let reports = lowLatency ? renditionReportsLocked(excluding: "sub\(sub.index).m3u8", subtitles: subtitles) : []
         stateLock.unlock()
         return Self.renderLivePlaylist(
             target: target, firstRetained: first, segments: segments, durations: durations, generationStarts: starts, discontinuitiesRemoved: removed,
-            dates: dates, fallbackDuration: config.liveSegmentSeconds, startOffset: startOffset, initName: nil, segmentName: { "sub\(sub.index)-\($0).vtt" })
+            dates: dates, fallbackDuration: config.liveSegmentSeconds, startOffset: Self.publishedLiveStart(startOffset, target: target), initName: nil,
+            segmentName: { "sub\(sub.index)-\($0).vtt" }, reports: reports)
     }
 
     /// The live playlist text from a snapshot of the session's live state (pure, host-testable).
@@ -815,7 +905,8 @@ extension RemuxSession {
     /// `initName` maps a generation to its MAP; nil writes no MAP (a WebVTT rendition has none).
     static func renderLivePlaylist(
         target: Int, firstRetained: Int, segments: [Int], durations: [Int: Double], generationStarts: [Int: Int], discontinuitiesRemoved: Int = 0,
-        dates: [Int: Date], fallbackDuration: Double, startOffset: Double? = nil, initName: ((Int) -> String)?, segmentName: (Int) -> String
+        dates: [Int: Date], fallbackDuration: Double, startOffset: Double? = nil, initName: ((Int) -> String)?, segmentName: (Int) -> String,
+        reports: [RenditionReport] = []
     ) -> String {
         func generation(of n: Int) -> Int { generationStarts.filter { $0.key <= n }.values.max() ?? 0 }
         let formatter = ISO8601DateFormatter()
@@ -839,7 +930,7 @@ extension RemuxSession {
             out += String(format: "#EXTINF:%.6f,\n", durations[n] ?? fallbackDuration)
             out += segmentName(n) + "\n"
         }
-        return out
+        return out + renditionReportLines(reports)
     }
 
     /// Subtitle playlist. An engine-decoded text track is cut on the session
@@ -848,6 +939,7 @@ extension RemuxSession {
     /// AVFoundation takes four at load then one just ahead of each video segment,
     /// which is where the demux already is. Everything else stays one segment.
     func subtitlePlaylist(streamIndex: Int) -> String? {
+        awaitCopyGrid(deadline: Self.subtitleSegmentWaitSeconds)
         guard let sub = sessionSubtitles().first(where: { $0.index == streamIndex }) else { return nil }
         // Measured: selecting a rendition leaves the item's tracks unchanged, and its playlist is
         // refreshed while selected and never after. The request is the selection.
@@ -912,14 +1004,22 @@ extension RemuxSession {
         return readSpans.contains { $0.from < end && $0.upTo >= end }
     }
 
-    func readCoversLocked(from start: Double, to end: Double) -> Bool {
-        guard let reached = readCoverageEndLocked(from: start) else { return false }
+    func readCoversLocked(from start: Double, to end: Double, streamIndex: Int? = nil) -> Bool {
+        guard let reached = readCoverageEndLocked(from: start, streamIndex: streamIndex) else { return false }
         return reached >= end
     }
 
-    func readCoverageEndLocked(from start: Double) -> Double? {
-        var spans = readSpans
+    /// The read spans, the running one last; only those read with the track's decoder open when
+    /// `streamIndex` is given. Caller holds stateLock.
+    func readSpansLocked(streamIndex: Int?) -> [(from: Double, upTo: Double)] {
+        let floor = streamIndex.flatMap { subtitleSpanFloor[Int32($0)] } ?? 0
+        var spans = Array(readSpans.dropFirst(floor))
         if let from = readSpanFrom { spans.append((from: from, upTo: readSpanUpTo)) }
+        return spans
+    }
+
+    func readCoverageEndLocked(from start: Double, streamIndex: Int? = nil) -> Double? {
+        let spans = readSpansLocked(streamIndex: streamIndex)
         var reached = start
         var covered = false
         for span in spans.sorted(by: { $0.from < $1.from }) {
@@ -933,9 +1033,9 @@ extension RemuxSession {
 
     /// Nothing will bring the read to this window: no span reaches its start, the running read began
     /// past it, and no seek or waiting media request is headed back there. Caller holds stateLock.
-    func subtitleWindowUnreachableLocked(segment: Int, from start: Double) -> Bool {
+    func subtitleWindowUnreachableLocked(segment: Int, from start: Double, streamIndex: Int) -> Bool {
         guard !sourceReleased, let anchor = sessionAnchorSeconds, let readFrom = readSpanFrom, readFrom > start + anchor else { return false }
-        if readCoverageEndLocked(from: start + anchor) != nil { return false }
+        if readCoverageEndLocked(from: start + anchor, streamIndex: streamIndex) != nil { return false }
         if let seek = pendingSeekSegment, seek <= segment { return false }
         if let seek = activationSeekSegment, seek <= segment { return false }
         return lastRequestedSegmentLocked() > segment && !activeWaiters.keys.contains { $0 <= segment }
@@ -987,7 +1087,7 @@ extension RemuxSession {
         defer { stateLock.unlock() }
         let decoder = textSubtitles[Int32(streamIndex)]
         let anchor = sessionAnchorSeconds ?? 0
-        var covered = sessionAnchorSeconds != nil && readCoversLocked(from: start + anchor, to: end + anchor)
+        var covered = sessionAnchorSeconds != nil && readCoversLocked(from: start + anchor, to: end + anchor, streamIndex: streamIndex)
         if sessionAnchorSeconds != nil, decoder?.isComplete == true, let from = readSpanFrom,
            from <= start + anchor, readSpanUpTo >= start + anchor {
             covered = true
@@ -996,6 +1096,7 @@ extension RemuxSession {
     }
 
     func subtitleSegment(streamIndex: Int, segment: Int) -> String? {
+        awaitCopyGrid(deadline: Self.subtitleSegmentWaitSeconds)
         guard segment >= 0, segment < segmentCount else { return nil }
         guard let sub = sessionSubtitles().first(where: { $0.index == streamIndex && $0.isEngineText }) else { return nil }
 
@@ -1012,26 +1113,41 @@ extension RemuxSession {
             NSLog("[LocalRemuxer] subtitle segment %d of stream %d has no source reading toward it, answered without cues", segment, streamIndex)
             return emptySubtitleBody()
         }
-        if !window.covered, window.decoder == nil {
-            _ = awaitTextDecoder(streamIndex: streamIndex)
-        } else if !window.covered, !waitUntil(deadline: Self.unreachableSubtitleGraceSeconds, { [weak self] in
-            guard let self else { return true }
-            self.stateLock.lock()
-            defer { self.stateLock.unlock() }
-            return self.failed || self.cancelled || !self.subtitleWindowUnreachableLocked(segment: segment, from: start)
-        }) {
+        func staysBehindTheRead() -> Bool {
+            !waitUntil(deadline: Self.unreachableSubtitleGraceSeconds) { [weak self] in
+                guard let self else { return true }
+                self.stateLock.lock()
+                defer { self.stateLock.unlock() }
+                return self.failed || self.cancelled || !self.subtitleWindowUnreachableLocked(segment: segment, from: start, streamIndex: streamIndex)
+            }
+        }
+        func behindTheRead() -> String {
             // AVPlayer asks two segments behind the playhead when the rendition changes (probed),
             // and after a seek it asks for every segment again, so these cues are not lost.
             NSLog("[LocalRemuxer] subtitle segment %d of stream %d is behind the read, answered without cues", segment, streamIndex)
             return emptySubtitleBody()
         }
-        _ = waitUntil(deadline: Self.subtitleSegmentWaitSeconds) { [weak self] in
-            guard let self else { return true }
-            window = self.textSubtitleWindow(streamIndex: streamIndex, from: start, to: end)
-            self.stateLock.lock()
-            let dead = self.failed || self.cancelled
-            self.stateLock.unlock()
-            return window.covered || dead
+        if !window.covered, window.decoder == nil {
+            _ = awaitTextDecoder(streamIndex: streamIndex)
+        } else if !window.covered, staysBehindTheRead() {
+            return behindTheRead()
+        }
+        let deadline = Date().addingTimeInterval(Self.subtitleSegmentWaitSeconds)
+        while true {
+            var behind = false
+            _ = waitUntil(deadline: max(0, deadline.timeIntervalSinceNow)) { [weak self] in
+                guard let self else { return true }
+                window = self.textSubtitleWindow(streamIndex: streamIndex, from: start, to: end)
+                self.stateLock.lock()
+                let dead = self.failed || self.cancelled
+                // A pick's decoder opens on a restart that can land past this window.
+                behind = !window.covered && !dead && window.decoder != nil
+                    && self.subtitleWindowUnreachableLocked(segment: segment, from: start, streamIndex: streamIndex)
+                self.stateLock.unlock()
+                return window.covered || dead || behind
+            }
+            guard behind, deadline.timeIntervalSinceNow > 0 else { break }
+            if staysBehindTheRead() { return behindTheRead() }
         }
         if !window.covered {
             NSLog("[LocalRemuxer] subtitle segment %d of stream %d awaits coverage at read head %.1fs, window ends %.1fs",
@@ -1170,7 +1286,7 @@ extension RemuxSession {
         let anchor = sessionAnchorSeconds ?? 0
         let start = segmentStartSeconds(requestedSegment)
         let end = config.isLive ? start : start + segmentDurationSeconds(requestedSegment)
-        let localReadUpTo = readCoverageEndLocked(from: start + anchor).map { $0 - anchor }
+        let localReadUpTo = readCoverageEndLocked(from: start + anchor, streamIndex: streamIndex).map { $0 - anchor }
         let localCovers = localReadUpTo.map { $0 >= end } ?? false
         stateLock.unlock()
         if let server, !config.isLive,

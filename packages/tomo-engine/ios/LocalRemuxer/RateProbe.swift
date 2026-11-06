@@ -1,7 +1,8 @@
 import Foundation
 
 /// Times a URL's body through a RateMeter for its whole budget from the first byte: no reading ends early on a
-/// flat stretch, which a burst allowance also shows. `beside` counts what other transfers carried meanwhile.
+/// flat stretch, which a burst allowance also shows, unless `settled` accepts the reading once `settleAfter`
+/// seconds have flowed. `beside` counts what other transfers carried meanwhile.
 /// Several connections each read their own range, as the pipeline does, and the meter adds them up.
 final class RateProbe: NSObject, URLSessionDataDelegate {
     struct Outcome {
@@ -28,6 +29,8 @@ final class RateProbe: NSObject, URLSessionDataDelegate {
     private let repeats: Bool
     private let connections: Int
     private let beside: () -> Int64
+    private let settled: ((RateMeter.Reading) -> Bool)?
+    private let settleAfter: Double
     private let clock: () -> Double
     private let done = DispatchSemaphore(value: 0)
     private let lock = NSLock()
@@ -42,13 +45,16 @@ final class RateProbe: NSObject, URLSessionDataDelegate {
     private var open = 0
 
     init(request: URLRequest, budget: Double, firstByteWithin: Double, repeats: Bool = false, connections: Int = 1,
-         beside: @escaping () -> Int64 = { 0 }, clock: @escaping () -> Double = { ProcessInfo.processInfo.systemUptime }) {
+         beside: @escaping () -> Int64 = { 0 }, settled: ((RateMeter.Reading) -> Bool)? = nil, settleAfter: Double = 0,
+         clock: @escaping () -> Double = { ProcessInfo.processInfo.systemUptime }) {
         self.request = request
         self.budget = budget
         self.firstByteWithin = firstByteWithin
         self.repeats = repeats
         self.connections = max(1, connections)
         self.beside = beside
+        self.settled = settled
+        self.settleAfter = settleAfter
         self.clock = clock
     }
 
@@ -139,7 +145,11 @@ final class RateProbe: NSObject, URLSessionDataDelegate {
         }
         meter.received(transfer, bytes: data.count + Int(max(0, carried - besideSeen)), at: now)
         besideSeen = carried
-        let stop = now - (firstByteAt ?? now) >= budget
+        var stop = now - (firstByteAt ?? now) >= budget
+        if !stop, let settled {
+            let reading = meter.reading()
+            stop = reading.seconds >= settleAfter && settled(reading)
+        }
         if stop { finished = true }
         lock.unlock()
         if stop {

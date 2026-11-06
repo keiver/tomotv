@@ -1,4 +1,4 @@
-import { hasTextSubtitleIn, jobApplied, jobApplying, jobApplyFailed, makeJobs, runJobs, takeMatches, withLanguage, withQuery } from "@/services/subtitles/jobs";
+import { jobApplied, jobApplying, jobApplyFailed, makeJob, runJobs, withLanguage, withQuery } from "@/services/subtitles/jobs";
 import type { SubtitleHit, SubtitleJob } from "@/services/subtitles/types";
 import type { JellyfinVideoItem } from "@/types/jellyfin";
 
@@ -33,26 +33,18 @@ function hit(id: string, over: Partial<SubtitleHit> = {}): SubtitleHit {
   };
 }
 
-describe("makeJobs", () => {
-  it("makes one job per video, leaving out files already subtitled in the language", () => {
-    const jobs = makeJobs([episode(1), episode(2, [{ Type: "Subtitle", Codec: "subrip", Language: "eng" }]), episode(3, [{ Type: "Subtitle", Codec: "pgssub", Language: "eng" }])], "en");
-    expect(jobs.map((job) => job.item.Id)).toEqual(["e1", "e3"]);
-    expect(jobs[0]).toMatchObject({ label: "S01 E01", title: "Episode 1", language: "en", status: "idle" });
-  });
+const jobsFor = (items: JellyfinVideoItem[]): SubtitleJob[] => items.map((item) => makeJob(item, "en"));
 
-  it("keeps a subtitled file when asked not to skip it", () => {
-    const jobs = makeJobs([episode(2, [{ Type: "Subtitle", Codec: "subrip", Language: "eng" }])], "en", false);
-    expect(jobs.map((job) => job.item.Id)).toEqual(["e2"]);
-  });
-
-  it("counts an image track as no text subtitle", () => {
-    expect(hasTextSubtitleIn({ MediaStreams: [{ Type: "Subtitle", Codec: "pgssub", Language: "eng" }] }, "en")).toBe(false);
-    expect(hasTextSubtitleIn({ MediaStreams: [{ Type: "Subtitle", Codec: "subrip", Language: "en" }] }, "en")).toBe(true);
+describe("makeJob", () => {
+  it("makes an idle job for the video, even one already subtitled in the language", () => {
+    const job = makeJob(episode(1, [{ Type: "Subtitle", Codec: "subrip", Language: "eng" }]), "en");
+    expect(job).toMatchObject({ label: "S01 E01", title: "Episode 1", language: "en", status: "idle" });
+    expect(job.item.Id).toBe("e1");
   });
 });
 
 describe("job transitions", () => {
-  const jobs = makeJobs([episode(1), episode(2)], "en");
+  const jobs = jobsFor([episode(1), episode(2)]);
 
   it("a new language resets every job", () => {
     const applied = jobApplied(jobs, 0, { where: "device", language: "en" });
@@ -74,24 +66,9 @@ describe("job transitions", () => {
   });
 });
 
-describe("takeMatches", () => {
-  it("offers only hash matches and lone results, from jobs with results", () => {
-    const base = makeJobs([episode(1), episode(2), episode(3)], "en");
-    const jobs: SubtitleJob[] = [
-      { ...base[0], status: "found", results: [hit("a"), hit("b", { hashMatch: true })] },
-      { ...base[1], status: "found", results: [hit("c"), hit("d")] },
-      { ...base[2], status: "found", results: [hit("e")] },
-    ];
-    expect(takeMatches(jobs)).toEqual([
-      { index: 0, hit: jobs[0].results[1] },
-      { index: 2, hit: jobs[2].results[0] },
-    ]);
-  });
-});
-
 describe("runJobs", () => {
   it("searches every idle job a few at a time and reports each change", async () => {
-    const jobs = makeJobs([episode(1), episode(2), episode(3), episode(4)], "en");
+    const jobs = jobsFor([episode(1), episode(2), episode(3), episode(4)]);
     let inFlight = 0;
     let peak = 0;
     const reports: { index: number; status: string }[] = [];
@@ -123,7 +100,7 @@ describe("runJobs", () => {
   });
 
   it("stops starting searches once the caller has left", async () => {
-    const jobs = makeJobs([episode(1), episode(2), episode(3)], "en");
+    const jobs = jobsFor([episode(1), episode(2), episode(3)]);
     let alive = true;
     let searches = 0;
     const result = await runJobs(

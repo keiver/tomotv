@@ -2448,8 +2448,8 @@ invoked.
 - Park at the stage's size on the non-TV lane, moved off screen by transform
   rather than shrunk to 1x1. tvOS keeps the 1x1 park: a view above a focusable
   strands focus there, and it never presents anyway.
-- Never present AVKit full screen on a Mac. Inline, React Native owns the size and
-  `UIScreen` never enters the picture.
+- The Mac presents AVKit full screen like the phone; the react-native-video patch sizes
+  the presented player to its window, never to `UIScreen`.
 - Resume through the source's `startPosition` on a Mac, which
   react-native-video applies in `handleReadyToPlay` before a frame reaches the
   layer, instead of seeking after load.

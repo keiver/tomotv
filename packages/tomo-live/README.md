@@ -34,14 +34,17 @@ configureLive({
     streamUrl,
     name,
     canPlayOnDevice,
+    originKey, // optional: the provider whose connection budget an item's reads spend
     startSession,
     subscribeListChange,
   },
 });
 ```
 
-`LiveChannels` in `src/config.ts` documents each member. Logging goes through the engine's
-`configureEngine({ log })`.
+`LiveChannels` in `src/config.ts` documents each member. `resolveOrigin` answers `"tuner"` for a
+channel only a hardware tuner carries (an HDHomeRun behind Jellyfin): the services then open it
+only to play it, never for a card picture, a preview, a warm neighbour or a multiview spot the viewer did not fill.
+Logging goes through the engine's `configureEngine({ log })`.
 
 ## Live playback controller
 
@@ -79,8 +82,9 @@ before each bind (a throw is a drop, `false` ends the play with no bind), `onOpe
 app's own final failures. The rule is
 `planLiveRecovery`: reopen after 0.5, 1, 2, 4, then 5 s (`LIVE_REOPEN_DELAYS_MS`), counted from
 zero again once the channel has been playing `LIVE_RECOVERY_RESET_MS` (60 s) since it last started,
-and stop only on a failure no open fixes (`isPermanentLiveFailure`: the engine gave the input up,
-the origin refused every path, or DRM).
+and stop on a failure no open fixes (`isPermanentLiveFailure`: the engine gave the input up,
+the origin refused every path, or DRM), or after `LIVE_UNPLAYED_REOPENS` (4) reopens of a channel
+that has not played since the viewer chose it.
 
 The steps underneath stay public: `open(channelId, current)` (null once `current()` turns false,
 with nothing left open), `takeAdopted`, `bind(token, url, watch)`, `drop(message, permanent)`,

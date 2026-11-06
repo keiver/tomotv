@@ -28,7 +28,6 @@ jest.mock("@/services/jellyfinApi", () => ({ isAudioItem: () => false, isBook: (
 
 import { CardBadge } from "@/components/card-badge";
 import { CardCornerNotch } from "@/components/card-corner-notch";
-import { standRedOpacity } from "@/components/card-stand";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { DESIGN } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
@@ -151,39 +150,23 @@ describe("channel wall stand", () => {
     act(() => offline.unmount());
   });
 
-  it("paints a fresh picture's stand red under a white name, gold from LIVE's end, and drops the red on focus", () => {
+  it("keeps a fresh picture's stand dark under the gold name", () => {
     jest.useFakeTimers();
     jest.setSystemTime(1_000_000);
     mockStandReel = { frames: [{ uri: "a" }], at: 1_000_000 };
     try {
       const tree = mountCard({ stand: true });
-      const nameColor = () => {
-        const name = standOf(tree)
-          .findAllByType(Text)
-          .find((n) => n.props.children === "Channel One");
-        return StyleSheet.flatten(name?.props.style).color;
-      };
-      const red = () => tree.root.findAll((n) => n.props.testID === "card-stand-red" && typeof n.type === "string");
-      expect(red()).toHaveLength(1);
-      expect(nameColor()).toBe(COLORS.TEXT_PRIMARY);
-      act(() => {
-        jest.advanceTimersByTime(15_000);
-      });
-      expect(nameColor()).toBe(COLORS.ACCENT);
-      act(() => tree.update(<VideoGridItem video={channel} onPress={jest.fn()} index={0} liveCard liveFrame={frame} titleIcon="heart" hideAiring stand highlighted />));
-      expect(red()).toHaveLength(0);
+      const name = standOf(tree)
+        .findAllByType(Text)
+        .find((n) => n.props.children === "Channel One");
+      expect(StyleSheet.flatten(name?.props.style).color).toBe(COLORS.ACCENT);
+      expect(StyleSheet.flatten(standOf(tree).props.style).backgroundColor).toBe(COLORS.SURFACE);
+      expect(tree.root.findAll((n) => n.props.testID === "card-stand-red")).toHaveLength(0);
       act(() => tree.unmount());
     } finally {
       mockStandReel = undefined;
       jest.useRealTimers();
     }
-  });
-
-  it("steps the red from full while LIVE down to none, and shows none without a picture", () => {
-    expect(standRedOpacity(-1)).toBe(0);
-    expect(standRedOpacity(0)).toBe(1);
-    expect(standRedOpacity(1)).toBeGreaterThan(standRedOpacity(5));
-    expect(standRedOpacity(9)).toBe(0);
   });
 
   it("marks an offline channel with a glyph before its name, in the stand's own colours", () => {

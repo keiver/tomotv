@@ -244,7 +244,7 @@ final class ParallelRangeReaderTests: XCTestCase {
         }
     }
 
-    func testCancellingAHeadersOnlySessionLeavesNoRecentClose() throws {
+    func testCancellingAHeadersOnlySessionLeavesARecentClose() throws {
         try startServer(ranges: false, bytes: 65536)
         let key = "headers-only-\(UUID().uuidString)"
         var config = makeConfig(durationSeconds: 0, inputUrl: "http://127.0.0.1:\(port)/headers-only", isLive: true)
@@ -257,7 +257,7 @@ final class ParallelRangeReaderTests: XCTestCase {
         session.stop()
         let released = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in LiveConnectionBroker.shared.activeCount(for: key) == 0 }, object: nil)
         wait(for: [released], timeout: 5)
-        XCTAssertFalse(LiveConnectionBroker.shared.recentlyClosed(key: key, within: 15))
+        XCTAssertTrue(LiveConnectionBroker.shared.recentlyClosed(key: key, within: 15))
     }
 
     /// One connection means one request in flight, however far the window reaches.

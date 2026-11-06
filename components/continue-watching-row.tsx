@@ -2,7 +2,7 @@ import { MediaShelf } from "@/components/media-shelf";
 import { VideoGridItem } from "@/components/video-grid-item";
 import { ArtworkSlotShape, itemSlotShape } from "@/constants/app";
 import { useOpenShelfItem } from "@/hooks/useOpenShelfItem";
-import { fetchResumeItems, subscribeResumeChange } from "@/services/jellyfinApi";
+import { fetchResumeItems, fetchVideoDetails, subscribeResumeChange } from "@/services/jellyfinApi";
 import { byLastPlayed, containerKey, resolveNextUp } from "@/services/nextUp";
 import { syncShelfFrames } from "@/services/topShelfFrames";
 import { JellyfinVideoItem } from "@/types/jellyfin";
@@ -106,6 +106,8 @@ export function ContinueWatchingRow({ onItemFocus }: ContinueWatchingRowProps) {
   const handleItemFocus = useCallback(
     (video: JellyfinVideoItem, index: number) => {
       if (IS_TV) retireClaim();
+      // The player's own read, warmed before Play: it answers from the request cache.
+      if (video.Type !== "TvChannel") void fetchVideoDetails(video.Id).catch(() => null);
       onItemFocus?.(video, index);
     },
     [onItemFocus, retireClaim],

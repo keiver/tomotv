@@ -1,9 +1,10 @@
 /** Record writes: a write that landed stands even when the re-read fails, and a cancel on that stand-in reads first. */
 import { useRecordActions, type RecordTarget } from "@/hooks/useRecordActions";
 import { cancelSeriesTimer, cancelTimer, createSeriesTimer, createTimer, fetchSeriesTimers, fetchTimerDefaults, fetchTimers } from "@/services/jellyfinApi";
-import { checkNewRecording, reserveForRecording } from "@/services/recordingHold";
+import { cancelRecording, checkNewRecording, recordsOnOneConnection, reserveForRecording } from "@/services/recordingHold";
 import { showToast } from "@/services/toast";
 import React, { forwardRef, useImperativeHandle } from "react";
+import { Alert } from "react-native";
 import TestRenderer, { act } from "react-test-renderer";
 
 jest.mock("@/services/jellyfinApi", () => ({
@@ -21,10 +22,17 @@ jest.mock("@/services/liveTvPreferences", () => ({ getLiveTvPreferences: () => (
 jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), warn: jest.fn(), info: jest.fn(), debug: jest.fn() } }));
 const mockRelease = jest.fn();
 jest.mock("@/services/recordingHold", () => ({
-  reserveForRecording: jest.fn(async () => mockRelease),
+  reserveForRecording: jest.fn(async () => ({ free: true, release: mockRelease })),
   checkNewRecording: jest.fn(async () => undefined),
+  cancelRecording: jest.fn(async () => undefined),
+  recordsOnOneConnection: jest.fn(async () => false),
   stopRecordingCheck: jest.fn(),
 }));
+// The confirmation answers with the button named here; Record unless a test says otherwise.
+let mockConfirmAnswer = "liveTv.record";
+const alertSpy = jest.spyOn(Alert, "alert").mockImplementation((_title, _message, buttons) => {
+  buttons?.find((button) => button.text === mockConfirmAnswer)?.onPress?.();
+});
 
 type Actions = ReturnType<typeof useRecordActions>;
 const Harness = forwardRef<{ get: () => Actions }, { target: RecordTarget }>(({ target }, ref) => {
@@ -52,6 +60,42 @@ describe("useRecordActions", () => {
     jest.clearAllMocks();
     jest.mocked(fetchTimers).mockResolvedValue([]);
     jest.mocked(fetchSeriesTimers).mockResolvedValue([]);
+    mockConfirmAnswer = "liveTv.record";
+  });
+
+  it("asks before recording and says a recording that starts now takes a one-connection provider's only stream", async () => {
+    jest.mocked(recordsOnOneConnection).mockResolvedValueOnce(true);
+    const ref = await mount();
+    await act(async () => {
+      await ref.current!.get().record();
+    });
+    expect(recordsOnOneConnection).toHaveBeenCalledWith("ch1");
+    expect(alertSpy).toHaveBeenCalledWith("liveTv.recordConfirm", "liveTv.recordTakesOnlySlot", expect.any(Array), expect.any(Object));
+    expect(createTimer).toHaveBeenCalledTimes(1);
+  });
+
+  it("writes nothing when the viewer cancels the confirmation, and says nothing of the provider for a later program", async () => {
+    mockConfirmAnswer = "common.cancel";
+    const ref = await mount();
+    let landed: boolean | undefined;
+    await act(async () => {
+      landed = await ref.current!.get().record();
+    });
+    expect(landed).toBe(false);
+    expect(createTimer).not.toHaveBeenCalled();
+    expect(reserveForRecording).not.toHaveBeenCalled();
+    mockConfirmAnswer = "liveTv.record";
+    const later = { StartDate: new Date(now + 3_600_000).toISOString(), EndDate: new Date(now + 7_200_000).toISOString() };
+    const laterRef = React.createRef<{ get: () => Actions }>();
+    await act(async () => {
+      TestRenderer.create(<Harness ref={laterRef} target={{ programId: "p2", channelId: "ch1", channelName: "News", program: later }} />);
+    });
+    jest.mocked(recordsOnOneConnection).mockClear();
+    await act(async () => {
+      await laterRef.current!.get().record();
+    });
+    expect(recordsOnOneConnection).not.toHaveBeenCalled();
+    expect(alertSpy).toHaveBeenLastCalledWith("liveTv.recordConfirm", undefined, expect.any(Array), expect.any(Object));
   });
 
   it("a later program on a channel recording another offers Record, never the other's Stop", async () => {
@@ -62,7 +106,9 @@ describe("useRecordActions", () => {
       TestRenderer.create(<Harness ref={ref} target={{ programId: "p2", channelId: "ch1", channelName: "News", program: later }} />);
     });
     expect(ref.current!.get().timer).toBeNull();
-    await act(async () => ref.current!.get().cancel());
+    await act(async () => {
+      await ref.current!.get().cancel();
+    });
     expect(cancelTimer).not.toHaveBeenCalled();
   });
 
@@ -75,7 +121,9 @@ describe("useRecordActions", () => {
     });
     expect(ref.current!.get().timer).toMatchObject({ Id: "t9" });
     jest.mocked(fetchTimers).mockResolvedValue([{ ...future, Status: "Cancelled" }] as never);
-    await act(async () => ref.current!.get().cancel());
+    await act(async () => {
+      await ref.current!.get().cancel();
+    });
     expect(cancelTimer).toHaveBeenCalledWith("t9");
     expect(ref.current!.get().timer).toBeNull();
   });
@@ -92,7 +140,11 @@ describe("useRecordActions", () => {
     const ref = await mount();
     expect(ref.current!.get().timer).toBeNull();
     jest.mocked(fetchTimers).mockRejectedValueOnce(new Error("offline"));
-    await act(async () => ref.current!.get().record());
+    let landed: boolean | undefined;
+    await act(async () => {
+      landed = await ref.current!.get().record();
+    });
+    expect(landed).toBe(true);
     expect(createTimer).toHaveBeenCalledTimes(1);
     expect(ref.current!.get().timer).toMatchObject({ Id: "", Status: "InProgress" });
     expect(showToast).toHaveBeenCalledTimes(1);
@@ -102,22 +154,32 @@ describe("useRecordActions", () => {
   it("reads the real timer before cancelling a stand-in, then cancels it by id", async () => {
     const ref = await mount();
     jest.mocked(fetchTimers).mockRejectedValueOnce(new Error("offline"));
-    await act(async () => ref.current!.get().record());
+    await act(async () => {
+      await ref.current!.get().record();
+    });
     jest.mocked(fetchTimers).mockResolvedValue([serverTimer] as never);
-    await act(async () => ref.current!.get().cancel());
-    expect(cancelTimer).not.toHaveBeenCalled();
+    await act(async () => {
+      await ref.current!.get().cancel();
+    });
+    expect(cancelRecording).not.toHaveBeenCalled();
     expect(ref.current!.get().timer).toMatchObject({ Id: "t1" });
-    await act(async () => ref.current!.get().cancel());
-    expect(cancelTimer).toHaveBeenCalledWith("t1");
+    await act(async () => {
+      await ref.current!.get().cancel();
+    });
+    expect(cancelRecording).toHaveBeenCalledWith("t1");
   });
 
   it("marks a series stand-in as set, so the rule is not written twice, and never cancels it by a made-up id", async () => {
     const ref = await mount();
     jest.mocked(fetchTimers).mockRejectedValueOnce(new Error("offline"));
-    await act(async () => ref.current!.get().recordSeries());
+    await act(async () => {
+      await ref.current!.get().recordSeries();
+    });
     expect(createSeriesTimer).toHaveBeenCalledTimes(1);
     expect(ref.current!.get().seriesTimerId).toBeTruthy();
-    await act(async () => ref.current!.get().cancelSeries());
+    await act(async () => {
+      await ref.current!.get().cancelSeries();
+    });
     expect(cancelSeriesTimer).not.toHaveBeenCalled();
   });
 
@@ -128,7 +190,9 @@ describe("useRecordActions", () => {
     expect(ref.current!.get().timer).toBeNull();
     expect(ref.current!.get().seriesTimerId).toBe("s1");
     jest.mocked(fetchSeriesTimers).mockResolvedValue([]);
-    await act(async () => ref.current!.get().cancelSeries());
+    await act(async () => {
+      await ref.current!.get().cancelSeries();
+    });
     expect(cancelSeriesTimer).toHaveBeenCalledWith("s1");
     expect(ref.current!.get().seriesTimerId).toBeNull();
   });
@@ -143,8 +207,11 @@ describe("useRecordActions", () => {
     jest.mocked(fetchTimers).mockResolvedValue([serverTimer] as never);
     const ref = await mount();
     jest.mocked(fetchTimers).mockRejectedValueOnce(new Error("offline"));
-    await act(async () => ref.current!.get().cancel());
-    expect(cancelTimer).toHaveBeenCalledWith("t1");
+    await act(async () => {
+      await ref.current!.get().cancel();
+    });
+    expect(cancelRecording).toHaveBeenCalledWith("t1");
+    expect(cancelTimer).not.toHaveBeenCalled();
     expect(ref.current!.get().timer).toBeNull();
   });
 
@@ -152,7 +219,11 @@ describe("useRecordActions", () => {
     const ref = await mount();
     jest.mocked(createTimer).mockRejectedValueOnce(new Error("500"));
     jest.mocked(fetchTimerDefaults).mockResolvedValueOnce({} as never);
-    await act(async () => ref.current!.get().record());
+    let landed: boolean | undefined;
+    await act(async () => {
+      landed = await ref.current!.get().record();
+    });
+    expect(landed).toBe(false);
     expect(showToast).toHaveBeenCalledWith("liveTv.recordingFailed", "error");
     expect(ref.current!.get().timer).toBeNull();
     expect(mockRelease).toHaveBeenCalled();
@@ -160,15 +231,45 @@ describe("useRecordActions", () => {
 
   it("an airing program's timer is written only after this device let its provider go", async () => {
     const ref = await mount();
-    await act(async () => ref.current!.get().record());
-    expect(reserveForRecording).toHaveBeenCalledWith("ch1");
+    await act(async () => {
+      await ref.current!.get().record();
+    });
+    expect(reserveForRecording).toHaveBeenCalledWith("ch1", expect.objectContaining({ endMs: Date.parse(program.EndDate) }));
     expect(jest.mocked(reserveForRecording).mock.invocationCallOrder[0]).toBeLessThan(jest.mocked(createTimer).mock.invocationCallOrder[0]);
     expect(mockRelease).not.toHaveBeenCalled();
   });
 
+  it("waits for the connection as its own busy state, and a cancel writes no timer", async () => {
+    let finish: (value: { free: boolean; release: () => void }) => void = () => {};
+    jest.mocked(reserveForRecording).mockImplementationOnce(
+      (_channelId, options) =>
+        new Promise((resolve) => {
+          finish = resolve;
+          options?.signal?.addEventListener("abort", () => resolve({ free: false, release: mockRelease }));
+        }),
+    );
+    const ref = await mount();
+    let landed: Promise<boolean | undefined> | undefined;
+    await act(async () => {
+      landed = ref.current!.get().record();
+    });
+    expect(ref.current!.get().busy).toBe("waiting");
+    await act(async () => {
+      ref.current!.get().cancelWaiting();
+      await landed;
+    });
+    expect(await landed).toBe(false);
+    expect(createTimer).not.toHaveBeenCalled();
+    expect(showToast).not.toHaveBeenCalled();
+    expect(ref.current!.get().busy).toBeNull();
+    finish({ free: true, release: mockRelease });
+  });
+
   it("checks the new recording for the stream, making it again with the same write", async () => {
     const ref = await mount();
-    await act(async () => ref.current!.get().record());
+    await act(async () => {
+      await ref.current!.get().record();
+    });
     expect(checkNewRecording).toHaveBeenCalledWith("ch1", "p1", expect.any(Function));
     jest.mocked(createTimer).mockClear();
     await jest.mocked(checkNewRecording).mock.calls[0][2]();
@@ -178,7 +279,9 @@ describe("useRecordActions", () => {
 
   it("a series recorded while airing makes the airing again, never the rule", async () => {
     const ref = await mount();
-    await act(async () => ref.current!.get().recordSeries());
+    await act(async () => {
+      await ref.current!.get().recordSeries();
+    });
     expect(createSeriesTimer).toHaveBeenCalledTimes(1);
     await jest.mocked(checkNewRecording).mock.calls[0][2]();
     expect(createSeriesTimer).toHaveBeenCalledTimes(1);
@@ -191,7 +294,9 @@ describe("useRecordActions", () => {
     await act(async () => {
       TestRenderer.create(<Harness ref={ref} target={{ programId: "p2", channelId: "ch1", channelName: "News", program: later }} />);
     });
-    await act(async () => ref.current!.get().record());
+    await act(async () => {
+      await ref.current!.get().record();
+    });
     expect(createTimer).toHaveBeenCalled();
     expect(reserveForRecording).not.toHaveBeenCalled();
     expect(checkNewRecording).not.toHaveBeenCalled();

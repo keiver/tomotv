@@ -4,6 +4,7 @@
 [![Tests](https://github.com/keiver/tomotv/actions/workflows/test-pr.yml/badge.svg)](https://github.com/keiver/tomotv/actions/workflows/test-pr.yml)
 [![@keiver/tomo-engine](https://img.shields.io/npm/v/@keiver/tomo-engine?label=%40keiver%2Ftomo-engine)](https://www.npmjs.com/package/@keiver/tomo-engine)
 [![@keiver/tomo-live](https://img.shields.io/npm/v/@keiver/tomo-live?label=%40keiver%2Ftomo-live)](https://www.npmjs.com/package/@keiver/tomo-live)
+[![TestFlight](https://img.shields.io/badge/TestFlight-join_the_beta-0D96F6)](https://testflight.apple.com/join/6fCQ45V5)
 
 A free, open source Jellyfin client for Apple TV, iPhone, iPad and Mac. Files play at
 original quality in Apple's own player, with an on-device FFmpeg engine doing the
@@ -108,10 +109,10 @@ The engine and the live TV services are npm packages developed here, usable by
 any Expo app on Apple TV, iOS or Mac Catalyst. Neither knows Jellyfin: Tomo connects them in
 `services/localRemux.ts` and `services/liveChannels.ts`.
 
-| Package                                       | Holds                                                                                                                                                                               |
-| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`@keiver/tomo-engine`](packages/tomo-engine) | The engine, native XMLTV and M3U parsing, frame grabs, probes, the pinned FFmpeg build, and the player's startup checks, error IDs, track language rules and image subtitle overlay |
-| [`@keiver/tomo-live`](packages/tomo-live)     | A channel's play and reopen after a drop (`LivePlayback`), origin and DRM checks, warm neighbours, focus previews, live frames and clips, channel health, guide sources, `LiveClip` |
+| Package                                       | Holds                                                                                                                                                                                                           |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`@keiver/tomo-engine`](packages/tomo-engine) | The engine, native XMLTV and M3U parsing, frame grabs, probes, the pinned FFmpeg build, and the player's startup checks, error IDs, track language rules and image subtitle overlay                             |
+| [`@keiver/tomo-live`](packages/tomo-live)     | A channel's play and reopen after a drop (`LivePlayback`), origin and DRM checks, warm neighbours, focus previews, live frames and clips, multiview tiles and layout, channel health, guide sources, `LiveClip` |
 
 Here they are npm workspaces, so Tomo builds against the source in the same
 commit. A commit that changes a published package gets a patch bump from the

@@ -96,7 +96,7 @@ export default function TabLayout() {
   const [inGroup, setInGroup] = useState(false);
   useEffect(() => subscribeSyncPlay((snap) => setInGroup(snap.group !== null)), []);
   // A recording in progress: phone only, on the Home tab that leads to the Libraries shelf.
-  // tvOS draws its top-bar badge too large; the TV reads it off the guide's Schedule cell.
+  // tvOS draws its top-bar badge too large; the TV reads it off the guide's Recordings cell.
   const recording = useIsRecording();
 
   // The server's Live TV presence, persisted across launches (updated where the views land).

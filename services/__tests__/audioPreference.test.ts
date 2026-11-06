@@ -1,8 +1,18 @@
 /**
  * The remembered audio language: which stream it opens an item on, and when Jellyfin's settings name one.
  */
-import { audioLanguageToStore, preferredAudioIndexIn, preferredAudioStreamIndex, rememberedAudioLanguage } from "@/services/audioPreference";
+import { audioLanguageToStore, preferredAudioIndexIn, preferredAudioStreamIndex, readAudioPreference, rememberedAudioLanguage } from "@/services/audioPreference";
+import * as trackSettings from "@/services/jellyfin/trackSettings";
 import { JELLYFIN_DEFAULTS } from "@/services/jellyfin/trackSettings";
+
+describe("readAudioPreference", () => {
+  it("reads the stored settings without waiting for a refresh from the server", async () => {
+    const read = jest.spyOn(trackSettings, "readTrackSettings").mockResolvedValue({ ...JELLYFIN_DEFAULTS, audioLanguage: "jpn", playDefaultAudio: false });
+    await expect(readAudioPreference()).resolves.toBe("ja");
+    expect(read).toHaveBeenCalledWith(0);
+    read.mockRestore();
+  });
+});
 
 // Naruto S01E001 as Jellyfin lists it: English default at 1, Japanese at 2.
 const naruto = [

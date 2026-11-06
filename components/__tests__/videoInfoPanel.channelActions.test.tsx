@@ -1,9 +1,10 @@
-/** A channel's info panel offers Rename and Hide beside its other actions; a film's panel does not. Rename saves the typed name, Hide confirms, hides and closes the panel. */
+/** A channel's info panel offers Multiview, Rename and Hide beside its other actions; a film's panel does not. Multiview closes the panel and opens on the channel, Rename saves the typed name, Hide confirms, hides and closes the panel. */
 import { VideoInfoPanel } from "@/components/video-info-panel";
 import { InfoActionRow, type InfoExtraAction } from "@/components/info-action-row";
-import { fetchItemDetails } from "@/services/jellyfinApi";
+import { fetchItemDetails, fetchVideoDetails } from "@/services/jellyfinApi";
 import { invalidateChannelListReads } from "@/services/jellyfin/channelEdits";
-import { hideChannel, renameChannel } from "@/services/liveTvPreferences";
+import { getLiveTvPreferences, hideChannel, renameChannel } from "@/services/liveTvPreferences";
+import { showToast } from "@/services/toast";
 import type { JellyfinItem } from "@/types/jellyfin";
 import React from "react";
 import { Alert } from "react-native";
@@ -13,7 +14,7 @@ const channel = { Id: "ch-1", Name: "Channel One", Type: "TvChannel", ImageTags:
 const film = { Id: "m-1", Name: "A Film", Type: "Movie", ImageTags: {}, MediaStreams: [] } as unknown as JellyfinItem;
 const mockRouter = { back: jest.fn(), push: jest.fn(), replace: jest.fn() };
 
-jest.mock("expo-router", () => ({ useRouter: () => mockRouter }));
+jest.mock("expo-router", () => ({ useRouter: () => mockRouter, useNavigationContainerRef: () => ({ isReady: () => false }) }));
 jest.mock("react-native-gesture-handler", () => {
   const chain: any = new Proxy(() => chain, { get: () => () => chain, apply: () => chain });
   return { Gesture: { Native: () => chain }, GestureDetector: ({ children }: { children: React.ReactNode }) => children };
@@ -27,7 +28,7 @@ jest.mock("@/services/localRemux", () => ({
   cancelPosterFrame: jest.fn(),
 }));
 jest.mock("@/hooks/useFolderPlay", () => ({ useFolderPlay: () => jest.fn() }));
-jest.mock("@/hooks/useShowInFolder", () => ({ useShowInFolder: () => jest.fn() }));
+jest.mock("@/hooks/useShowInFolder", () => ({ useShowInFolder: () => jest.fn(), whenRootStateSettles: async () => {} }));
 jest.mock("@/hooks/useOpenShelfItem", () => ({ useOpenShelfItem: () => jest.fn() }));
 jest.mock("@/hooks/useLiveTvManagement", () => ({ useLiveTvManagement: () => false }));
 jest.mock("@/hooks/useSubtitlePanel", () => ({ useSubtitlePanel: () => ({ available: true, open: jest.fn(), offsetMs: 0 }) }));
@@ -49,6 +50,7 @@ jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 jest.mock("@/services/i18n", () => ({ t: (key: string) => key }));
 jest.mock("@/services/jellyfin/channelEdits", () => ({ invalidateChannelListReads: jest.fn(), withChannelEdits: (item: unknown) => item }));
 jest.mock("@/services/liveTvPreferences", () => ({ ...jest.requireActual("@/services/liveTvPreferences"), hideChannel: jest.fn(), renameChannel: jest.fn() }));
+jest.mock("@/services/toast", () => ({ showToast: jest.fn() }));
 jest.mock("@/services/jellyfinApi", () => ({
   subscribeAuthChange: jest.fn(() => () => {}),
   subscribeSubtitlesChanged: jest.fn(() => () => {}),
@@ -57,6 +59,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   fetchIsAdministrator: jest.fn(async () => false),
   isLiveChannel: (item: { Type?: string }) => item.Type === "TvChannel",
   fetchItemDetails: jest.fn(),
+  fetchVideoDetails: jest.fn(async () => null),
   fetchFolderMediaKinds: jest.fn(async () => null),
   fetchItemFolderPath: jest.fn(async () => []),
   getBackdropUrl: () => null,
@@ -90,9 +93,46 @@ type Button = { text: string; onPress?: (text?: string) => void };
 describe("Video info panel: hide and rename a channel", () => {
   beforeEach(() => jest.clearAllMocks());
 
-  it("offers Rename and Hide on a channel and neither on a film, which gets Find Subtitles instead", async () => {
-    expect((await extrasFor(channel)).map((action) => action.key)).toEqual(["rename", "hide"]);
+  it("offers Multiview, Rename and Hide on a channel and none on a film, which gets Find Subtitles instead", async () => {
+    expect((await extrasFor(channel)).map((action) => action.key)).toEqual(["multiview", "rename", "hide"]);
     expect((await extrasFor(film)).map((action) => action.key)).toEqual(["subtitles"]);
+  });
+
+  it("closes the panel, then opens Multiview with the channel on the main stage", async () => {
+    const multiview = (await extrasFor(channel)).find((action) => action.key === "multiview")!;
+    multiview.onPress();
+    await act(async () => {});
+    expect(mockRouter.back).toHaveBeenCalledTimes(1);
+    expect(mockRouter.push).toHaveBeenCalledWith({ pathname: "/multiview", params: { channelId: "ch-1", channelName: "Channel One" } });
+    expect(mockRouter.back.mock.invocationCallOrder[0]).toBeLessThan(mockRouter.push.mock.invocationCallOrder[0]);
+  });
+
+  it("queues a programme still to come for Multiview's sound spot once, and offers nothing for one airing", async () => {
+    const hour = 3_600_000;
+    const program = (startMs: number) =>
+      ({
+        Id: "p-1",
+        Name: "Match",
+        Type: "Program",
+        ChannelId: "ch-1",
+        ChannelName: "Channel One",
+        StartDate: new Date(startMs).toISOString(),
+        EndDate: new Date(startMs + hour).toISOString(),
+      }) as unknown as JellyfinItem;
+    expect((await extrasFor(program(Date.now() - 60_000))).map((action) => action.key)).not.toContain("multiviewQueue");
+    const later = program(Date.now() + hour);
+    const queue = (await extrasFor(later)).find((action) => action.key === "multiviewQueue")!;
+    queue.onPress();
+    queue.onPress();
+    expect(getLiveTvPreferences().multiviewQueue).toEqual([{ channelId: "ch-1", name: "Match", startMs: Date.parse(later.StartDate!), endMs: Date.parse(later.StartDate!) + hour }]);
+    expect(showToast).toHaveBeenCalledWith("liveTv.multiviewQueued");
+  });
+
+  it("fetches a film's playback details before Play, and never a channel's, whose fetch opens a tuner", async () => {
+    await extrasFor(channel);
+    expect(fetchVideoDetails).not.toHaveBeenCalled();
+    await extrasFor(film);
+    expect(fetchVideoDetails).toHaveBeenCalledWith(film.Id);
   });
 
   it("saves the typed name and drops the cached lists", async () => {

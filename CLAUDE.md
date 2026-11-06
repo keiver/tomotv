@@ -2,7 +2,7 @@
 
 **TomoTV** is a Jellyfin client built with React Native TVOS and Expo for Apple TV, iPhone, iPad and Mac Catalyst (macOS 13.4 or later). Playback runs through our own on-device engine (`packages/tomo-engine`); live TV runs through `packages/tomo-live` on top of it. The server transcodes only what the engine cannot take.
 
-This file is an index. The global `~/.claude/CLAUDE.md` holds the general working rules; nothing here repeats them. Instructions that matter only while editing certain code live in `.claude/rules/` and load when that code is touched: `.claude/rules/tomo-engine.md`, `.claude/rules/tomo-live.md`, `.claude/rules/native-swift.md`, `.claude/rules/tvos-ui.md`. They stay out of `packages/`, where any changed file counts as a package release for `scripts/package-versions.mjs`. `__tests__/claudeMd.test.ts` pins every path, script, package and symbol these files name, so a stale line fails `npm test`.
+This file is an index. The global `~/.claude/CLAUDE.md` holds the general working rules; nothing here repeats them. Instructions that matter only while editing certain code live in `memories/`, listed under "Before you touch X, read Y". They stay out of `packages/`, where any changed file counts as a package release for `scripts/package-versions.mjs`. `__tests__/claudeMd.test.ts` pins every path, script, package and symbol these files name, so a stale line fails `npm test`.
 
 ## THE ULTIMATE RULE: NO ASSUMPTIONS. EVER.
 
@@ -28,8 +28,8 @@ A fix is complete when I have read every file on its path in full (every caller,
 
 Two npm workspaces (`packages/*` in the root `package.json`, symlinked into node_modules/@keiver). Dependencies point one way: app -> `@keiver/tomo-live` -> `@keiver/tomo-engine`. No package imports `@/` app code, and the engine never imports the live package; the test pins both.
 
-- `packages/tomo-engine`: the on-device playback engine (FFmpeg, the `LocalRemuxer` and `LiveSources` native modules). Layout, build, FFmpeg and engine facts: `.claude/rules/tomo-engine.md`.
-- `packages/tomo-live`: live TV over the engine (`LivePlayback`, the channel ring, previews, guide, the `LiveClipModule` Expo module). Layout: `.claude/rules/tomo-live.md`.
+- `packages/tomo-engine`: the on-device playback engine (FFmpeg, the `LocalRemuxer` and `LiveSources` native modules). Layout, build, FFmpeg and engine facts: `memories/CLAUDE-playback-engine.md`.
+- `packages/tomo-live`: live TV over the engine (`LivePlayback`, the channel ring, previews, guide, the `LiveClipModule` Expo module). Layout: `memories/CLAUDE-playback-engine.md`.
 - The code is in the package: `services/playbackHold.ts`, `services/livePreview.ts`, `services/liveRing.ts` and `utils/guideMatch.ts` only re-export or wrap package symbols. Fix the package file.
 - Versions: `npm run release:engine` / `npm run release:live` bump the version only; each package keeps its own `CHANGELOG.md`. Name a version with its package (`@keiver/tomo-engine@1.4.0`).
 
@@ -47,12 +47,14 @@ Two npm workspaces (`packages/*` in the root `package.json`, symlinked into node
 - UI strings: `services/i18n/index.ts` `t`, catalogues in `services/i18n/locales/`.
 - Subtitle search: `services/subtitles/pipeline.ts` `searchSubtitles`, `applyPick`; the sources in order, `services/subtitles/chain.ts` `runChain`; the job list `services/subtitles/jobs.ts` `runJobs`; device copies `services/subtitles/store.ts` `deviceSubtitles`; the server calls `services/jellyfin/subtitleSearch.ts`. Settings `app/subtitle-settings.tsx`; the native panel on every platform `hooks/useSubtitlePanel.ts` over `native/ios/SubtitleSearch`, opened from the info panel and the tvOS player's transport bar.
 - Subtitle timing: the viewer's offset per track `services/subtitles/timing.ts` `subtitleOffsetMs`, `setSubtitleOffsetMs`, carried on the rendition to the engine, which shifts the cues when it serves the track; the tracks a video has `services/subtitles/current.ts` `currentTextSubtitles`; the stepper hook `hooks/useSubtitleTiming.ts` `useSubtitleTiming`, whose `sync` asks the engine to match a track to the audio (`packages/tomo-engine/src/session.ts` `alignSubtitleTiming`) and runs on its own after a pick.
+- Multiview: screen `app/multiview.tsx`, the channel picker `app/multiview-pick.tsx`, the layout picker `app/multiview-layout.tsx` drawing `components/live-tv/multiview-layout-option.tsx`, tiles `components/live-tv/multiview-tile.tsx`; the stored spots `utils/multiviewArrangement.ts` `placeChannel`, `promoteSpot`, `dueQueue`, kept in `services/liveTvPreferences.ts`; the sessions `packages/tomo-live/src/liveTiles.ts` `setLiveTiles`, `takeLiveTile`, `retainLiveTile`; the layouts `packages/tomo-live/src/multiviewLayout.ts` `multiviewCut`, `multiviewSpots` (Apple TV), `multiviewFit` (every other screen), `multiviewChannels`; the wall's list both screens read `hooks/useChannelWall.ts` `useChannelWall`.
 - Tomo-only native modules: `native/ios/AudioQueuePlayer`, `native/ios/BookRenderer`, `native/ios/LyricsListener`, `native/ios/MultiAudioResourceLoader`, `native/ios/SubtitleSearch`, `native/ios/TopShelf`, `native/ios/TopShelfReload`, `native/ios/TunerGroups`. Each is copied in by its `plugins/with*.js` (Top Shelf: `plugins/withTopShelfExtension.js`); Swift tests in `native/ios/Tests/`, SwiftPM `native/ios/Package.swift`.
 - Edit native sources in `packages/*/ios/` and `native/`, and project configuration in `plugins/` and `scripts/`, never the generated `ios/`, `macos/`, `tvos/` or `android/`.
 
 ## Before you touch X, read Y
 
-- A playback lane, the engine, a codec, a transcode: `memories/CLAUDE-playback-engine.md` and `.claude/rules/tomo-engine.md`
+- A playback lane, the engine, a codec, a transcode: `memories/CLAUDE-playback-engine.md`
+- Native Swift, a native module: `memories/CLAUDE-development.md`
 - Tiers, ABR, the gateway, link measurement: `memories/CLAUDE-slipstream.md`
 - Audio track switching: `memories/CLAUDE-multi-audio.md`
 - A Jellyfin call: `memories/CLAUDE-api-reference.md`, then <https://api.jellyfin.org/openapi/jellyfin-openapi-stable.json>
@@ -93,6 +95,7 @@ Two npm workspaces (`packages/*` in the root `package.json`, symlinked into node
 - Audio-only PiP is impossible (AVKit gates on `hasVideo`). Dismissing the audio player keeps playing; the brief gap is accepted.
 - Downloads are never removed by an auth/session event. The only route to `removeAll()` is the storage gauge long press.
 - Never auto-logout on network failure. Recovery matches servers by stored `jellyfin_server_id`.
+- A hardware tuner (HDHomeRun behind Jellyfin, `isHardwareTunerSource`) opens only for the viewer playing a channel: never for a card picture, a focus preview, a ring neighbour or a multiview spot Tomo filled (a spot the viewer filled opens it like the player). Its card's picture comes off the playing session (`refreshLiveFrameWhilePlaying`). Issue 116.
 - Issue 73: explicit `Recursive=false` on every non-recursive `/Items` call. Shared library folders are unsupported by Jellyfin; no app-side scoping.
 - Issue 76 (Touch Alternatives eats keys): no plist/defaults fix exists.
 - No in-player remote subtitle search (Jellyfin returns empty for `Type: Video`). No Apple Watch app.
@@ -178,6 +181,7 @@ npm run lint              # ESLint and Prettier checks
 npm run test:release      # Project and release script tests
 npm run test:engine       # Every Swift test, release-final only (about 10 minutes)
 npm run probe:codecs      # What the FFmpeg build registers
+npm run meta:a11y         # Accessibility labels per live version from scripts/appstore/accessibility.json (archive --upload runs it)
 ```
 
 The user runs `npm run clear`, `npm run clearmac`, the `prebuild` scripts and `npm run archive -- <next-build>`. Schemes: `TomoTV-iOS`, `TomoTV-macOS`, `TomoTV-tvOS`; the Mac uses **My Mac (Mac Catalyst)**.
@@ -191,4 +195,4 @@ They load into sessions, so a stale line is a confident wrong answer. Before the
 - added an npm script worth naming, or changed what one does;
 - settled a product decision or measured a platform fact worth keeping.
 
-Then run `npx jest __tests__/claudeMd.test.ts`. It fails on a named path that no longer exists, an `npm run` script missing from `package.json`, a symbol missing from the file it is listed under, a package without its own rule file in `.claude/rules/`, a package, `native/ios/` module or `memories/` file this file does not name, and a package file that imports app code or imports against the dependency direction.
+Then run `npx jest __tests__/claudeMd.test.ts`. It fails on a named path that no longer exists, an `npm run` script missing from `package.json`, a symbol missing from the file it is listed under, a package, `native/ios/` module or `memories/` file this file does not name, and a package file that imports app code or imports against the dependency direction.

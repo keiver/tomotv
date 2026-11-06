@@ -3,7 +3,7 @@ import { fittedSlot, InfoActionRow } from "@/components/info-action-row";
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 
-jest.mock("@/components/FocusableButton", () => ({ FocusableButton: () => null }));
+jest.mock("@/components/FocusableButton", () => ({ FocusableButton: () => null, BUTTON_BORDER_WIDTH: 3 }));
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 jest.mock("@/services/i18n", () => ({ t: (key: string) => key }));
 
@@ -85,21 +85,76 @@ describe("InfoActionRow toggles and actions", () => {
     ]);
   });
 
-  it("fills the circle of a toggle that is on like the primary pill and rings one that is off like the secondary pill", async () => {
-    const renderer = await mountRow({ isFavorite: true, isPlayed: false, onToggleFavorite: jest.fn(async () => true), onToggleWatched: jest.fn(async () => true) });
-    const circles = renderer.root.findAllByType(FocusableButton).map((node) => node.props as { variant?: string });
-    expect(circles.map((circle) => circle.variant)).toEqual(["primary", "secondary"]);
+  type Circle = { style: { backgroundColor: string }; icon: React.ReactElement<{ name: string; color: string }>; onFocus: () => void };
+  const circles = (renderer: TestRenderer.ReactTestRenderer) => renderer.root.findAllByType(FocusableButton).map((node) => node.props as Circle);
+
+  it("draws an action given an SF Symbol with that symbol, and one given an Ionicon with the Ionicon", async () => {
+    const { SfSymbolIcon } = jest.requireActual("@/components/sf-symbol-icon");
+    const { Ionicons } = jest.requireMock("@expo/vector-icons");
+    const renderer = await mountRow({
+      extras: [
+        { key: "multiview", symbol: "rectangle.3.group", label: "liveTv.watchInMultiview", word: "info.word.multiview", onPress: jest.fn() },
+        { key: "subtitles", icon: "text-outline", label: "info.findSubtitles", word: "info.word.subtitles", onPress: jest.fn() },
+      ],
+    });
+    const [multiview, subtitles] = circles(renderer);
+    expect(multiview.icon.type).toBe(SfSymbolIcon);
+    expect(multiview.icon.props.name).toBe("rectangle.3.group");
+    expect(subtitles.icon.type).toBe(Ionicons);
+    expect(subtitles.icon.props.name).toBe("text-outline");
   });
 
-  it("draws a toggle that is off in the same full accent as the download circle", async () => {
+  it("gives a toggle that is on and one that is off the same circle, fills the icon of a toggle that is on and strikes a line through the outline icon of one that is off", async () => {
+    const both = { onToggleFavorite: jest.fn(async () => true), onToggleWatched: jest.fn(async () => true), onToggleProgress: jest.fn(() => true) };
+    const on = circles(await mountRow({ ...both, isFavorite: true, isPlayed: true, cleared: false }));
+    const off = circles(await mountRow({ ...both, isFavorite: false, isPlayed: false, cleared: true }));
+    expect(on[0].style.backgroundColor).toBe(off[0].style.backgroundColor);
+    expect(on.map((circle) => circle.icon.props.name)).toEqual(["heart.fill", "eye.fill", "bookmark.fill"]);
+    expect(off.map((circle) => circle.icon.props.name)).toEqual(["heart.slash", "eye.slash", "bookmark.slash"]);
+  });
+
+  it("draws a toggle that is off in the same accent as the download circle", async () => {
     const renderer = await mountRow({ isFavorite: false, onToggleFavorite: jest.fn(async () => true), onToggleDownload: jest.fn(async () => true), downloadState: "none" });
-    const inks = renderer.root
-      .findAllByType(FocusableButton)
-      .map((node) => (node.props as { icon: React.ReactElement<{ children: React.ReactElement<{ color: string }>[] }> }).icon.props.children[0].props.color);
-    expect(inks[0]).toBe(inks[1]);
+    const [favorite, download] = circles(renderer);
+    expect(favorite.icon.props.color).toBe(download.icon.props.color);
   });
 
-  it("puts one word inside every control's circle", async () => {
+  it("fills only the focused circle and switches its icon to the ink that sits on the fill", async () => {
+    const renderer = await mountRow({ isFavorite: true, onToggleFavorite: jest.fn(async () => true), onToggleWatched: jest.fn(async () => true) });
+    const [rest] = circles(renderer);
+    await act(async () => circles(renderer)[1].onFocus());
+    const [favorite, watched] = circles(renderer);
+    expect(favorite.style.backgroundColor).toBe(rest.style.backgroundColor);
+    expect(watched.style.backgroundColor).not.toBe(rest.style.backgroundColor);
+    expect(watched.icon.props.color).not.toBe(favorite.icon.props.color);
+  });
+
+  it("borders the action circles with the pill CTA's border width and leaves the toggles bare", async () => {
+    const { BUTTON_BORDER_WIDTH } = jest.requireMock("@/components/FocusableButton") as { BUTTON_BORDER_WIDTH: number };
+    const renderer = await mountRow({
+      onToggleFavorite: jest.fn(async () => true),
+      onToggleDownload: jest.fn(async () => true),
+      downloadState: "none",
+      extras: [{ key: "subtitles", icon: "text-outline", label: "info.findSubtitles", word: "info.word.subtitles", onPress: jest.fn() }],
+    });
+    const borders = renderer.root.findAllByType(FocusableButton).map((node) => (node.props as { style: { borderWidth: number } }).style.borderWidth);
+    expect(borders).toEqual([0, BUTTON_BORDER_WIDTH, BUTTON_BORDER_WIDTH]);
+  });
+
+  it("puts extra space before the first action only when toggles come before it", async () => {
+    const { StyleSheet } = jest.requireActual("react-native");
+    const extras = [{ key: "subtitles", icon: "text-outline" as const, label: "info.findSubtitles", word: "info.word.subtitles", onPress: jest.fn() }];
+    const leftMargins = (renderer: TestRenderer.ReactTestRenderer) => renderer.root.findAllByType(FocusableButton).map((node) => StyleSheet.flatten(node.parent!.props.style).marginLeft ?? 0);
+    const mixed = await mountRow({ onToggleFavorite: jest.fn(async () => true), onToggleDownload: jest.fn(async () => true), downloadState: "none", extras });
+    const [toggle, firstAction, secondAction] = leftMargins(mixed);
+    expect(toggle).toBe(0);
+    expect(firstAction).toBeGreaterThan(0);
+    expect(secondAction).toBe(0);
+    expect(leftMargins(await mountRow({ extras }))).toEqual([0]);
+  });
+
+  it("puts one word under every control's circle", async () => {
+    const { Text } = jest.requireActual("react-native");
     const renderer = await mountRow({
       onToggleFavorite: jest.fn(async () => true),
       onToggleWatched: jest.fn(async () => true),
@@ -107,9 +162,7 @@ describe("InfoActionRow toggles and actions", () => {
       downloadState: "none",
       extras: [{ key: "delete", icon: "trash-outline", label: "common.delete", word: "info.word.delete", destructive: true, onPress: jest.fn() }],
     });
-    const words = renderer.root
-      .findAllByType(FocusableButton)
-      .map((node) => (node.props as { icon: React.ReactElement<{ children: React.ReactElement<{ children: string }>[] }> }).icon.props.children[1].props.children);
-    expect(words).toEqual(["info.word.favorite", "info.word.watched", "info.word.download", "info.word.delete"]);
+    const words = renderer.root.findAllByType(Text).map((node: TestRenderer.ReactTestInstance) => node.props.children);
+    expect(words.slice(0, 4)).toEqual(["info.word.favorite", "info.word.watched", "info.word.download", "info.word.delete"]);
   });
 });

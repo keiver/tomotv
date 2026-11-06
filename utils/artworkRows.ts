@@ -165,6 +165,11 @@ export function packColumnRows<T>(items: readonly T[], availableWidth: number, c
   return rows;
 }
 
+/** The layout a grid keeps: the one its first listing picked, so a later page never re-packs the rows on screen. An empty grid picks again. */
+export function heldLayout<L>(held: L | null, itemCount: number, current: L): L | null {
+  return itemCount === 0 ? null : (held ?? current);
+}
+
 /**
  * Whether a card in the SECOND-TO-LAST row dead-ends downward: the last row can be shorter
  * (it never scales up to fill), and UIKit only moves focus to a candidate intersecting the

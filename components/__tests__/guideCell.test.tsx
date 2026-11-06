@@ -2,6 +2,8 @@ import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { Animated, StyleSheet, Text } from "react-native";
 import { GuideCell } from "@/components/live-tv/guide-cell";
+import { COLORS } from "@/constants/colors";
+import { t } from "@/services/i18n";
 import { clearChannelHealth, noteChannelAlive, noteChannelOpenFailure } from "@/services/channelHealth";
 import * as guideChannelFocus from "@/services/guideChannelFocus";
 import { formatClock, MINUTE_MS, NO_GUIDE_PREFIX } from "@/utils/guide";
@@ -57,6 +59,39 @@ describe("GuideCell", () => {
     expect(shown).toContain("Channel One  ·  Episode 9  ·  Evening News");
     expect(shown.some((text) => text.includes(" – ") && text.includes("news"))).toBe(true);
     expect(flatText(render({ program: { ...program, Id: "p15", EpisodeTitle: undefined } }).root.findAllByType(Text)[0])).toBe("Channel One  ·  Evening News");
+  });
+
+  it("a past programme greys its title with a colour and leaves the slot line at full contrast", () => {
+    const nodes = render({ past: true, airing: false, program: { ...program, Id: "p40" } }).root.findAllByType(Text);
+    const style = (node: TestRenderer.ReactTestInstance) => StyleSheet.flatten(node.props.style);
+    expect(style(nodes[0]).color).toBe(COLORS.TEXT_SECONDARY);
+    for (const node of nodes) expect(style(node).opacity).toBeUndefined();
+    expect(style(nodes[nodes.length - 1]).color).toBe(COLORS.TEXT_TERTIARY);
+  });
+
+  it("a tap opens the programme, a touch that travels more than 10pt before lifting does not", () => {
+    const onPress = jest.fn();
+    const tree = render({ onPress, program: { ...program, Id: "p42" } });
+    const cell = tree.root.find((node) => typeof node.props.onPressIn === "function" && node.props.isTVSelectable === false);
+    const touch = (pageX: number, pageY: number) => ({ nativeEvent: { pageX, pageY } });
+    act(() => cell.props.onPressIn(touch(100, 40)));
+    act(() => cell.props.onPress(touch(140, 42)));
+    expect(onPress).not.toHaveBeenCalled();
+    act(() => cell.props.onPressIn(touch(100, 40)));
+    act(() => cell.props.onPress(touch(104, 46)));
+    expect(onPress).toHaveBeenCalledTimes(1);
+    expect(onPress).toHaveBeenCalledWith(expect.objectContaining({ Id: "p42" }));
+  });
+
+  it("the cell VoiceOver reaches is a labelled button that offers Details, which runs the long press", () => {
+    const onLongPress = jest.fn();
+    const tree = render({ onLongPress, program: { ...program, Id: "p41" } });
+    const cell = tree.root.find((node) => typeof node.props.onAccessibilityAction === "function" && node.props.isTVSelectable === false);
+    expect(cell.props.accessibilityRole).toBe("button");
+    expect(cell.props.accessibilityLabel).toBe("Episode 9, Evening News");
+    expect(cell.props.accessibilityActions).toEqual([{ name: "details", label: t("info.details") }]);
+    act(() => cell.props.onAccessibilityAction({ nativeEvent: { actionName: "details" } }));
+    expect(onLongPress).toHaveBeenCalledWith(expect.objectContaining({ Id: "p41" }));
   });
 
   it("shows the channel name once when the programme carries the same title", () => {
@@ -255,7 +290,7 @@ describe("GuideCell", () => {
     const line = (index: number) => flatText(tree.root.findAllByType(Text)[index]);
     expect(line(0)).toBe("Channel One");
     expect(line(1)).toBe("No listings");
-    const pressable = tree.root.findByProps({ accessibilityRole: "button" });
+    const pressable = tree.root.findByProps({ accessibilityRole: "button", isTVSelectable: true });
     act(() => pressable.props.onFocus());
     expect(line(0)).toBe("Channel One  ·  Select to watch");
     act(() => pressable.props.onBlur());

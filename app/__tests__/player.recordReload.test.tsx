@@ -52,6 +52,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   fetchTimerDefaults: jest.fn(async () => ({})),
   createTimer: jest.fn(async () => {}),
   cancelTimer: jest.fn(async () => {}),
+  fetchInProgressRecording: jest.fn(async () => null),
 }));
 const mockLoaders = { hideGlobalLoader: jest.fn(), showGlobalLoader: jest.fn() };
 jest.mock("@/contexts/LoadingContext", () => ({ useLoadingActions: () => mockLoaders }));
@@ -105,7 +106,8 @@ describe("transport bar record after a failed re-read", () => {
   let renderer: TestRenderer.ReactTestRenderer;
   beforeEach(() => {
     jest.clearAllMocks();
-    jest.spyOn(Alert, "alert").mockImplementation(() => {});
+    // The record confirmation answers Record.
+    jest.spyOn(Alert, "alert").mockImplementation((_title, _message, buttons) => buttons?.find((button) => button.style !== "cancel")?.onPress?.());
     mockParams = { videoId: "ch1", videoName: "News", live: "1" };
     mockSession.sessionVideoId = "ch1";
     jest.mocked(fetchNextEpisodeAutoPlay).mockResolvedValue(true);
@@ -139,7 +141,7 @@ describe("transport bar record after a failed re-read", () => {
     await press();
     expect(createTimer).toHaveBeenCalledTimes(1);
     expect(recordButton()).toMatchObject({ title: "liveTv.stopRecording" });
-    expect(Alert.alert).not.toHaveBeenCalled();
+    expect(jest.mocked(Alert.alert).mock.calls.map(([title]) => title)).toEqual(["liveTv.recordConfirm"]);
     // Stop on the stand-in reads the real timer first; the next press cancels it by its id.
     const now = Date.now();
     jest

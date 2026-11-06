@@ -33,7 +33,6 @@
           "sampleFormat": "s32",
           "sampleRate": 48000
         },
-        "rendition": "a0",
         "source": {
           "bitRate": 1536000,
           "channels": 6,
@@ -59,12 +58,12 @@
   },
   "video": {
     "policy": "copy",
-    "digest": "84b2ae5e767ac37a13a23fc1586c4359",
+    "digest": "bae8b54eb25527c66fc04496a31b9c57",
     "frames": 722,
     "lastPtsSec": 30.07
   },
   "audio": {
     "frames": 313,
-    "lastPtsSec": 29.96
+    "lastPtsSec": 29.95
   }
 }

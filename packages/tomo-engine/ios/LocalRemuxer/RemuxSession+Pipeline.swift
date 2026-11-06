@@ -93,11 +93,30 @@ extension RemuxSession {
         return LiveConnectionBroker.shared.noteLost(lease) && lease.priority < .playback
     }
 
+    /// A quiet live read is kept, not reopened, on a provider of one or two connections that are all held.
+    static func keepsQuietLiveRead(budget: Int?, hasSpare: Bool) -> Bool {
+        guard let budget, budget <= 2 else { return false }
+        return !hasSpare
+    }
+
+    func keepsQuietLiveRead() -> Bool {
+        stateLock.lock()
+        let lease = inputIsFallback ? nil : inputLease
+        stateLock.unlock()
+        guard let lease else { return false }
+        let broker = LiveConnectionBroker.shared
+        return Self.keepsQuietLiveRead(budget: broker.budget(for: lease.key), hasSpare: broker.hasSpare(for: lease.key))
+    }
+
     /// The 4xx a provider gives a connection over its cap (429 has its own tag; 458 and the rest are 4XX): teaches its limit.
     static let limitErrors: Set<Int32> = errorTags(["401", "403", "429", "4XX"])
     /// Any HTTP answer but a 404 to an open: the reads below make room and the open retries. A 5xx teaches no
     /// number, since an origin answers 503 both for a full account and for a channel restarting.
     static let httpOpenErrors: Set<Int32> = errorTags(["400", "401", "403", "429", "4XX", "5XX"])
+    /// An open the origin may have admitted and counted with no answer yet: it opened, ran out of time, was cut by us, or the origin closed it.
+    static func openMayBeCounted(_ code: Int32) -> Bool {
+        code >= 0 || [-ETIMEDOUT, SWIFT_AVERROR_EXIT, SWIFT_AVERROR_EOF, SWIFT_AVERROR_EIO, -ECONNRESET, -EPIPE].contains(code)
+    }
 
     /// Interrupt callback: aborts blocking network I/O when the session dies. It runs on the pipeline
     /// thread inside the open, the probe and every read, so it is also where the bytes the input has
@@ -393,6 +412,7 @@ extension RemuxSession {
         failed = true
         stateLock.unlock()
         if first { onFailed?(["token": token, "message": message]) }
+        signalParts()
     }
 
     /// One output rendition: its own mp4 muxer, its own byte buffer, its own
@@ -429,6 +449,13 @@ extension RemuxSession {
         /// Muxer output accumulates here; the pipeline drains it into files at
         /// fragment boundaries. Per rendition, since each has its own muxer.
         var pending = Data()
+        /// LL-HLS parts of each segment in the window, in order; a landed segment's keep only their sizes. Under the session lock.
+        var liveParts: [Int: [LivePart]] = [:]
+        /// The open part on its clock stream, output seconds, and whether a packet went in since the last flush. Pipeline thread only.
+        var partStartSeconds: Double?
+        var partEndSeconds = 0.0
+        var partIndependent = false
+        var wroteSincePartFlush = false
         /// Segments this rendition has written. Guarded by the session lock.
         var completed = Set<Int>()
         /// Segments handed to the writer and not yet on disk, and those the prune doomed while in flight:
@@ -545,6 +572,8 @@ extension RemuxSession {
             lastDts = [:]
             muxZero = nil
             adtsStreams = []
+            partStartSeconds = nil
+            wroteSincePartFlush = false
         }
     }
 
@@ -892,6 +921,7 @@ extension RemuxSession {
             "hasPlayableSupplier": !cancelled && !failed && (sourceReady || serverAvailable),
             "sourceRetryAfterSeconds": sourceState == .retryWait ? max(0, sourceRetryAt.timeIntervalSinceNow) : 0,
             "bufferedSeconds": liveBufferedSecondsLocked(),
+            "lowLatency": lowLatencyInput,
         ]
     }
 
@@ -1293,7 +1323,18 @@ extension RemuxSession {
         readSpanUpTo = 0
     }
 
+    /// A decoder opened now holds no cue of what was read before it: its spans start with the next packet. Caller holds stateLock.
+    func startSubtitleSpansLocked(_ index: Int32) {
+        archiveReadSpanLocked()
+        subtitleSpanFloor[index] = readSpans.count
+    }
+
     private func sourceIndexPeak(input: UnsafeMutablePointer<AVFormatContext>, streamIndex: Int32) -> Int? {
+        sourceIndexPoints(input: input, streamIndex: streamIndex).flatMap { indexedPeak(points: $0.points, size: $0.size) }
+    }
+
+    /// The source's indexed byte positions against time, read before the loop (the read seeks the input).
+    private func sourceIndexPoints(input: UnsafeMutablePointer<AVFormatContext>, streamIndex: Int32) -> (points: [SegmentBitrates.IndexPoint], size: Int64)? {
         guard let stream = input.pointee.streams[Int(streamIndex)],
               let io = input.pointee.pb, io.pointee.seekable & 1 != 0 else { return nil }
         let format = input.pointee.iformat.map { String(cString: $0.pointee.name) } ?? ""
@@ -1313,9 +1354,66 @@ extension RemuxSession {
             if points.last?.position == entry.pointee.pos { continue }
             points.append(.init(seconds: seconds, position: entry.pointee.pos))
         }
+        return (points, avio_size(io))
+    }
+
+    /// An index that stops more than a gap and a segment short of the runtime lists only what the
+    /// probe read (Matroska without Cues), not every keyframe of the file.
+    static func indexListsEveryKeyframe(_ entries: KeyframeIndex.Entries, durationSeconds: Double) -> Bool {
+        guard entries.timestamps.count >= 2, durationSeconds.isFinite, durationSeconds > 0, let first = entries.timestamps.first else { return false }
+        let seconds = entries.timestamps.map { Double($0 - first) * av_q2d(entries.timeBase) }
+        let largestGap = zip(seconds.dropFirst(), seconds).map { $0 - $1 }.max() ?? 0
+        guard let last = seconds.last, last < durationSeconds else { return false }
+        return durationSeconds - last <= largestGap + Self.segmentDuration
+    }
+
+    /// The copy's keyframe grid, from the index and the opening keyframe's anchor (pipeline thread, before any cut).
+    /// A playlist that already named a grid keeps it. A session with rungs lets their grid go and lists the copy
+    /// alone from then on. True when the session is on the keyframe grid.
+    func adoptKeyframeGrid(_ entries: KeyframeIndex.Entries, anchorUs: Int64,
+                           indexPoints: (points: [SegmentBitrates.IndexPoint], size: Int64)?) -> Bool {
+        let microTb = AVRational(num: 1, den: SWIFT_AV_TIME_BASE)
+        let seconds = entries.timestamps.map { Double(av_rescale_q($0, entries.timeBase, microTb) - anchorUs) / Double(SWIFT_AV_TIME_BASE) }
+        stateLock.lock()
+        let published = gridPublished
+        let picked = published ? nil : Self.keyframeGridStarts(keyframes: seconds, durationSeconds: durationSeconds)
+        if let picked {
+            if !config.tiers.isEmpty {
+                adoptedStarts = []
+                adoptedDurations = []
+                tierSegments = [:]
+                copyLatched = true
+            }
+            keyframeStarts = [0] + picked.dropFirst().map { seconds[$0] }
+            keyframeSeekTimestamps = picked.map { entries.seekTimestamps[$0] }
+            // The windows keep the seconds they cover on the fixed grid, so long segments read no further ahead.
+            let mean = durationSeconds / Double(keyframeStarts.count)
+            func rescaled(_ segments: Int) -> Int { max(1, Int((Double(segments) * Self.segmentDuration / mean).rounded(.up))) }
+            aheadWindow = rescaled(aheadWindow)
+            keepWindow = max(aheadWindow * 2, rescaled(keepWindow))
+            seekAheadWindow = rescaled(Self.seekAheadSegments)
+        }
+        stateLock.unlock()
+        let peak = indexPoints.flatMap { indexedPeak(points: $0.points, size: $0.size) }
+        stateLock.lock()
+        indexedSourcePeak = peak
+        copyGridDecided = true
+        let count = keyframeStarts.count
+        stateLock.unlock()
+        if picked != nil {
+            let longest = (0..<count).map { segmentDurationSeconds($0) }.max() ?? 0
+            NSLog("[LocalRemuxer] Keyframe grid: %d segments, longest %.2fs", count, longest)
+        } else {
+            NSLog("[LocalRemuxer] Keyframe grid not used (%@): fixed grid", published ? "a playlist named the grid first" : "too few keyframes")
+        }
+        return picked != nil
+    }
+
+    /// The peak segment bitrate on the session grid as it stands.
+    private func indexedPeak(points: [SegmentBitrates.IndexPoint], size: Int64) -> Int? {
+        var points = points
         let durations = (0..<segmentCount).map { segmentDurationSeconds($0) }
         let duration = durations.reduce(0, +)
-        let size = avio_size(io)
         guard let last = points.last, last.seconds < duration, last.position < size else { return nil }
         guard duration - last.seconds <= Double(sessionTargetDuration()) * 1.5 else { return nil }
         points.append(.init(seconds: duration, position: size))
@@ -1336,6 +1434,8 @@ extension RemuxSession {
         var rangedLeases: [LiveConnectionBroker.Lease] = []
         let originRead = SourceReadEvidence()
         var rangedServedBody = false
+        // An open of the origin it may have admitted (openMayBeCounted): an origin that admits a read before its first byte still counts it.
+        var askedUnrefused = false
         let originKey = config.liveOriginKey ?? LiveConnectionBroker.key(forURL: config.inputUrl)
         // A file read over ranged connections: remote, and not a playlist the demuxer reads itself.
         let rangedInput: URL? = config.isLive ? nil : URL(string: config.inputUrl).flatMap { remote in
@@ -1371,7 +1471,7 @@ extension RemuxSession {
             stateLock.unlock()
             rangedLeases.forEach { $0.release() }
             // A rejected open (or only a served fallback) leaves no origin connection behind to count.
-            lease?.release(counted: originRead.served || rangedServedBody)
+            lease?.release(counted: originRead.served || rangedServedBody || askedUnrefused)
         }
         var inputCtx: UnsafeMutablePointer<AVFormatContext>?
         var ret: Int32 = 0
@@ -1464,6 +1564,7 @@ extension RemuxSession {
             }
             ret = avformat_open_input(&inputCtx, inputUrl == config.inputUrl ? trimmedSource ?? inputUrl : inputUrl, nil, &openOpts)
             av_dict_free(&openOpts)
+            if inputUrl == config.inputUrl, Self.openMayBeCounted(ret) { askedUnrefused = true }
             // A failed open freed the context itself.
             if ret < 0 { openingInput = nil }
             // Only a read on a provider's budget retries its open: a live input, or a file that names its provider.
@@ -1530,6 +1631,13 @@ extension RemuxSession {
 
         let inputFormat = input.pointee.iformat.map { String(cString: $0.pointee.name) } ?? ""
         let playlistInput = inputFormat == "hls" || inputFormat == "dash"
+        let lowLatency = config.isLive && config.liveLowLatency && Self.continuousLiveInput(format: inputFormat)
+        if lowLatency {
+            stateLock.lock()
+            lowLatencyInput = true
+            stateLock.unlock()
+            LowLatencyPlayerAsset.register(token: token)
+        }
         if let bound = liveProbeBound(format: inputFormat, isLive: config.isLive) {
             input.pointee.max_analyze_duration = bound
         }
@@ -1583,6 +1691,37 @@ extension RemuxSession {
             frameGrabber?.byteMap = byteMap
             iframeGrabber?.byteMap = byteMap
             stateLock.unlock()
+        }
+
+        // Packets read before the loop, which replays them in order: the late-audio read and the ADTS setup
+        // read keep every packet they scanned, the parameter-set read adds the opening keyframe, and a seek drops them.
+        var queuedPackets: [UnsafeMutablePointer<AVPacket>] = []
+        func dropQueuedPackets() {
+            for packet in queuedPackets {
+                var freeing: UnsafeMutablePointer<AVPacket>? = packet
+                av_packet_free(&freeing)
+            }
+            queuedPackets = []
+        }
+        defer { dropQueuedPackets() }
+
+        // A bounded live TS probe ends before an audio stream whose first packet is muxed late, and an audio
+        // stream with no rate or layout is left out below: read on for it instead of opening a silent channel.
+        if hasVideo, liveProbeBound(format: inputFormat, isLive: config.isLive) != nil {
+            let carried = carriedProgram.map { program in
+                (0..<Int(program.pointee.nb_stream_indexes)).map { Int32(program.pointee.stream_index[$0]) }
+            } ?? Array(0..<Int32(input.pointee.nb_streams))
+            let audio: [(index: Int32, described: Bool)] = carried.compactMap { index in
+                guard let par = input.pointee.streams[Int(index)]?.pointee.codecpar, par.pointee.codec_type == AVMEDIA_TYPE_AUDIO else { return nil }
+                return (index, par.pointee.sample_rate > 0 && par.pointee.ch_layout.nb_channels > 0)
+            }
+            let undescribed = LiveLateAudio.streamsToReadOn(audio)
+            if !undescribed.isEmpty {
+                let read = LiveLateAudio.readOn(input, for: undescribed, videoIn: videoIn) { queuedPackets.append($0) }
+                NSLog("[LocalRemuxer] live audio read on past the probe: %d packet(s), %.2f s of video, described %@, still undescribed %@",
+                      read.packets, read.videoSeconds, read.described.map(String.init).joined(separator: ","),
+                      undescribed.filter { !read.described.contains($0) }.map(String.init).joined(separator: ","))
+            }
         }
 
         // Resolve the audio tracks to carry, in the order the playlist will
@@ -1768,6 +1907,7 @@ extension RemuxSession {
                 }
                 stateLock.lock()
                 imageSubtitles[index] = decoder
+                startSubtitleSpansLocked(index)
                 stateLock.unlock()
             } else {
                 guard let decoder = TextSubtitleDecoder(stream: stream) else {
@@ -1777,6 +1917,7 @@ extension RemuxSession {
                 }
                 stateLock.lock()
                 textSubtitles[index] = decoder
+                startSubtitleSpansLocked(index)
                 stateLock.unlock()
             }
             return true
@@ -1864,18 +2005,6 @@ extension RemuxSession {
             }
             return .some(transcoder)
         }
-
-        // Packets read before the loop, which replays them in order: the ADTS setup read keeps every
-        // packet it scanned, the parameter-set read adds the opening keyframe, and a seek drops them.
-        var queuedPackets: [UnsafeMutablePointer<AVPacket>] = []
-        func dropQueuedPackets() {
-            for packet in queuedPackets {
-                var freeing: UnsafeMutablePointer<AVPacket>? = packet
-                av_packet_free(&freeing)
-            }
-            queuedPackets = []
-        }
-        defer { dropQueuedPackets() }
 
         /// The ADTS AAC inputs the demuxer gave no setup for.
         func bareAdtsStreams() -> [Int32] {
@@ -2051,15 +2180,31 @@ extension RemuxSession {
             primaryDolbyVision = converter
         }
 
+        // A copy cuts on the keyframes its source indexes: Apple's authoring spec 7.4 has every video segment
+        // open on one. Its grid waits for the opening keyframe, which fixes the timeline. With rungs, only when the
+        // link carried the copy at open (decideCopy): the rungs cut on equal marks and 8.22 needs one grid, so the
+        // session then lists the copy alone.
+        stateLock.lock()
+        let copyListed = copyVerdict == .listed
+        stateLock.unlock()
+        let keyframeCopy = !config.isLive && hasVideo && primaryVideoTranscoder == nil && (config.tiers.isEmpty || copyListed)
+        var gridKeyframes: KeyframeIndex.Entries?
+        var gridIndexPoints: (points: [SegmentBitrates.IndexPoint], size: Int64)?
         if !config.isLive, hasVideo, primaryVideoTranscoder == nil {
             awaitGrid()
-            let peak = sourceIndexPeak(input: input, streamIndex: videoIn)
-            stateLock.lock()
-            indexedSourcePeak = peak
-            stateLock.unlock()
+            if keyframeCopy {
+                gridIndexPoints = sourceIndexPoints(input: input, streamIndex: videoIn)
+            } else {
+                let peak = sourceIndexPeak(input: input, streamIndex: videoIn)
+                stateLock.lock()
+                indexedSourcePeak = peak
+                stateLock.unlock()
+            }
         }
         if !config.isLive, hasVideo {
-            let keyframes = KeyframeIndex.read(input: input, streamIndex: videoIn)
+            let entries = KeyframeIndex.entries(input: input, streamIndex: videoIn)
+            let keyframes = entries.flatMap(KeyframeIndex.thinned)
+            if keyframeCopy, let entries, Self.indexListsEveryKeyframe(entries, durationSeconds: durationSeconds) { gridKeyframes = entries }
             let par = input.pointee.streams[Int(videoIn)]?.pointee.codecpar
             // The rendition's grabber is one more read of the input: named only while the provider's budget has room for it.
             let spare = config.liveOriginKey.map { LiveConnectionBroker.shared.hasSpare(for: $0) } ?? true
@@ -2074,6 +2219,17 @@ extension RemuxSession {
             videoSegmentsOpenOnIdr = primaryVideoTranscoder != nil
             iframeSize = size
             iframeFileSize = input.pointee.pb.map { avio_size($0) } ?? 0
+            stateLock.unlock()
+        }
+        if gridKeyframes == nil {
+            if let index = gridIndexPoints {
+                let peak = indexedPeak(points: index.points, size: index.size)
+                stateLock.lock()
+                indexedSourcePeak = peak
+                stateLock.unlock()
+            }
+            stateLock.lock()
+            copyGridDecided = true
             stateLock.unlock()
         }
 
@@ -2210,6 +2366,11 @@ extension RemuxSession {
         // files with B-frames.
         var sessionAnchorUs: Int64? = nil
         var timelineAnchorUs: Int64 = 0
+        /// A copy without rungs anchors on its opening keyframe's decode time: how far its presentation follows.
+        var openingLeadUs: Int64 = 0
+        /// The session cuts on its source's keyframes; their index and packet times may differ by this much.
+        var onKeyframeGrid = false
+        let keyframeGridTolerance = 0.25
         /// A restart that seeked an MPEG-TS input by byte estimate: its target (source seconds) and tries.
         var byteSeek: (target: Double, tries: Int)?
         /// The last restart's index seek target in source time, nil after a byte seek.
@@ -2270,6 +2431,17 @@ extension RemuxSession {
                 if onDisk { continue }
                 let flushStarted = Date()
                 defer { flushSecondsInSegment += Date().timeIntervalSince(flushStarted) }
+                if lowLatency {
+                    guard flushPart(rendition, segment: n) else { return }
+                    stateLock.lock()
+                    if n == partialOpenSegment { rendition.liveParts[n] = nil }
+                    let joined = (rendition.liveParts[n] ?? []).reduce(into: Data()) { $0.append($1.data ?? Data()) }
+                    if !joined.isEmpty { rendition.writing.insert(n) }
+                    stateLock.unlock()
+                    if !joined.isEmpty { finished.append((rendition, joined, Self.stypBox.count + joined.count)) }
+                    signalParts()
+                    continue
+                }
                 let flushed = av_write_frame(ctx, nil) // flush the open fragment
                 avio_flush(avio)
                 // A delay_moov muxer flushed before any packet cannot write its moov (the dac3
@@ -2405,6 +2577,100 @@ extension RemuxSession {
             reportThroughput(segment: n, cushion: n - askedPlayhead, activating: activating)
         }
 
+        /// LL-HLS: close the open part of segment `n` on `rendition`. A rendition with nothing written since its
+        /// last flush records nothing, since a delay_moov flush before any packet fails. False on a fatal error.
+        func flushPart(_ rendition: Rendition, segment n: Int) -> Bool {
+            let start = rendition.partStartSeconds
+            defer {
+                rendition.partStartSeconds = nil
+                rendition.wroteSincePartFlush = false
+            }
+            guard rendition.wroteSincePartFlush, let ctx = rendition.ctx, let avio = rendition.avio else { return true }
+            let label = rendition.prefix.isEmpty ? "primary" : rendition.prefix
+            let flushed = av_write_frame(ctx, nil)
+            avio_flush(avio)
+            if flushed < 0 {
+                NSLog("[LocalRemuxer] segment %d part flush failed on %@: %@", n, label, averr(flushed))
+                _ = rendition.takePending()
+                return true
+            }
+            var data = rendition.takePending()
+            if rendition.awaitingDeferredInit {
+                do {
+                    try data.write(to: dir.appendingPathComponent(rendition.initName))
+                    let codec = VideoCodecDeclaration.fromInit(data)
+                    stateLock.lock()
+                    if let codec { resolvedVideoCodecs = codec }
+                    if rendition.prefix.isEmpty { primaryInitWritten = true }
+                    stateLock.unlock()
+                } catch {
+                    fail("write \(rendition.initName): \(error.localizedDescription)")
+                    return false
+                }
+                rendition.awaitingDeferredInit = false
+                av_write_frame(ctx, nil)
+                avio_flush(avio)
+                data = rendition.takePending()
+            }
+            guard !data.isEmpty else { return true }
+            guard let fragmentStart = Self.firstFragmentOffset(in: data) else {
+                fail("segment \(n) part (\(label)) contains no moof box")
+                return false
+            }
+            if fragmentStart > 0 { data = data.subdata(in: fragmentStart..<data.count) }
+            var offsets: [UInt32: Int64] = [:]
+            for (_, outIndex) in rendition.streamMap {
+                if let base = rendition.baseDts[outIndex], base != 0 { offsets[UInt32(outIndex) + 1] = base }
+            }
+            if !offsets.isEmpty { Self.patchTfdtToAbsolute(in: &data, offsets: offsets) }
+            stateLock.lock()
+            var parts = rendition.liveParts[n] ?? []
+            if let start {
+                parts.append(LivePart(data: data, size: data.count, duration: max(0.001, rendition.partEndSeconds - start),
+                                      independent: rendition.partIndependent))
+            } else if let last = parts.popLast() {
+                // Only packets off the part clock since the last cut: they ride the part before.
+                let joined = (last.data ?? Data()) + data
+                parts.append(LivePart(data: joined, size: joined.count, duration: last.duration, independent: last.independent))
+            } else {
+                parts.append(LivePart(data: data, size: data.count, duration: 0.001, independent: false))
+            }
+            rendition.liveParts[n] = parts
+            stateLock.unlock()
+            signalParts()
+            return true
+        }
+
+        /// LL-HLS: before `packet` (in `timeBase`) is written into `rendition`, close the open part when the packet
+        /// would carry it past the part target. Only packets of the rendition's clock stream move parts. False on a fatal error.
+        func cutPart(before packet: UnsafeMutablePointer<AVPacket>, in rendition: Rendition, timeBase: AVRational,
+                     clock: Bool, independent: Bool, frameSeconds: Double) -> Bool {
+            guard lowLatency else { return true }
+            if clock, packet.pointee.dts != SWIFT_AV_NOPTS_VALUE {
+                let dts = Double(packet.pointee.dts) * av_q2d(timeBase)
+                let duration = packet.pointee.duration > 0 ? Double(packet.pointee.duration) * av_q2d(timeBase) : frameSeconds
+                if let start = rendition.partStartSeconds,
+                   Self.partClosesBefore(dts: dts, duration: duration, partStartDts: start, target: config.livePartSeconds) {
+                    guard flushPart(rendition, segment: currentSegment) else { return false }
+                }
+                // 4.4.4.9: INDEPENDENT marks a part that contains an independent frame, wherever in the part it falls.
+                if rendition.partStartSeconds == nil {
+                    rendition.partStartSeconds = dts
+                    rendition.partIndependent = independent
+                } else if independent {
+                    rendition.partIndependent = true
+                }
+                rendition.partEndSeconds = max(rendition.partEndSeconds, dts + duration)
+            }
+            rendition.wroteSincePartFlush = true
+            return true
+        }
+
+        /// Whether `rendition` carries the picture: its parts then move on video packets, otherwise on its first stream's.
+        func carriesVideo(_ rendition: Rendition) -> Bool {
+            hasVideo && rendition.inputStreams.contains(videoIn)
+        }
+
         /// The ramp, at the cut closing segment `n`: the track brought up at the last cut stays if
         /// this segment kept inside its length and is undone otherwise, then the next inactive
         /// converted track comes up, one per timed segment that the producer neither held nor rode a
@@ -2500,7 +2766,8 @@ extension RemuxSession {
         /// Live: the cut boundary is relative to the open segment, so a keyframe-aligned
         /// cut overshoots by at most one keyframe interval and the grid never drifts.
         func nextBoundarySeconds() -> Double {
-            config.isLive ? segmentOpenSeconds + config.liveSegmentSeconds : segmentStartSeconds(currentSegment + 1)
+            guard config.isLive else { return segmentStartSeconds(currentSegment + 1) }
+            return segmentOpenSeconds + liveCutSeconds(transcoding: builtRenditions.first?.videoTranscoder != nil)
         }
 
         /// Live: record the closing segment's real length and the next one's start.
@@ -2652,6 +2919,7 @@ extension RemuxSession {
                 openingInput = fresh
                 var opened = avformat_open_input(&opening, url, nil, &options)
                 av_dict_free(&options)
+                if leased != nil, Self.openMayBeCounted(opened) { askedUnrefused = true }
                 guard opened >= 0, let reopened = opening else {
                     openingInput = nil
                     // The read this reopen closed counts as a close, as one released through the broker does.
@@ -2718,7 +2986,12 @@ extension RemuxSession {
             stateLock.unlock()
             keyframeScan = nil
             scanOpened = false
-            if let pos = map?.position(forSeconds: targetSeconds - Self.byteSeekLead) {
+            if onKeyframeGrid, seekSegment < keyframeSeekTimestamps.count, let anchor = sessionAnchorUs {
+                // The segment's own keyframe, by the index timestamp a seek on its stream takes.
+                seekRet = seekBackward(input, stream: videoIn, to: keyframeSeekTimestamps[seekSegment])
+                byteSeek = nil
+                indexSeekTargetUs = anchor + Int64(segmentStartSeconds(seekSegment) * Double(SWIFT_AV_TIME_BASE)) + (seekSegment == 0 ? openingLeadUs : 0)
+            } else if let pos = map?.position(forSeconds: targetSeconds - Self.byteSeekLead) {
                 seekRet = avformat_seek_file(input, -1, Int64.min, pos, pos, SWIFT_AVSEEK_FLAG_BYTE)
                 byteSeek = (targetSeconds, 1)
                 indexSeekTargetUs = nil
@@ -2814,7 +3087,7 @@ extension RemuxSession {
                     // request there may restart over it; far from it the seek wins, since a wait across the
                     // gap would outlast the request. A pick ahead of the producer is a plain seek.
                     let audioPick = !pendingAudioActivations.isEmpty
-                    let near = seekTo.map { abs($0 - activation) <= Self.seekAheadSegments } ?? false
+                    let near = seekTo.map { abs($0 - activation) <= seekAheadWindow } ?? false
                     let target = seekTo.map { seek in audioPick && near ? min(seek, activation) : seek } ?? activation
                     // A player seek drives the restart: its span is the seek, and a near pick's segment
                     // beside it. A pick alone must cover up to where the producer was, or a video waiter
@@ -2861,9 +3134,12 @@ extension RemuxSession {
                 let takingOver = sourceTakeoverSegment != nil
                 let held = sessionAnchorUs != nil && !takingOver && (riding ? follow == .hold : openingHoldLocked())
                 let tierHold = held && seekTo == nil && !stop && !starvedWaiter
+                // A session no player has asked yet (a prewarm) cuts only its idle segments.
+                let idleHeld = config.idleReadAheadSegments > 0 && !firstMediaRequestSeen && producingSegment >= config.idleReadAheadSegments
                 // Live never throttles: the source arrives at its own pace and reads must keep up.
                 let throttled = !config.isLive
-                    && ((producingSegment > lastRequestedSegmentLocked() + aheadWindow && seekTo == nil && !stop && !starvedWaiter) || tierHold)
+                    && ((producingSegment > lastRequestedSegmentLocked() + aheadWindow && seekTo == nil && !stop && !starvedWaiter) || tierHold
+                        || (idleHeld && seekTo == nil && !stop && !starvedWaiter))
                 // A text window asked while held answers without cues: nothing reads toward it.
                 producerHeld = riding && tierHold
                 stateLock.unlock()
@@ -2915,8 +3191,8 @@ extension RemuxSession {
                 ret = 0
             } else {
                 // A live read that brings nothing for twice its longest ordinary wait (an HLS demuxer
-                // waits a segment's length for the next one) is a dead feed: the callback aborts it.
-                if config.isLive { liveReadDeadline = readStarted.addingTimeInterval(max(12, 2 * longestLiveRead)) }
+                // waits a segment's length for the next one) is a dead feed: the callback aborts it, unless the read is kept.
+                if config.isLive, !keepsQuietLiveRead() { liveReadDeadline = readStarted.addingTimeInterval(max(12, 2 * longestLiveRead)) }
                 ret = av_read_frame(input, pkt)
                 liveReadDeadline = nil
             }
@@ -3245,16 +3521,21 @@ extension RemuxSession {
                 if config.isLive {
                     // Generation 0 opens the timeline at 0; a rolled generation continues where
                     // the spliced segment ended, so tfdt stays monotonic across the MAP change.
-                    let anchor = keyframeUs - liveResumeUs
+                    // The keyframe's decode time opens it, so the keyframe and the frames decoded before
+                    // its presentation keep a DTS at or past zero and are written.
+                    let decodeUs = pkt.pointee.dts != SWIFT_AV_NOPTS_VALUE
+                        ? min(keyframeUs, av_rescale_q(pkt.pointee.dts, inStream.pointee.time_base, microTb)) : keyframeUs
+                    let anchor = decodeUs - liveResumeUs
                     sessionAnchorUs = sessionAnchorUs ?? anchor
                     timelineAnchorUs = anchor
                     stateLock.lock()
                     sessionAnchorSeconds = Double(anchor) / Double(SWIFT_AV_TIME_BASE)
                     liveGenerationStarts[currentSegment] = generation
-                    liveSegmentStarts[currentSegment] = Double(liveResumeUs) / Double(SWIFT_AV_TIME_BASE)
+                    let openSeconds = Double(keyframeUs - anchor) / Double(SWIFT_AV_TIME_BASE)
+                    liveSegmentStarts[currentSegment] = openSeconds
                     liveDates[currentSegment] = Date()
                     stateLock.unlock()
-                    segmentOpenSeconds = Double(liveResumeUs) / Double(SWIFT_AV_TIME_BASE)
+                    segmentOpenSeconds = openSeconds
                     partialOpenSegment = -1
                     lastTimingPtsUs = keyframeUs
                     lastKeyframeUs = keyframeUs
@@ -3263,20 +3544,37 @@ extension RemuxSession {
                 } else {
                 // The session's FIRST generation sets this anchor, so it has to open at
                 // position 0: seek before it and every later segment is labelled by the offset.
-                let anchor = sessionAnchorUs ?? keyframeUs
+                let firstGeneration = sessionAnchorUs == nil
+                var anchor = sessionAnchorUs ?? keyframeUs
+                // A copy opens on the keyframe's decode time, as live does: a keyframe decoded before it is
+                // presented (B-frames in MP4 and MPEG-TS) keeps a DTS at zero and is written. Beside rungs only
+                // once their grid is let go, since theirs start at the keyframe's presentation.
+                if firstGeneration, keyframeCopy, pkt.pointee.dts != SWIFT_AV_NOPTS_VALUE {
+                    anchor = min(keyframeUs, av_rescale_q(pkt.pointee.dts, inStream.pointee.time_base, microTb))
+                }
+                if firstGeneration, keyframeCopy, let entries = gridKeyframes {
+                    onKeyframeGrid = adoptKeyframeGrid(entries, anchorUs: anchor, indexPoints: gridIndexPoints)
+                }
+                if firstGeneration, !config.tiers.isEmpty, !onKeyframeGrid { anchor = keyframeUs }
+                if firstGeneration { openingLeadUs = keyframeUs - anchor }
                 sessionAnchorUs = anchor
                 timelineAnchorUs = anchor
                 // The segment writer holds cues in source time, owes output time.
                 stateLock.lock()
                 sessionAnchorSeconds = Double(anchor) / Double(SWIFT_AV_TIME_BASE)
                 stateLock.unlock()
+                let openingLead = Double(openingLeadUs) / Double(SWIFT_AV_TIME_BASE)
+                let gridSlack = onKeyframeGrid ? keyframeGridTolerance : 0
 
                 // The generation opens where the keyframe actually is, not
                 // where the request was. avformat_seek_file ran BACKWARD
                 // bounded by the requested segment's start, so this is at or
                 // before it and that segment still ends up fully covered.
                 let openSeconds = Double(keyframeUs - anchor) / Double(SWIFT_AV_TIME_BASE)
-                let openSegment = segmentIndex(atSeconds: openSeconds)
+                let openSegment = segmentIndex(atSeconds: openSeconds + gridSlack)
+                // Opening on the segment's own keyframe is whole: that keyframe presents the opening lead after
+                // segment 0's start, and a keyframe grid's index and packet times may differ by the slack.
+                let opensLate = openSeconds > segmentStartSeconds(openSegment) + openingLead + gridSlack
                 // An index seek that landed further before its segment than the slack has no nearer
                 // keyframe in the demuxer's table: the read seeks to any sample before the target and
                 // opens on a keyframe its NAL units name, instead of reading forward to the segment from here.
@@ -3301,8 +3599,7 @@ extension RemuxSession {
                     let landedSeconds = Double(keyframeUs) / Double(SWIFT_AV_TIME_BASE)
                     byteMap?.record(pos: pkt.pointee.pos, seconds: landedSeconds)
                     // Past the requested segment's start is late too: that opening would be withheld and restarted.
-                    let late = openSegment > generationRequestSegment
-                        || (openSegment == generationRequestSegment && openSeconds > segmentStartSeconds(openSegment))
+                    let late = openSegment > generationRequestSegment || (openSegment == generationRequestSegment && opensLate)
                     let early = landedSeconds < landing.target - Self.byteSeekSlack
                     if late || early {
                         if landing.tries < Self.byteSeekTries,
@@ -3345,7 +3642,7 @@ extension RemuxSession {
                 }
                 currentSegment = openSegment
                 generationOpenSeconds = openSeconds
-                let partial = openSeconds > segmentStartSeconds(openSegment)
+                let partial = opensLate
                 if partial { partialOpens[openSegment, default: 0] += 1 }
                 let opens = partialOpens[openSegment] ?? 0
                 partialOpenSegment = partial && Self.withholdsPartialOpen(partialOpens: opens) ? openSegment : -1
@@ -3399,8 +3696,9 @@ extension RemuxSession {
                 }
 
                 var writeError: Int32 = 0
+                var partFailed = false
                 videoTranscoder.process(packet: pkt) { encoded in
-                    guard writeError == 0 else { return }
+                    guard writeError == 0, !partFailed else { return }
                     if encoded.pointee.pts != SWIFT_AV_NOPTS_VALUE {
                         let seconds = Double(encoded.pointee.pts) * av_q2d(videoTranscoder.encoderTimeBase)
                         let boundary = nextBoundarySeconds()
@@ -3434,9 +3732,18 @@ extension RemuxSession {
                     rendition.repairTimestamps(encoded, streamIndex: outIndex)
                     rendition.noteMuxZero(encoded, timeBase: outStream.pointee.time_base)
                     rendition.noteBaseDts(streamIndex: outIndex, dts: encoded.pointee.dts)
+                    if lowLatency {
+                        let fps = av_q2d(inStream.pointee.avg_frame_rate)
+                        if !cutPart(before: encoded, in: rendition, timeBase: outStream.pointee.time_base, clock: true,
+                                    independent: encoded.pointee.flags & SWIFT_AV_PKT_FLAG_KEY != 0, frameSeconds: fps > 0 ? 1 / fps : 0.04) {
+                            partFailed = true
+                            return
+                        }
+                    }
                     let w = av_write_frame(ctx, encoded)
                     if w < 0 { writeError = w }
                 }
+                if partFailed { break }
                 if videoTranscoder.failed {
                     fail("video transcode failed (pixel format or encoder rejection)")
                     break
@@ -3457,19 +3764,25 @@ extension RemuxSession {
             // desyncs the track and stamps a bogus first-sample duration that
             // CoreMedia's HLS validator rejects wholesale (-12927 on HEVC
             // files, found by the HDR10 harness run; ffmpeg's CLI avoids it
-            // by globally shifting all input timestamps instead).
-            if pkt.pointee.dts != SWIFT_AV_NOPTS_VALUE, pkt.pointee.dts < 0 { continue }
+            // by globally shifting all input timestamps instead). An anchor on
+            // the opening keyframe's decode time moves audio's floor to where
+            // that keyframe is presented.
+            if pkt.pointee.dts != SWIFT_AV_NOPTS_VALUE,
+               pkt.pointee.dts < (isVideo ? 0 : av_rescale_q(openingLeadUs, microTb, inStream.pointee.time_base)) { continue }
 
             // Segment boundary: close the fragment on the first video packet
             // at or past the next segment's start time.
             //
-            // Deliberately NOT keyframe-gated. Files whose keyframes are
+            // On the fixed grid deliberately NOT keyframe-gated. Files whose keyframes are
             // sparser than the segment length (a 10s GOP against 6s segments)
             // would otherwise skip whole segment indices, and every skipped
             // index is a hard 404 for a segment the playlist promises. Closing
             // on the boundary and advancing exactly one segment guarantees
-            // every declared index gets written. Seeks still land on a
-            // keyframe, because a seek-restart re-anchors there.
+            // every declared index gets written.
+            //
+            // The keyframe grid's boundaries are the source's own keyframes, so the cut waits for
+            // the keyframe; a boundary passed with none (an index that misplaced one) cuts anyway,
+            // so that index is still written.
             //
             // Live is the exception: this block sees only copied video and audio (transcoded
             // video cuts on its own encoded stream above and never falls through). A copied
@@ -3483,7 +3796,13 @@ extension RemuxSession {
                 let seconds = Double(pkt.pointee.pts) * av_q2d(inStream.pointee.time_base)
                 let boundary = nextBoundarySeconds()
                 let cutAllowed = config.isLive ? isKey : currentSegment + 1 < segmentCount
-                if seconds >= boundary && seconds > 0 && cutAllowed {
+                let reaches = onKeyframeGrid
+                    ? (isKey ? seconds >= boundary - keyframeGridTolerance : seconds >= boundary + keyframeGridTolerance)
+                    : seconds >= boundary
+                if onKeyframeGrid, reaches, !isKey, cutAllowed {
+                    NSLog("[LocalRemuxer] no keyframe at segment %d's start (%.3fs): cut at %.3fs", currentSegment + 1, boundary, seconds)
+                }
+                if reaches && seconds > 0 && cutAllowed {
                     if config.isLive { noteLiveCut(atOutputSeconds: seconds) } else { padSilence(upTo: boundary, atEnd: false) }
                     finishSegment(currentSegment)
                     currentSegment += 1
@@ -3512,10 +3831,11 @@ extension RemuxSession {
             // clock, so the input packet is consumed rather than written.
             if !isVideo, let transcoder = rendition.transcoder {
                 var writeError: Int32 = 0
+                var partFailed = false
                 let encodeStarted = Date()
                 defer { audioSecondsInSegment += Date().timeIntervalSince(encodeStarted) }
                 transcoder.process(packet: pkt) { encoded in
-                    guard writeError == 0 else { return }
+                    guard writeError == 0, !partFailed else { return }
                     av_packet_rescale_ts(encoded, transcoder.encoderTimeBase, outStream.pointee.time_base)
                     encoded.pointee.stream_index = outIndex
                     encoded.pointee.pos = -1
@@ -3523,9 +3843,15 @@ extension RemuxSession {
                     rendition.noteMuxZero(encoded, timeBase: outStream.pointee.time_base)
                     rendition.noteBaseDts(streamIndex: outIndex, dts: encoded.pointee.dts)
                     let end = Double(encoded.pointee.pts + max(0, encoded.pointee.duration)) * av_q2d(outStream.pointee.time_base)
+                    if lowLatency, !cutPart(before: encoded, in: rendition, timeBase: outStream.pointee.time_base,
+                                            clock: !carriesVideo(rendition), independent: true, frameSeconds: 0) {
+                        partFailed = true
+                        return
+                    }
                     let w = av_write_frame(ctx, encoded)
                     if w < 0 { writeError = w } else { rendition.audioEndSeconds = end }
                 }
+                if partFailed { break }
                 if writeError < 0 {
                     fail("write_frame (audio): \(averr(writeError))")
                     break
@@ -3566,6 +3892,12 @@ extension RemuxSession {
             rendition.noteBaseDts(streamIndex: outIndex, dts: pkt.pointee.dts)
 
             let audioEnd = isVideo ? nil : Double(pkt.pointee.pts + max(0, pkt.pointee.duration)) * av_q2d(outStream.pointee.time_base)
+            if lowLatency {
+                let fps = av_q2d(inStream.pointee.avg_frame_rate)
+                let clock = isVideo || (!carriesVideo(rendition) && pkt.pointee.stream_index == rendition.inputStreams.first)
+                guard cutPart(before: pkt, in: rendition, timeBase: outStream.pointee.time_base, clock: clock,
+                              independent: !isVideo || isKey, frameSeconds: fps > 0 ? 1 / fps : 0.04) else { break }
+            }
             let muxStarted = Date()
             ret = av_write_frame(ctx, pkt)
             muxSecondsInSegment += Date().timeIntervalSince(muxStarted)
@@ -3602,6 +3934,9 @@ extension RemuxSession {
         let current = renditions.first { $0.prefix == rendition.prefix } ?? rendition
         current.writing.remove(n)
         let doomed = current.prunedWhileWriting.remove(n) != nil
+        if let parts = rendition.liveParts.removeValue(forKey: n), !doomed {
+            current.liveParts[n] = parts.map { LivePart(data: nil, size: $0.size, duration: $0.duration, independent: $0.independent) }
+        }
         if !doomed {
             current.completed.insert(n)
             if !config.isLive {
@@ -3610,7 +3945,9 @@ extension RemuxSession {
         }
         sourceRetryAttempts = 0
         recovering = false
+        let lowLatency = lowLatencyInput
         stateLock.unlock()
+        if lowLatency { signalParts() }
         if doomed { try? FileManager.default.removeItem(at: file) }
     }
 
@@ -3647,6 +3984,9 @@ extension RemuxSession {
             for n in liveDurations.keys where n < first { liveDurations.removeValue(forKey: n) }
             for n in liveDates.keys where n < first { liveDates.removeValue(forKey: n) }
             for n in liveSegmentStarts.keys where n < first { liveSegmentStarts.removeValue(forKey: n) }
+            for rendition in renditions where !rendition.liveParts.isEmpty {
+                rendition.liveParts = rendition.liveParts.filter { $0.key >= first }
+            }
             if let windowStart = liveSegmentStarts[first] {
                 textSubtitles.values.forEach { $0.dropCues(endingBefore: windowStart) }
             }

@@ -30,9 +30,11 @@ import {
   inputSubtitleRenditions,
   isConnectionBudgetFailure,
   isRecordingHoldFailure,
+  learnOriginConnectionBudget,
   liveSessionConfig,
   liveSubtitleRenditions,
   localRemuxToken,
+  playerSourceUrl,
   originConnectionLimit,
   originConnections,
   originHeld,
@@ -47,6 +49,7 @@ import {
   stopFrameProvider,
   stopLocalRemux,
   stopPlaylistShim,
+  subscribeOriginConnectionBudget,
   subscribeOriginHolds,
 } from "../src/session";
 import { fittedIFrameSize, iframeStreamInf } from "../src/tags";
@@ -84,6 +87,14 @@ describe("startSession", () => {
     expect(events.attributeSession).not.toHaveBeenCalled();
     expect(events.watchEngineLink).toHaveBeenCalled();
     expect(events.watchEngineStage).toHaveBeenCalled();
+  });
+});
+
+describe("playerSourceUrl", () => {
+  it("reads an LL-HLS asset URL as the loopback URL it stands for and leaves any other URL alone", () => {
+    expect(playerSourceUrl("tomo-ll://127.0.0.1:5000/tok/master.m3u8")).toBe("http://127.0.0.1:5000/tok/master.m3u8");
+    expect(playerSourceUrl("http://127.0.0.1:5000/tok/master.m3u8")).toBe("http://127.0.0.1:5000/tok/master.m3u8");
+    expect(playerSourceUrl("jellyfin-multi://x")).toBe("jellyfin-multi://x");
   });
 });
 
@@ -221,9 +232,18 @@ describe("liveSubtitleRenditions", () => {
 });
 
 describe("liveSessionConfig", () => {
-  it("names the channel's URL and nothing about its streams, with a 15s start buffer", () => {
+  it("names the channel's URL and nothing about its streams, with a 2s start buffer, 1s segments, a 0.4s copy cut and the nearest target", () => {
     const live = liveSessionConfig({ inputUrl: "https://origin/master.m3u8", itemId: "ch1" });
-    expect(live).toMatchObject({ inputUrl: "https://origin/master.m3u8", itemId: "ch1", isLive: true, describesInput: true, liveBufferSeconds: 15, liveSegmentSeconds: 2 });
+    expect(live).toMatchObject({
+      inputUrl: "https://origin/master.m3u8",
+      itemId: "ch1",
+      isLive: true,
+      describesInput: true,
+      liveBufferSeconds: 2,
+      liveSegmentSeconds: 1,
+      liveCopyCutSeconds: 0.4,
+      liveTargetNearest: true,
+    });
     expect(live.audioTracks).toEqual([]);
     expect(live.tiers).toEqual([]);
     for (const key of ["httpHeaders", "liveOriginKey", "livePriority", "liveAudioLanguage", "livePlaylist", "fallbackInputUrl", "liveWindowSeconds", "probeOrigin"]) {
@@ -260,6 +280,16 @@ describe("liveSessionConfig", () => {
 
   it("answers the player on its first segment when asked for no buffer", () => {
     expect(liveSessionConfig({ inputUrl: "u", itemId: "i", bufferSeconds: 0 }).liveBufferSeconds).toBe(0);
+  });
+
+  it("asks for LL-HLS with a target learned from the first segment on the 2 s start step", () => {
+    expect(liveSessionConfig({ inputUrl: "u", itemId: "i" })).toMatchObject({ liveLowLatency: true, liveLowLatencyTargetSeconds: 0 });
+  });
+
+  it("opens a channel stepped up to a longer start buffer without LL-HLS", () => {
+    const live = liveSessionConfig({ inputUrl: "u", itemId: "i", bufferSeconds: 6 });
+    expect("liveLowLatency" in live).toBe(false);
+    expect("liveLowLatencyTargetSeconds" in live).toBe(false);
   });
 });
 
@@ -316,6 +346,43 @@ describe("setOriginConnectionBudget", () => {
   it("is false when the engine refuses", async () => {
     mockRemuxer!.setOriginBudget = jest.fn().mockRejectedValue(new Error("x"));
     await expect(setOriginConnectionBudget("provider-a", 1)).resolves.toBe(false);
+  });
+
+  it("tells its subscribers when a provider's limit changes, and not when it is set to the same", async () => {
+    mockRemuxer!.setOriginBudget = jest.fn().mockResolvedValue(undefined);
+    const listener = jest.fn();
+    const stop = subscribeOriginConnectionBudget(listener);
+    await setOriginConnectionBudget("provider-signal", 1);
+    await setOriginConnectionBudget("provider-signal", 1);
+    await setOriginConnectionBudget("provider-signal", 0);
+    expect(listener).toHaveBeenCalledTimes(2);
+    stop();
+    await setOriginConnectionBudget("provider-signal", 3);
+    expect(listener).toHaveBeenCalledTimes(2);
+    await setOriginConnectionBudget("provider-signal", 0);
+  });
+});
+
+describe("learnOriginConnectionBudget", () => {
+  it("is false on a binary without the method, for an empty key and for no connections", async () => {
+    await expect(learnOriginConnectionBudget("provider-l", 1)).resolves.toBe(false);
+    mockRemuxer!.learnOriginBudget = jest.fn().mockResolvedValue(undefined);
+    await expect(learnOriginConnectionBudget("", 1)).resolves.toBe(false);
+    await expect(learnOriginConnectionBudget("provider-l", 0)).resolves.toBe(false);
+    await expect(learnOriginConnectionBudget("provider-l", Number.NaN)).resolves.toBe(false);
+    expect(mockRemuxer!.learnOriginBudget).not.toHaveBeenCalled();
+  });
+
+  it("hands the engine a whole count and leaves the viewer's limit alone", async () => {
+    mockRemuxer!.learnOriginBudget = jest.fn().mockResolvedValue(undefined);
+    await expect(learnOriginConnectionBudget("provider-l", 1.6)).resolves.toBe(true);
+    expect(mockRemuxer!.learnOriginBudget.mock.calls).toEqual([["provider-l", 1]]);
+    expect(originConnectionLimit("provider-l")).toBeNull();
+  });
+
+  it("is false when the engine refuses", async () => {
+    mockRemuxer!.learnOriginBudget = jest.fn().mockRejectedValue(new Error("x"));
+    await expect(learnOriginConnectionBudget("provider-l", 1)).resolves.toBe(false);
   });
 });
 

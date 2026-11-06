@@ -21,7 +21,7 @@ let mockAutoUpdate = true;
 let mockHeld = false;
 let mockHealth = "unknown";
 
-jest.mock("expo-router", () => ({ useRouter: () => ({ back: jest.fn(), push: jest.fn(), replace: jest.fn() }) }));
+jest.mock("expo-router", () => ({ useRouter: () => ({ back: jest.fn(), push: jest.fn(), replace: jest.fn() }), useNavigationContainerRef: () => ({ isReady: () => false }) }));
 jest.mock("react-native-gesture-handler", () => {
   const chain: any = new Proxy(() => chain, { get: () => () => chain, apply: () => chain });
   return { Gesture: { Native: () => chain }, GestureDetector: ({ children }: { children: React.ReactNode }) => children };

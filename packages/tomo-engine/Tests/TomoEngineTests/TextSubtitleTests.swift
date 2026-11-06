@@ -584,6 +584,76 @@ final class TextSubtitleTests: XCTestCase {
         XCTAssertNil(session.subtitleSegment(streamIndex: 2, segment: 0))
     }
 
+    /// A track picked mid-session: its decoder opened at a restart from 12s, after a first read already passed 0 to 30s.
+    private func pickedSession() throws -> RemuxSession {
+        let session = try resumedSession()
+        session.readSpans = [(from: 0, upTo: 30)]
+        session.subtitleSpanFloor[2] = 1
+        session.readSpanFrom = 12
+        session.readSpanUpTo = 12
+        return session
+    }
+
+    func testAPickedTrackCountsOnlyTheReadsMadeWithItsDecoderOpen() throws {
+        let session = try pickedSession()
+        defer { session.stop() }
+        session.stateLock.lock()
+        defer { session.stateLock.unlock() }
+        XCTAssertTrue(session.readCoversLocked(from: 18, to: 24), "the first read passed the window")
+        XCTAssertFalse(session.readCoversLocked(from: 18, to: 24, streamIndex: 2), "the picked track's decoder was not open for that read")
+        session.readSpanUpTo = 24
+        XCTAssertTrue(session.readCoversLocked(from: 18, to: 24, streamIndex: 2))
+        XCTAssertNil(session.readSpanLocked(containing: 6, streamIndex: 2), "the aligner gets no cues from before the decoder opened")
+    }
+
+    /// Device log: windows a first read had passed were answered at once, with no cues, right after a pick.
+    func testAPickedTracksWindowWaitsForTheReadMadeWithItsDecoderOpen() throws {
+        let session = try pickedSession()
+        defer { session.stop() }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 1.2) {
+            session.stateLock.lock()
+            session.readSpanUpTo = 30
+            session.stateLock.unlock()
+        }
+        let asked = Date()
+        XCTAssertNotNil(session.subtitleSegment(streamIndex: 2, segment: 3))
+        XCTAssertGreaterThan(Date().timeIntervalSince(asked), 1, "the window was answered before the picked track's read reached it")
+    }
+
+    func testAWindowBehindAPickedTracksRestartIsAnsweredWithoutCuesAtOnce() throws {
+        let session = try pickedSession()
+        defer { session.stop() }
+        session.readSpanUpTo = 30
+        let asked = Date()
+        let body = try XCTUnwrap(session.subtitleSegment(streamIndex: 2, segment: 0))
+        XCTAssertLessThan(Date().timeIntervalSince(asked), 3, "the player gives a subtitle segment 6s")
+        XCTAssertFalse(body.contains(" --> "), "the picked track's decoder never read this window:\n\(body)")
+    }
+
+    /// The first request of a pick arrives before its decoder exists, and the restart lands past the window.
+    func testAWindowAskedBeforeThePickedDecoderOpensIsAnsweredWithoutCuesOnceTheRestartPassesIt() throws {
+        let session = try resumedSession()
+        defer { session.stop() }
+        let decoder = try XCTUnwrap(session.textSubtitles[2])
+        session.textSubtitles[2] = nil
+        session.readSpanFrom = 0
+        session.readSpanUpTo = 30
+        DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
+            session.stateLock.lock()
+            session.textSubtitles[2] = decoder
+            session.archiveReadSpanLocked()
+            session.subtitleSpanFloor[2] = session.readSpans.count
+            session.activationSeekSegment = nil
+            session.readSpanFrom = 24
+            session.readSpanUpTo = 30
+            session.stateLock.unlock()
+        }
+        let asked = Date()
+        let body = try XCTUnwrap(session.subtitleSegment(streamIndex: 2, segment: 0))
+        XCTAssertLessThan(Date().timeIntervalSince(asked), 5, "the player gives a subtitle segment 6s")
+        XCTAssertFalse(body.contains(" --> "), "the picked track's decoder never read this window:\n\(body)")
+    }
+
     func testCoverageRequiresTheWholeWindowAndCanJoinAdjacentReadSpans() throws {
         let session = try RemuxSession(config: makeConfig(durationSeconds: 30))
         defer { session.stop() }
@@ -930,7 +1000,7 @@ final class ServedSubtitleSegmentTests: XCTestCase {
         XCTAssertTrue(body.contains("0:02 plain line"), "cue text missing from:\n\(body)")
     }
 
-    /// The window 12-18s holds two lines; a segment that served early would be empty.
+    /// The window 10.4-20.8s holds the 12 s line and the karaoke line; a segment that served early would be empty.
     func testMidFileSegmentCarriesItsCues() throws {
         let url = try fixture()
         let session = try RemuxSession(
@@ -948,7 +1018,9 @@ final class ServedSubtitleSegmentTests: XCTestCase {
         defer { session.stop() }
         session.start()
 
-        let body = try XCTUnwrap(session.subtitleSegment(streamIndex: 2, segment: 2))
+        // T100's keyframes are 10.417 s apart, so 12 s falls in segment 1 (10.417-20.833 s).
+        let body = try XCTUnwrap(session.subtitleSegment(streamIndex: 2, segment: 1))
+        XCTAssertEqual(session.segmentStartSeconds(1), 10.417, accuracy: 0.01)
         XCTAssertTrue(body.contains("00:00:12.000 --> 00:00:13.000"), "12s cue missing from:\n\(body)")
         XCTAssertTrue(body.contains("karaoke reads as one word"), "karaoke line missing from:\n\(body)")
         XCTAssertFalse(body.contains("{"), "an override block reached the cue text:\n\(body)")
@@ -985,7 +1057,8 @@ final class SubtitleStartupRaceTests: XCTestCase {
         // parallel, which is what the HTTP server does with them.
         let playlist = try XCTUnwrap(session.subtitlePlaylist(streamIndex: 2))
         let count = playlist.components(separatedBy: ".vtt").count - 1
-        XCTAssertEqual(count, 10)
+        // One segment per keyframe: T100 has six, 10.417 s apart.
+        XCTAssertEqual(count, 6)
 
         // A player pulls both tracks, and it is the video demand that drives the
         // producer: asking for cues alone leaves the read head where it started.

@@ -6,8 +6,8 @@ export interface LiveChannels<Item = unknown> {
   resolve(channelId: string, options: { quiet: true }): Promise<Item>;
   /** A playable item when the channel needs no open; null otherwise. */
   resolveWithoutOpen(channelId: string): Promise<Item | null>;
-  /** The origin a frame grab reads; "untuned" when the source carries no tuner for it. */
-  resolveOrigin(channelId: string): Promise<ChannelOrigin | "untuned" | null>;
+  /** The origin a frame grab reads; "untuned" when the source carries no tuner for it, "tuner" when only a hardware tuner the server opens does. */
+  resolveOrigin(channelId: string): Promise<ChannelOrigin | "untuned" | "tuner" | null>;
   open(channelId: string, options: { quiet: true }): Promise<Item>;
   /** Releases whatever the source holds open for the item. */
   close(item: Item): Promise<void>;
@@ -16,8 +16,10 @@ export interface LiveChannels<Item = unknown> {
   streamUrl(item: Item): string | undefined;
   name(item: Item): string;
   canPlayOnDevice(item: Item): Promise<boolean>;
+  /** The provider whose connection budget the item's reads spend; the stream URL's host when absent. */
+  originKey?(item: Item): string | undefined;
   /** Starts an engine session for the item; resolves to its master playlist URL. */
-  startSession(item: Item, options: { prewarm: true; liveWindowSeconds: number; livePriority?: "preview" }): Promise<string>;
+  startSession(item: Item, options: { prewarm: true; liveWindowSeconds: number; livePriority?: "preview" | "playback" }): Promise<string>;
   /** Fires when the channel list on screen changes, so grabs for the old list stop. */
   subscribeListChange(listener: () => void): () => void;
 }

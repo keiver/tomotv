@@ -14,7 +14,7 @@ export type ServerTranscoding = "linkOrFile" | "fileOnly" | "never";
 export const SERVER_TRANSCODING_LEVELS: readonly ServerTranscoding[] = ["linkOrFile", "fileOnly", "never"];
 
 export interface UiPreferences {
-  version: 1;
+  version: 2;
   /** Cards the server left without a poster wear a keyframe the engine grabbed from the file. */
   devicePosters: boolean;
   /** The server's own per-user permission caps every level (services/transcodePolicy.ts). */
@@ -49,9 +49,9 @@ export const AUTO_SKIP_KINDS: readonly AutoSkipKind[] = ["intro", "recap", "prev
 export type AutoSkip = Record<AutoSkipKind, boolean>;
 
 export const DEFAULT_UI_PREFERENCES: UiPreferences = {
-  version: 1,
+  version: 2,
   devicePosters: true,
-  serverTranscoding: "linkOrFile",
+  serverTranscoding: "fileOnly",
   cardTheme: DEFAULT_CARD_THEME,
   background: "artwork",
   showLyrics: true,
@@ -97,10 +97,14 @@ export function parseUiPreferences(raw: unknown, legacySkipCommercials?: boolean
     }
   }
   const source = doc && typeof doc === "object" ? (doc as Record<string, unknown>) : {};
+  const storedTranscoding = SERVER_TRANSCODING_LEVELS.includes(source.serverTranscoding as ServerTranscoding)
+    ? (source.serverTranscoding as ServerTranscoding)
+    : DEFAULT_UI_PREFERENCES.serverTranscoding;
   return {
-    version: 1,
+    version: 2,
     devicePosters: typeof source.devicePosters === "boolean" ? source.devicePosters : DEFAULT_UI_PREFERENCES.devicePosters,
-    serverTranscoding: SERVER_TRANSCODING_LEVELS.includes(source.serverTranscoding as ServerTranscoding) ? (source.serverTranscoding as ServerTranscoding) : DEFAULT_UI_PREFERENCES.serverTranscoding,
+    // Version 1 saved its default "linkOrFile" with every change, so a stored one there is not a choice.
+    serverTranscoding: storedTranscoding === "linkOrFile" && source.version !== 2 ? "fileOnly" : storedTranscoding,
     cardTheme: parseCardTheme(source.cardTheme) ?? DEFAULT_UI_PREFERENCES.cardTheme,
     // Earlier documents: the mode's first name for clear, and before the mode, the retired
     // folder-colour switch, whose "off" meant the clear light.

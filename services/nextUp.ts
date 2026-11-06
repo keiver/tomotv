@@ -138,12 +138,7 @@ export async function resolveNextUp(resumeItems: JellyfinVideoItem[], maxContain
 
   const resolved = picks.filter((pick): pick is NextUpPick => pick !== null);
 
-  logger.debug("Next-up resolved", {
-    service: "NextUp",
-    anchors: anchors.length,
-    resolved: resolved.length,
-    items: resolved.map(({ video }) => ({ id: video.Id.slice(0, 8), name: video.Name?.slice(0, 24) })),
-  });
+  logger.debug("Next-up resolved", { service: "NextUp", anchors: anchors.length, resolved: resolved.length });
 
   return resolved;
 }

@@ -16,7 +16,7 @@ const item = {
   UserData: { PlaybackPositionTicks: 6_000_000_000, Played: false },
 } as unknown as JellyfinItem;
 
-jest.mock("expo-router", () => ({ useRouter: () => ({ back: jest.fn(), push: jest.fn(), replace: jest.fn() }) }));
+jest.mock("expo-router", () => ({ useRouter: () => ({ back: jest.fn(), push: jest.fn(), replace: jest.fn() }), useNavigationContainerRef: () => ({ isReady: () => false }) }));
 jest.mock("react-native-gesture-handler", () => {
   const chain: any = new Proxy(() => chain, { get: () => () => chain, apply: () => chain });
   return { Gesture: { Native: () => chain }, GestureDetector: ({ children }: { children: React.ReactNode }) => children };
@@ -51,6 +51,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   fetchIsAdministrator: jest.fn(async () => false),
   isLiveChannel: () => false,
   fetchItemDetails: jest.fn(),
+  fetchVideoDetails: jest.fn(async () => null),
   fetchFolderMediaKinds: jest.fn(async () => null),
   fetchItemFolderPath: jest.fn(async () => []),
   getBackdropUrl: () => null,

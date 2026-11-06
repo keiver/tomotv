@@ -15,6 +15,15 @@ jest.mock("@/hooks/useGuide", () => ({ useGuide: () => mockGuide, invalidateGuid
 jest.mock("@/hooks/useAuthSession", () => ({ useAuthSession: () => "session" }));
 jest.mock("@/hooks/useChannelFavoritesSync", () => ({ useChannelFavoritesSync: jest.fn() }));
 jest.mock("@/hooks/useLiveTvPreferences", () => ({ useLiveTvPreferences: () => ({ filter: "all" }) }));
+const mockPin = jest.fn();
+const mockPinnedFullscreen = jest.fn((channelId: string) => channelId === mockPinnedId);
+let mockPinnedId: string | null = null;
+let mockPinnedChannel: { Id: string; Name: string } | null = null;
+jest.mock("@/hooks/useLivePreview", () => ({
+  useLivePreview: () => ({ channel: mockPinnedChannel, opening: false, pin: mockPin, close: jest.fn(), fullscreen: mockPinnedFullscreen, setSlot: jest.fn() }),
+}));
+type HeaderItem = { label: string; onPress: () => void };
+let mockScreenOptions: { unstable_headerRightItems?: () => HeaderItem[] } = {};
 jest.mock("@/components/live-tv/guide-canvas", () => {
   const { useEffect } = jest.requireActual("react");
   return {
@@ -27,13 +36,29 @@ jest.mock("@/components/live-tv/guide-canvas", () => {
   };
 });
 jest.mock("@/components/live-tv/guide-hud", () => ({ GuideHud: () => null }));
-jest.mock("@/components/live-tv/guide-corner-actions", () => ({ GuideCornerActions: () => null, HudAction: () => null, HUD_ACTION_ICON: 20 }));
+jest.mock("@/components/live-tv/guide-corner-actions", () => ({
+  GuideCornerActions: () => null,
+  HudAction: () => null,
+  HUD_ACTION_ICON: 20,
+  MULTIVIEW_SYMBOL: "rectangle.3.group",
+  RECORDINGS_SYMBOL: "recordingtape",
+}));
 jest.mock("@/components/sf-symbol-icon", () => ({ SfSymbolIcon: () => null }));
 jest.mock("@/components/ambient-background", () => ({ AmbientBackground: () => null }));
 jest.mock("@/services/i18n", () => ({ t: (key: string) => key }));
 jest.mock("@/services/externalGuide", () => ({ refreshExternalGuide: jest.fn() }));
 jest.mock("@/services/toast", () => ({ showToast: jest.fn(), dismissToast: jest.fn() }));
-jest.mock("expo-router", () => ({ Stack: { Screen: () => null }, useIsFocused: () => mockFocused, useLocalSearchParams: () => ({}), useRouter: () => ({ push: mockPush }) }));
+jest.mock("expo-router", () => ({
+  Stack: {
+    Screen: ({ options }: { options: typeof mockScreenOptions }) => {
+      mockScreenOptions = options;
+      return null;
+    },
+  },
+  useIsFocused: () => mockFocused,
+  useLocalSearchParams: () => ({}),
+  useRouter: () => ({ push: mockPush }),
+}));
 jest.mock("expo-router/react-navigation", () => ({ useHeaderHeight: () => 0 }));
 jest.mock("react-native-safe-area-context", () => {
   const { View } = jest.requireActual("react-native");
@@ -68,9 +93,24 @@ describe("Live TV program info navigation", () => {
     expect(JSON.parse(mockPush.mock.calls[1][0].params.guideProgram)).toMatchObject(later);
   });
 
-  it("keeps an airing programme's press tuned to its channel", async () => {
-    (await canvas()).onProgramPress(program, channel);
+  it("opens an airing programme's channel in the player, and only a tap on the channel's card pins it", async () => {
+    mockPinnedId = null;
+    const props = await canvas();
+    props.onProgramPress(program, channel);
     expect(mockPush).toHaveBeenCalledWith({ pathname: "/player", params: { videoId: "c1", videoName: "One", live: "1" } });
+    expect(mockPin).not.toHaveBeenCalled();
+    props.onChannelPress(channel);
+    expect(mockPin.mock.calls).toEqual([[channel]]);
+  });
+
+  it("opens the pinned channel's airing programme full screen in place, pushing no player", async () => {
+    mockPinnedId = "c1";
+    const props = await canvas();
+    mockPush.mockClear();
+    props.onProgramPress(program, channel);
+    expect(mockPinnedFullscreen).toHaveBeenLastCalledWith("c1");
+    expect(mockPush).not.toHaveBeenCalled();
+    mockPinnedId = null;
   });
 
   it("still fetches a server programme by id and opens a no-guide cell on the channel", async () => {
@@ -79,6 +119,41 @@ describe("Live TV program info navigation", () => {
     expect(mockPush).toHaveBeenLastCalledWith({ pathname: "/video-info", params: { videoId: "server-program", name: "Evening News" } });
     props.onProgramLongPress({ ...program, Id: `${NO_GUIDE_PREFIX}c1` }, channel);
     expect(mockPush).toHaveBeenLastCalledWith({ pathname: "/video-info", params: { videoId: "c1", name: "One" } });
+  });
+});
+
+describe("Live TV bar on iPhone, iPad and Mac", () => {
+  const headerItems = async () => {
+    await act(async () => {
+      TestRenderer.create(<LiveTvRoute />);
+    });
+    return mockScreenOptions.unstable_headerRightItems?.() ?? [];
+  };
+
+  const rows = (count: number) => Array.from({ length: count }, (_, i) => ({ channel: { Id: `c${i}`, Name: `Channel ${i}` }, programs: [] }));
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPinnedChannel = null;
+  });
+  afterEach(() => {
+    mockPinnedChannel = null;
+  });
+
+  it("holds Channels, Multiview and Recordings, Multiview only with two channels or more", async () => {
+    Object.assign(mockGuide, { rows: rows(2), isLoading: false, isUpdating: false, error: null });
+    expect((await headerItems()).map((item) => item.label)).toEqual(["liveTv.channels", "liveTv.multiview", "liveTv.recordings"]);
+    Object.assign(mockGuide, { rows: rows(1) });
+    expect((await headerItems()).map((item) => item.label)).toEqual(["liveTv.channels", "liveTv.recordings"]);
+  });
+
+  it("opens Multiview on the pinned channel when one plays, else on the stored spots", async () => {
+    Object.assign(mockGuide, { rows: rows(2), isLoading: false, isUpdating: false, error: null });
+    (await headerItems())[1].onPress();
+    expect(mockPush).toHaveBeenLastCalledWith("/multiview");
+    mockPinnedChannel = { Id: "c7", Name: "Seven" };
+    (await headerItems())[1].onPress();
+    expect(mockPush).toHaveBeenLastCalledWith({ pathname: "/multiview", params: { channelId: "c7", channelName: "Seven" } });
   });
 });
 

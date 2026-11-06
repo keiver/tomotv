@@ -106,6 +106,8 @@ import {
   liveFrameDueAt,
   liveFrameFor,
   liveFrameReel,
+  LIVE_FRAME_TUNER_UNKNOWN_RETRY_MS,
+  refreshLiveFrameWhilePlaying,
   setLiveFrameFocus,
   clearLiveFrameFocus,
   LIVE_FRAME_FOCUS_DWELL_MS,
@@ -116,7 +118,8 @@ import {
 } from "@/services/liveFrames";
 import { healthFor } from "@/services/channelHealth";
 import { setOriginRecording } from "@keiver/tomo-engine";
-import { setPlaybackHold } from "@/services/playbackHold";
+import { MULTIVIEW_PLAYBACK_OWNER, setPlaybackHold } from "@/services/playbackHold";
+import { noteTunerChannel } from "@keiver/tomo-live";
 import { AppState } from "react-native";
 
 const flush = async () => {
@@ -263,6 +266,18 @@ describe("live frames", () => {
     expect(grabs()).toEqual(["m1", "m2"]);
   });
 
+  it("a hardware tuner card whose picture is due a refresh holds no row partly on screen back", async () => {
+    mockResolveOrigin.mockImplementation(async (id: string) => (id.startsWith("hd") ? "tuner" : { url: `https://origin/${id}.m3u8` }));
+    mockOnDisk.mockResolvedValue({ hd1: { ...onDisk("hd1", 1_000_000 - LIVE_FRAME_REFRESH_MS - 1, 2), clip: "file:///pool/hd1/c.mp4" } });
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["hd1"], ["m2"]);
+    await advance(0);
+    await advance(LIVE_FRAME_SPACING_MS);
+    await advance(LIVE_FRAME_SPACING_MS);
+    expect(grabs()).toEqual(["m2"]);
+    expect(mockOpenChannel).not.toHaveBeenCalled();
+  });
+
   it("a whole row waiting out its failures holds no row partly on screen back", async () => {
     mockLiveFrame.mockImplementation(async ({ channelId }: { channelId: string }) => {
       if (channelId === "m1") throw new Error("refused");
@@ -338,6 +353,21 @@ describe("live frames", () => {
     expect(grabs()).toEqual(["m1", "m1", "m2"]);
     await advance(LIVE_FRAME_SPACING_MS);
     expect(grabs()).toEqual(["m1", "m1", "m2", "m1"]);
+  });
+
+  it("keeps reading while only multiview's own player holds the link, and stands down when other playback takes it", async () => {
+    setPlaybackHold(MULTIVIEW_PLAYBACK_OWNER, true);
+    setLiveFramesActive("multiview", true);
+    setLiveFrameViewable("multiview", ["m1", "m2"]);
+    await advance(0);
+    expect(grabs()).toEqual(["m1"]);
+    setPlaybackHold("video", true);
+    await advance(LIVE_FRAME_SPACING_MS * 3);
+    expect(grabs()).toEqual(["m1"]);
+    setPlaybackHold("video", false);
+    await advance(0);
+    expect(grabs()).toEqual(["m1", "m2"]);
+    setPlaybackHold(MULTIVIEW_PLAYBACK_OWNER, false);
   });
 
   it("a grab that brings the clip clears the failures its clipless grabs counted", async () => {
@@ -759,6 +789,42 @@ describe("live frames", () => {
     });
   });
 
+  it("asks again soon for a playing channel not yet known to be a tuner, so its card gets its picture within seconds", async () => {
+    setPlaybackHold("video", true);
+    const stop = refreshLiveFrameWhilePlaying("hd7", "http://127.0.0.1:5000/tok/master.m3u8");
+    await advance(0);
+    expect(grabs()).toEqual([]);
+    noteTunerChannel("hd7");
+    await advance(LIVE_FRAME_TUNER_UNKNOWN_RETRY_MS);
+    expect(grabs()).toEqual(["hd7"]);
+    stop();
+  });
+
+  it("takes a playing hardware tuner channel's picture off the player's session while playback holds the link, never off the tuner", async () => {
+    mockResolveOrigin.mockImplementation(async (id: string) => (id.startsWith("hd") ? "tuner" : null));
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["hd1"]);
+    await advance(0);
+    setLiveFramesActive("guide", false);
+    setPlaybackHold("video", true);
+    const session = "http://127.0.0.1:5000/tok/master.m3u8";
+    const stop = refreshLiveFrameWhilePlaying("hd1", session);
+    await advance(0);
+    expect(mockLiveFrame.mock.calls.map(([config]) => config)).toEqual([expect.objectContaining({ channelId: "hd1", inputUrl: session, count: LIVE_FRAME_COLD_COUNT })]);
+    expect(liveFrameFor("hd1")).toBeDefined();
+    await advance(LIVE_FRAME_REFRESH_MS);
+    expect(grabs()).toEqual(["hd1", "hd1"]);
+    stop();
+    await advance(LIVE_FRAME_REFRESH_MS);
+    expect(grabs()).toEqual(["hd1", "hd1"]);
+    // A channel the sampler can read itself is left to the sampler.
+    const other = refreshLiveFrameWhilePlaying("m9", session);
+    await advance(0);
+    expect(grabs()).toEqual(["hd1", "hd1"]);
+    other();
+    expect(mockOpenChannel).not.toHaveBeenCalled();
+  });
+
   it("opens a tuner channel on the server for its burst and closes it as soon as the burst is read", async () => {
     setLiveFramesActive("guide", true);
     setLiveFrameViewable("guide", ["t1"]);
@@ -771,6 +837,22 @@ describe("live frames", () => {
     expect(grabs()).toEqual(["t1", "t1"]);
     expect(mockOpenChannel).toHaveBeenCalledTimes(2);
     expect(mockCloseLiveStream).toHaveBeenCalledTimes(2);
+  });
+
+  it("never opens a channel only a hardware tuner carries, in view or focused past the dwell, and reads its origin once", async () => {
+    mockResolveOrigin.mockImplementation(async (id: string) => (id.startsWith("hd") ? "tuner" : id.startsWith("m") ? { url: `https://origin/${id}.m3u8` } : null));
+    setLiveFramesActive("guide", true);
+    setLiveFrameViewable("guide", ["hd1", "m1", "hd2"]);
+    await advance(0);
+    await advance(LIVE_FRAME_SPACING_MS);
+    await advance(LIVE_FRAME_SPACING_MS);
+    setLiveFrameFocus("hd1");
+    await advance(LIVE_FRAME_FOCUS_DWELL_MS + LIVE_FRAME_REFRESH_MS);
+    expect(mockOpenChannel).not.toHaveBeenCalled();
+    expect(grabs().filter((id) => id.startsWith("hd"))).toEqual([]);
+    expect(grabs()).toContain("m1");
+    expect(mockResolveOrigin.mock.calls.filter(([id]) => id === "hd1")).toHaveLength(1);
+    expect(mockShowLivePreview).not.toHaveBeenCalledWith("hd1");
   });
 
   it("closes a server open the burst could not read, and one whose grab threw", async () => {

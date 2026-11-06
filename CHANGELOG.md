@@ -2,6 +2,81 @@
 
 All notable changes to Tomo TV are documented here.
 
+## [2.2.15]
+
+### Added
+
+- Multiview, on every platform: watch up to four live channels at once (`@keiver/tomo-live@1.6.0`)
+  - Six layouts, every picture whole and never cropped: one large with three or two smaller, a 2x2 grid, three across, two large with two smaller, or three large with one smaller. The channels fill a 16:9 screen with a thin line between them.
+  - On iPhone, iPad and Mac the layout fits the screen's shape: held upright, the spots stack down the screen with the large ones the full width; on a screen wider than the layout, the group's other channels run down the side of it and on in rows under it, so no part of the screen is left empty. Below the spots, the group's other channels scroll up and down.
+  - Up to four spots play live. Some layouts add picture spots you fill yourself, which show a short clip and a picture, and most have a strip along the bottom that scrolls through the group's other channels; selecting one puts it in the spot with the sound.
+  - Pick the layout from a screen that draws each one as it fits your screen as you hold it: a rounded screen outline with a line round every spot, the spot with the sound marked with its speaker on Apple TV. The current layout is drawn in the accent with a checkmark under it, the others in gray; the names are read by VoiceOver only. Open it with the Layout button in the bar on iPhone, iPad and Mac, Play/Pause on Apple TV, or Layout in a spot's long press.
+  - Open it from the Multiview button in the Channels bar, or from a channel's info panel, which puts that channel in the large spot and its neighbours in the group around it.
+  - Selecting a spot gives it the sound and moves it to the large spot; on iPhone, iPad and Mac the spot with the sound wears the accent box Apple TV gives the focused spot. On Apple TV, selecting it again opens that channel in the player, which takes over the spot's stream, and Menu goes back to the layout.
+  - On iPhone, iPad and Mac the spot with the sound plays in the app's own player, as the guide's pinned channel does: selecting it opens that same player full screen with no reload, and closing it puts the picture back in the spot. Its corner has mute and record buttons. While the screen scrolls, the spot shows its picture and the sound plays on. The picture fills the spot, cropping its edges as the other spots do; full screen still shows the whole picture.
+  - A long press on a spot changes its channel, clears it, records it or changes the layout. An empty spot shows a plus that opens the channel picker.
+  - Each spot names its channel in a small square label in its top-left corner; the spot with the sound adds the programme airing and its time left, with a spinner in place of its speaker until its channel is actually playing. When that channel can't be opened, the spot says so softly over its picture and tries again after 5, 15 and 45 seconds. A channel with no logo shows a TV glyph until its picture arrives. A channel being recorded shows a red dot in its label, in any spot.
+  - From the info panel of a programme that hasn't started, Multiview can switch the spot with the sound to it when it starts.
+  - The spots and the layout are kept per user.
+  - Every live spot uses one of the provider's connections. With N connections, the spot with the sound and N-2 others play live and one is kept for the pictures; the other spots show a short clip and a picture. On a provider set to one connection, only the spot with the sound plays.
+  - Tomo never puts an HDHomeRun channel in a spot on its own; it plays only in a spot you fill.
+- Pinned channel in the Live TV guide, on iPhone, iPad and Mac: tapping a channel plays it with sound in a band above the guide instead of opening the player. Apple TV is unchanged
+  - Tap the picture or its programme to go full screen without reopening the stream. The close button stops it.
+  - The picture fills the band, cropping its edges like the channel clips around it; full screen still shows the whole picture.
+  - Tapping another channel switches the band. The other cards dim while a channel is pinned.
+  - A larger picture with the button beside close, a swipe down, or the tab under the band: full width on iPhone, up to 640 pt wide on iPad and Mac, never taller than half the window. The size is kept when you switch channels.
+  - A mute button, kept when you switch channels or sizes.
+  - For 30 s after each switch, the channels just above and below get ready in the background, so tapping one starts at once. Not on a provider set to one connection or an HDHomeRun.
+  - A record button, for accounts that manage Live TV: records the programme airing, or cancels or stops a recording. A badge on the picture says Recording now or Playing the recording. On a provider set to one connection, the band plays the recording once the recording has the stream.
+- Play starts sooner from an item page: the page loads the player's details as it opens, and after 2 s it opens the playback session in the background for Play to use (`@keiver/tomo-engine@1.8.0`)
+  - Only when the server offers its quality levels and the link is known to carry the original at 1.2 times its bitrate, so no server transcode starts for an item nobody plays.
+  - The session prepares 2 segments and is used only if the item, audio track, resume point and subtitle all match. It stops 5 s after you leave the page, when something else plays, or when the app goes to the background.
+  - A Continue Watching card loads the details when it is focused.
+  - Not for channels, where opening the stream takes a tuner.
+- Live channels start faster:
+  - The player gets the stream after 2 s of video instead of 15, in 1 s segments instead of 2. With keyframes every second, the picture came 3.3 s after the press instead of 7.3 s (`@keiver/tomo-engine@1.8.0`)
+  - Segments end at the channel's keyframes, and the playlist rounds its segment length to the nearest second instead of up: 0.9 to 2.7 s sooner with keyframes every 2 s or less, no change at 4 s (`@keiver/tomo-engine@1.8.0`)
+  - Channels from a tuner, Dispatcharr or an IPTV link play in low-latency mode, in half-second pieces. Measured on a Mac: picture in 2.40 s instead of 2.96 s with keyframes every second, and 3.38 s instead of 4.54 s with keyframes every 2 s, playing 0.7 to 1.2 s behind live instead of 1.3 to 2.9 s. A channel whose keyframes spread further apart keeps playing instead of freezing (`@keiver/tomo-engine@1.8.0`, `@keiver/tomo-live@1.6.0`)
+  - A channel plays as soon as it loads, without waiting for the player's buffering check, and autoplay no longer waits 100 ms.
+- A live channel that stalls in its first minute holds its picture once while it builds a longer buffer, then plays, instead of stalling again and again. The buffer steps from 2 s to 6 s to 15 s after each such stall and back down after a minute with none, until the app quits. Play or pause ends the hold (`@keiver/tomo-live@1.6.0`)
+- On a fast link the first frame comes sooner: the startup speed check stops after 0.3 s when the link reads 8 times what the file needs, instead of always taking 1.5 s. On a Mac on the LAN the first frame came at 1.55 s instead of 2.05 s (`@keiver/tomo-engine@1.8.0`)
+- The remembered audio language applies at once from the stored settings, without waiting up to 1.5 s for the server. A language changed on another device applies one play later
+
+### Fixed
+
+- HDHomeRun through Jellyfin: browsing the guide or the channel wall no longer ties up the household's tuners. Each card's picture, the focused card's preview and the two channels prepared beside a playing one used to open a physical tuner. A tuner channel now opens only to play it, and its card picture comes from the stream already playing (issue 116) (`@keiver/tomo-live@1.6.0`)
+- Live TV through Jellyfin: reopening a channel quickly could leave the old stream, and its tuner, running. Jellyfin keeps one stream per channel, so an open that arrived before the previous close left the old one open. A channel now waits for its last close before opening, and an open the server finishes after Tomo's 30 s timeout is closed as soon as it arrives (issue 116)
+- Recording a channel on a provider that allows one stream could save the provider's refusal as the recording, a 65-byte file that wouldn't play, because the server opened the stream while Tomo still held it (`@keiver/tomo-engine@1.8.0`)
+  - Record now asks first, and says the recording will take the provider's one stream.
+  - The recording starts once the provider counts the stream free. Until then the button reads Waiting for the connection, and a press cancels.
+  - A scheduled recording on such a provider takes the stream from the device playing it a minute before it starts.
+  - Existing refusal files are deleted, or hidden where the account can't delete files. Opening one says This recording has no video.
+- A live channel whose source is gone no longer reopens every 5 s for as long as you stay on it. If it hasn't played since you chose it, it stops after four tries and shows its error, with Retry (`@keiver/tomo-live@1.6.0`)
+- A live channel from a tuner, Dispatcharr or an IPTV link could play with no sound for a whole tune. The engine's 2 s first look at the stream could end before the first audio arrived (on one public channel, audio came 2.3 s after the video in every segment). It now keeps reading until it finds the audio (`@keiver/tomo-engine@1.8.0`)
+- Jumping far ahead in a file the engine copies could freeze the picture until a later keyframe, or fail with "Cannot Decode" on CarPlay. The engine cut the file into fixed 6 s segments, so most started between keyframes. Segments now start at the file's own keyframes, as Jellyfin cuts them, and on a link fast enough for the original, the original plays alone instead of mixed with the server's quality levels. Measured on a Mac with a 54 s jump in a film with a keyframe every 10 s: the picture came back at 59.96 s before, at 54 s after (issue 115) (`@keiver/tomo-engine@1.8.0`)
+- The sound could start before the picture: the loading overlay stayed up 500 ms after playback began, and on Apple TV it kept the player off screen. It now goes away as soon as playback starts
+- Apple TV: a folder mixing posters and wide cards could jump to 7 columns after the next page loaded, leaving the right column empty. A folder keeps its first layout
+- iPhone, iPad and Mac: the Live TV Recordings button used a symbol that looked like a record button. It now uses the tape symbol, as on Apple TV
+- A subtitle track picked during playback could show nothing for the part already read before you picked it. It now waits for its own read (`@keiver/tomo-engine@1.8.0`)
+- Subtitle tracks in one language but for different regions, scripts or SDH showed as one entry in the player's menu. A title naming Latin American or European Spanish, Brazilian or European Portuguese, Canadian French, or Simplified or Traditional Chinese now sets the track's region or script, and a title with SDH marks the track SDH, so each gets its own entry (`@keiver/tomo-engine@1.8.0`)
+- Provider that allows one stream: opening the player right after a channel preview was cut could be refused, because the provider still counted the preview's connection. Tomo now treats it as a recent close and asks again. On Dispatcharr, a closed connection stays counted for 1.7 to 8.8 s (`@keiver/tomo-engine@1.8.0`)
+- Provider that allows one stream: a channel the provider kept refusing was reopened on every refusal for as long as you stayed on it. It now stops 20 s after the first open and shows its error
+- iPhone and iPad: the bare video, with no controls, could show while the player opened and after returning from Picture in Picture. The black cover now stays for the whole session
+- Find Subtitles on iPhone, iPad and Mac has a close button. On Mac, Escape closes it
+- A broken ZIP subtitle download could freeze the app (fflate 0.8.3)
+- A live channel reopened from Now Playing showed the subtitle search button, because it lost its live flag. It keeps the flag now
+- Guide download logs showed the guide's URL, which can contain the provider's username and password. They show only its host and port now (`@keiver/tomo-live@1.6.0`)
+- iPhone, iPad and Mac: a guide programme could open when you only meant to scroll. A programme now opens only on a tap; a touch that moves more than 10 pt before lifting, a drag at the edge of the guide, or a sliding palm opens nothing
+
+### Changed
+
+- Mac: a video plays in the system player, sized to the app's window, instead of inline. A double click still toggles the letterbox
+- iPhone, iPad and Mac: the Channels bar no longer has a search button; search is in the Search tab
+- The Live TV guide's bar is Channels, Multiview, Recordings, and on Apple TV the guide refresh. Multiview opens on the pinned channel when one plays. Recordings and Schedule are one screen: what records now, what is set to record and the series rules sit above the finished recordings, with Stop All while something records; an account that may not manage recordings sees the recordings alone. The Recordings button turns red while a recording runs, where the Schedule button did
+- iPhone, iPad and Mac: the guide's channel column snaps to three widths (logos only, cards, wide cards) instead of resizing freely. The cards and rows grow with it, the width is kept on the device, and VoiceOver can adjust it. iPad and Mac start at wide cards, iPhone at cards
+- The Favorites chip starts with the heart used on guide cards
+- Server transcoding defaults to Only for unsupported files instead of When needed. A When needed saved by an earlier version reads as Only for unsupported files, because earlier versions saved the default with every change. On this level, a link that stops at open shows the error instead of turning to the server, and the device is not marked as too slow
+
 ## [2.2.14]
 
 ### Added

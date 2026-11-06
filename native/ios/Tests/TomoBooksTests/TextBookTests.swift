@@ -23,7 +23,7 @@ final class TextBookTests: XCTestCase {
         XCTAssertTrue(book.isPaginated)
         XCTAssertGreaterThan(book.pageCount, 6, "three chapters of forty paragraphs at 36pt fill more than two pages each")
         // Chapter 2 opens with its heading and one paragraph; the 600x800 picture does not fit under
-        // them, so it opens the next page. That page is the darkest of the chapter.
+        // them, so it opens the next page.
         let chapterTwoStart = book.pages.firstIndex { $0.chapter == 1 }!
         let heading = try book.renderPage(chapterTwoStart, zoom: 1, scale: 1, pageSize: tv)
         XCTAssertEqual(heading.width, 1920)
@@ -31,8 +31,28 @@ final class TextBookTests: XCTestCase {
         let picture = try book.renderPage(chapterTwoStart + 1, zoom: 1, scale: 1, pageSize: tv)
         let headingLuma = FixedBookTests.meanLuma(try XCTUnwrap(BookRender.loadImage(at: heading.url)))
         let pictureLuma = FixedBookTests.meanLuma(try XCTUnwrap(BookRender.loadImage(at: picture.url)))
-        XCTAssertLessThan(headingLuma, 255, "the heading page carries text")
-        XCTAssertLessThan(pictureLuma, headingLuma, "the picture page carries the 600x800 figure")
+        XCTAssertGreaterThan(headingLuma, 20, "the heading page carries light text on the dark page")
+        XCTAssertGreaterThan(pictureLuma, headingLuma, "the picture page carries the 600x800 figure")
+    }
+
+    func testTextPagesAreDarkWithLightText() throws {
+        let book = TextBook(source: try EpubBook(url: BookFixtures.url("fixture-novel.epub"), directory: BookFixtures.scratch(self)), directory: BookFixtures.scratch(self), pageSize: phone, fontSize: 16)
+        let page = try book.renderPage(0, zoom: 1, scale: 1, pageSize: phone)
+        let image = try XCTUnwrap(BookRender.loadImage(at: page.url))
+        let (corner, brightest) = Self.cornerAndBrightestLuma(image)
+        XCTAssertLessThan(corner, 32, "the margin is the dark page")
+        XCTAssertGreaterThan(brightest, 180, "the text is light")
+        XCTAssertLessThan(FixedBookTests.meanLuma(image), 100, "the page reads dark overall")
+    }
+
+    private static func cornerAndBrightestLuma(_ image: CGImage) -> (Int, Int) {
+        let width = image.width, height = image.height
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width, space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return (255, 0) }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        guard let data = context.data else { return (255, 0) }
+        let bytes = data.bindMemory(to: UInt8.self, capacity: width * height)
+        let brightest = (0..<(width * height)).reduce(0) { max($0, Int(bytes[$1])) }
+        return (Int(bytes[0]), brightest)
     }
 
     func testRelayoutKeepsThePlace() throws {

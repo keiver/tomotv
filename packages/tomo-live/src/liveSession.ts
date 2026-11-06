@@ -2,11 +2,13 @@
  * A live channel's play, from the session it takes over to the one it hands back to the ring: the
  * engine's in-session reopens, the failure that ends a session, and what each drop asks for.
  */
-import { engineProgress, LIVE_BUFFER_SECONDS, localRemuxToken, stopLocalRemux, subscribeEngineFailure, subscribeEngineLive, type EngineLiveEvent } from "@keiver/tomo-engine";
+import { engineProgress, localRemuxToken, stopLocalRemux, subscribeEngineFailure, subscribeEngineLive, type EngineLiveEvent, type EngineProgress } from "@keiver/tomo-engine";
 
 import { isPermanentLiveFailure, liveReopenCount, planLiveRecovery, type LiveRecoveryDecision } from "./liveRecovery";
 import { takeLivePreview } from "./livePreview";
 import { retainLiveSession, takeRingSession, takeWarmDetails, type HotChannel, type RingSession } from "./liveRing";
+import { retainLiveTile, takeLiveTile } from "./liveTiles";
+import { liveStartBufferSeconds } from "./startBuffer";
 
 export interface LiveSessionWatch {
   /** The engine lost the input and is opening it again in place; the player rides its buffer meanwhile. */
@@ -20,17 +22,30 @@ export interface LiveSessionWatch {
   onEnded?: (message: string, decision: LiveRecoveryDecision) => void;
 }
 
+/** The output the start gate counts; an LL-HLS session holds its own first playlist answer, so it passes at once. */
+export function startBufferedSeconds(progress: EngineProgress | null): number | null {
+  if (progress?.lowLatency) return Number.POSITIVE_INFINITY;
+  return progress?.bufferedSeconds ?? null;
+}
+
 /** Drops counted across the sessions of one channel play, reset by a stretch of playback. */
 export class LiveDropCounter {
   private attempts = 0;
   private lastDropAt: number | null = null;
   private playingSince: number | null = null;
+  private everPlayed = false;
 
   constructor(private readonly now: () => number = Date.now) {}
 
   /** The channel plays again; the time it keeps playing is what resets the count. */
   notePlaying(): void {
     this.playingSince ??= this.now();
+    this.everPlayed = true;
+  }
+
+  /** The channel played at least once since the last reset. */
+  get played(): boolean {
+    return this.everPlayed;
   }
 
   /** The attempt this drop is, counting from zero after a stretch of playback without one. */
@@ -47,6 +62,7 @@ export class LiveDropCounter {
     this.attempts = 0;
     this.lastDropAt = null;
     this.playingSince = null;
+    this.everPlayed = false;
   }
 }
 
@@ -57,7 +73,7 @@ export function watchLiveSession(token: string, drops: LiveDropCounter, watch: L
     else watch.onReopened?.(event);
   });
   const stopFailure = subscribeEngineFailure(token, (failure) => {
-    watch.onEnded?.(failure.message, planLiveRecovery({ attempts: drops.drop(), permanent: isPermanentLiveFailure(failure.message) }));
+    watch.onEnded?.(failure.message, planLiveRecovery({ attempts: drops.drop(), permanent: isPermanentLiveFailure(failure.message), played: drops.played }));
   });
   return () => {
     stopLive();
@@ -244,7 +260,7 @@ export class LivePlayback<Item> {
           if (current()) this.dropPlay(message, false, decision);
         },
       });
-      if (!(await this.startBuffered(token, current))) return;
+      if (!(await this.startBuffered(token, liveStartBufferSeconds(play.channelId), current))) return;
       this.setState("buffering");
       this.attempting = false;
       play.handlers.onUrl(url, token);
@@ -255,15 +271,15 @@ export class LivePlayback<Item> {
     }
   }
 
-  /** Waits until the session holds LIVE_BUFFER_SECONDS, at most 20 s past them; false when the attempt ended or its session dropped. */
-  private async startBuffered(token: string, current: () => boolean): Promise<boolean> {
+  /** Waits until the session holds the channel's start buffer, at most 20 s past it; false when the attempt ended or its session dropped. */
+  private async startBuffered(token: string, bufferSeconds: number, current: () => boolean): Promise<boolean> {
     const now = this.deps.now ?? Date.now;
-    const deadline = now() + (20 + LIVE_BUFFER_SECONDS) * 1000;
-    const read = this.deps.bufferedSeconds ?? ((t: string) => engineProgress(t).then((progress) => progress?.bufferedSeconds ?? null));
+    const deadline = now() + (20 + bufferSeconds) * 1000;
+    const read = this.deps.bufferedSeconds ?? ((t: string) => engineProgress(t).then(startBufferedSeconds));
     while (current() && this.session?.token === token) {
       const buffered = await read(token);
       if (!current() || this.session?.token !== token) return false;
-      if (buffered === null || buffered >= LIVE_BUFFER_SECONDS || now() >= deadline) return true;
+      if (buffered === null || buffered >= bufferSeconds || now() >= deadline) return true;
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
     return false;
@@ -328,7 +344,7 @@ export class LivePlayback<Item> {
   private async take(channelId: string, current: () => boolean): Promise<{ item: Item | null; token: string | null }> {
     this.dropAdopted();
     this.channelId = channelId;
-    const hot = await (this.deps.takeHot ?? ((id: string) => takeRingSession<Item>(id).then((ring) => ring ?? takeLivePreview<Item>(id))))(channelId);
+    const hot = await (this.deps.takeHot ?? ((id: string) => takeRingSession<Item>(id).then((ring) => ring ?? takeLivePreview<Item>(id) ?? takeLiveTile<Item>(id))))(channelId);
     if (hot && !current()) {
       this.stopSession(hot.token);
       this.deps.closeChannel(hot.details);
@@ -387,7 +403,7 @@ export class LivePlayback<Item> {
    * already made. Lets go of the channel and the watch; the app stops its own session.
    */
   drop(message: string, permanent: boolean, decided?: LiveRecoveryDecision): LiveRecoveryDecision {
-    const decision = decided ?? planLiveRecovery({ attempts: this.drops.drop(), permanent: permanent || isPermanentLiveFailure(message) });
+    const decision = decided ?? planLiveRecovery({ attempts: this.drops.drop(), permanent: permanent || isPermanentLiveFailure(message), played: this.drops.played });
     this.delayMs = decision.reopen ? decision.delayMs : null;
     this.endWatch();
     this.session = null;
@@ -419,7 +435,11 @@ export class LivePlayback<Item> {
     this.endWatch();
     const { channelId, item, session } = this;
     const retained =
-      keepHot && channelId !== null && item !== null && session !== null && (this.deps.retain ?? retainLiveSession)({ channelId, details: item, url: session.url, token: session.token });
+      keepHot &&
+      channelId !== null &&
+      item !== null &&
+      session !== null &&
+      (this.deps.retain ?? ((channel: HotChannel<Item>) => retainLiveTile(channel) || retainLiveSession(channel)))({ channelId, details: item, url: session.url, token: session.token });
     if (!retained && item !== null) this.deps.closeChannel(item);
     this.item = null;
     this.session = null;

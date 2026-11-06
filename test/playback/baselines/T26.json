@@ -21,6 +21,7 @@
     "audio": [
       {
         "action": "encode",
+        "active": true,
         "encoder": "flac",
         "output": {
           "bitDepth": 24,

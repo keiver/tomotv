@@ -136,12 +136,15 @@ final class RemuxSession {
     /// Keep producing this many segments past the one AVPlayer last asked for,
     /// then idle. Bounds eager download of the source; the JS side passes a
     /// deeper cushion so a stalling remote feed can be absorbed.
-    let aheadWindow: Int
+    /// The keyframe grid rescales it to the same seconds, before any playlist names the grid.
+    var aheadWindow: Int
     /// Half-width of the on-disk window kept around the playhead. Segments
     /// outside it are deleted; the producer can always regenerate them with a
     /// seek-restart, so this only bounds disk use. Must stay >= aheadWindow or
     /// the pruner deletes fresh segments before they are ever served.
-    let keepWindow: Int
+    var keepWindow: Int
+    /// `seekAheadSegments`, rescaled with the windows above.
+    var seekAheadWindow = RemuxSession.seekAheadSegments
     /// Live: segments listed and kept on disk, under stateLock. A hot neighbour starts short and
     /// widens when a player adopts it.
     var liveKeepSegments: Int
@@ -362,6 +365,12 @@ final class RemuxSession {
     var onLive: (([String: Any]) -> Void)?
     /// Longest keyframe interval seen on the source, which bounds a keyframe-aligned cut's overshoot.
     var maxKeyframeGapSeconds: Double = 0
+    /// Live: this session serves LL-HLS parts, set once at the open (a continuous input with `liveLowLatency` on). Under stateLock.
+    var lowLatencyInput = false
+    /// Broadcast when a part is cut or a segment lands; LL-HLS waits take it before stateLock, never inside it.
+    let partSignal = NSCondition()
+    /// LL-HLS: a segment has run past the fixed target (logged once). Under stateLock.
+    var liveTargetExceeded = false
     /// Every audio stream the demuxer found, in rendition order, for a session that reads its tracks
     /// off the input (live, `describesInput`); nil until the input is open.
     var inputAudioTracks: [RemuxAudioTrack]? = nil
@@ -401,6 +410,17 @@ final class RemuxSession {
     var adoptedStarts: [Double] = []
     /// Segment durations of the shared grid (from the canonical rung).
     var adoptedDurations: [Double] = []
+    /// A copy without rungs, on a source that indexes its keyframes: each segment starts on a keyframe
+    /// (output seconds), and the index timestamp a seek to that keyframe takes. Empty = fixed grid.
+    /// Written once on the pipeline thread, before any playlist names the grid.
+    var keyframeStarts: [Double] = []
+    var keyframeSeekTimestamps: [Int64] = []
+    /// The copy's grid is settled, keyframe, adopted or fixed; its playlists wait for it. Under stateLock.
+    var copyGridDecided = false
+    /// A session with rungs whose link carried the copy at open, cut on the source's keyframes: the rungs'
+    /// grid was let go, so every master lists the copy alone (as Jellyfin never lists a copy beside
+    /// re-encodes). Under stateLock.
+    var copyLatched = false
     var tierSegments: [Int: [TierSegment]] = [:]
     /// Per rung id, tier segment indices with a rewrapped file on disk (prune).
     var tierMaterialized: [Int: Set<Int>] = [:]
@@ -494,6 +514,8 @@ final class RemuxSession {
     /// Source-time spans each read generation covered, so a subtitle window waits for the read
     /// that covers it. Under stateLock.
     var readSpans: [(from: Double, upTo: Double)] = []
+    /// Per subtitle track, the first entry of `readSpans` read with its decoder open. Under stateLock.
+    var subtitleSpanFloor: [Int32: Int] = [:]
     var readSpanFrom: Double?
     var readSpanUpTo: Double = 0
     /// The loudness of the first audio track for every stretch the read loop has passed.
@@ -508,6 +530,7 @@ final class RemuxSession {
     var segmentCount: Int {
         if config.isLive { return Int.max }
         if !adoptedStarts.isEmpty { return adoptedStarts.count }
+        if !keyframeStarts.isEmpty { return keyframeStarts.count }
         return max(1, Int(durationSeconds / Self.segmentDuration))
     }
 

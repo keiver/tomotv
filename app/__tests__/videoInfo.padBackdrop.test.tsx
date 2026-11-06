@@ -26,6 +26,7 @@ const mockBack = jest.fn();
 jest.mock("expo-router", () => ({
   useLocalSearchParams: () => ({ videoId: "item-1" }),
   useRouter: () => ({ back: mockBack, push: jest.fn(), replace: jest.fn() }),
+  useNavigationContainerRef: () => ({ isReady: () => false }),
 }));
 
 jest.mock("expo-blur", () => {
@@ -69,6 +70,7 @@ jest.mock("@/services/jellyfinApi", () => ({
   fetchIsAdministrator: jest.fn(async () => false),
   isLiveChannel: () => false,
   fetchItemDetails: jest.fn(),
+  fetchVideoDetails: jest.fn(async () => null),
   fetchFolderMediaKinds: jest.fn(async () => null),
   fetchItemFolderPath: jest.fn(async () => []),
   getBackdropUrl: () => null,

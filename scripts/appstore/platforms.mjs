@@ -120,21 +120,26 @@ export async function listingPlatforms(api, appId, version, requested) {
   return open;
 }
 
-export async function attachBuild(api, appId, platform, version, buildNumber, { attempts = 30, delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
-  const draft = editableVersion(await platformVersions(api, appId, platform), platform, version);
-  if (!draft) throw new Error(`No editable ${platform} version. Run shots:upload -- --platform ${platform} --create-version first.`);
+/** The build once Apple has processed it, or null while it is still processing or missing after every attempt. */
+export async function processedBuild(api, appId, platform, version, buildNumber, { attempts = 30, delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
   for (let attempt = 0; attempt < attempts; attempt++) {
     const builds = await api.get(`/v1/builds?filter[app]=${appId}&filter[version]=${buildNumber}&filter[preReleaseVersion.version]=${version}&filter[preReleaseVersion.platform]=${platform}&limit=1`);
     const build = builds.data[0];
     const state = build?.attributes.processingState;
-    if (state === "VALID") {
-      await api.patch(`/v1/appStoreVersions/${draft.id}/relationships/build`, { data: { type: "builds", id: build.id } });
-      const selected = await api.get(`/v1/appStoreVersions/${draft.id}/build`);
-      if (selected.data?.id !== build.id) throw new Error(`${platform}: App Store Connect did not keep build ${buildNumber} on ${version}`);
-      return build;
-    }
+    if (state === "VALID") return build;
     if (state && state !== "PROCESSING") throw new Error(`${platform}: build ${buildNumber} is ${state}`);
     if (attempt + 1 < attempts) await delay(30000);
   }
-  throw new Error(`${platform}: build ${buildNumber} for ${version} is still processing or missing. Re-run appstore-attach-build after Apple finishes processing.`);
+  return null;
+}
+
+export async function attachBuild(api, appId, platform, version, buildNumber, options = {}) {
+  const draft = editableVersion(await platformVersions(api, appId, platform), platform, version);
+  if (!draft) throw new Error(`No editable ${platform} version. Run shots:upload -- --platform ${platform} --create-version first.`);
+  const build = await processedBuild(api, appId, platform, version, buildNumber, options);
+  if (!build) throw new Error(`${platform}: build ${buildNumber} for ${version} is still processing or missing. Re-run appstore-attach-build after Apple finishes processing.`);
+  await api.patch(`/v1/appStoreVersions/${draft.id}/relationships/build`, { data: { type: "builds", id: build.id } });
+  const selected = await api.get(`/v1/appStoreVersions/${draft.id}/build`);
+  if (selected.data?.id !== build.id) throw new Error(`${platform}: App Store Connect did not keep build ${buildNumber} on ${version}`);
+  return build;
 }
