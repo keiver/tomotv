@@ -1,0 +1,24 @@
+name: Vacation auto-reply
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+jobs:
+  reply:
+    if: github.event.issue.user.login != github.repository_owner && github.event.issue.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    env:
+      RETURN_DATE: "2026-11-27"
+    steps:
+      - name: Comment while away
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          if [[ "$(date -u +%F)" > "$RETURN_DATE" ]]; then exit 0; fi
+          gh issue comment "$ISSUE" --body "Hi, thank you for taking the time to write this up. I'm away on vacation until late November, so I'll be slow to answer for a few weeks. I'll read every issue when I'm back, and I'm sorry for the wait."
