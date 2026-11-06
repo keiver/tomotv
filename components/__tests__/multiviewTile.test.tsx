@@ -104,6 +104,18 @@ describe("MultiviewTile", () => {
     expect(StyleSheet.flatten(ring()[0].props.style)).toMatchObject({ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderWidth: 4 });
   });
 
+  it("shows the Play/Pause hint in its corner only while focused and given a hint", () => {
+    const hint = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAll((node) => node.props.testID === "multiview-tile-hint" && node.type === View);
+    const withHint = render({ hint: "Layout" });
+    expect(hint(withHint.tree)).toHaveLength(0);
+    act(() => withHint.tree.root.findByType(TouchableOpacity).props.onFocus());
+    expect(hint(withHint.tree)).toHaveLength(1);
+    expect(hint(withHint.tree)[0].findByType(Text).props.children).toBe("Layout");
+    const noHint = render({ hint: null });
+    act(() => noHint.tree.root.findByType(TouchableOpacity).props.onFocus());
+    expect(hint(noHint.tree)).toHaveLength(0);
+  });
+
   it("on a touch screen gives the spot with the sound the accent box with no focus, and the others none", () => {
     const ring = (tree: TestRenderer.ReactTestRenderer) => tree.root.findAll((node) => node.type === View && StyleSheet.flatten(node.props.style)?.borderColor === "#FFC312");
     expect(ring(render({ main: true }).tree)).toHaveLength(1);

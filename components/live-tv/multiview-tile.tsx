@@ -1,4 +1,5 @@
 import { RecordingPulse } from "@/components/live-tv/recording-pulse";
+import { SfSymbolIcon } from "@/components/sf-symbol-icon";
 import { CARD_CHROME, CARD_FOCUS, RAISED_EDGE, STAND_HEIGHT } from "@/constants/app";
 import { COLORS } from "@/constants/colors";
 import { useCardPalette } from "@/hooks/useCardPalette";
@@ -20,6 +21,7 @@ const IS_TV = Platform.isTV;
 /** The channel's name: a thin square label half the height of a card's name tab. */
 const LABEL_HEIGHT = STAND_HEIGHT / 2;
 const LABEL_TEXT = IS_TV ? 12 : 8;
+const HINT_TEXT = 20;
 
 interface MultiviewTileProps {
   channel: JellyfinItem;
@@ -44,6 +46,8 @@ interface MultiviewTileProps {
   inPlayer?: { playing: boolean };
   /** Drawn over the app's player instead: the label, ring and buttons on a clear tile, no picture of its own. */
   overlay?: { actions: React.ReactNode };
+  /** Apple TV: the focused spot names the Play/Pause key's action in its corner. */
+  hint?: string | null;
 }
 
 /** A programme's name and time left while it airs; null outside it. */
@@ -55,7 +59,7 @@ export function airingLine(program: Pick<JellyfinProgram, "Name" | "StartDate" |
 }
 
 /** One multiview spot: its live session when it has one, else its clip, else its picture, else the channel's logo, under its name and programme. */
-function MultiviewTileComponent({ channel, rect, main, liveUrl, failed, visible, program, nowMs, hasTVPreferredFocus, onSelect, onFailed, onLongPress, inPlayer, overlay }: MultiviewTileProps) {
+function MultiviewTileComponent({ channel, rect, main, liveUrl, failed, visible, program, nowMs, hasTVPreferredFocus, onSelect, onFailed, onLongPress, inPlayer, overlay, hint }: MultiviewTileProps) {
   const { accent, ink } = useCardPalette();
   const frame = useLiveFrame(channel.Id);
   const clip = useLiveClip(channel.Id);
@@ -126,6 +130,12 @@ function MultiviewTileComponent({ channel, rect, main, liveUrl, failed, visible,
           {[cleanLabel(channel.Name ?? ""), main ? airing : null].filter(Boolean).join(" · ")}
         </Text>
       </View>
+      {hint && focused ? (
+        <View style={[styles.hint, { backgroundColor: accent }]} pointerEvents="none" testID="multiview-tile-hint">
+          <SfSymbolIcon name="playpause.fill" size={HINT_TEXT} color={ink} />
+          <Text style={[styles.hintText, { color: ink }]}>{hint}</Text>
+        </View>
+      ) : null}
     </TouchableOpacity>
   );
 }
@@ -217,6 +227,21 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     color: COLORS.TEXT_BRIGHT,
     fontSize: IS_TV ? 22 : 12,
+  },
+  hint: {
+    position: "absolute",
+    right: 12,
+    bottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  hintText: {
+    fontSize: HINT_TEXT,
+    fontWeight: "600",
   },
   glyph: {
     alignItems: "center",

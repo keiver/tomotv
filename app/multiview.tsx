@@ -45,6 +45,7 @@ const STRIP_LIMIT = 30;
 const CLOCK_MS = 30_000;
 /** The buttons over the spot with the sound, from its top and right edges. */
 const ACTIONS_INSET = { top: 12, right: 12 };
+const HINT_MS = 5_000;
 const ignore = () => {};
 
 /**
@@ -205,9 +206,27 @@ export default function MultiviewScreen() {
           },
     [accent, openLayouts],
   );
+  // Apple TV: the focused spot shows the Play/Pause hint from the screen's open and each remote press, hidden after HINT_MS idle.
+  const [hintShown, setHintShown] = useState(IS_TV);
+  const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showHint = useCallback(() => {
+    if (hintTimer.current) clearTimeout(hintTimer.current);
+    setHintShown(true);
+    hintTimer.current = setTimeout(() => setHintShown(false), HINT_MS);
+  }, []);
+  useEffect(() => {
+    if (!IS_TV || !isFocused) return;
+    hintTimer.current = setTimeout(() => setHintShown(false), HINT_MS);
+    return () => {
+      if (hintTimer.current) clearTimeout(hintTimer.current);
+    };
+  }, [isFocused]);
   useTVEventHandler((event) => {
-    if (isFocused && event.eventType === "playPause") openLayouts();
+    if (!isFocused || event.eventType === "focus" || event.eventType === "blur") return;
+    if (event.eventType === "playPause") openLayouts();
+    else showHint();
   });
+  const hint = IS_TV && hintShown ? t("liveTv.multiviewLayout") : null;
 
   // Apple TV: the 16:9 cut with its strip row. Elsewhere: the cut fit to the screen's shape, the group below or beside.
   const placement = IS_TV && size ? multiviewSpots(arrangement.layout, { width: size.width, height: size.height, gap: GAP }) : null;
@@ -349,6 +368,7 @@ export default function MultiviewScreen() {
         onSelect={() => select(index)}
         onFailed={noteLiveTileFailed}
         onLongPress={() => spotSheet(index)}
+        hint={hint}
       />
     );
   });
