@@ -221,16 +221,6 @@ export default function MultiviewScreen() {
   const onStripScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => setStripFrom(cell > 0 ? Math.max(0, Math.floor(event.nativeEvent.contentOffset.x / cell)) : 0);
   const [stageY, setStageY] = useState(0);
   const onStageScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => setStageY(event.nativeEvent.contentOffset.y);
-  // While the stage moves, the player parks, still playing, and the spot shows its picture until the scroll stops.
-  const [scrolling, setScrolling] = useState(false);
-  const onStageDragEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    onStageScroll(event);
-    if (!event.nativeEvent.velocity?.y) setScrolling(false);
-  };
-  const onStageMomentumEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    onStageScroll(event);
-    setScrolling(false);
-  };
   // The stage's top-left corner in the window, where the player's frame is measured from.
   const containerRef = useRef<View>(null);
   const [stageOrigin, setStageOrigin] = useState<{ x: number; y: number } | null>(null);
@@ -242,10 +232,7 @@ export default function MultiviewScreen() {
   }, [isFocused, measureStage, size]);
   const soundRect = fit?.spots[sound] ?? null;
   const { setSlot } = player;
-  const slot =
-    !IS_TV && isFocused && !scrolling && soundRect && stageOrigin && soundId
-      ? { x: stageOrigin.x + soundRect.x, y: stageOrigin.y + soundRect.y - stageY, width: soundRect.width, height: soundRect.height }
-      : null;
+  const slot = !IS_TV && isFocused && soundRect && stageOrigin && soundId ? { x: stageOrigin.x + soundRect.x, y: stageOrigin.y + soundRect.y, width: soundRect.width, height: soundRect.height } : null;
   const slotKey = slot ? `${slot.x},${slot.y},${slot.width},${slot.height}` : "";
   useEffect(() => {
     if (IS_TV) return;
@@ -325,62 +312,80 @@ export default function MultiviewScreen() {
     : {
         contentContainerStyle: { height: stageHeight },
         onScroll: onStageScroll,
-        onScrollBeginDrag: () => setScrolling(true),
-        onScrollEndDrag: onStageDragEnd,
-        onMomentumScrollEnd: onStageMomentumEnd,
+        onScrollEndDrag: onStageScroll,
+        onMomentumScrollEnd: onStageScroll,
         scrollEventThrottle: 250,
         showsVerticalScrollIndicator: false,
       };
+  const spotRects = placement?.spots ?? fit?.spots ?? [];
+  // iPhone, iPad and Mac: the spots stay put over the scrolling group, on a backing as large as the layout.
+  const cutBox =
+    !IS_TV && spotRects.length > 0
+      ? spotRects.reduce((box, rect) => ({ right: Math.max(box.right, rect.x + rect.width), bottom: Math.max(box.bottom, rect.y + rect.height), left: Math.min(box.left, rect.x) }), {
+          left: Infinity,
+          right: 0,
+          bottom: 0,
+        })
+      : null;
+  const spots = spotRects.map((rect, index) => {
+    const id = arrangement.spots[index];
+    const channel = id ? byId.get(id) : undefined;
+    if (!id) return <MultiviewEmptySpot key={`empty-${index}`} rect={rect} onPress={() => pick(index)} />;
+    if (!channel) return null;
+    const inPlayer = !IS_TV && index === sound;
+    return (
+      <MultiviewTile
+        key={id}
+        channel={channel}
+        rect={rect}
+        main={index === sound}
+        liveUrl={index < liveCount && !inPlayer ? liveTileUrl(id) : null}
+        inPlayer={inPlayer ? { playing: player.playing } : undefined}
+        failed={index === sound && (inPlayer ? player.failed : liveTileFailed(id))}
+        visible={isFocused}
+        program={channel.CurrentProgram}
+        nowMs={nowMs}
+        hasTVPreferredFocus={featured ? index === 0 : index === sound}
+        onSelect={() => select(index)}
+        onFailed={noteLiveTileFailed}
+        onLongPress={() => spotSheet(index)}
+      />
+    );
+  });
   return (
     <View ref={containerRef} onLayout={IS_TV ? undefined : measureStage} style={[styles.container, IS_TV ? null : { paddingTop: headerHeight, paddingLeft: insets.left, paddingRight: insets.right }]}>
       <Stack.Screen options={screenOptions} />
-      <Stage style={styles.stage} onLayout={onLayout} {...stageProps}>
-        {(placement?.spots ?? fit?.spots ?? []).map((rect, index) => {
-          const id = arrangement.spots[index];
-          const channel = id ? byId.get(id) : undefined;
-          if (!id) return <MultiviewEmptySpot key={`empty-${index}`} rect={rect} onPress={() => pick(index)} />;
-          if (!channel) return null;
-          const inPlayer = !IS_TV && index === sound;
-          return (
-            <MultiviewTile
-              key={id}
-              channel={channel}
-              rect={rect}
-              main={index === sound}
-              liveUrl={index < liveCount && !inPlayer ? liveTileUrl(id) : null}
-              inPlayer={inPlayer ? { playing: player.playing } : undefined}
-              failed={index === sound && (inPlayer ? player.failed : liveTileFailed(id))}
-              visible={isFocused}
-              program={channel.CurrentProgram}
-              nowMs={nowMs}
-              hasTVPreferredFocus={featured ? index === 0 : index === sound}
-              onSelect={() => select(index)}
-              onFailed={noteLiveTileFailed}
-              onLongPress={() => spotSheet(index)}
-            />
-          );
-        })}
-        {strip && lastCard ? (
-          <ScrollView
-            horizontal
-            style={[styles.strip, { left: strip.x, top: strip.y, width: strip.width, height: strip.height }]}
-            contentContainerStyle={{ width: lastCard.x + lastCard.width, height: strip.height }}
-            onScroll={onStripScroll}
-            scrollEventThrottle={250}
-            showsHorizontalScrollIndicator={false}>
-            {stripIds.map((id, index) => {
-              const card = multiviewStripCard(index, grid, cell, GAP);
-              return groupTile(id, { x: card.x, y: 0, width: card.width, height: strip.height });
-            })}
-          </ScrollView>
+      <View style={styles.stage}>
+        <Stage style={styles.stage} onLayout={onLayout} {...stageProps}>
+          {IS_TV ? spots : null}
+          {strip && lastCard ? (
+            <ScrollView
+              horizontal
+              style={[styles.strip, { left: strip.x, top: strip.y, width: strip.width, height: strip.height }]}
+              contentContainerStyle={{ width: lastCard.x + lastCard.width, height: strip.height }}
+              onScroll={onStripScroll}
+              scrollEventThrottle={250}
+              showsHorizontalScrollIndicator={false}>
+              {stripIds.map((id, index) => {
+                const card = multiviewStripCard(index, grid, cell, GAP);
+                return groupTile(id, { x: card.x, y: 0, width: card.width, height: strip.height });
+              })}
+            </ScrollView>
+          ) : null}
+          {group
+            ? stripIds.map((id, index) => {
+                const card = multiviewGroupCard(index, group, GAP);
+                return groupTile(id, { ...card, x: group.x + card.x, y: group.y + card.y });
+              })
+            : null}
+        </Stage>
+        {cutBox ? (
+          <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+            <View style={[styles.cutBacking, { left: cutBox.left, width: cutBox.right - cutBox.left, height: cutBox.bottom }]} />
+            {spots}
+          </View>
         ) : null}
-        {group
-          ? stripIds.map((id, index) => {
-              const card = multiviewGroupCard(index, group, GAP);
-              return groupTile(id, { ...card, x: group.x + card.x, y: group.y + card.y });
-            })
-          : null}
-      </Stage>
+      </View>
     </View>
   );
 }
@@ -395,5 +400,10 @@ const styles = StyleSheet.create({
   },
   strip: {
     position: "absolute",
+  },
+  cutBacking: {
+    position: "absolute",
+    top: 0,
+    backgroundColor: COLORS.BACKGROUND_DEEP,
   },
 });

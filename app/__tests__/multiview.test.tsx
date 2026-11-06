@@ -234,16 +234,20 @@ describe("Multiview", () => {
     expect(mockLoader).not.toHaveBeenCalled();
   });
 
-  it("gives the app's player the spot's frame, parks it while the stage scrolls, and gives the frame back when the scroll stops", () => {
+  it("gives the app's player the spot's frame and keeps it in place while the group scrolls, with the spots outside the scroll", () => {
     mockParams = { channelId: "c10" };
     mount();
     const frame = mockPlayer.setSlot.mock.calls.at(-1)?.[0];
     expect(frame).toMatchObject({ x: 0, y: 0 });
     expect(frame.width).toBeGreaterThan(0);
-    act(() => stageScroll().props.onScrollBeginDrag());
-    expect(mockPlayer.setSlot).toHaveBeenLastCalledWith(null);
-    act(() => stageScroll().props.onScrollEndDrag({ nativeEvent: { contentOffset: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } } }));
+    act(() => stageScroll().props.onScroll({ nativeEvent: { contentOffset: { x: 0, y: 300 } } }));
     expect(mockPlayer.setSlot).toHaveBeenLastCalledWith(frame);
+    expect(
+      stageScroll()
+        .findAllByType(MultiviewTile)
+        .some((node) => node.props.onLongPress),
+    ).toBe(false);
+    expect(spots().length).toBeGreaterThan(0);
   });
 
   it("draws the spot's label, ring, and mute and record buttons over the app's player", () => {
