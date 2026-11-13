@@ -14,8 +14,7 @@ the link and tells AVPlayer what the link can carry.
 
 - Jellyfin's server HLS is SINGLE-VARIANT (probed live; `DynamicHlsHelper.cs`).
 - No Jellyfin client adapts mid-stream: jellyfin-web measures once and pins
-  (source-read); jellyfin-androidtv's "Auto" is a startup speed test (#1569);
-  Swiftfin has no in-player quality control at all (#184, #769, #807 open).
+  (source-read); jellyfin-androidtv's "Auto" is a startup speed test (#1569).
 - Plex is the only home-media ecosystem with mid-stream adaptation, and it is
   client-driven with session reloads.
 - Emby: startup auto-detection only.

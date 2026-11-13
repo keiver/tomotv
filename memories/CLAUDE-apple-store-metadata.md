@@ -2730,7 +2730,7 @@ each value: a feature is true only when every common task works with it on that 
 **Target Search Terms:**
 
 1. "jellyfin apple tv" (exact match - high intent)
-2. "jellyfin player" (broad - competitor to official app)
+2. "jellyfin player" (broad)
 3. "media server apple tv" (adjacent - Plex users)
 4. "video player apple tv" (broad - general market)
 5. "dolby atmos apple tv" (specific - the users who notice when it is missing)
@@ -2741,7 +2741,7 @@ each value: a feature is true only when every common task works with it on that 
   server transcode, Dolby passthrough with Atmos intact, and lossless carriage of
   TrueHD/DTS-HD MA/PCM/FLAC up to 7.1 and 24-bit
 - Parity, not advantage: Apple TV cannot bitstream TrueHD or DTS in ANY app, so
-  never imply otherwise; Infuse has the same ceiling
+  never imply otherwise
 - Advantage (2.1): image subtitles (PGS, DVD/VobSub, DVB, XSUB) decode on the device and draw over the native player, so those files keep stream copy instead of forcing a server transcode
 
 The old line here read "Disadvantage: Missing resume playback, metadata", which was

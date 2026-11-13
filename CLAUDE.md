@@ -73,7 +73,7 @@ Two npm workspaces (`packages/*` in the root `package.json`, symlinked into node
 - Setup: `memories/CLAUDE-development.md`
 - Icons, Top Shelf art: `memories/CLAUDE-tvos-icons.md`
 - App Store copy, screenshots, naming, review notes, What's New: `memories/CLAUDE-apple-store-metadata.md` (its decisions of record come first)
-- Roadmap or competitors: `memories/CLAUDE-roadmap.md`
+- Roadmap: `memories/CLAUDE-roadmap.md`
 - Reading a screenshot or image: `memories/CLAUDE-image-analysis.md`
 - "Does Tomo support X?": `FEATURES.md`
 - Signing, archive, Mac captures: `docs/RELEASING.md`
