@@ -12,17 +12,17 @@ jest.mock("expo-router", () => ({
 
 type HoldHandle = { hold: (item: JellyfinItem) => void };
 
-const Harness = forwardRef<HoldHandle, { inFolderId?: string }>(({ inFolderId }, ref) => {
-  const hold = useItemLongPress(inFolderId);
+const Harness = forwardRef<HoldHandle, { inFolderId?: string; inLibraryId?: string }>(({ inFolderId, inLibraryId }, ref) => {
+  const hold = useItemLongPress(inFolderId, inLibraryId);
   useImperativeHandle(ref, () => ({ hold }), [hold]);
   return null;
 });
 Harness.displayName = "Harness";
 
-function mountHarness(inFolderId?: string): HoldHandle {
+function mountHarness(inFolderId?: string, inLibraryId?: string): HoldHandle {
   const ref = React.createRef<HoldHandle>();
   act(() => {
-    TestRenderer.create(<Harness ref={ref} inFolderId={inFolderId} />);
+    TestRenderer.create(<Harness ref={ref} inFolderId={inFolderId} inLibraryId={inLibraryId} />);
   });
   return ref.current!;
 }
@@ -33,6 +33,11 @@ describe("useItemLongPress", () => {
   it("opens the item's own panel, marking the folder it is viewed in", () => {
     mountHarness("folder-1").hold({ Id: "movie-1", Name: "Sintel", Type: "Movie" } as JellyfinItem);
     expect(mockPush).toHaveBeenCalledWith({ pathname: "/video-info", params: { videoId: "movie-1", name: "Sintel", inFolderId: "folder-1" } });
+  });
+
+  it("names the library the folder screen takes its sort and filters from", () => {
+    mountHarness("folder-1", "library-1").hold({ Id: "photo-1", Name: "Orion", Type: "Photo" } as JellyfinItem);
+    expect(mockPush).toHaveBeenCalledWith({ pathname: "/video-info", params: { videoId: "photo-1", name: "Orion", inFolderId: "folder-1", inLibraryId: "library-1" } });
   });
 
   it("carries a guide-source programme into its panel", () => {

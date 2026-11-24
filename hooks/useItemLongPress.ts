@@ -9,7 +9,7 @@ import { useCallback } from "react";
  * actions. inFolderId marks the folder being viewed so the panel can hide
  * "Show in Folder" for items already there.
  */
-export function useItemLongPress(inFolderId?: string) {
+export function useItemLongPress(inFolderId?: string, inLibraryId?: string) {
   const router = useRouter();
 
   return useCallback(
@@ -19,8 +19,8 @@ export function useItemLongPress(inFolderId?: string) {
         router.push({ pathname: "/video-info", params: programInfoParams(item, { Id: item.ChannelId, Name: item.ChannelName ?? item.Name }) });
         return;
       }
-      router.push({ pathname: "/video-info", params: { videoId: item.Id, name: item.Name, ...(inFolderId ? { inFolderId } : {}) } });
+      router.push({ pathname: "/video-info", params: { videoId: item.Id, name: item.Name, ...(inFolderId ? { inFolderId } : {}), ...(inLibraryId ? { inLibraryId } : {}) } });
     },
-    [router, inFolderId],
+    [router, inFolderId, inLibraryId],
   );
 }

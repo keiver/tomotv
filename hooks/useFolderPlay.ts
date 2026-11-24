@@ -31,12 +31,12 @@ export function useFolderPlay() {
   const { buildQueueFromItems } = usePlayQueue();
 
   return useCallback(
-    async (folder: JellyfinItem, kind: FolderPlayKind, options?: { replace?: boolean }) => {
+    async (folder: JellyfinItem, kind: FolderPlayKind, options?: { replace?: boolean; libraryId?: string }) => {
       if (kind === "photo") {
         // The viewer is a plain push on both platforms; the phone sheet steps out of the way
         // first (see the photo branch of VideoInfoScreen's handlePlay).
         if (options?.replace) router.back();
-        router.push({ pathname: "/photo-viewer", params: { folderId: folder.Id, recursive: "true", slideshow: "true" } });
+        router.push({ pathname: "/photo-viewer", params: { folderId: folder.Id, recursive: "true", slideshow: "true", ...(options?.libraryId ? { libraryId: options.libraryId } : {}) } });
         return;
       }
 

@@ -7,6 +7,7 @@ import { useCardPalette } from "@/hooks/useCardPalette";
 import { useFolderBackdrop } from "@/hooks/useFolderBackdrop";
 import { useFolderContents } from "@/hooks/useFolderContents";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
+import { setShuffledListing } from "@/services/folderContentsCache";
 import { fetchFilteredVideos, isAudioItem, isBook, isFolder, isPhoto } from "@/services/jellyfinApi";
 import { countActiveFilters, FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { LIBRARY_ROOT_TITLE } from "@/constants/app";
@@ -87,6 +88,7 @@ function FolderScreen() {
       } else if (isPhoto(item)) {
         // libraryId carries the filter scope: with a filter on, the viewer must swipe through the
         // filtered set, not the folder the user happens to be standing in.
+        if (filters.shuffle) setShuffledListing(folderId, items);
         router.push({ pathname: "/photo-viewer", params: { folderId, photoId: item.Id, libraryId } });
       } else if (isBook(item)) {
         router.push({ pathname: "/book-reader", params: { itemId: item.Id, name: item.Name } });
@@ -138,7 +140,14 @@ function FolderScreen() {
     router.push({ pathname: "/filters", params: { folderId, name: folderName, libraryId, libraryName } });
   }, [router, folderId, folderName, libraryId, libraryName]);
 
-  const handleItemLongPress = useItemLongPress(folderId);
+  const openInfoPanel = useItemLongPress(folderId, libraryId);
+  const handleItemLongPress = useCallback(
+    (item: JellyfinItem) => {
+      if (filters.shuffle && isPhoto(item)) setShuffledListing(folderId, items);
+      openInfoPanel(item);
+    },
+    [filters.shuffle, folderId, items, openInfoPanel],
+  );
 
   // Name the back label instead of letting UIKit read it off the previous screen. configureBackItem
   // only consults `prevItem.title` when backTitle is blank (RNSScreenStackHeaderConfig.mm:692), and

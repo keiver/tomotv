@@ -169,12 +169,14 @@ export {
   fetchLibraryRootCount,
   FOLDER_PREVIEW_COUNT,
   FolderMediaKinds,
+  fetchShuffledPage,
   fetchUserViews,
   fetchViewItemCount,
   invalidateFolderReads,
   isBook,
   isFolder,
   isPhoto,
+  SHUFFLE_PAGE_SIZE,
 } from "./jellyfin/library";
 export {
   deleteItem,

@@ -8,6 +8,15 @@ import { JellyfinItem } from "@/types/jellyfin";
 export type FolderCacheEntry = { items: JellyfinItem[]; total?: number; timestamp: number };
 
 const cache = new Map<string, FolderCacheEntry>();
+let shuffledListing: { folderId: string; items: JellyfinItem[] } | undefined;
+
+export function setShuffledListing(folderId: string, items: JellyfinItem[]): void {
+  shuffledListing = { folderId, items };
+}
+
+export function getShuffledListing(folderId: string, itemId: string): JellyfinItem[] | undefined {
+  return shuffledListing?.folderId === folderId && shuffledListing.items.some((item) => item.Id === itemId) ? shuffledListing.items : undefined;
+}
 
 export function getFolderCache(key: string): FolderCacheEntry | undefined {
   return cache.get(key);
@@ -24,6 +33,7 @@ export function deleteFolderCache(key: string): void {
 /** Drop all cached folders (e.g. after auth changes) so the next visit refetches fresh. */
 export function clearFolderContentsCache(): void {
   cache.clear();
+  shuffledListing = undefined;
 }
 
 /** Rewrite one item's UserData in every cached folder holding it; null drops those folders instead. */

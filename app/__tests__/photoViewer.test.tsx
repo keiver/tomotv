@@ -20,12 +20,26 @@ jest.mock("expo-image", () => ({ Image: Object.assign(() => null, { prefetch: je
 jest.mock("@/components/glass-action-cluster", () => ({ GlassActionCluster: () => null }));
 jest.mock("@/components/glass-surface", () => ({ GlassSurface: ({ children }: { children?: React.ReactNode }) => children ?? null }));
 jest.mock("@/services/macKeyCommands", () => ({ claimMacContextKeys: () => () => {}, subscribeMacKeyCommand: () => () => {} }));
-jest.mock("@/services/folderContentsCache", () => ({ getFolderCache: () => null }));
+jest.mock("@/services/folderContentsCache", () => ({ ...jest.requireActual("@/services/folderContentsCache"), getFolderCache: () => null }));
+/** The saved view of each library, by id; an id with none saved reads the empty view. */
+let mockViews: Record<string, object> = {};
 jest.mock("@/contexts/LibraryFiltersContext", () => ({
   useLibraryFilters: () => ({
-    getFilters: () => ({ genres: [], artistIds: [], years: [], favorite: false, played: false, unplayed: false, shuffle: false, sortBy: "SortName", sortOrder: "Ascending" }),
+    getFilters: (id: string) => ({
+      genres: [],
+      artistIds: [],
+      years: [],
+      favorite: false,
+      played: false,
+      unplayed: false,
+      shuffle: false,
+      sortBy: "SortName",
+      sortOrder: "Ascending",
+      ...mockViews[id],
+    }),
   }),
 }));
+jest.mock("@/utils/shuffle", () => ({ shuffled: (items: unknown[]) => [...items].reverse() }));
 
 const mockPhotos = [
   { Id: "p1", Name: "One", Type: "Photo", Path: "/photos/one.png" },
@@ -36,8 +50,10 @@ jest.mock("@/services/jellyfinApi", () => ({
   fetchFilteredVideos: jest.fn(async () => mockPhotos),
   fetchItemDetails: jest.fn(async () => mockPhotos[0]),
   fetchRecursivePhotos: jest.fn(async () => mockPhotos),
+  fetchShuffledPage: jest.fn(async () => ({ items: [], total: 0, more: false })),
   getPhotoUrl: (id: string) => `http://server/${id}`,
   WEBP_ACCEPT: { Accept: "image/webp" },
+  SHUFFLE_PAGE_SIZE: 2,
   getPhotoPreviewUrl: (id: string) => `http://server/${id}?preview`,
   isPhoto: (item: { Type: string }) => item.Type === "Photo",
 }));
@@ -55,10 +71,22 @@ jest.mock("expo-router", () => ({ useLocalSearchParams: () => mockParams, useRou
 
 import PhotoViewerScreen from "@/app/photo-viewer";
 import { Image } from "expo-image";
-import { fetchFolderPhotos, fetchItemDetails, fetchRecursivePhotos } from "@/services/jellyfinApi";
+import { clearFolderContentsCache, setShuffledListing } from "@/services/folderContentsCache";
+import { fetchFilteredVideos, fetchFolderPhotos, fetchItemDetails, fetchRecursivePhotos, fetchShuffledPage } from "@/services/jellyfinApi";
+import type { JellyfinItem } from "@/types/jellyfin";
+import * as Reanimated from "react-native-reanimated";
+
+const SHUFFLE = { shuffle: true };
+const photo = (id: string, name: string) => ({ Id: id, Name: name, Type: "Photo", Path: `/photos/${id}.png` }) as unknown as JellyfinItem;
+const [one, two] = mockPhotos as unknown as JellyfinItem[];
+const three = photo("p3", "Three");
+const four = photo("p4", "Four");
 
 beforeEach(() => {
+  jest.clearAllMocks();
   mockParams = { folderId: "f1", photoId: "p1" };
+  mockViews = {};
+  clearFolderContentsCache();
 });
 
 function counter(tree: TestRenderer.ReactTestRenderer): string {
@@ -255,4 +283,306 @@ test("a set without the pressed photo leaves it shown alone", async () => {
   expect(counter(tree)).toContain("Stray");
   expect(counter(tree)).not.toMatch(/\| \/ \|/);
   tree.unmount();
+});
+
+async function mountViewer() {
+  let tree!: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    tree = TestRenderer.create(<PhotoViewerScreen />);
+  });
+  await act(async () => {
+    await Promise.resolve();
+  });
+  return tree;
+}
+
+/** The shuffled folder's pages, in the order the service reads them. */
+function servePages(...pages: JellyfinItem[][]) {
+  (fetchShuffledPage as jest.Mock).mockImplementation(async (_folderId: string, _filters: unknown, slot: number) => ({
+    items: pages[slot] ?? [],
+    total: pages.flat().length,
+    more: slot + 1 < pages.length,
+  }));
+}
+const slotsAsked = () => (fetchShuffledPage as jest.Mock).mock.calls.map((call) => call[2]);
+
+describe("a shuffled library", () => {
+  test("the viewer opens on the list the folder screen holds, at the pressed photo, with no set request", async () => {
+    mockViews = { lib1: SHUFFLE };
+    mockParams = { folderId: "f1", photoId: "p1", libraryId: "lib1" };
+    setShuffledListing("f1", [two, one, three]);
+    servePages([two, one, three]);
+
+    const tree = await mountViewer();
+
+    expect(counter(tree)).toContain("One");
+    expect(counter(tree)).toMatch(/2\| \/ \|3/);
+    expect(fetchFilteredVideos).not.toHaveBeenCalled();
+    expect(fetchFolderPhotos).not.toHaveBeenCalled();
+    await act(async () => mockTvHandler?.({ eventType: "right" }));
+    expect(counter(tree)).toContain("Three");
+    tree.unmount();
+  });
+
+  test("near the end of the held list it reads the pages after the ones the folder screen read, and steps on into them", async () => {
+    mockViews = { lib1: SHUFFLE };
+    mockParams = { folderId: "f1", photoId: "p2", libraryId: "lib1" };
+    setShuffledListing("f1", [two, one]);
+    servePages([one, two], [three], [four]);
+
+    const tree = await mountViewer();
+
+    expect((fetchShuffledPage as jest.Mock).mock.calls[0].slice(0, 2)).toEqual(["f1", expect.objectContaining({ shuffle: true })]);
+    expect(slotsAsked()).toEqual([1, 2]);
+    expect(counter(tree)).toMatch(/1\| \/ \|4/);
+    for (const name of ["One", "Three", "Four"]) {
+      await act(async () => mockTvHandler?.({ eventType: "right" }));
+      expect(counter(tree)).toContain(name);
+    }
+    tree.unmount();
+  });
+
+  test("the slideshow waits on the last photo held while more are loading, then goes on", async () => {
+    mockViews = { lib1: SHUFFLE };
+    mockParams = { folderId: "f1", photoId: "p2", libraryId: "lib1" };
+    setShuffledListing("f1", [two, one]);
+    let resolveMore!: (page: unknown) => void;
+    (fetchShuffledPage as jest.Mock).mockReturnValueOnce(new Promise((resolve) => (resolveMore = resolve)));
+    let countdown: ((finished?: boolean) => void) | undefined;
+    const timing = jest.spyOn(Reanimated, "withTiming").mockImplementation(((value: unknown, config?: { duration?: number }, callback?: (finished?: boolean) => void) => {
+      if (config?.duration === 5000) countdown = callback;
+      return value;
+    }) as unknown as typeof Reanimated.withTiming);
+
+    const tree = await mountViewer();
+    await act(async () => mockTvHandler?.({ eventType: "playPause" }));
+    await act(async () => countdown?.(true));
+    expect(counter(tree)).toContain("One");
+    await act(async () => countdown?.(true));
+    expect(counter(tree)).toContain("One");
+
+    await act(async () => resolveMore({ items: [three], total: 3, more: false }));
+    await act(async () => countdown?.(true));
+    expect(counter(tree)).toContain("Three");
+    await act(async () => countdown?.(true));
+    expect(counter(tree)).toContain("Two");
+    tree.unmount();
+    timing.mockRestore();
+  });
+
+  test("after a load fails the slideshow asks again on its next turn and goes on", async () => {
+    mockViews = { lib1: SHUFFLE };
+    mockParams = { folderId: "f1", photoId: "p2", libraryId: "lib1" };
+    setShuffledListing("f1", [two, one]);
+    (fetchShuffledPage as jest.Mock).mockRejectedValueOnce(new Error("server down")).mockResolvedValueOnce({ items: [three], total: 3, more: false });
+    let countdown: ((finished?: boolean) => void) | undefined;
+    const timing = jest.spyOn(Reanimated, "withTiming").mockImplementation(((value: unknown, config?: { duration?: number }, callback?: (finished?: boolean) => void) => {
+      if (config?.duration === 5000) countdown = callback;
+      return value;
+    }) as unknown as typeof Reanimated.withTiming);
+
+    const tree = await mountViewer();
+    await act(async () => mockTvHandler?.({ eventType: "playPause" }));
+    expect(slotsAsked()).toEqual([1]);
+    await act(async () => countdown?.(true));
+    expect(counter(tree)).toContain("One");
+    expect(slotsAsked()).toEqual([1, 1]);
+    await act(async () => countdown?.(true));
+    expect(counter(tree)).toContain("Three");
+    tree.unmount();
+    timing.mockRestore();
+  });
+
+  test("once the last page is read the slideshow wraps to the first photo and asks for nothing more", async () => {
+    mockViews = { lib1: SHUFFLE };
+    mockParams = { folderId: "f1", photoId: "p2", libraryId: "lib1" };
+    setShuffledListing("f1", [two, one]);
+    servePages([one, two]);
+    let countdown: ((finished?: boolean) => void) | undefined;
+    const timing = jest.spyOn(Reanimated, "withTiming").mockImplementation(((value: unknown, config?: { duration?: number }, callback?: (finished?: boolean) => void) => {
+      if (config?.duration === 5000) countdown = callback;
+      return value;
+    }) as unknown as typeof Reanimated.withTiming);
+
+    const tree = await mountViewer();
+    await act(async () => mockTvHandler?.({ eventType: "playPause" }));
+    await act(async () => countdown?.(true));
+    expect(counter(tree)).toContain("One");
+    await act(async () => countdown?.(true));
+    expect(counter(tree)).toContain("Two");
+    expect(slotsAsked()).toEqual([1]);
+    tree.unmount();
+    timing.mockRestore();
+  });
+
+  test("a photo opened with no list from a folder screen shows first, then the folder's pages follow it without repeating it", async () => {
+    mockViews = { lib1: SHUFFLE };
+    mockParams = { folderId: "f1", photoId: "p2", libraryId: "lib1" };
+    (fetchItemDetails as jest.Mock).mockResolvedValueOnce(two);
+    servePages([three, two, one]);
+
+    const tree = await mountViewer();
+
+    expect(counter(tree)).toContain("Two");
+    expect(counter(tree)).toMatch(/1\| \/ \|3/);
+    tree.unmount();
+  });
+
+  test("the saved view is read under the library the push names, not the folder", async () => {
+    mockViews = { lib1: SHUFFLE };
+    mockParams = { folderId: "album1", recursive: "true", slideshow: "true", libraryId: "lib1" };
+    (fetchRecursivePhotos as jest.Mock).mockResolvedValueOnce([one, two, three]);
+
+    const tree = await mountViewer();
+
+    expect(counter(tree)).toContain("Three");
+    tree.unmount();
+  });
+
+  test("a slideshow pushed with no library reads the folder's own view, which has no shuffle", async () => {
+    mockViews = { lib1: SHUFFLE };
+    mockParams = { folderId: "album1", recursive: "true", slideshow: "true" };
+    (fetchRecursivePhotos as jest.Mock).mockResolvedValueOnce([one, two, three]);
+
+    const tree = await mountViewer();
+
+    expect(counter(tree)).toContain("One");
+    tree.unmount();
+  });
+
+  test("with a status filter the held list comes first and the rest of the filtered set follows", async () => {
+    mockViews = { lib1: { shuffle: true, favorite: true } };
+    mockParams = { folderId: "f1", photoId: "p2", libraryId: "lib1" };
+    setShuffledListing("f1", [two]);
+    (fetchFilteredVideos as jest.Mock).mockResolvedValueOnce([one, two, three]);
+
+    const tree = await mountViewer();
+
+    expect(fetchShuffledPage).not.toHaveBeenCalled();
+    expect(counter(tree)).toMatch(/1\| \/ \|3/);
+    await act(async () => mockTvHandler?.({ eventType: "right" }));
+    expect(counter(tree)).toContain("Three");
+    tree.unmount();
+  });
+
+  test("with a status filter a held photo the filtered set leaves out is dropped", async () => {
+    mockViews = { lib1: { shuffle: true, favorite: true } };
+    mockParams = { folderId: "f1", photoId: "p2", libraryId: "lib1" };
+    setShuffledListing("f1", [two, four]);
+    (fetchFilteredVideos as jest.Mock).mockResolvedValueOnce([one, two, three]);
+
+    const tree = await mountViewer();
+
+    expect(counter(tree)).toMatch(/Two.*1\| \/ \|3/);
+    for (const name of ["Three", "One"]) {
+      await act(async () => mockTvHandler?.({ eventType: "right" }));
+      expect(counter(tree)).toContain(name);
+    }
+    tree.unmount();
+  });
+});
+
+describe("a library with a changed sort", () => {
+  test("the viewer steps the folder's own photos in that sort, not every photo under it", async () => {
+    mockViews = { lib1: { sortBy: "DateCreated", sortOrder: "Descending" } };
+    mockParams = { folderId: "f1", photoId: "p2", libraryId: "lib1" };
+    (fetchItemDetails as jest.Mock).mockResolvedValueOnce(two);
+    (fetchFolderPhotos as jest.Mock).mockResolvedValueOnce([three, two, one]);
+
+    const tree = await mountViewer();
+
+    expect(fetchFolderPhotos).toHaveBeenCalledWith("f1", expect.objectContaining({ sortBy: "DateCreated", sortOrder: "Descending" }));
+    expect(fetchFilteredVideos).not.toHaveBeenCalled();
+    expect(counter(tree)).toMatch(/Two.*2\| \/ \|3/);
+    tree.unmount();
+  });
+
+  test("the default sort asks for the folder's photos with no sort named", async () => {
+    const tree = await mountViewer();
+
+    expect(fetchFolderPhotos).toHaveBeenCalledWith("f1", undefined);
+    tree.unmount();
+  });
+
+  test("the Slideshow button's whole subtree is read in that sort", async () => {
+    mockViews = { lib1: { sortBy: "DateCreated" } };
+    mockParams = { folderId: "album1", recursive: "true", slideshow: "true", libraryId: "lib1" };
+
+    const tree = await mountViewer();
+
+    expect(fetchFilteredVideos).toHaveBeenCalledWith("album1", expect.objectContaining({ sortBy: "DateCreated" }));
+    expect(fetchRecursivePhotos).not.toHaveBeenCalled();
+    tree.unmount();
+  });
+});
+
+describe("a saved view that arrives while the viewer is open", () => {
+  test("a filter that leaves out the photo on screen moves the viewer to the pressed photo, with its own name and count", async () => {
+    mockParams = { folderId: "f1", photoId: "p1" };
+    (fetchFolderPhotos as jest.Mock).mockResolvedValueOnce([one, two, three]);
+    const tree = await mountViewer();
+    await act(async () => mockTvHandler?.({ eventType: "right" }));
+    await act(async () => mockTvHandler?.({ eventType: "right" }));
+    expect(counter(tree)).toMatch(/Three.*3\| \/ \|3/);
+
+    mockViews = { f1: { favorite: true } };
+    (fetchFilteredVideos as jest.Mock).mockResolvedValueOnce([two, one]);
+    await act(async () => {
+      tree.update(<PhotoViewerScreen />);
+    });
+
+    expect(counter(tree)).toMatch(/One.*2\| \/ \|2/);
+    expect(tree.root.findAllByType(Image).some((node) => node.props.source.uri === "http://server/p1")).toBe(true);
+    tree.unmount();
+  });
+
+  test("a filter that leaves out the pressed photo replaces the list and keeps the photo on screen", async () => {
+    mockParams = { folderId: "f1", photoId: "p1" };
+    (fetchFolderPhotos as jest.Mock).mockResolvedValueOnce([one, two, three]);
+    const tree = await mountViewer();
+    await act(async () => mockTvHandler?.({ eventType: "right" }));
+    expect(counter(tree)).toMatch(/Two.*2\| \/ \|3/);
+
+    mockViews = { f1: { favorite: true } };
+    (fetchFilteredVideos as jest.Mock).mockResolvedValueOnce([two, three]);
+    await act(async () => {
+      tree.update(<PhotoViewerScreen />);
+    });
+
+    expect(counter(tree)).toMatch(/Two.*1\| \/ \|2/);
+    tree.unmount();
+  });
+
+  test("a changed filter reads the set again", async () => {
+    mockViews = { f1: { genres: ["Space"] } };
+    const tree = await mountViewer();
+    expect(fetchFilteredVideos).toHaveBeenCalledTimes(1);
+
+    mockViews = { f1: { genres: ["Space"], favorite: true } };
+    await act(async () => {
+      tree.update(<PhotoViewerScreen />);
+    });
+
+    expect(fetchFilteredVideos).toHaveBeenCalledTimes(2);
+    expect((fetchFilteredVideos as jest.Mock).mock.calls[1][1]).toEqual(expect.objectContaining({ favorite: true }));
+    tree.unmount();
+  });
+
+  test("the photo stepped to stays on screen with its own name and count", async () => {
+    mockViews = { lib1: SHUFFLE };
+    mockParams = { folderId: "f1", photoId: "p2", libraryId: "lib1" };
+    setShuffledListing("f1", [two, one]);
+    servePages([two, one]);
+    const tree = await mountViewer();
+    await act(async () => mockTvHandler?.({ eventType: "right" }));
+    expect(counter(tree)).toMatch(/One.*2\| \/ \|2/);
+
+    mockViews = { lib1: { shuffle: true, sortBy: "DateCreated" } };
+    await act(async () => {
+      tree.update(<PhotoViewerScreen />);
+    });
+
+    expect(counter(tree)).toMatch(/One.*2\| \/ \|2/);
+    tree.unmount();
+  });
 });

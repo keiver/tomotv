@@ -5,7 +5,17 @@
  *
  * Split from jellyfinApi.test.ts to keep that file from growing further.
  */
-import { fetchFilteredVideos, fetchFolderContents, fetchLibraryGenres, fetchLibraryArtists, refreshConfig, setVideoFavorite, subscribeFavoriteChange } from "../jellyfinApi";
+import {
+  fetchFilteredVideos,
+  fetchFolderContents,
+  fetchShuffledPage,
+  fetchLibraryGenres,
+  fetchLibraryArtists,
+  invalidateFolderReads,
+  refreshConfig,
+  setVideoFavorite,
+  subscribeFavoriteChange,
+} from "../jellyfinApi";
 import { EMPTY_FILTERS } from "@/types/jellyfin";
 
 // Mock expo-secure-store
@@ -145,6 +155,82 @@ describe("library filters (issue #54)", () => {
       await fetchFolderContents("folder-1", { filters: { ...EMPTY_FILTERS, shuffle: true } });
 
       expect(lastRequestUrl().searchParams.get("SortBy")).toBe("Random");
+    });
+
+    describe("fetchShuffledPage", () => {
+      const shuffle = { ...EMPTY_FILTERS, shuffle: true };
+      const TOTAL = 150;
+      const names = Array.from({ length: TOTAL }, (_, i) => `p${String(i).padStart(3, "0")}`);
+
+      // A server holding 150 photos in name order: it answers the page each request asks for.
+      function serveFolder() {
+        (global.fetch as jest.Mock).mockImplementation(async (url: string) => {
+          const query = new URL(url).searchParams;
+          const start = Number(query.get("StartIndex"));
+          const Items = names.slice(start, start + Number(query.get("Limit"))).map((Id) => ({ Id, Name: Id, Type: "Photo" }));
+          return { ok: true, json: async () => ({ Items, TotalRecordCount: TOTAL, StartIndex: start }) };
+        });
+      }
+      const requests = () => (global.fetch as jest.Mock).mock.calls.map((call) => new URL(call[0] as string).searchParams);
+
+      beforeEach(() => {
+        serveFolder();
+        invalidateFolderReads("folder-1");
+      });
+
+      it("lists every item once across its pages, each one a regular page of 60 in name order", async () => {
+        const seen: string[] = [];
+        for (let slot = 0; ; slot++) {
+          const page = await fetchShuffledPage("folder-1", shuffle, slot);
+          seen.push(...page.items.map((item) => item.Id));
+          if (!page.more) break;
+        }
+
+        expect([...seen].sort()).toEqual(names);
+        expect(requests().every((query) => query.get("SortBy") === "SortName")).toBe(true);
+        expect(
+          requests()
+            .filter((query) => query.get("Limit") === "60")
+            .map((query) => Number(query.get("StartIndex")))
+            .sort((a, b) => a - b),
+        ).toEqual([0, 60, 120]);
+      });
+
+      it("counts the folder with a one-item request, once", async () => {
+        await fetchShuffledPage("folder-1", shuffle, 0);
+        await fetchShuffledPage("folder-1", shuffle, 1);
+
+        expect(requests().map((query) => query.get("Limit"))).toEqual(["1", "60", "60"]);
+      });
+
+      it("a page holds the items of one regular page", async () => {
+        const page = await fetchShuffledPage("folder-1", shuffle, 0);
+
+        const start = Number(requests()[1].get("StartIndex"));
+        expect(page.items.map((item) => item.Id).sort()).toEqual(names.slice(start, start + 60));
+        expect(page.total).toBe(TOTAL);
+      });
+
+      it("keeps one page order, so a second reader of a page gets the same items", async () => {
+        const first = await fetchShuffledPage("folder-1", shuffle, 1);
+        const again = await fetchShuffledPage("folder-1", shuffle, 1);
+
+        expect(again.items.map((item) => item.Id).sort()).toEqual(first.items.map((item) => item.Id).sort());
+      });
+
+      it("past the last page answers nothing and asks the server for nothing", async () => {
+        await fetchShuffledPage("folder-1", shuffle, 0);
+        const asked = requests().length;
+
+        expect(await fetchShuffledPage("folder-1", shuffle, 3)).toEqual({ items: [], total: 0, more: false });
+        expect(requests()).toHaveLength(asked);
+      });
+
+      it("an empty folder is one empty page", async () => {
+        (global.fetch as jest.Mock).mockImplementation(async () => ({ ok: true, json: async () => emptyItemsResponse }));
+
+        expect(await fetchShuffledPage("folder-1", shuffle, 0)).toEqual({ items: [], total: 0, more: false });
+      });
     });
 
     it("sends the chosen sort and order, on the plain browse too, without flattening it", async () => {

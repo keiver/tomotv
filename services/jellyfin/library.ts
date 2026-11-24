@@ -18,6 +18,7 @@ import { CACHE } from "@/constants/app";
 import { logger } from "@/utils/logger";
 import { orderSortNameTies } from "@/utils/seasonEpisode";
 import { retryWithBackoff } from "@/utils/retry";
+import { shuffled } from "@/utils/shuffle";
 import { API_TIMEOUTS, BROWSE_ITEM_TYPES, INCLUDED_LOCATION_TYPES, FOLDER_TYPE_SET, PLAYABLE_ITEM_TYPES, STANDALONE_VIDEO_TYPES } from "./constants";
 import { filtersCacheKey, invalidateFolderListing } from "./cacheKeys";
 import { fetchWithTimeout } from "./http";
@@ -857,9 +858,42 @@ export async function fetchFolderContents(
   );
 }
 
+export const SHUFFLE_PAGE_SIZE = 60;
+
+const shufflePageOrders = new Map<string, { filters: string; pages: number[] }>();
+
+export async function fetchShuffledPage(parentId: string, filters: LibraryFilters, slot: number): Promise<{ items: JellyfinItem[]; total?: number; more: boolean }> {
+  const config = await getConfig();
+
+  if (!config.server || !config.apiKey || !config.userId) {
+    throw new Error("Jellyfin server not configured.");
+  }
+
+  if (hasUserDataFilters(filters) && (await isLibraryViewRoot(parentId))) {
+    const page = await fetchFolderContents(parentId, { startIndex: slot * SHUFFLE_PAGE_SIZE, limit: SHUFFLE_PAGE_SIZE, filters });
+    return { ...page, more: (slot + 1) * SHUFFLE_PAGE_SIZE < (page.total ?? 0) };
+  }
+
+  const sorted = { ...filters, shuffle: false };
+  const key = `${config.userId}:${parentId}`;
+  const filtersKey = filtersCacheKey(sorted);
+  let order = shufflePageOrders.get(key);
+  if (!order || order.filters !== filtersKey) {
+    const { total = 0 } = await fetchFolderContents(parentId, { startIndex: 0, limit: 1, filters: sorted });
+    order = { filters: filtersKey, pages: shuffled(Array.from({ length: Math.ceil(total / SHUFFLE_PAGE_SIZE) }, (_, page) => page)) };
+    shufflePageOrders.set(key, order);
+  }
+  if (slot >= order.pages.length) return { items: [], total: 0, more: false };
+
+  const page = await fetchFolderContents(parentId, { startIndex: order.pages[slot] * SHUFFLE_PAGE_SIZE, limit: SHUFFLE_PAGE_SIZE, filters: sorted });
+  return { items: shuffled(page.items), total: page.total, more: slot + 1 < order.pages.length };
+}
+
 /** Drop one listing's cached pages for the signed-in account, so its next read reaches the server. */
 export function invalidateFolderReads(folderId: string | null): void {
-  invalidateFolderListing(getCachedConfig().userId, folderId);
+  const { userId } = getCachedConfig();
+  invalidateFolderListing(userId, folderId);
+  shufflePageOrders.delete(`${userId}:${folderId}`);
 }
 
 /** Page size for the folder-wide photo sweep, the same 500 the other whole-set sweeps use. */
@@ -916,17 +950,18 @@ export async function fetchFolderPreviewItems(folderId: string): Promise<Jellyfi
  * open on, which put a photo sorting past that page at index -1 and opened the folder's first
  * photo instead.
  */
-export async function fetchFolderPhotos(parentId: string): Promise<JellyfinItem[]> {
+export async function fetchFolderPhotos(parentId: string, sort?: Pick<LibraryFilters, "sortBy" | "sortOrder">): Promise<JellyfinItem[]> {
+  const filters = sort ? { ...EMPTY_FILTERS, sortBy: sort.sortBy, sortOrder: sort.sortOrder } : undefined;
   const all: JellyfinItem[] = [];
   let startIndex = 0;
 
   for (;;) {
-    const page = await fetchFolderContents(parentId, { limit: PHOTO_SWEEP_PAGE, startIndex });
+    const page = await fetchFolderContents(parentId, { limit: PHOTO_SWEEP_PAGE, startIndex, filters });
     all.push(...page.items);
     startIndex += page.items.length;
     if (page.items.length < PHOTO_SWEEP_PAGE) break;
     if (page.total !== undefined && startIndex >= page.total) break;
   }
 
-  return orderSortNameTies(all).filter((item) => item.Type === "Photo");
+  return (sort && sort.sortBy !== "SortName" ? all : orderSortNameTies(all)).filter((item) => item.Type === "Photo");
 }

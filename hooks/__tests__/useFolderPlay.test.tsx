@@ -50,23 +50,25 @@ const PLAYLIST: JellyfinItem = { Id: "playlist-1", Name: "Favorites", Type: "Pla
 const VIDEO = { Id: "v1", Name: "A Movie", Type: "Movie" } as JellyfinItem;
 const SONG = { Id: "a1", Name: "A Song", Type: "Audio" } as JellyfinItem;
 
+type PlayOptions = { replace?: boolean; libraryId?: string };
+
 interface Handle {
-  play: (folder: JellyfinItem, kind: FolderPlayKind) => Promise<void>;
+  play: (folder: JellyfinItem, kind: FolderPlayKind, options?: PlayOptions) => Promise<void>;
 }
 
 const Harness = forwardRef<Handle>(function Harness(_props, ref) {
   const playFolder = useFolderPlay();
-  useImperativeHandle(ref, () => ({ play: (folder, kind) => playFolder(folder, kind) }), [playFolder]);
+  useImperativeHandle(ref, () => ({ play: (folder, kind, options) => playFolder(folder, kind, options) }), [playFolder]);
   return null;
 });
 
-async function play(folder: JellyfinItem, kind: FolderPlayKind) {
+async function play(folder: JellyfinItem, kind: FolderPlayKind, options?: PlayOptions) {
   const ref = React.createRef<Handle>();
   await act(async () => {
     TestRenderer.create(<Harness ref={ref} />);
   });
   await act(async () => {
-    await ref.current!.play(folder, kind);
+    await ref.current!.play(folder, kind, options);
   });
 }
 
@@ -112,6 +114,18 @@ describe("useFolderPlay", () => {
 
     expect(mockAllPlaylistItems).toHaveBeenCalledWith("playlist-1");
     expect(mockBuildQueueFromItems).toHaveBeenCalledWith([VIDEO], "playlist-1", "Favorites", "v1");
+  });
+
+  it("a slideshow names the library its folder was listed in", async () => {
+    await play(FOLDER, "photo", { libraryId: "library-1" });
+
+    expect(mockPush).toHaveBeenCalledWith({ pathname: "/photo-viewer", params: { folderId: "folder-1", recursive: "true", slideshow: "true", libraryId: "library-1" } });
+  });
+
+  it("a slideshow opened with no library names none", async () => {
+    await play(FOLDER, "photo");
+
+    expect(mockPush).toHaveBeenCalledWith({ pathname: "/photo-viewer", params: { folderId: "folder-1", recursive: "true", slideshow: "true" } });
   });
 
   it("keeps only the requested kind in the queue", async () => {

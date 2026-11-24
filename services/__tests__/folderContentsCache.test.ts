@@ -1,4 +1,13 @@
-import { clearFolderContentsCache, deleteFolderCache, FolderCacheEntry, getFolderCache, patchFolderCacheItem, setFolderCache } from "@/services/folderContentsCache";
+import {
+  clearFolderContentsCache,
+  deleteFolderCache,
+  FolderCacheEntry,
+  getFolderCache,
+  getShuffledListing,
+  patchFolderCacheItem,
+  setFolderCache,
+  setShuffledListing,
+} from "@/services/folderContentsCache";
 import { JellyfinItem } from "@/types/jellyfin";
 
 const item = (id: string): JellyfinItem => ({ Id: id, Name: id, Type: "Folder" }) as JellyfinItem;
@@ -58,6 +67,16 @@ describe("folderContentsCache", () => {
     patchFolderCacheItem("a", null);
     expect(getFolderCache("f1")).toBeUndefined();
     expect(getFolderCache("f2")).toBeDefined();
+  });
+
+  it("returns a shuffled listing only for its folder and an item it holds", () => {
+    const listing = [item("b"), item("a")];
+    setShuffledListing("f1", listing);
+    expect(getShuffledListing("f1", "a")).toBe(listing);
+    expect(getShuffledListing("f2", "a")).toBeUndefined();
+    expect(getShuffledListing("f1", "c")).toBeUndefined();
+    clearFolderContentsCache();
+    expect(getShuffledListing("f1", "a")).toBeUndefined();
   });
 
   it("keeps entries isolated by key (no cross-key leakage)", () => {

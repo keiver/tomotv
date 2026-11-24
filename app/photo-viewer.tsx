@@ -4,12 +4,24 @@ import { INFO_PILL_RADIUS, PageViewer, VIEWER_CHROME_TINT, pageViewerStyles, typ
 import { COLORS } from "@/constants/colors";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { useCardPalette } from "@/hooks/useCardPalette";
-import { getFolderCache } from "@/services/folderContentsCache";
-import { fetchFolderPhotos, fetchFilteredVideos, fetchItemDetails, fetchRecursivePhotos, getPhotoPreviewUrl, getPhotoUrl, isPhoto, WEBP_ACCEPT } from "@/services/jellyfinApi";
-import { countActiveFilters, JellyfinItem } from "@/types/jellyfin";
+import { getFolderCache, getShuffledListing } from "@/services/folderContentsCache";
+import {
+  fetchFolderPhotos,
+  fetchFilteredVideos,
+  fetchItemDetails,
+  fetchRecursivePhotos,
+  fetchShuffledPage,
+  getPhotoPreviewUrl,
+  getPhotoUrl,
+  isPhoto,
+  SHUFFLE_PAGE_SIZE,
+  WEBP_ACCEPT,
+} from "@/services/jellyfinApi";
+import { countActiveFilters, hasContentFilters, JellyfinItem, LibraryFilters } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
 import { getLoadErrorMessage } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
+import { shuffled } from "@/utils/shuffle";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -22,6 +34,7 @@ const SLIDESHOW_INTERVAL_MS = 5000;
 const COUNTDOWN_WIDTH = 240;
 const COUNTDOWN_HEIGHT = 8;
 const COUNTDOWN_FILL_INSET = 2;
+const SHUFFLE_LOAD_AHEAD = 5;
 
 /** WebP where the server may choose it; a GIF, or a file of unknown type, keeps the request it had. */
 const photoHeaders = (photo: JellyfinItem) => (photo.Path && !/\.gif$/i.test(photo.Path) ? WEBP_ACCEPT : undefined);
@@ -46,6 +59,7 @@ export default function PhotoViewerScreen() {
   const { getFilters } = useLibraryFilters();
   const filters = getFilters(params.libraryId ?? params.folderId ?? "");
   const isFiltered = countActiveFilters(filters) > 0;
+  const filterKey = JSON.stringify(filters);
 
   const [photos, setPhotos] = useState<JellyfinItem[]>([]);
   const [startIndex, setStartIndex] = useState<number | null>(null);
@@ -63,6 +77,36 @@ export default function PhotoViewerScreen() {
   const [viewerEpoch, setViewerEpoch] = useState(0);
 
   const countdown = useSharedValue(0); // 0 → 1 over the slideshow interval
+
+  const shuffleRef = useRef<{ folderId: string; filters: LibraryFilters; slot: number; loading: boolean; done: boolean } | null>(null);
+
+  const loadMoreShuffled = useCallback(async () => {
+    const run = shuffleRef.current;
+    if (!run || run.loading || run.done) return;
+    run.loading = true;
+    try {
+      let added = 0;
+      while (added === 0 && !run.done) {
+        const page = await fetchShuffledPage(run.folderId, run.filters, run.slot);
+        if (shuffleRef.current !== run) return;
+        run.slot += 1;
+        run.done = !page.more;
+        const held = new Set(photosRef.current.map((photo) => photo.Id));
+        const more = page.items.filter((item) => isPhoto(item) && !held.has(item.Id));
+        added = more.length;
+        if (added === 0) continue;
+        photosRef.current = [...photosRef.current, ...more];
+        setPhotos(photosRef.current);
+        setStartIndex((start) => start ?? 0);
+      }
+    } catch (err) {
+      if (shuffleRef.current !== run) return;
+      if (photosRef.current.length === 0) setError(getLoadErrorMessage(err));
+      logger.error("Error loading more shuffled photos for viewer", err, { service: "PhotoViewer", folderId: run.folderId });
+    } finally {
+      run.loading = false;
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -102,6 +146,7 @@ export default function PhotoViewerScreen() {
       const next = photoItems.findIndex((p) => p.Id === shownId);
       if (next < 0) {
         if (!applyPhotos(items)) openRequestedAlone();
+        setViewerEpoch((epoch) => epoch + 1);
         return;
       }
       const before = photosRef.current.length;
@@ -121,7 +166,7 @@ export default function PhotoViewerScreen() {
     // the set has landed, and quiet on failure: the set fetch owns the error state.
     let setApplied = false;
     const paintPressedFirst = () => {
-      if (!params.photoId) return;
+      if (!params.photoId || photosRef.current.length > 0) return;
       fetchItemDetails(params.photoId)
         .then((item) => {
           if (!cancelled && !setApplied && item && isPhoto(item)) applyPhotos([item]);
@@ -137,7 +182,8 @@ export default function PhotoViewerScreen() {
     const applySet = (items: JellyfinItem[]) => {
       setApplied = true;
       if (photosRef.current.length > 0) {
-        if (items.filter(isPhoto).some((p) => p.Id === params.photoId)) widenPhotos(items);
+        const alone = photosRef.current.length === 1 && photosRef.current[0].Id === params.photoId;
+        if (!alone || items.filter(isPhoto).some((p) => p.Id === params.photoId)) widenPhotos(items);
         return;
       }
       if (!applyPhotos(items) && params.photoId) openRequestedAlone();
@@ -155,11 +201,49 @@ export default function PhotoViewerScreen() {
 
     const folderId = params.folderId;
 
+    if (filters.shuffle) {
+      const listed = params.photoId ? (getShuffledListing(folderId, params.photoId) ?? []) : [];
+      const showing = photosRef.current.length > 0;
+
+      if (!hasContentFilters(filters) && params.recursive !== "true") {
+        if (!showing) {
+          if (listed.length > 0) applyPhotos(listed);
+          else openRequestedAlone();
+        }
+        shuffleRef.current = { folderId, filters, slot: Math.ceil(listed.length / SHUFFLE_PAGE_SIZE), loading: false, done: false };
+
+        return () => {
+          cancelled = true;
+          shuffleRef.current = null;
+        };
+      }
+
+      if (!showing && listed.length > 0) applyPhotos(listed);
+      else paintPressedFirst();
+      (hasContentFilters(filters) ? fetchFilteredVideos(folderId, filters) : fetchRecursivePhotos(folderId))
+        .then((items) => {
+          if (cancelled) return;
+          const inSet = new Set(items.map((item) => item.Id));
+          const first = listed.filter((item) => inSet.has(item.Id));
+          const held = new Set(first.map((item) => item.Id));
+          applySet([...first, ...shuffled(items.filter((item) => isPhoto(item) && !held.has(item.Id)))]);
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          if (photosRef.current.length === 0) setError(getLoadErrorMessage(err));
+          logger.error("Error loading shuffled photos for viewer", err, { service: "PhotoViewer", folderId });
+        });
+
+      return () => {
+        cancelled = true;
+      };
+    }
+
     // Filtered: swipe the filtered set, not the folder. The folder cache is unfiltered by
     // definition (useFolderContents never caches a filtered view), so reading it here is what
     // put the whole library back under the user's thumb. Fetch the complete filtered set
     // instead, the same call the filtered play queue uses, and keep the photos.
-    if (isFiltered) {
+    if (hasContentFilters(filters) || (isFiltered && params.recursive === "true")) {
       paintPressedFirst();
       fetchFilteredVideos(folderId, filters)
         .then((items) => {
@@ -199,14 +283,14 @@ export default function PhotoViewerScreen() {
     // The folder screen that pushed this route already fetched the items; even a stale cache
     // entry is the exact list the user was just looking at, so it paints frame one. It holds
     // the pages the grid had loaded, never the whole folder, so the sweep still runs.
-    const cached = getFolderCache(folderId);
-    if (cached && cached.items.some((item) => item.Id === params.photoId)) {
+    const cached = getFolderCache(isFiltered ? `${folderId}:${filters.sortBy}:${filters.sortOrder}` : folderId);
+    if (photosRef.current.length === 0 && cached && cached.items.some((item) => item.Id === params.photoId)) {
       applyPhotos(cached.items);
     } else {
       paintPressedFirst();
     }
 
-    fetchFolderPhotos(folderId)
+    fetchFolderPhotos(folderId, isFiltered ? filters : undefined)
       .then((items) => {
         if (cancelled) return;
         setApplied = true;
@@ -221,10 +305,14 @@ export default function PhotoViewerScreen() {
     return () => {
       cancelled = true;
     };
-    // filters is a fresh object per render from the context map; isFiltered + the ids are the
-    // real inputs, and the selection can't change while this pushed screen is on top.
+    // filterKey stands for filters, a fresh object per render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params.folderId, params.photoId, params.recursive, isFiltered]);
+  }, [params.folderId, params.photoId, params.recursive, filterKey]);
+
+  useEffect(() => {
+    if (!shuffleRef.current) return;
+    if (photos.length === 0 ? !params.photoId : index >= photos.length - SHUFFLE_LOAD_AHEAD) void loadMoreShuffled();
+  }, [index, photos.length, filterKey, params.folderId, params.photoId, params.recursive, loadMoreShuffled]);
 
   // Single clock: the countdown drives both the visual bar and the auto-advance
   const callAdvance = useCallback(() => advanceRef.current(), []);
@@ -242,9 +330,11 @@ export default function PhotoViewerScreen() {
     const list = photosRef.current;
     if (!isPlayingRef.current || list.length < 2) return;
     const current = viewerRef.current?.index() ?? 0;
-    viewerRef.current?.goTo((current + 1) % list.length, 1, "fade");
+    const waiting = current + 1 >= list.length && !!shuffleRef.current && !shuffleRef.current.done;
+    if (waiting) void loadMoreShuffled();
+    else viewerRef.current?.goTo((current + 1) % list.length, 1, "fade");
     startCountdown();
-  }, [startCountdown]);
+  }, [startCountdown, loadMoreShuffled]);
 
   useEffect(() => {
     advanceRef.current = advance;
