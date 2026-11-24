@@ -18,6 +18,19 @@ export function getShuffledListing(folderId: string, itemId: string): JellyfinIt
   return shuffledListing?.folderId === folderId && shuffledListing.items.some((item) => item.Id === itemId) ? shuffledListing.items : undefined;
 }
 
+const reshuffleListeners = new Set<() => void>();
+
+export function subscribeReshuffle(listener: () => void): () => void {
+  reshuffleListeners.add(listener);
+  return () => {
+    reshuffleListeners.delete(listener);
+  };
+}
+
+export function requestReshuffle(): void {
+  for (const listener of [...reshuffleListeners]) listener();
+}
+
 export function getFolderCache(key: string): FolderCacheEntry | undefined {
   return cache.get(key);
 }

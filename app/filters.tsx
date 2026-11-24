@@ -6,6 +6,7 @@ import { LoadingRow } from "@/components/loading-row";
 import { COLORS } from "@/constants/colors";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { useCardPalette } from "@/hooks/useCardPalette";
+import { requestReshuffle } from "@/services/folderContentsCache";
 import { fetchLibraryArtists, fetchLibraryGenres, fetchLibraryYears, fetchUserViews } from "@/services/jellyfinApi";
 import { JellyfinNamedItem, LibraryFilters, LibrarySortBy } from "@/types/jellyfin";
 import { SORT_LABEL_KEYS, sortChoicesWith } from "@/utils/librarySort";
@@ -100,6 +101,7 @@ function FiltersScreen() {
 
   // One sort at a time; picking one ends a shuffle, and Shuffle leaves the sort as it was for later.
   const pickSort = useCallback((sortBy: LibrarySortBy) => update({ sortBy, shuffle: false }), [update]);
+  const pressShuffle = useCallback(() => (filters.shuffle ? requestReshuffle() : update({ shuffle: true })), [filters.shuffle, update]);
   const sortChoices = sortChoicesWith(collectionType, filters.sortBy);
 
   const toggleYear = useCallback(
@@ -174,7 +176,7 @@ function FiltersScreen() {
           {sortChoices.map((sortBy) => (
             <FilterChip key={sortBy} label={t(SORT_LABEL_KEYS[sortBy])} selected={!filters.shuffle && filters.sortBy === sortBy} onToggle={() => pickSort(sortBy)} />
           ))}
-          <FilterChip label={t("filters.shuffle")} selected={filters.shuffle} onToggle={() => update({ shuffle: !filters.shuffle })} />
+          <FilterChip label={filters.shuffle ? t("filters.reshuffle") : t("filters.shuffle")} selected={filters.shuffle} onToggle={pressShuffle} />
         </View>
         {!filters.shuffle && (
           <View style={[styles.chipWrap, styles.orderRow]}>
@@ -223,7 +225,7 @@ function FiltersScreen() {
   );
 
   // Presented as a root route (app/filters.tsx) that covers the tabs, so the native tab bar isn't
-  // on screen to steal focus — the same pattern as player/photo-viewer. trapFocusUp is kept as a
+  // on screen to steal focus, the same pattern as player/photo-viewer. trapFocusUp is kept as a
   // belt-and-suspenders guard for the top row; no holder/trap gymnastics are needed here.
   return IS_TV ? (
     <TVFocusGuideView style={styles.flex} trapFocusUp>

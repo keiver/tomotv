@@ -7,7 +7,7 @@
 import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { useFolderContents } from "@/hooks/useFolderContents";
-import { clearFolderContentsCache } from "@/services/folderContentsCache";
+import { clearFolderContentsCache, requestReshuffle } from "@/services/folderContentsCache";
 import { addFavoriteIds, clearFavoriteIdsCache } from "@/services/favoritesCache";
 import { clearPlayedCache, markPlayed } from "@/services/playedCache";
 import { EMPTY_FILTERS, JellyfinItem, LibraryFilters } from "@/types/jellyfin";
@@ -1158,6 +1158,36 @@ describe("useFolderContents", () => {
       });
 
       expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["a", "b", "c"]);
+    });
+
+    it("a reshuffle request reads a shuffled folder's first page again and replaces the list", async () => {
+      const shuffle = { ...EMPTY_FILTERS, shuffle: true };
+      mockShuffledPage.mockReset();
+      mockShuffledPage.mockResolvedValue({ items: items("a", "b"), total: 2 });
+      const { ref } = await mountWithFilters("folder-9", shuffle);
+      expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["a", "b"]);
+      mockShuffledPage.mockResolvedValue({ items: items("b", "a"), total: 2 });
+
+      await act(async () => requestReshuffle());
+
+      expect(mockShuffledPage.mock.calls.filter((call) => call[0] === "folder-9")).toEqual([
+        ["folder-9", shuffle, 0],
+        ["folder-9", shuffle, 0],
+      ]);
+      expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["b", "a"]);
+    });
+
+    it("a reshuffle request reads nothing in a folder that is not shuffled", async () => {
+      mockShuffledPage.mockReset();
+      mockShuffledPage.mockResolvedValue({ items: [], total: 0 });
+      mockFolder.mockResolvedValue({ items: items("a"), total: 1 });
+      await mountWithFilters("folder-8", { ...EMPTY_FILTERS, sortBy: "DateCreated" });
+      const reads = mockFolder.mock.calls.length;
+
+      await act(async () => requestReshuffle());
+
+      expect(mockFolder).toHaveBeenCalledTimes(reads);
+      expect(mockShuffledPage.mock.calls.filter((call) => call[0] === "folder-8")).toEqual([]);
     });
 
     it("a delete does not move a shuffled folder's next page number", async () => {

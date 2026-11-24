@@ -211,6 +211,7 @@
   "filters.unplayed": "Unplayed",
   "filters.sort": "Sort",
   "filters.shuffle": "Shuffle",
+  "filters.reshuffle": "Reshuffle",
   "sort.name": "Name",
   "sort.dateAdded": "Date Added",
   "sort.episodeAdded": "Episode Added",

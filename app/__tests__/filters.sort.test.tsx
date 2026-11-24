@@ -1,6 +1,7 @@
 /** The Sort section of Sort & Filter: one chip per sort the library offers plus Shuffle, the order pair while not shuffled, and what a press saves. */
 import FiltersScreen from "@/app/filters";
 import { FilterChip } from "@/components/filter-chip";
+import { subscribeReshuffle } from "@/services/folderContentsCache";
 import { EMPTY_FILTERS, type LibraryFilters } from "@/types/jellyfin";
 import React from "react";
 import TestRenderer, { act } from "react-test-renderer";
@@ -87,7 +88,8 @@ describe("Sort & Filter sort section", () => {
     mockFilters = { ...EMPTY_FILTERS, shuffle: true };
     let list = await chips();
     expect(labels(list)).not.toContain("sort.ascending");
-    expect(list.find((chip) => chip.label === "filters.shuffle")?.selected).toBe(true);
+    expect(labels(list)).not.toContain("filters.shuffle");
+    expect(list.find((chip) => chip.label === "filters.reshuffle")?.selected).toBe(true);
     expect(list.find((chip) => chip.label === "sort.name")?.selected).toBe(false);
     list.find((chip) => chip.label === "sort.dateAdded")!.onToggle();
     expect(mockSet).toHaveBeenLastCalledWith("lib-1", { ...EMPTY_FILTERS, sortBy: "DateCreated", shuffle: false });
@@ -96,6 +98,25 @@ describe("Sort & Filter sort section", () => {
     list = await chips();
     list.find((chip) => chip.label === "sort.descending")!.onToggle();
     expect(mockSet).toHaveBeenLastCalledWith("lib-1", { ...EMPTY_FILTERS, sortBy: "DateCreated", sortOrder: "Descending" });
+  });
+
+  it("a press on Shuffle turns shuffle on and asks for no new order", async () => {
+    const asked = jest.fn();
+    const stop = subscribeReshuffle(asked);
+    (await chips()).find((chip) => chip.label === "filters.shuffle")!.onToggle();
+    stop();
+    expect(mockSet).toHaveBeenLastCalledWith("lib-1", { ...EMPTY_FILTERS, shuffle: true });
+    expect(asked).not.toHaveBeenCalled();
+  });
+
+  it("a press on Reshuffle asks for a new order and saves nothing", async () => {
+    mockFilters = { ...EMPTY_FILTERS, shuffle: true };
+    const asked = jest.fn();
+    const stop = subscribeReshuffle(asked);
+    (await chips()).find((chip) => chip.label === "filters.reshuffle")!.onToggle();
+    stop();
+    expect(asked).toHaveBeenCalledTimes(1);
+    expect(mockSet).not.toHaveBeenCalled();
   });
 
   it("keeps a saved sort the library's list lacks as a chip", async () => {

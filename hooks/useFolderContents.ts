@@ -1,6 +1,6 @@
 import { CACHE } from "@/constants/app";
 import { useAppStateRefresh } from "@/hooks/useAppStateRefresh";
-import { deleteFolderCache, FolderCacheEntry, getFolderCache, setFolderCache } from "@/services/folderContentsCache";
+import { deleteFolderCache, FolderCacheEntry, getFolderCache, setFolderCache, subscribeReshuffle } from "@/services/folderContentsCache";
 import { getFavoriteIds, isFavoritesLoaded } from "@/services/favoritesCache";
 import { getPlayedOverrides, playedOverride } from "@/services/playedCache";
 import {
@@ -63,7 +63,7 @@ interface FolderContentsState {
 }
 
 /**
- * Set each item's favorite state AUTHORITATIVELY from the favorites cache — the single source of
+ * Set each item's favorite state AUTHORITATIVELY from the favorites cache: the single source of
  * truth, seeded from the reliable recursive Filters=IsFavorite. The non-recursive browse's per-item
  * UserData.IsFavorite is stale after a change (the server leaves it set on a just-unfavorited item),
  * so we override it in BOTH directions. Until the set has loaded, show no hearts so a stale `true`
@@ -393,6 +393,11 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
     runFirstPage(PAGE_SIZE, false);
   }, [cacheKey, runFirstPage]);
 
+  useEffect(() => {
+    if (!shuffledView) return;
+    return subscribeReshuffle(refresh);
+  }, [shuffledView, refresh]);
+
   // Read every loaded item again in one request and swap in what changed, so the viewer keeps their
   // place. A shuffled view is left alone: a first-page read draws it a new order under the viewer.
   const revalidate = useCallback(() => {
@@ -401,7 +406,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   }, [activeFilters, runFirstPage]);
 
   // Re-derive hearts on the current list whenever any favorite changes (markFavorite has already
-  // updated the authoritative set, so annotate reflects it instantly — no refetch). In the Favorites
+  // updated the authoritative set, so annotate reflects it instantly, no refetch). In the Favorites
   // view an unfavorited item no longer belongs, so drop it; everywhere else annotate flips its heart.
   useEffect(() => {
     return subscribeFavoriteChange((itemId, favorite) => {
@@ -410,7 +415,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   }, [activeFilters, annotateFavorites]);
 
   // Same for played changes (markPlayed/markItemPlayed have already updated the override
-  // map, so annotate reflects it instantly — no refetch). In a played/unplayed-filtered
+  // map, so annotate reflects it instantly, no refetch). In a played/unplayed-filtered
   // view an item whose state no longer matches the filter is dropped in place.
   useEffect(() => {
     return subscribePlayedChange((itemId, played) => {
@@ -500,7 +505,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   // Refetch on ANY auth change, both directions. On login this loads the new server's content; on
   // logout the fetch fails ("server not configured"), which replaces the stale logged-in content
   // with the disconnected error state. Nothing remounts these screens on auth changes (the tab
-  // triggers are static — see app/(tabs)/_layout.tsx), so the data must reset itself.
+  // triggers are static, see app/(tabs)/_layout.tsx), so the data must reset itself.
   useEffect(() => {
     return subscribeAuthChange(() => refresh());
   }, [refresh]);
