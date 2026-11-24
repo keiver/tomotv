@@ -115,8 +115,6 @@ Two npm workspaces (`packages/*` in the root `package.json`, symlinked into node
 
 ## Working Rules
 
-Add 10 blank lines BEFORE and AFTER response text.
-
 - A review reply is the verdict: "Nothing found" or the defects, one line each with file:line. A full review reads every changed file, checks `git log -S` before calling something a regression and whether a test asserts it before calling it a bug. The user's tested design choices are not bugs.
 - Plain words, no jargon, in chat, test names, comments, commits and docs. No coined or pretty phrasing ("owed", "landing"). A test name says plainly what it checks.
 - A question gets a prose answer and the turn ends; edits wait for a go. A "why" gets the measured finding and a proposal, then a stop.
