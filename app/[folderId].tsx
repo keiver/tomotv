@@ -7,6 +7,7 @@ import { useCardPalette } from "@/hooks/useCardPalette";
 import { useFolderBackdrop } from "@/hooks/useFolderBackdrop";
 import { useFolderContents } from "@/hooks/useFolderContents";
 import { useItemLongPress } from "@/hooks/useItemLongPress";
+import { setPhotoViewerOrder } from "@/services/folderContentsCache";
 import { fetchFilteredVideos, isAudioItem, isBook, isFolder, isPhoto } from "@/services/jellyfinApi";
 import { countActiveFilters, FolderStackEntry, JellyfinItem, JellyfinVideoItem } from "@/types/jellyfin";
 import { LIBRARY_ROOT_TITLE } from "@/constants/app";
@@ -87,7 +88,8 @@ function FolderScreen() {
       } else if (isPhoto(item)) {
         // libraryId carries the filter scope: with a filter on, the viewer must swipe through the
         // filtered set, not the folder the user happens to be standing in.
-        router.push({ pathname: "/photo-viewer", params: { folderId, photoId: item.Id, libraryId } });
+        if (filters.shuffle) setPhotoViewerOrder(folderId, items.filter(isPhoto));
+        router.push({ pathname: "/photo-viewer", params: { folderId, photoId: item.Id, libraryId, ...(filters.shuffle ? { gridOrder: "true" } : {}) } });
       } else if (isBook(item)) {
         router.push({ pathname: "/book-reader", params: { itemId: item.Id, name: item.Name } });
       } else if (activeFilterCount > 0) {

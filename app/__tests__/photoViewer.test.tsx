@@ -20,12 +20,15 @@ jest.mock("expo-image", () => ({ Image: Object.assign(() => null, { prefetch: je
 jest.mock("@/components/glass-action-cluster", () => ({ GlassActionCluster: () => null }));
 jest.mock("@/components/glass-surface", () => ({ GlassSurface: ({ children }: { children?: React.ReactNode }) => children ?? null }));
 jest.mock("@/services/macKeyCommands", () => ({ claimMacContextKeys: () => () => {}, subscribeMacKeyCommand: () => () => {} }));
-jest.mock("@/services/folderContentsCache", () => ({ getFolderCache: () => null }));
+jest.mock("@/services/folderContentsCache", () => ({ ...jest.requireActual("@/services/folderContentsCache"), getFolderCache: () => null }));
+let mockShuffle = false;
+let mockFavorite = false;
 jest.mock("@/contexts/LibraryFiltersContext", () => ({
   useLibraryFilters: () => ({
-    getFilters: () => ({ genres: [], artistIds: [], years: [], favorite: false, played: false, unplayed: false, shuffle: false, sortBy: "SortName", sortOrder: "Ascending" }),
+    getFilters: () => ({ genres: [], artistIds: [], years: [], favorite: mockFavorite, played: false, unplayed: false, shuffle: mockShuffle, sortBy: "SortName", sortOrder: "Ascending" }),
   }),
 }));
+jest.mock("@/utils/shuffle", () => ({ shuffled: (items: unknown[]) => [...items].reverse() }));
 
 const mockPhotos = [
   { Id: "p1", Name: "One", Type: "Photo", Path: "/photos/one.png" },
@@ -55,10 +58,15 @@ jest.mock("expo-router", () => ({ useLocalSearchParams: () => mockParams, useRou
 
 import PhotoViewerScreen from "@/app/photo-viewer";
 import { Image } from "expo-image";
-import { fetchFolderPhotos, fetchItemDetails, fetchRecursivePhotos } from "@/services/jellyfinApi";
+import { clearFolderContentsCache, setPhotoViewerOrder } from "@/services/folderContentsCache";
+import { fetchFilteredVideos, fetchFolderPhotos, fetchItemDetails, fetchRecursivePhotos } from "@/services/jellyfinApi";
+import * as Reanimated from "react-native-reanimated";
 
 beforeEach(() => {
   mockParams = { folderId: "f1", photoId: "p1" };
+  mockShuffle = false;
+  mockFavorite = false;
+  clearFolderContentsCache();
 });
 
 function counter(tree: TestRenderer.ReactTestRenderer): string {
@@ -254,5 +262,98 @@ test("a set without the pressed photo leaves it shown alone", async () => {
   });
   expect(counter(tree)).toContain("Stray");
   expect(counter(tree)).not.toMatch(/\| \/ \|/);
+  tree.unmount();
+});
+
+test("manual steps and slideshow follow the shuffled grid and remaining photos", async () => {
+  mockShuffle = true;
+  mockParams = { folderId: "f1", photoId: "p2", gridOrder: "true" };
+  const third = { Id: "p3", Name: "Three", Type: "Photo", Path: "/photos/three.png" };
+  const fourth = { Id: "p4", Name: "Four", Type: "Photo", Path: "/photos/four.png" };
+  setPhotoViewerOrder("f1", [mockPhotos[1], mockPhotos[0]]);
+  (fetchFolderPhotos as jest.Mock).mockResolvedValueOnce([mockPhotos[0], mockPhotos[1], third, fourth]);
+  let countdown: ((finished?: boolean) => void) | undefined;
+  const timing = jest.spyOn(Reanimated, "withTiming").mockImplementation((value, config, callback) => {
+    if (config?.duration === 5000) countdown = callback;
+    return value;
+  });
+
+  let tree!: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    tree = TestRenderer.create(<PhotoViewerScreen />);
+  });
+  expect(counter(tree)).toContain("Two");
+  expect(counter(tree)).toMatch(/1\| \/ \|4/);
+
+  await act(async () => mockTvHandler?.({ eventType: "right" }));
+  expect(counter(tree)).toContain("One");
+  await act(async () => mockTvHandler?.({ eventType: "playPause" }));
+  await act(async () => countdown?.(true));
+  expect(counter(tree)).toContain("Four");
+  await act(async () => countdown?.(true));
+  expect(counter(tree)).toContain("Three");
+  await act(async () => countdown?.(true));
+  expect(counter(tree)).toContain("Two");
+  tree.unmount();
+  timing.mockRestore();
+});
+
+test("shuffle keeps the loaded photos if the full folder fetch fails", async () => {
+  mockShuffle = true;
+  mockParams = { folderId: "f1", photoId: "p2", gridOrder: "true" };
+  setPhotoViewerOrder("f1", [mockPhotos[1], mockPhotos[0]]);
+  (fetchFolderPhotos as jest.Mock).mockRejectedValueOnce(new Error("server down"));
+  let tree!: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    tree = TestRenderer.create(<PhotoViewerScreen />);
+  });
+  await act(async () => mockTvHandler?.({ eventType: "right" }));
+  expect(counter(tree)).toContain("One");
+  tree.unmount();
+});
+
+test("the full shuffled set keeps the photo selected while it was loading", async () => {
+  mockShuffle = true;
+  mockParams = { folderId: "f1", photoId: "p2", gridOrder: "true" };
+  setPhotoViewerOrder("f1", [mockPhotos[1], mockPhotos[0]]);
+  let resolveSet!: (items: unknown) => void;
+  (fetchFolderPhotos as jest.Mock).mockReturnValueOnce(new Promise((resolve) => (resolveSet = resolve)));
+  let tree!: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    tree = TestRenderer.create(<PhotoViewerScreen />);
+  });
+  await act(async () => mockTvHandler?.({ eventType: "right" }));
+  expect(counter(tree)).toContain("One");
+  await act(async () => resolveSet([mockPhotos[0], mockPhotos[1], { Id: "p3", Name: "Three", Type: "Photo", Path: "/photos/three.png" }]));
+  expect(counter(tree)).toContain("One");
+  expect(counter(tree)).toMatch(/2\| \/ \|3/);
+  tree.unmount();
+});
+
+test("shuffle with a content filter appends only the filtered photos", async () => {
+  mockShuffle = true;
+  mockFavorite = true;
+  mockParams = { folderId: "f1", photoId: "p2", gridOrder: "true" };
+  setPhotoViewerOrder("f1", [mockPhotos[1]]);
+  (fetchFilteredVideos as jest.Mock).mockResolvedValueOnce([mockPhotos[0], mockPhotos[1]]);
+  let tree!: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    tree = TestRenderer.create(<PhotoViewerScreen />);
+  });
+  await act(async () => mockTvHandler?.({ eventType: "right" }));
+  expect(counter(tree)).toContain("One");
+  tree.unmount();
+});
+
+test("a recursive slideshow shuffles its full set", async () => {
+  mockShuffle = true;
+  mockParams = { folderId: "f1", recursive: "true", slideshow: "true" };
+  let tree!: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    tree = TestRenderer.create(<PhotoViewerScreen />);
+  });
+  expect(counter(tree)).toContain("Two");
+  await act(async () => mockTvHandler?.({ eventType: "right" }));
+  expect(counter(tree)).toContain("One");
   tree.unmount();
 });

@@ -1,4 +1,4 @@
-import { clearFolderContentsCache, deleteFolderCache, FolderCacheEntry, getFolderCache, patchFolderCacheItem, setFolderCache } from "@/services/folderContentsCache";
+import { clearFolderContentsCache, deleteFolderCache, FolderCacheEntry, getFolderCache, getPhotoViewerOrder, patchFolderCacheItem, setFolderCache, setPhotoViewerOrder } from "@/services/folderContentsCache";
 import { JellyfinItem } from "@/types/jellyfin";
 
 const item = (id: string): JellyfinItem => ({ Id: id, Name: id, Type: "Folder" }) as JellyfinItem;
@@ -65,5 +65,15 @@ describe("folderContentsCache", () => {
     setFolderCache("folder-1", { items: [item("vid")], timestamp: 1 });
     expect(getFolderCache("root")?.items[0].Id).toBe("lib");
     expect(getFolderCache("folder-1")?.items[0].Id).toBe("vid");
+  });
+
+  it("only returns the photo order for its folder and selected item", () => {
+    const items = [item("b"), item("a")];
+    setPhotoViewerOrder("f1", items);
+    expect(getPhotoViewerOrder("f1", "a")).toBe(items);
+    expect(getPhotoViewerOrder("f2", "a")).toBeUndefined();
+    expect(getPhotoViewerOrder("f1", "c")).toBeUndefined();
+    clearFolderContentsCache();
+    expect(getPhotoViewerOrder("f1", "a")).toBeUndefined();
   });
 });

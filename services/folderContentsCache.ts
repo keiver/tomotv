@@ -1,4 +1,4 @@
-import { JellyfinItem } from "@/types/jellyfin";
+import type { JellyfinItem } from "@/types/jellyfin";
 
 /**
  * First-page cache for folder contents, keyed by folder id ("root" for the libraries view). Keeps
@@ -8,6 +8,15 @@ import { JellyfinItem } from "@/types/jellyfin";
 export type FolderCacheEntry = { items: JellyfinItem[]; total?: number; timestamp: number };
 
 const cache = new Map<string, FolderCacheEntry>();
+let photoViewerOrder: { folderId: string; items: JellyfinItem[] } | undefined;
+
+export function setPhotoViewerOrder(folderId: string, items: JellyfinItem[]): void {
+  photoViewerOrder = { folderId, items };
+}
+
+export function getPhotoViewerOrder(folderId: string, photoId: string): JellyfinItem[] | undefined {
+  return photoViewerOrder?.folderId === folderId && photoViewerOrder.items.some((item) => item.Id === photoId) ? photoViewerOrder.items : undefined;
+}
 
 export function getFolderCache(key: string): FolderCacheEntry | undefined {
   return cache.get(key);
@@ -24,6 +33,7 @@ export function deleteFolderCache(key: string): void {
 /** Drop all cached folders (e.g. after auth changes) so the next visit refetches fresh. */
 export function clearFolderContentsCache(): void {
   cache.clear();
+  photoViewerOrder = undefined;
 }
 
 /** Rewrite one item's UserData in every cached folder holding it; null drops those folders instead. */

@@ -4,12 +4,13 @@ import { INFO_PILL_RADIUS, PageViewer, VIEWER_CHROME_TINT, pageViewerStyles, typ
 import { COLORS } from "@/constants/colors";
 import { useLibraryFilters } from "@/contexts/LibraryFiltersContext";
 import { useCardPalette } from "@/hooks/useCardPalette";
-import { getFolderCache } from "@/services/folderContentsCache";
+import { getFolderCache, getPhotoViewerOrder } from "@/services/folderContentsCache";
 import { fetchFolderPhotos, fetchFilteredVideos, fetchItemDetails, fetchRecursivePhotos, getPhotoPreviewUrl, getPhotoUrl, isPhoto, WEBP_ACCEPT } from "@/services/jellyfinApi";
-import { countActiveFilters, JellyfinItem } from "@/types/jellyfin";
+import { countActiveFilters, hasContentFilters, JellyfinItem } from "@/types/jellyfin";
 import { cleanLabel } from "@/utils/cleanLabel";
 import { getLoadErrorMessage } from "@/utils/errorClassification";
 import { logger } from "@/utils/logger";
+import { shuffled } from "@/utils/shuffle";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -37,7 +38,7 @@ export default function PhotoViewerScreen() {
   // info panel's Slideshow CTA, which is offered off a recursive count.
   // folderId is absent when the photo was opened off a shelf card that carries no ParentId;
   // the viewer then holds that one photo.
-  const params = useLocalSearchParams<{ folderId?: string; photoId?: string; libraryId?: string; recursive?: string; slideshow?: string }>();
+  const params = useLocalSearchParams<{ folderId?: string; photoId?: string; libraryId?: string; recursive?: string; slideshow?: string; gridOrder?: string }>();
   const router = useRouter();
   const { accent } = useCardPalette();
 
@@ -155,6 +156,30 @@ export default function PhotoViewerScreen() {
 
     const folderId = params.folderId;
 
+    if (filters.shuffle) {
+      const shown = params.gridOrder === "true" && params.photoId ? (getPhotoViewerOrder(folderId, params.photoId) ?? []) : [];
+      if (shown.length > 0) applyPhotos(shown);
+      else paintPressedFirst();
+
+      const fetchPhotos = hasContentFilters(filters) ? fetchFilteredVideos(folderId, filters) : params.recursive === "true" ? fetchRecursivePhotos(folderId) : fetchFolderPhotos(folderId);
+      fetchPhotos
+        .then((items) => {
+          if (cancelled) return;
+          const seen = new Set(shown.map((item) => item.Id));
+          const remaining = items.filter((item) => isPhoto(item) && !seen.has(item.Id));
+          applySet([...shown, ...shuffled(remaining)]);
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          if (photosRef.current.length === 0) setError(getLoadErrorMessage(err));
+          logger.error("Error loading photos for viewer", err, { service: "PhotoViewer", folderId });
+        });
+
+      return () => {
+        cancelled = true;
+      };
+    }
+
     // Filtered: swipe the filtered set, not the folder. The folder cache is unfiltered by
     // definition (useFolderContents never caches a filtered view), so reading it here is what
     // put the whole library back under the user's thumb. Fetch the complete filtered set
@@ -224,7 +249,7 @@ export default function PhotoViewerScreen() {
     // filters is a fresh object per render from the context map; isFiltered + the ids are the
     // real inputs, and the selection can't change while this pushed screen is on top.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params.folderId, params.photoId, params.recursive, isFiltered]);
+  }, [params.folderId, params.photoId, params.recursive, params.gridOrder, isFiltered]);
 
   // Single clock: the countdown drives both the visual bar and the auto-advance
   const callAdvance = useCallback(() => advanceRef.current(), []);
