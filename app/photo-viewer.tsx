@@ -138,7 +138,7 @@ export default function PhotoViewerScreen() {
     const applySet = (items: JellyfinItem[]) => {
       setApplied = true;
       if (photosRef.current.length > 0) {
-        if (items.filter(isPhoto).some((p) => p.Id === params.photoId)) widenPhotos(items);
+        if (!params.photoId || items.filter(isPhoto).some((p) => p.Id === params.photoId)) widenPhotos(items);
         return;
       }
       if (!applyPhotos(items) && params.photoId) openRequestedAlone();
@@ -246,10 +246,9 @@ export default function PhotoViewerScreen() {
     return () => {
       cancelled = true;
     };
-    // filters is a fresh object per render from the context map; isFiltered + the ids are the
-    // real inputs, and the selection can't change while this pushed screen is on top.
+    // filters is a fresh object per render from the context map.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params.folderId, params.photoId, params.recursive, params.gridOrder, isFiltered]);
+  }, [params.folderId, params.photoId, params.recursive, params.gridOrder, isFiltered, filters.shuffle]);
 
   // Single clock: the countdown drives both the visual bar and the auto-advance
   const callAdvance = useCallback(() => advanceRef.current(), []);

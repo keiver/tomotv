@@ -23,9 +23,10 @@ jest.mock("@/services/macKeyCommands", () => ({ claimMacContextKeys: () => () =>
 jest.mock("@/services/folderContentsCache", () => ({ ...jest.requireActual("@/services/folderContentsCache"), getFolderCache: () => null }));
 let mockShuffle = false;
 let mockFavorite = false;
+let mockSortBy = "SortName";
 jest.mock("@/contexts/LibraryFiltersContext", () => ({
   useLibraryFilters: () => ({
-    getFilters: () => ({ genres: [], artistIds: [], years: [], favorite: mockFavorite, played: false, unplayed: false, shuffle: mockShuffle, sortBy: "SortName", sortOrder: "Ascending" }),
+    getFilters: () => ({ genres: [], artistIds: [], years: [], favorite: mockFavorite, played: false, unplayed: false, shuffle: mockShuffle, sortBy: mockSortBy, sortOrder: "Ascending" }),
   }),
 }));
 jest.mock("@/utils/shuffle", () => ({ shuffled: (items: unknown[]) => [...items].reverse() }));
@@ -66,6 +67,7 @@ beforeEach(() => {
   mockParams = { folderId: "f1", photoId: "p1" };
   mockShuffle = false;
   mockFavorite = false;
+  mockSortBy = "SortName";
   clearFolderContentsCache();
 });
 
@@ -355,5 +357,24 @@ test("a recursive slideshow shuffles its full set", async () => {
   expect(counter(tree)).toContain("Two");
   await act(async () => mockTvHandler?.({ eventType: "right" }));
   expect(counter(tree)).toContain("One");
+  tree.unmount();
+});
+
+test("a late shuffle setting updates a recursive slideshow without changing the displayed photo", async () => {
+  mockSortBy = "DateCreated";
+  mockParams = { folderId: "f1", recursive: "true", slideshow: "true" };
+  let tree!: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    tree = TestRenderer.create(<PhotoViewerScreen />);
+  });
+  expect(counter(tree)).toContain("One");
+  mockShuffle = true;
+  await act(async () => {
+    tree.update(<PhotoViewerScreen />);
+  });
+  expect(counter(tree)).toContain("One");
+  expect(counter(tree)).toMatch(/2\| \/ \|2/);
+  await act(async () => mockTvHandler?.({ eventType: "left" }));
+  expect(counter(tree)).toContain("Two");
   tree.unmount();
 });
