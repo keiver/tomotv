@@ -91,15 +91,27 @@ unsuffix() {
 
 PROJECT_HASH="$(project_hash)"
 PODS_HASH="$(pods_hash)"
-INCREMENTAL=0
-if [ -f "$PROJECT_STAMP" ] && [ "$(cat "$PROJECT_STAMP")" = "$PROJECT_HASH" ] && [ ! -e ios.iphone ] \
+COMPLETE=0
+if [ ! -e ios.iphone ] \
   && [ -d ios/TomoTV-iOS.xcodeproj ] && [ -d ios/Pods/Pods-iOS.xcodeproj ] \
   && [ -d tvos/TomoTV-tvOS.xcodeproj ] && [ -d tvos/Pods/Pods-tvOS.xcodeproj ]; then
+  COMPLETE=1
+fi
+INCREMENTAL=0
+if [ -f "$PROJECT_STAMP" ] && [ "$(cat "$PROJECT_STAMP")" = "$PROJECT_HASH" ] && [ "$COMPLETE" = "1" ]; then
   INCREMENTAL=1
 fi
 RUN_PODS=1
 if [ "$INCREMENTAL" = "1" ] && [ -f "$PODS_STAMP" ] && [ "$(cat "$PODS_STAMP")" = "$PODS_HASH" ]; then
   RUN_PODS=0
+fi
+if [ "${TOMOTV_OFFLINE:-0}" = "1" ] && [ "$RUN_PODS" = "1" ]; then
+  if [ "$COMPLETE" = "1" ]; then
+    echo "prebuild-dual: offline, pod install not run: keeping the existing projects"
+    exit 0
+  fi
+  echo "prebuild-dual: offline, and there are no complete iOS and tvOS projects to keep" >&2
+  exit 1
 fi
 # A run that dies midway leaves no stamps, so the next one starts clean.
 rm -f "$PROJECT_STAMP" "$PODS_STAMP"

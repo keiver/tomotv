@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Clears caches, prebuilds, opens the workspace in Xcode, and starts Metro.
-# Usage: npm run clear [-- --npm] [-- --tv|--ios|--mac]
+# Usage: npm run clear [-- --npm] [-- --offline] [-- --tv|--ios|--mac]
 #   --npm   also nuke node_modules + package-lock.json and reinstall
+#   --offline  keep the existing projects when a pod install is due (all and --mac only)
 #   --tv    prebuild tvOS only (default: all)
 #   --ios   prebuild iOS only (default: all)
 #   --mac   prebuild Mac Catalyst only (default: all)
@@ -14,10 +15,11 @@ PLATFORM="all"
 for arg in "$@"; do
   case "$arg" in
     --npm) NUKE_NPM=1 ;;
+    --offline) export TOMOTV_OFFLINE=1 ;;
     --tv) PLATFORM="tv" ;;
     --ios) PLATFORM="ios" ;;
     --mac) PLATFORM="mac" ;;
-    *) echo "Unknown arg: $arg (supported: --npm, --tv, --ios, --mac)" && exit 1 ;;
+    *) echo "Unknown arg: $arg (supported: --npm, --offline, --tv, --ios, --mac)" && exit 1 ;;
   esac
 done
 bash scripts/check-xcode-tools.sh

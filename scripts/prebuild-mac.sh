@@ -48,6 +48,14 @@ if [ -f macos/.prebuild-inputs ] && [ "$(cat macos/.prebuild-inputs)" = "$PROJEC
   INCREMENTAL=1
   if [ -f macos/.pods-inputs ] && [ "$(cat macos/.pods-inputs)" = "$PODS_HASH" ]; then RUN_PODS=0; fi
 fi
+if [ "${TOMOTV_OFFLINE:-0}" = 1 ] && [ "$RUN_PODS" = 1 ]; then
+  if [ -d macos/TomoTV-macOS.xcodeproj ] && [ -d macos/Pods/Pods-macOS.xcodeproj ]; then
+    echo "prebuild-mac: offline, pod install not run: keeping the existing project"
+    exit 0
+  fi
+  echo "prebuild-mac: offline, and there is no complete Mac project to keep" >&2
+  exit 1
+fi
 rm -f macos/.prebuild-inputs macos/.pods-inputs
 mkdir "$STATE"
 echo "$$" > "$STATE/pid"

@@ -91,6 +91,39 @@ test("all-platform generation runs iOS, Mac, then tvOS on clean and cached runs"
   assertProjects();
 });
 
+test("offline with changed pod inputs runs no prebuild or pod install and keeps the projects", (t) => {
+  const { root, run, events, assertProjects } = fixture(t);
+  const clean = run();
+  assert.equal(clean.status, 0, clean.stderr);
+  fs.writeFileSync(path.join(root, "packages/tomo-engine/ffmpeg-lock.json"), '{"changed":true}\n');
+  const offline = run({ TOMOTV_OFFLINE: "1" });
+  assert.equal(offline.status, 0, offline.stderr);
+  assert.deepEqual(events(), []);
+  assertProjects();
+  const online = run();
+  assert.equal(online.status, 0, online.stderr);
+  assert.deepEqual(events(), ["ios:--no-clean", "ios:pods", "macos:--no-clean", "macos:pods", "tvos:--no-clean", "tvos:pods"]);
+});
+
+test("offline with unchanged inputs updates the projects in place as usual", (t) => {
+  const { run, events, assertProjects } = fixture(t);
+  const clean = run();
+  assert.equal(clean.status, 0, clean.stderr);
+  const offline = run({ TOMOTV_OFFLINE: "1" });
+  assert.equal(offline.status, 0, offline.stderr);
+  assert.deepEqual(events(), ["ios:--no-clean", "macos:--no-clean", "tvos:--no-clean"]);
+  assertProjects();
+});
+
+test("offline with no projects to keep fails before anything is generated", (t) => {
+  const { root, run, events } = fixture(t);
+  const offline = run({ TOMOTV_OFFLINE: "1" });
+  assert.equal(offline.status, 1, offline.stderr);
+  assert.match(offline.stderr, /no complete iOS and tvOS projects to keep/);
+  assert.deepEqual(events(), []);
+  assert.equal(fs.existsSync(path.join(root, "ios")), false);
+});
+
 for (const cached of [false, true]) {
   test(`failed tvOS generation restores iOS and preserves Mac (${cached ? "cached" : "clean"})`, (t) => {
     const { root, run, assertProjects } = fixture(t);
