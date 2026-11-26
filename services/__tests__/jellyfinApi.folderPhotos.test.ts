@@ -82,6 +82,19 @@ describe("fetchFolderPhotos", () => {
     expect(photos.map((p) => p.Id)).toEqual(["mixed-p1", "mixed-p2"]);
   });
 
+  it("with a sort named, asks for the folder's own items in that sort and keeps the server's order", async () => {
+    const same = (id: string, episode: number): JellyfinItem => ({ Id: id, Name: "Same", Type: "Photo", IndexNumber: episode }) as JellyfinItem;
+    serveFolder([same("sorted-p2", 2), same("sorted-p1", 1)]);
+
+    const photos = await fetchFolderPhotos("folder-sorted", { sortBy: "DateCreated", sortOrder: "Descending" });
+
+    const url = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+    expect(url.searchParams.get("SortBy")).toBe("DateCreated");
+    expect(url.searchParams.get("SortOrder")).toBe("Descending");
+    expect(url.searchParams.get("Recursive")).toBe("false");
+    expect(photos.map((p) => p.Id)).toEqual(["sorted-p2", "sorted-p1"]);
+  });
+
   it("stops on a short page rather than asking for one more", async () => {
     serveFolder([photo("short-p1")]);
 

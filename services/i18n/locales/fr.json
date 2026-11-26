@@ -211,6 +211,7 @@
   "filters.unplayed": "Non lu",
   "filters.sort": "Tri",
   "filters.shuffle": "Aléatoire",
+  "filters.reshuffle": "Mélanger à nouveau",
   "sort.name": "Nom",
   "sort.dateAdded": "Date d'ajout",
   "sort.episodeAdded": "Épisode ajouté",

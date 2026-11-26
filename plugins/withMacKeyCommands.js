@@ -11,12 +11,14 @@
  * and ONLY on a Mac: everywhere else it returns super's object untouched, so an
  * iPhone, an iPad and an Apple TV allocate exactly what they allocate today.
  *
- * The controller itself lives in native/ios/MultiAudioResourceLoader/MacKeyCommands.swift,
- * copied and compiled by withMultiAudioResourceLoader.js. Nothing but this override
- * goes into generated code.
+ * The controller itself lives in native/ios/MacKeyCommands, which this plugin also copies
+ * in and compiles. Nothing but this override goes into generated code.
  */
 
 const { withAppDelegate } = require("@expo/config-plugins");
+const { withNativeModuleFiles } = require("./nativeModuleFiles");
+
+const MODULE_FILES = ["MacKeyCommands.swift", "MacKeyCommands.m"];
 
 /** Insertion point: the class the generated file already marks for plugins. */
 const ANCHOR = "class ReactNativeDelegate: ExpoReactNativeFactoryDelegate {";
@@ -40,6 +42,7 @@ const OVERRIDE = `
 `;
 
 function withMacKeyCommands(config) {
+  config = withNativeModuleFiles(config, "MacKeyCommands", MODULE_FILES);
   return withAppDelegate(config, (config) => {
     const { contents, language } = config.modResults;
 
@@ -65,3 +68,4 @@ function withMacKeyCommands(config) {
 }
 
 module.exports = withMacKeyCommands;
+module.exports.MODULE_FILES = MODULE_FILES;

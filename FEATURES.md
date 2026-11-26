@@ -115,7 +115,7 @@ Every feature needs a Jellyfin server. The Notes column says when a feature also
 | Channel wall with live previews                                     | Yes      | Yes          | Yes | Previews can be turned off. An HDHomeRun channel never opens a tuner for one: its card shows the picture from when it was last watched |
 | Multiview: watch up to four live channels in six layouts, uncropped | Yes      | Yes          | Yes | From the Channels bar or a channel's info panel; spots kept per user, a strip of other channels, a programme swapped in as it starts   |
 | Sort channels by number or name                                     | Yes      | Yes          | Yes |                                                                                                                                        |
-| Search inside the channel wall                                      | Yes      | No           | No  | Elsewhere a Search button opens the Search tab                                                                                         |
+| Search inside the channel wall                                      | Yes      | No           | No  |                                                                                                                                        |
 | Favorites, and a Favorites only view                                | Yes      | Yes          | Yes |                                                                                                                                        |
 | Your own channel groups: create, rename, delete                     | Yes      | Yes          | Yes |                                                                                                                                        |
 | Groups from the tuner's playlist                                    | Yes      | Yes          | Yes | M3U tuners on an http or https address                                                                                                 |
@@ -169,9 +169,12 @@ Every feature needs a Jellyfin server. The Notes column says when a feature also
 | Upcoming tracks in the player panel       | Yes      | No           | No  |                                            |
 | Lyrics that follow the song               | Yes      | Yes          | Yes | Pick a line to jump to it. Jellyfin 10.9+  |
 | Missing lyrics found on lrclib.net        | Yes      | Yes          | Yes | Saved to your server when it allows        |
+| Lyrics timed by listening on the device   | Yes      | Yes          | Yes | Needs OS 26 or later; can get words wrong  |
 | Song details: album, artist, disc, track  | Yes      | Yes          | Yes |                                            |
 | Photo viewer and slideshow                | Yes      | Yes          | Yes |                                            |
 | Pinch and double tap to zoom a photo      | No       | Yes          | Yes |                                            |
+| Photos fill the screen or show whole      | Yes      | Yes          | Yes | Pinch or two remote touches; remembered    |
+| Zoom a photo with the remote              | Yes      | No           | No  | Two touches step whole, fill, 2x and 3x    |
 | Photo details: camera, exposure, location | Yes      | Yes          | Yes |                                            |
 | Share a photo                             | No       | Yes          | Yes |                                            |
 | Books: PDF, EPUB, MOBI, AZW, AZW3, PRC    | Yes      | Yes          | Yes | Reading position saved to the server       |

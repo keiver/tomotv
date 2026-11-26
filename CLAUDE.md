@@ -48,13 +48,14 @@ Two npm workspaces (`packages/*` in the root `package.json`, symlinked into node
 - Subtitle search: `services/subtitles/pipeline.ts` `searchSubtitles`, `applyPick`; the sources in order, `services/subtitles/chain.ts` `runChain`; the job list `services/subtitles/jobs.ts` `runJobs`; device copies `services/subtitles/store.ts` `deviceSubtitles`; the server calls `services/jellyfin/subtitleSearch.ts`. Settings `app/subtitle-settings.tsx`; the native panel on every platform `hooks/useSubtitlePanel.ts` over `native/ios/SubtitleSearch`, opened from the info panel and the tvOS player's transport bar.
 - Subtitle timing: the viewer's offset per track `services/subtitles/timing.ts` `subtitleOffsetMs`, `setSubtitleOffsetMs`, carried on the rendition to the engine, which shifts the cues when it serves the track; the tracks a video has `services/subtitles/current.ts` `currentTextSubtitles`; the stepper hook `hooks/useSubtitleTiming.ts` `useSubtitleTiming`, whose `sync` asks the engine to match a track to the audio (`packages/tomo-engine/src/session.ts` `alignSubtitleTiming`) and runs on its own after a pick.
 - Multiview: screen `app/multiview.tsx`, the channel picker `app/multiview-pick.tsx`, the layout picker `app/multiview-layout.tsx` drawing `components/live-tv/multiview-layout-option.tsx`, tiles `components/live-tv/multiview-tile.tsx`; the stored spots `utils/multiviewArrangement.ts` `placeChannel`, `promoteSpot`, `dueQueue`, kept in `services/liveTvPreferences.ts`; the sessions `packages/tomo-live/src/liveTiles.ts` `setLiveTiles`, `takeLiveTile`, `retainLiveTile`; the layouts `packages/tomo-live/src/multiviewLayout.ts` `multiviewCut`, `multiviewSpots` (Apple TV), `multiviewFit` (every other screen), `multiviewChannels`; the wall's list both screens read `hooks/useChannelWall.ts` `useChannelWall`.
-- Tomo-only native modules: `native/ios/AudioQueuePlayer`, `native/ios/BookRenderer`, `native/ios/LyricsListener`, `native/ios/MultiAudioResourceLoader`, `native/ios/SubtitleSearch`, `native/ios/TopShelf`, `native/ios/TopShelfReload`, `native/ios/TunerGroups`. Each is copied in by its `plugins/with*.js` (Top Shelf: `plugins/withTopShelfExtension.js`); Swift tests in `native/ios/Tests/`, SwiftPM `native/ios/Package.swift`.
+- Tomo-only native modules: `native/ios/AudioQueuePlayer`, `native/ios/BookRenderer`, `native/ios/DeviceEnvironment`, `native/ios/FileAttributes`, `native/ios/LyricsListener`, `native/ios/MacKeyCommands`, `native/ios/MultiAudioResourceLoader`, `native/ios/NetworkInfo`, `native/ios/RemoteTouch`, `native/ios/SubtitleSearch`, `native/ios/TopShelf`, `native/ios/TopShelfReload`, `native/ios/TunerGroups`. Each is copied in by its `plugins/with*.js` (Top Shelf: `plugins/withTopShelfExtension.js`); Swift tests in `native/ios/Tests/`, SwiftPM `native/ios/Package.swift`.
+- One native module, one folder, one plugin: `native/ios/CLAUDE.md`. Never add a file to another module's folder or plugin list.
 - Edit native sources in `packages/*/ios/` and `native/`, and project configuration in `plugins/` and `scripts/`, never the generated `ios/`, `macos/`, `tvos/` or `android/`.
 
 ## Before you touch X, read Y
 
 - A playback lane, the engine, a codec, a transcode: `memories/CLAUDE-playback-engine.md`
-- Native Swift, a native module: `memories/CLAUDE-development.md`
+- Native Swift, a native module: `native/ios/CLAUDE.md`, then `memories/CLAUDE-development.md`
 - Tiers, ABR, the gateway, link measurement: `memories/CLAUDE-slipstream.md`
 - Audio track switching: `memories/CLAUDE-multi-audio.md`
 - A Jellyfin call: `memories/CLAUDE-api-reference.md`, then <https://api.jellyfin.org/openapi/jellyfin-openapi-stable.json>
@@ -73,7 +74,7 @@ Two npm workspaces (`packages/*` in the root `package.json`, symlinked into node
 - Setup: `memories/CLAUDE-development.md`
 - Icons, Top Shelf art: `memories/CLAUDE-tvos-icons.md`
 - App Store copy, screenshots, naming, review notes, What's New: `memories/CLAUDE-apple-store-metadata.md` (its decisions of record come first)
-- Roadmap or competitors: `memories/CLAUDE-roadmap.md`
+- Roadmap: `memories/CLAUDE-roadmap.md`
 - Reading a screenshot or image: `memories/CLAUDE-image-analysis.md`
 - "Does Tomo support X?": `FEATURES.md`
 - Signing, archive, Mac captures: `docs/RELEASING.md`
@@ -114,8 +115,6 @@ Two npm workspaces (`packages/*` in the root `package.json`, symlinked into node
 - HTTP is allowed to all networks (HTTPS recommended for public servers: HTTP sends credentials in plaintext). Only Jellyfin servers are supported.
 
 ## Working Rules
-
-Add 10 blank lines BEFORE and AFTER response text.
 
 - A review reply is the verdict: "Nothing found" or the defects, one line each with file:line. A full review reads every changed file, checks `git log -S` before calling something a regression and whether a test asserts it before calling it a bug. The user's tested design choices are not bugs.
 - Plain words, no jargon, in chat, test names, comments, commits and docs. No coined or pretty phrasing ("owed", "landing"). A test name says plainly what it checks.

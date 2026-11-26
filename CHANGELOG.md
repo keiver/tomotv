@@ -2,6 +2,26 @@
 
 All notable changes to Tomo TV are documented here.
 
+## [2.2.16]
+
+### Added
+
+- A photo rests whole or filling the screen, on every platform. The choice is kept on the device
+  - iPhone, iPad and Mac: pinch out on a whole photo until it fills the screen, pinch in on a filled one to see it whole.
+  - Apple TV: two touches on the remote's surface, with no click, step whole, fill, 2x and 3x, and the arrows move a zoomed photo. The touches are read by a new native module, `RemoteTouch`.
+- Reshuffle: on the filters page the Shuffle chip reads Reshuffle while Shuffle is on, and a press draws a new order. Picking a sort or Clear All turns Shuffle off
+
+### Fixed
+
+- Photos: with Shuffle on, the viewer and the slideshow follow the grid's order and read on through the rest of the folder (issue 120)
+- A shuffled folder lists every item once. It reads sorted pages of 60 in a page order drawn once on the device and mixes each page on the device. Measured on Jellyfin 12.2.0 with folders of 94, 88 and 48 items: every item once, 0 repeats
+- Open and Slideshow from the info panel follow the library's saved sort and Shuffle
+- With only a changed sort, the photo viewer steps through the folder's own photos in that sort
+
+### Changed
+
+- Each native module has its own folder under `native/ios/` and its own plugin: `NetworkInfo`, `DeviceEnvironment`, `MacKeyCommands` and `FileAttributes` moved out of `MultiAudioResourceLoader`
+
 ## [2.2.15]
 
 ### Added

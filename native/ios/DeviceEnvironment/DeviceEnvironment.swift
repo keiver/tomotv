@@ -5,8 +5,7 @@
 //  What machine the app is on, for utils/hostEnvironment.ts: whether it is a Mac, which
 //  nothing in React Native can answer, and the hardware the diagnostics log names.
 //
-//  Lives alongside MultiAudioResourceLoader because the target has a single
-//  SWIFT_OBJC_BRIDGING_HEADER, configured by plugins/withMultiAudioResourceLoader.js.
+//  Copied in by plugins/withDeviceEnvironment.js.
 //
 
 import Foundation

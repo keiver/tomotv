@@ -984,7 +984,7 @@ Not the cause, though all were plausible and checked first: ATS was correct (`NS
 
 - Split authority from path before appending ports, and order the 443/80 candidates first when a path is present (a subpath implies a proxy).
 - `ProbeError` carries `url` + `reason` (`timeout` / `unreachable` / `not_jellyfin` / `http_status`) while keeping the existing `message` strings, so the failure list is specific without breaking callers or tests.
-- Added `Scan Network`: an HTTP sweep of the local subnet, with the device's own IP and netmask from a `getifaddrs` Swift module (`native/ios/MultiAudioResourceLoader/NetworkInfo.swift`).
+- Added `Scan Network`: an HTTP sweep of the local subnet, with the device's own IP and netmask from a `getifaddrs` Swift module (`native/ios/NetworkInfo/NetworkInfo.swift`).
 - Chose the sweep over Jellyfin's UDP 7359 broadcast: broadcast on tvOS needs `com.apple.developer.networking.multicast`, which requires Apple approval and would block shipping.
 
 ### The /23 That Broke the First Cut
@@ -1011,7 +1011,7 @@ Server side was verified clean and is worth ruling out first in any repeat: `lso
 
 - `services/jellyfinApi.ts` (`buildServerUrlCandidates`, `checkServerInfo`, `resolveServerConnection`, `ProbeError`)
 - `services/networkDiscovery.ts` (sweep, `buildSweepHosts`, `subnetMismatchHint`)
-- `native/ios/MultiAudioResourceLoader/NetworkInfo.swift` (+ `.m`, and `plugins/withMultiAudioResourceLoader.js` file list)
+- `native/ios/NetworkInfo/NetworkInfo.swift` (+ `.m`, and `plugins/withNetworkInfo.js`)
 - `hooks/useNetworkScan.ts`, `components/settings/NotConnectedSection.tsx`, `components/settings/ServerRow.tsx`
 
 ### Status
@@ -2486,8 +2486,8 @@ Neither can be inferred from JS logs.
 
 - `components/player-host.tsx` (parked style, `PRESENTS_NATIVE_FULLSCREEN`)
 - `hooks/useVideoPlayback.ts` (`startPositionMs`, skipped post-load seek)
-- `utils/hostEnvironment.ts`, `native/ios/MultiAudioResourceLoader/DeviceEnvironment.*`
-- `native/ios/MultiAudioResourceLoader/MacKeyCommands.*`, `plugins/withMacKeyCommands.js`
+- `utils/hostEnvironment.ts`, `native/ios/DeviceEnvironment/DeviceEnvironment.*`
+- `native/ios/MacKeyCommands/MacKeyCommands.*`, `plugins/withMacKeyCommands.js`
 - `services/macKeyCommands.ts`, `components/mac-key-commands.tsx`
 
 ## A Cold Launch Into /player Requests a Session Nobody Is Listening For (August 2026)
@@ -3143,7 +3143,7 @@ entirely; touch keeps the drag, the remote and the Mac's arrow keys keep their o
 
 ### Files Affected
 
-- `native/ios/MultiAudioResourceLoader/MacKeyCommands.swift`
+- `native/ios/MacKeyCommands/MacKeyCommands.swift`
 - `components/mac-key-commands.tsx`
 - `contexts/PlayerSessionContext.tsx`
 - `app/photo-viewer.tsx`

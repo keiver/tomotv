@@ -91,6 +91,61 @@ test("all-platform generation runs iOS, Mac, then tvOS on clean and cached runs"
   assertProjects();
 });
 
+test("offline with changed pod inputs runs no prebuild or pod install and keeps the projects", (t) => {
+  const { root, run, events, assertProjects } = fixture(t);
+  const clean = run();
+  assert.equal(clean.status, 0, clean.stderr);
+  fs.writeFileSync(path.join(root, "packages/tomo-engine/ffmpeg-lock.json"), '{"changed":true}\n');
+  const offline = run({ TOMOTV_OFFLINE: "1" });
+  assert.equal(offline.status, 0, offline.stderr);
+  assert.deepEqual(events(), []);
+  assertProjects();
+  const online = run();
+  assert.equal(online.status, 0, online.stderr);
+  assert.deepEqual(events(), ["ios:--no-clean", "ios:pods", "macos:--no-clean", "macos:pods", "tvos:--no-clean", "tvos:pods"]);
+});
+
+test("offline with unchanged inputs updates the projects in place as usual", (t) => {
+  const { run, events, assertProjects } = fixture(t);
+  const clean = run();
+  assert.equal(clean.status, 0, clean.stderr);
+  const offline = run({ TOMOTV_OFFLINE: "1" });
+  assert.equal(offline.status, 0, offline.stderr);
+  assert.deepEqual(events(), ["ios:--no-clean", "macos:--no-clean", "tvos:--no-clean"]);
+  assertProjects();
+});
+
+test("offline with no projects to keep fails before anything is generated", (t) => {
+  const { root, run, events } = fixture(t);
+  const offline = run({ TOMOTV_OFFLINE: "1" });
+  assert.equal(offline.status, 1, offline.stderr);
+  assert.match(offline.stderr, /no complete iOS and tvOS projects to keep/);
+  assert.deepEqual(events(), []);
+  assert.equal(fs.existsSync(path.join(root, "ios")), false);
+});
+
+for (const flag of ["--tv", "--ios", "--npm"]) {
+  test(`clear --offline ${flag} is refused and removes nothing`, (t) => {
+    const { root } = fixture(t);
+    fs.copyFileSync("scripts/clear.sh", path.join(root, "scripts/clear.sh"));
+    fs.writeFileSync(path.join(root, "bin/open"), "#!/bin/bash\nexit 0\n", { mode: 0o755 });
+    const kept = ["ios/kept", "node_modules/kept", ".expo/kept", "package-lock.json"];
+    for (const file of kept) {
+      fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+      fs.writeFileSync(path.join(root, file), "{}\n");
+    }
+    const result = spawnSync("bash", ["scripts/clear.sh", "--offline", flag], {
+      cwd: root,
+      env: { ...process.env, PATH: `${root}/bin:${process.env.PATH}`, TOMOTV_OFFLINE: "" },
+      encoding: "utf8",
+      timeout: 15000,
+    });
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, new RegExp(`--offline cannot be combined with ${flag}`));
+    for (const file of kept) assert.ok(fs.existsSync(path.join(root, file)), file);
+  });
+}
+
 for (const cached of [false, true]) {
   test(`failed tvOS generation restores iOS and preserves Mac (${cached ? "cached" : "clean"})`, (t) => {
     const { root, run, assertProjects } = fixture(t);

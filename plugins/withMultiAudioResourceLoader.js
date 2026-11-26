@@ -24,15 +24,7 @@ const MODULE_FILES = [
   "RNVideoPlugin.swift",
   "HLSManifestParser.swift",
   "HLSManifestGenerator.swift",
-  "NetworkInfo.swift",
-  "DeviceEnvironment.swift",
-  "MacKeyCommands.swift",
-  "FileAttributes.swift",
   "MultiAudioResourceLoader.m",
-  "NetworkInfo.m",
-  "DeviceEnvironment.m",
-  "MacKeyCommands.m",
-  "FileAttributes.m",
   "MultiAudioResourceLoader-Bridging-Header.h",
 ];
 
@@ -127,7 +119,7 @@ function withMultiAudioResourceLoader(config) {
       }
       if (config.buildSettings) {
         // The TopShelf extension target (plugins/withTopShelfExtension.js) is pure Swift with
-        // no React dependency — the app's bridging header would break its build (React headers
+        // no React dependency: the app's bridging header would break its build (React headers
         // aren't in its search paths). Order-independent guard: identify its configs by plist.
         if (String(config.buildSettings.INFOPLIST_FILE || "").includes("TopShelf")) {
           console.log(`[MultiAudioResourceLoader] Skipping bridging header for extension config ${config.name || "config"}`);
@@ -153,3 +145,4 @@ function withMultiAudioResourceLoader(config) {
 }
 
 module.exports = withMultiAudioResourceLoader;
+module.exports.MODULE_FILES = MODULE_FILES;

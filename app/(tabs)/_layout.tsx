@@ -41,12 +41,12 @@ const DOWNLOADS_HIDDEN = Platform.isTV;
 // The bar's background, and the one thing that decides whether it is glass. react-native-screens
 // exposes no UIGlassEffect: blurEffect maps only to UIBlurEffectStyle, so no string asks for Liquid
 // Glass. On OS 26 UIKit already draws the bar as glass, and the appearance only ever takes that
-// away — RNSTabsScreenComponentView.mm:84,284 starts from [UITabBarAppearance new] (Apple's
+// away: RNSTabsScreenComponentView.mm:84,284 starts from [UITabBarAppearance new] (Apple's
 // configureWithDefaultBackground), and "systemDefault" is the single blurEffect value the
 // coordinator steps over instead of assigning (RNSTabBarAppearanceCoordinator.mm:164-166). Any
 // material value, or any backgroundColor, paints over the glass, so the glass branch passes neither.
 //
-// Below 26 that same default resolves to the legacy translucent blur — blurEffect
+// Below 26 that same default resolves to the legacy translucent blur, blurEffect
 // "systemChromeMaterial" in everything but name, which is what 696abec removed: grid content rides
 // up through the bar and collides with the labels. Those systems keep the opaque recipe (Apple's
 // configureWithOpaqueBackground, expressed here as a nil backgroundEffect plus an opaque colour on
@@ -61,7 +61,7 @@ const SUPPORTS_LIQUID_GLASS = Number.parseInt(String(Platform.Version), 10) >= 2
 const TAB_BAR_BACKGROUND = SUPPORTS_LIQUID_GLASS ? ({ blurEffect: "systemDefault" } as const) : ({ blurEffect: "none", backgroundColor: COLORS.BACKGROUND } as const);
 
 // Triggers must be fully static. Flipping a trigger's `hidden` at runtime drops the route from
-// the navigator and remounts everything — on tvOS the remounted screens render with a stale,
+// the navigator and remounts everything: on tvOS the remounted screens render with a stale,
 // inset frame (border space around the content until relaunch). Flipping `disabled` is no better:
 // tvOS selects the tab via focus first, then ejects back to the previous tab. The Search screen
 // handles the logged-out state itself (it mirrors the Library tab's disconnected view).
@@ -70,13 +70,13 @@ const TAB_BAR_BACKGROUND = SUPPORTS_LIQUID_GLASS ? ({ blurEffect: "systemDefault
 // that makes the two appearances match. UIKit uses standardAppearance once content scrolls under
 // the bar and scrollEdgeAppearance while the scroll view sits at its edge; without this flag
 // expo-router hardcodes the edge one fully transparent (blurEffect 'none', backgroundColor null,
-// shadowColor transparent — build/native-tabs/appearance.ios.js:38-52). On 26 that nils the
+// shadowColor transparent; build/native-tabs/appearance.ios.js:38-52). On 26 that nils the
 // backgroundEffect UIKit was drawing the glass with, below 26 it drops the opaque fill, and at rest
 // is exactly when content sits under the bar with nothing behind it.
 //
 // Both appearances apply on tvOS: the coordinator assigns them unguarded by TARGET_OS_TV.
 // The SELECTED item's colour, brand gold in place of the system blue. Its JSDoc says
-// android-only; the code says otherwise — the navigator feeds it to both selectedIconColor and
+// android-only; the code says otherwise: the navigator feeds it to both selectedIconColor and
 // selectedLabelStyle.color (NativeBottomTabsNavigator.js:60-77), and the iOS appearance builder
 // puts those on the selected state as tabBarItemIconColor (appearance.ios.js:31-33,137). Item
 // colours only: the background branches above, glass included, are untouched.
@@ -139,11 +139,6 @@ export default function TabLayout() {
         <Label>{t("tab.downloads")}</Label>
       </NativeTabs.Trigger>
 
-      {/* Help was a fourth tab here. No client in the category ships one — Infuse, Plex, Max and
-          Kodi all keep about/info inside Settings, Netflix buries help behind the profile menu, and
-          Apple's own tab-bar guidance lists content destinations, not About. The identity details
-          it carried now live on the Settings screen; the license texts it linked to are reachable
-          from there too. */}
       <NativeTabs.Trigger name="settings">
         <Icon sf="gearshape.fill" />
         <Label>{t("tab.settings")}</Label>

@@ -5,8 +5,7 @@
 //  Reports the device's own IPv4 address and netmask so JavaScript can derive
 //  the local subnet and sweep it for Jellyfin servers.
 //
-//  Lives alongside MultiAudioResourceLoader because the target has a single
-//  SWIFT_OBJC_BRIDGING_HEADER, configured by plugins/withMultiAudioResourceLoader.js.
+//  Copied in by plugins/withNetworkInfo.js.
 //
 
 import Foundation
@@ -22,7 +21,7 @@ private struct PortTarget {
 /// Bounded-concurrency TCP connect sweep.
 ///
 /// Exists because an HTTP probe cannot tell "no host at this address" apart from
-/// "the host is there and the server is still thinking" — both just run out the
+/// "the host is there and the server is still thinking": both just run out the
 /// clock, so a slow server is written off as an empty address. The TCP handshake
 /// separates them: it is answered by the peer's kernel, so it lands in
 /// milliseconds even when the server behind it is saturated or cold. Callers use

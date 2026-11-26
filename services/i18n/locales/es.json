@@ -211,6 +211,7 @@
   "filters.unplayed": "No visto",
   "filters.sort": "Orden",
   "filters.shuffle": "Aleatorio",
+  "filters.reshuffle": "Mezclar de nuevo",
   "sort.name": "Nombre",
   "sort.dateAdded": "Fecha de adición",
   "sort.episodeAdded": "Episodio añadido",

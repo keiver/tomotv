@@ -125,6 +125,13 @@ describe("Video info: Open on a photo", () => {
     expect(mockPush).toHaveBeenCalledWith({ pathname: "/photo-viewer", params: { photoId: "photo-1", folderId: "browsed-folder" } });
   });
 
+  it("names the library the folder screen was listed under", async () => {
+    mockParams.mockReturnValue({ videoId: "photo-1", inFolderId: "browsed-folder", inLibraryId: "library-1" });
+    await mountAndOpen();
+
+    expect(mockPush).toHaveBeenCalledWith({ pathname: "/photo-viewer", params: { photoId: "photo-1", folderId: "browsed-folder", libraryId: "library-1" } });
+  });
+
   it("still opens the photo when no parent can be resolved at all", async () => {
     mockFolderPath.mockResolvedValue([]);
     await mountAndOpen();

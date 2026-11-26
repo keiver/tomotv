@@ -57,6 +57,7 @@ const section = (file: string, heading: string) => read(file).split(`\n## ${head
 
 const INSTRUCTION_TEXTS: [string, string][] = [
   ["CLAUDE.md", doc],
+  ["native/ios/CLAUDE.md", read("native/ios/CLAUDE.md")],
   ["memories/CLAUDE-debugging.md", read("memories/CLAUDE-debugging.md")],
   ["memories/CLAUDE-playback-engine.md Package layout", section("memories/CLAUDE-playback-engine.md", "Package layout")],
 ];

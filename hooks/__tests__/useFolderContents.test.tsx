@@ -7,7 +7,7 @@
 import React, { forwardRef, useImperativeHandle } from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { useFolderContents } from "@/hooks/useFolderContents";
-import { clearFolderContentsCache } from "@/services/folderContentsCache";
+import { clearFolderContentsCache, requestReshuffle } from "@/services/folderContentsCache";
 import { addFavoriteIds, clearFavoriteIdsCache } from "@/services/favoritesCache";
 import { clearPlayedCache, markPlayed } from "@/services/playedCache";
 import { EMPTY_FILTERS, JellyfinItem, LibraryFilters } from "@/types/jellyfin";
@@ -17,6 +17,7 @@ import {
   fetchFavoriteIds,
   fetchFolderContents,
   fetchPlaylistContents,
+  fetchShuffledPage,
   fetchUserViews,
   fetchVideoDetails,
   invalidateFolderReads,
@@ -36,6 +37,7 @@ jest.mock("@/utils/logger", () => ({ logger: { error: jest.fn(), info: jest.fn()
 jest.mock("@/services/jellyfinApi", () => ({
   fetchUserViews: jest.fn(),
   fetchFolderContents: jest.fn(),
+  fetchShuffledPage: jest.fn(),
   fetchPlaylistContents: jest.fn(),
   fetchFavoriteIds: jest.fn(() => Promise.resolve(new Set<string>())),
   fetchVideoDetails: jest.fn(() => Promise.resolve(null)),
@@ -52,6 +54,7 @@ jest.mock("@/services/jellyfinApi", () => ({
 
 const mockUserViews = fetchUserViews as jest.Mock;
 const mockFolder = fetchFolderContents as jest.Mock;
+const mockShuffledPage = fetchShuffledPage as jest.Mock;
 const mockPlaylist = fetchPlaylistContents as jest.Mock;
 const mockFavoriteIds = fetchFavoriteIds as jest.Mock;
 const mockSubscribePlayed = subscribePlayedChange as jest.Mock;
@@ -711,6 +714,29 @@ describe("useFolderContents", () => {
       expect(painted.every((r) => !r.isLoading)).toBe(true);
     });
 
+    it("in a shuffled folder, reads the next pages by number until the target is held", async () => {
+      const shuffle = { ...EMPTY_FILTERS, shuffle: true };
+      mockShuffledPage.mockReset();
+      mockShuffledPage
+        .mockResolvedValueOnce({ items: items("a", "b"), total: 600 })
+        .mockResolvedValueOnce({ items: items("d"), total: 600 })
+        .mockResolvedValueOnce({ items: items("c"), total: 600 });
+      const ref = React.createRef<HookRef>();
+      const Focused = forwardRef<HookRef>((_, r) => {
+        const result = useFolderContents("folder-1", undefined, shuffle, "c");
+        useImperativeHandle(r, () => ({ get: () => result }), [result]);
+        return null;
+      });
+      Focused.displayName = "Focused";
+      await act(async () => {
+        TestRenderer.create(<Focused ref={ref} />);
+      });
+
+      expect(mockShuffledPage.mock.calls.map((call) => call[2])).toEqual([0, 1, 2]);
+      expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["a", "b", "d", "c"]);
+      expect(ref.current!.get().hasMoreResults).toBe(true);
+    });
+
     it("keeps paging from where the walk stopped", async () => {
       mockFolder
         .mockResolvedValueOnce({ items: items("a", "b"), total: 6 })
@@ -980,7 +1006,7 @@ describe("useFolderContents", () => {
     });
 
     it("leaves a shuffled view random", async () => {
-      mockFolder.mockResolvedValue({ items: [episode(2), episode(1)], total: 2 });
+      mockShuffledPage.mockResolvedValueOnce({ items: [episode(2), episode(1)], total: 2 });
       const ref = React.createRef<HookRef>();
       await act(async () => {
         TestRenderer.create(<Harness ref={ref} folderId="folder-1" filters={{ ...EMPTY_FILTERS, shuffle: true }} />);
@@ -1086,11 +1112,47 @@ describe("useFolderContents", () => {
       expect(firstFrame[0]).toEqual(["plain"]);
     });
 
-    it("drops repeated ids across shuffled pages (SortBy=Random reshuffles per request)", async () => {
+    it("a shuffled folder reads its pages by number, one per load, and never the plain listing", async () => {
       const shuffle = { ...EMPTY_FILTERS, shuffle: true };
-      mockFolder.mockResolvedValueOnce({ items: items("a", "b"), total: 4 }).mockResolvedValueOnce({ items: items("b", "c"), total: 4 });
+      mockShuffledPage.mockReset();
+      mockShuffledPage
+        .mockResolvedValueOnce({ items: items("a", "b"), total: 130 })
+        .mockResolvedValueOnce({ items: items("c"), total: 130 })
+        .mockResolvedValueOnce({ items: items("d"), total: 130 });
+      const { ref } = await mountWithFilters("folder-1", shuffle);
+      expect(ref.current!.get().hasMoreResults).toBe(true);
+
+      await act(async () => {
+        ref.current!.get().loadMore();
+      });
+      expect(ref.current!.get().hasMoreResults).toBe(true);
+      await act(async () => {
+        ref.current!.get().loadMore();
+      });
+
+      expect(mockFolder).not.toHaveBeenCalled();
+      expect(mockShuffledPage.mock.calls).toEqual([
+        ["folder-1", shuffle, 0],
+        ["folder-1", shuffle, 1],
+        ["folder-1", shuffle, 2],
+      ]);
+      expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["a", "b", "c", "d"]);
+      expect(ref.current!.get().hasMoreResults).toBe(false);
+    });
+
+    it("a shuffled page that repeats held items adds only the new ones and does not end the folder", async () => {
+      const shuffle = { ...EMPTY_FILTERS, shuffle: true };
+      mockShuffledPage.mockReset();
+      mockShuffledPage
+        .mockResolvedValueOnce({ items: items("a", "b"), total: 130 })
+        .mockResolvedValueOnce({ items: items("a", "b"), total: 130 })
+        .mockResolvedValueOnce({ items: items("b", "c"), total: 130 });
       const { ref } = await mountWithFilters("folder-1", shuffle);
 
+      await act(async () => {
+        ref.current!.get().loadMore();
+      });
+      expect(ref.current!.get().hasMoreResults).toBe(true);
       await act(async () => {
         ref.current!.get().loadMore();
       });
@@ -1098,18 +1160,50 @@ describe("useFolderContents", () => {
       expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["a", "b", "c"]);
     });
 
-    it("halts pagination when a shuffled page is all duplicates", async () => {
+    it("a reshuffle request reads a shuffled folder's first page again and replaces the list", async () => {
       const shuffle = { ...EMPTY_FILTERS, shuffle: true };
-      mockFolder.mockResolvedValueOnce({ items: items("a", "b"), total: 6 }).mockResolvedValueOnce({ items: items("a", "b"), total: 6 });
-      const { ref } = await mountWithFilters("folder-1", shuffle);
-      expect(ref.current!.get().hasMoreResults).toBe(true);
+      mockShuffledPage.mockReset();
+      mockShuffledPage.mockResolvedValue({ items: items("a", "b"), total: 2 });
+      const { ref } = await mountWithFilters("folder-9", shuffle);
+      expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["a", "b"]);
+      mockShuffledPage.mockResolvedValue({ items: items("b", "a"), total: 2 });
 
+      await act(async () => requestReshuffle());
+
+      expect(mockShuffledPage.mock.calls.filter((call) => call[0] === "folder-9")).toEqual([
+        ["folder-9", shuffle, 0],
+        ["folder-9", shuffle, 0],
+      ]);
+      expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["b", "a"]);
+    });
+
+    it("a reshuffle request reads nothing in a folder that is not shuffled", async () => {
+      mockShuffledPage.mockReset();
+      mockShuffledPage.mockResolvedValue({ items: [], total: 0 });
+      mockFolder.mockResolvedValue({ items: items("a"), total: 1 });
+      await mountWithFilters("folder-8", { ...EMPTY_FILTERS, sortBy: "DateCreated" });
+      const reads = mockFolder.mock.calls.length;
+
+      await act(async () => requestReshuffle());
+
+      expect(mockFolder).toHaveBeenCalledTimes(reads);
+      expect(mockShuffledPage.mock.calls.filter((call) => call[0] === "folder-8")).toEqual([]);
+    });
+
+    it("a delete does not move a shuffled folder's next page number", async () => {
+      const shuffle = { ...EMPTY_FILTERS, shuffle: true };
+      mockShuffledPage.mockReset();
+      mockShuffledPage.mockResolvedValueOnce({ items: items("a", "b"), total: 100 }).mockResolvedValueOnce({ items: items("c"), total: 99 });
+      const { ref } = await mountWithFilters("folder-1", shuffle);
+      const removed = (subscribeItemRemoved as jest.Mock).mock.calls.at(-1)![0] as (itemId: string) => void;
+
+      await act(async () => removed("a"));
       await act(async () => {
         ref.current!.get().loadMore();
       });
 
-      expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["a", "b"]);
-      expect(ref.current!.get().hasMoreResults).toBe(false);
+      expect(mockShuffledPage).toHaveBeenLastCalledWith("folder-1", shuffle, 1);
+      expect(ref.current!.get().items.map((i) => i.Id)).toEqual(["b", "c"]);
     });
   });
 

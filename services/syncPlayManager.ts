@@ -7,7 +7,7 @@
  * the broadcast is the single source of truth. `expectedPaused` marks the player changes we
  * caused so they are not echoed back as requests.
  *
- * Traps this guards, all from Moonfin's native-player implementation:
+ * Traps this guards:
  *  - A Ready sent while the group is already Playing is answered with an Unpause echo at the
  *    same When/Position; acting on it seeks, the seek raises a buffering edge, that sends
  *    another Ready. `lastSyncPoint` equality makes the echo a confirmation.

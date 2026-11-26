@@ -1,6 +1,6 @@
 import { CACHE } from "@/constants/app";
 import { useAppStateRefresh } from "@/hooks/useAppStateRefresh";
-import { deleteFolderCache, FolderCacheEntry, getFolderCache, setFolderCache } from "@/services/folderContentsCache";
+import { deleteFolderCache, FolderCacheEntry, getFolderCache, setFolderCache, subscribeReshuffle } from "@/services/folderContentsCache";
 import { getFavoriteIds, isFavoritesLoaded } from "@/services/favoritesCache";
 import { getPlayedOverrides, playedOverride } from "@/services/playedCache";
 import {
@@ -8,6 +8,7 @@ import {
   fetchFavoriteIds,
   fetchFolderContents,
   fetchPlaylistContents,
+  fetchShuffledPage,
   fetchUserViews,
   fetchVideoDetails,
   invalidateFolderReads,
@@ -62,7 +63,7 @@ interface FolderContentsState {
 }
 
 /**
- * Set each item's favorite state AUTHORITATIVELY from the favorites cache — the single source of
+ * Set each item's favorite state AUTHORITATIVELY from the favorites cache: the single source of
  * truth, seeded from the reliable recursive Filters=IsFavorite. The non-recursive browse's per-item
  * UserData.IsFavorite is stale after a change (the server leaves it set on a just-unfavorited item),
  * so we override it in BOTH directions. Until the set has loaded, show no hearts so a stale `true`
@@ -113,6 +114,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   const cacheKey = (folderId ?? "root") + (activeFilters && !narrowed ? `:${activeFilters.sortBy}:${activeFilters.sortOrder}` : "");
   // The server's order stands when it is not by name: the name-tie pass would reorder it.
   const keepServerOrder = !!activeFilters && (activeFilters.shuffle || activeFilters.sortBy !== "SortName");
+  const shuffledView = !!folderId && !!activeFilters?.shuffle && type !== "playlist" && type !== "livetv";
 
   // Seed synchronously from the folder cache ONCE, at mount, so a fresh revisit paints its content on
   // the first frame with no spinner; the first-page effect below then reads the server behind it.
@@ -152,7 +154,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   const hasLoadErrorRef = useRef(false);
   // Monotonic id for first-page loads (mount + refresh + foreground). Only the latest one applies.
   const requestIdRef = useRef(0);
-  // Ids of loaded items, for de-duplicating shuffled pages (SortBy=Random reshuffles per request).
+  // Ids of loaded items, for de-duplicating shuffled pages.
   const seenIdsRef = useRef<Set<string>>(new Set(seed ? seed.items.map((item) => item.Id) : []));
   // A delete moves the server's positions under a page: every one sent or landing bumps this, and a
   // page asked for while one is in flight waits for it to settle.
@@ -179,6 +181,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
       if (type === "playlist") return fetchPlaylistContents(folderId, { limit, startIndex });
       // The Live TV view is not a folder: its channels page from /LiveTv/Channels, in channel order.
       if (type === "livetv") return fetchChannels({ limit, startIndex });
+      if (activeFilters?.shuffle) return fetchShuffledPage(folderId, activeFilters, startIndex / PAGE_SIZE);
       return fetchFolderContents(folderId, { limit, startIndex, filters: activeFilters });
     },
     [folderId, type, activeFilters],
@@ -194,7 +197,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
       const first = await fetchPage(0, limit);
       let loaded = first.items;
       let total = first.total;
-      let nextStartIndex = first.items.length;
+      let nextStartIndex = shuffledView ? PAGE_SIZE : first.items.length;
       let lastPageLength = first.items.length;
       let pageSize = limit;
       // "Show In Folder": read on until the target is in hand, so the grid mounts once, already holding it.
@@ -216,14 +219,14 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
           unseen.forEach((item) => seen.add(item.Id));
           loaded = [...loaded, ...unseen];
           total = more.total;
-          nextStartIndex += more.items.length;
+          nextStartIndex += shuffledView ? PAGE_SIZE : more.items.length;
           lastPageLength = more.items.length;
           pageSize = PAGE_SIZE;
         }
       }
       return { items: loaded, total, nextStartIndex, lastPageLength, pageSize };
     },
-    [cacheKey, folderId, fetchPage, focusId, readPastWatched],
+    [cacheKey, folderId, fetchPage, focusId, readPastWatched, shuffledView],
   );
 
   // The server's SortName order has no tie-break past Name; same-named episodes come back in row
@@ -364,17 +367,15 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
         return;
       }
       const { items: more, total } = page;
-      // SortBy=Random reshuffles on every request, so later pages can repeat earlier items.
-      // Drop the repeats; an all-duplicate page means the shuffled set is exhausted.
-      const fresh = activeFilters?.shuffle ? more.filter((item) => !seenIdsRef.current.has(item.Id)) : more;
-      if (fresh.length === 0) {
+      const fresh = shuffledView ? more.filter((item) => !seenIdsRef.current.has(item.Id)) : more;
+      if (fresh.length === 0 && !shuffledView) {
         setHasMoreResults(false);
         return;
       }
       fresh.forEach((item) => seenIdsRef.current.add(item.Id));
       rawItemsRef.current = [...rawItemsRef.current, ...fresh];
       setItems((prev) => orderTies([...prev, ...annotateFavorites(annotateWithPlayed(fresh))]));
-      nextStartIndex.current += more.length;
+      nextStartIndex.current += shuffledView ? PAGE_SIZE : more.length;
       totalRef.current = total;
       setHasMoreResults(hasMorePages(nextStartIndex.current, more.length, total));
     } catch (err) {
@@ -385,22 +386,27 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
       if (requestId === requestIdRef.current) isFetchingRef.current = false;
       setIsLoadingMore(false);
     }
-  }, [cacheKey, fetchPage, hasMoreResults, activeFilters, annotateFavorites, orderTies]);
+  }, [cacheKey, fetchPage, hasMoreResults, shuffledView, annotateFavorites, orderTies]);
 
   const refresh = useCallback(() => {
     deleteFolderCache(cacheKey);
     runFirstPage(PAGE_SIZE, false);
   }, [cacheKey, runFirstPage]);
 
+  useEffect(() => {
+    if (!shuffledView) return;
+    return subscribeReshuffle(refresh);
+  }, [shuffledView, refresh]);
+
   // Read every loaded item again in one request and swap in what changed, so the viewer keeps their
-  // place. A shuffled view is left alone: the server would deal it a new order under the viewer.
+  // place. A shuffled view is left alone: a first-page read draws it a new order under the viewer.
   const revalidate = useCallback(() => {
     if (activeFilters?.shuffle) return;
     runFirstPage(Math.max(PAGE_SIZE, nextStartIndex.current), true);
   }, [activeFilters, runFirstPage]);
 
   // Re-derive hearts on the current list whenever any favorite changes (markFavorite has already
-  // updated the authoritative set, so annotate reflects it instantly — no refetch). In the Favorites
+  // updated the authoritative set, so annotate reflects it instantly, no refetch). In the Favorites
   // view an unfavorited item no longer belongs, so drop it; everywhere else annotate flips its heart.
   useEffect(() => {
     return subscribeFavoriteChange((itemId, favorite) => {
@@ -409,7 +415,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   }, [activeFilters, annotateFavorites]);
 
   // Same for played changes (markPlayed/markItemPlayed have already updated the override
-  // map, so annotate reflects it instantly — no refetch). In a played/unplayed-filtered
+  // map, so annotate reflects it instantly, no refetch). In a played/unplayed-filtered
   // view an item whose state no longer matches the filter is dropped in place.
   useEffect(() => {
     return subscribePlayedChange((itemId, played) => {
@@ -439,11 +445,11 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   useEffect(() => {
     return subscribeItemRemoved((itemId) => {
       // The server's later items shift back one; the next page starts one earlier to keep the one that crossed.
-      if (itemsRef.current.some((item) => item.Id === itemId)) nextStartIndex.current = Math.max(0, nextStartIndex.current - 1);
+      if (!shuffledView && itemsRef.current.some((item) => item.Id === itemId)) nextStartIndex.current = Math.max(0, nextStartIndex.current - 1);
       rawItemsRef.current = rawItemsRef.current.filter((item) => item.Id !== itemId);
       setItems((prev) => prev.filter((item) => item.Id !== itemId));
     });
-  }, []);
+  }, [shuffledView]);
 
   // A page held for a delete is asked for once the last one in flight settles, landed or not; a held
   // first page replaces the list, so it goes instead of the next page.
@@ -499,7 +505,7 @@ export function useFolderContents(folderId: string | null, type?: "folder" | "pl
   // Refetch on ANY auth change, both directions. On login this loads the new server's content; on
   // logout the fetch fails ("server not configured"), which replaces the stale logged-in content
   // with the disconnected error state. Nothing remounts these screens on auth changes (the tab
-  // triggers are static — see app/(tabs)/_layout.tsx), so the data must reset itself.
+  // triggers are static, see app/(tabs)/_layout.tsx), so the data must reset itself.
   useEffect(() => {
     return subscribeAuthChange(() => refresh());
   }, [refresh]);

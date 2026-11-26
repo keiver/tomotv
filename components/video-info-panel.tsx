@@ -119,6 +119,7 @@ export interface VideoInfoPanelProps {
   // inFolderId: the folder screen the press came from. fromResume: pressed on a Continue card.
   // timerId: opened from a Schedule row, so the panel's record state is that timer's.
   inFolderId?: string;
+  inLibraryId?: string;
   fromResume?: string;
   timerId?: string;
   guideProgram?: string;
@@ -318,7 +319,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
       void commitClearProgress();
       const folderId = params.inFolderId ?? folderLeafId ?? details.ParentId;
       if (!IS_TV) router.back();
-      router.push({ pathname: "/photo-viewer", params: { photoId: details.Id, ...(folderId ? { folderId } : {}) } });
+      router.push({ pathname: "/photo-viewer", params: { photoId: details.Id, ...(folderId ? { folderId } : {}), ...(params.inLibraryId ? { libraryId: params.inLibraryId } : {}) } });
       return;
     }
     // A book opens the reader the same way; the reader reads the resume ticks itself.
@@ -334,7 +335,7 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
     const cleared = await commitClearProgress();
     const item = cleared ? { ...details, UserData: { ...details.UserData, PlaybackPositionTicks: 0, Played: false } } : details;
     openItem(item, { replace: !IS_TV });
-  }, [commitClearProgress, details, folderLeafId, openItem, params.inFolderId, router, showGlobalLoader]);
+  }, [commitClearProgress, details, folderLeafId, openItem, params.inFolderId, params.inLibraryId, router, showGlobalLoader]);
 
   // Long press on Resume plays from the beginning; the resume point stays until playback reports.
   const handleStartOver = useCallback(async () => {
@@ -362,9 +363,9 @@ export function VideoInfoPanel(params: VideoInfoPanelProps) {
   const handlePlayFolder = useCallback(
     (kind: FolderPlayKind) => {
       if (!details) return;
-      void playFolder(details, kind, { replace: !IS_TV });
+      void playFolder(details, kind, { replace: !IS_TV, libraryId: params.inLibraryId });
     },
-    [details, playFolder],
+    [details, playFolder, params.inLibraryId],
   );
 
   // Browse into a container that holds nothing playable. Dismiss first on both platforms,

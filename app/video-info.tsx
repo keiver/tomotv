@@ -21,10 +21,11 @@ const FIT = !IS_TV && Platform.OS === "ios" && Platform.isPad ? "center" : "bott
  * or books, the libraries, the guide's channels. tvOS shows the one panel.
  */
 export default function VideoInfoScreen() {
-  const { videoId, name, inFolderId, fromResume, timerId, guideProgram } = useLocalSearchParams<{
+  const { videoId, name, inFolderId, inLibraryId, fromResume, timerId, guideProgram } = useLocalSearchParams<{
     videoId: string;
     name?: string;
     inFolderId?: string;
+    inLibraryId?: string;
     fromResume?: string;
     timerId?: string;
     guideProgram?: string;
@@ -49,6 +50,7 @@ export default function VideoInfoScreen() {
             videoId={videoId}
             name={name}
             inFolderId={inFolderId}
+            inLibraryId={inLibraryId}
             fromResume={fromResume}
             timerId={timerId}
             guideProgram={guideProgram}
@@ -57,7 +59,7 @@ export default function VideoInfoScreen() {
             onSettled={() => markPainted(id)}
           />
         ) : (
-          <VideoInfoPanel videoId={id} name={siblings?.find((item) => item.Id === id)?.Name} inFolderId={inFolderId} active={active} onSettled={() => markPainted(id)} />
+          <VideoInfoPanel videoId={id} name={siblings?.find((item) => item.Id === id)?.Name} inFolderId={inFolderId} inLibraryId={inLibraryId} active={active} onSettled={() => markPainted(id)} />
         );
       const pageName = id === videoId ? name : siblings?.find((item) => item.Id === id)?.Name;
       // The card centres in the safe area, as its width assumes, so iPhone Duo's side column stays beside it.
@@ -75,11 +77,11 @@ export default function VideoInfoScreen() {
         </View>
       );
     },
-    [close, fromResume, guideProgram, inFolderId, insets.left, insets.right, markPainted, name, painted, siblings, timerId, videoId],
+    [close, fromResume, guideProgram, inFolderId, inLibraryId, insets.left, insets.right, markPainted, name, painted, siblings, timerId, videoId],
   );
 
   if (IS_TV) {
-    return <VideoInfoPanel videoId={videoId} name={name} inFolderId={inFolderId} fromResume={fromResume} timerId={timerId} guideProgram={guideProgram} />;
+    return <VideoInfoPanel videoId={videoId} name={name} inFolderId={inFolderId} inLibraryId={inLibraryId} fromResume={fromResume} timerId={timerId} guideProgram={guideProgram} />;
   }
 
   const pager = <SiblingPager ids={ids} initialId={videoId} renderPage={renderPage} passThrough />;

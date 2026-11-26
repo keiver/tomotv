@@ -108,6 +108,33 @@ Tomo TV ships no media, channels, playlists or guides. It plays what your Jellyf
 Tomo TV is a free, open-source, independent client for Jellyfin and is not affiliated with or endorsed by the Jellyfin project. Jellyfin is a trademark of its respective owner.
 ```
 
+### What's New (2.2.16), macOS (303 / 4000)
+
+```text
+- Photos: with Shuffle on, the slideshow follows the shuffled order
+- A shuffled folder shows every item once
+- Reshuffle: while Shuffle is on, its button reads Reshuffle and draws a new order
+- Photos can fill the screen: pinch out to fill it, pinch in to see the whole photo. Your choice is remembered
+```
+
+### What's New (2.2.16), iOS (303 / 4000)
+
+```text
+- Photos: with Shuffle on, the slideshow follows the shuffled order
+- A shuffled folder shows every item once
+- Reshuffle: while Shuffle is on, its button reads Reshuffle and draws a new order
+- Photos can fill the screen: pinch out to fill it, pinch in to see the whole photo. Your choice is remembered
+```
+
+### What's New (2.2.16), tvOS (349 / 4000)
+
+```text
+- Photos: with Shuffle on, the slideshow follows the shuffled order
+- A shuffled folder shows every item once
+- Reshuffle: while Shuffle is on, its button reads Reshuffle and draws a new order
+- Photos can fill the screen or zoom in: tap the remote's touch surface twice to step through whole photo, full screen, 2x and 3x. Your choice is remembered
+```
+
 ### What's New (2.2.15), macOS (1106 / 4000)
 
 ```text
@@ -635,6 +662,33 @@ Tomo TV enthält keine Medien, Kanäle, Wiedergabelisten oder Fernsehprogramme. 
 Tomo TV ist ein kostenloser, quelloffener und unabhängiger Client für Jellyfin und steht in keiner Verbindung zum Jellyfin-Projekt und wird von ihm nicht unterstützt. Jellyfin ist eine Marke des jeweiligen Inhabers.
 ```
 
+#### What's New (2.2.16), macOS (387 / 4000)
+
+```text
+- Fotos: Bei aktiviertem Zufall folgt die Diashow der gemischten Reihenfolge
+- Ein gemischter Ordner zeigt jeden Titel genau einmal
+- Neu mischen: Solange Zufall aktiv ist, heißt die Taste „Neu mischen“ und mischt den Ordner neu
+- Fotos können den Bildschirm füllen: Ziehe zwei Finger auseinander, um ihn zu füllen, und zusammen, um das ganze Foto zu sehen. Deine Wahl bleibt gespeichert
+```
+
+#### What's New (2.2.16), iOS (387 / 4000 chars)
+
+```text
+- Fotos: Bei aktiviertem Zufall folgt die Diashow der gemischten Reihenfolge
+- Ein gemischter Ordner zeigt jeden Titel genau einmal
+- Neu mischen: Solange Zufall aktiv ist, heißt die Taste „Neu mischen“ und mischt den Ordner neu
+- Fotos können den Bildschirm füllen: Ziehe zwei Finger auseinander, um ihn zu füllen, und zusammen, um das ganze Foto zu sehen. Deine Wahl bleibt gespeichert
+```
+
+#### What's New (2.2.16), tvOS (435 / 4000 chars)
+
+```text
+- Fotos: Bei aktiviertem Zufall folgt die Diashow der gemischten Reihenfolge
+- Ein gemischter Ordner zeigt jeden Titel genau einmal
+- Neu mischen: Solange Zufall aktiv ist, heißt die Taste „Neu mischen“ und mischt den Ordner neu
+- Fotos können den Bildschirm füllen oder vergrößert werden: Tippe zweimal auf die Touch-Oberfläche der Fernbedienung, um zwischen ganzem Foto, Vollbild, 2x und 3x zu wechseln. Deine Wahl bleibt gespeichert
+```
+
 #### What's New (2.2.15), macOS (1268 / 4000)
 
 ```text
@@ -1140,6 +1194,33 @@ Tomo TV ne fournit aucun média, chaîne, liste de lecture ni guide. L'app lit c
 Tomo TV est un client gratuit, open source et indépendant pour Jellyfin; il n'est ni affilié au projet Jellyfin ni approuvé par lui. Jellyfin est une marque de son détenteur respectif.
 ```
 
+#### What's New (2.2.16), macOS (381 / 4000)
+
+```text
+- Photos : avec Aléatoire activé, le diaporama suit l'ordre mélangé
+- Un dossier mélangé affiche chaque élément une seule fois
+- Mélanger à nouveau : tant qu'Aléatoire est activé, son bouton devient « Mélanger à nouveau » et tire un nouvel ordre
+- Les photos peuvent remplir l'écran : écartez deux doigts pour le remplir, pincez pour voir la photo entière. Votre choix est mémorisé
+```
+
+#### What's New (2.2.16), iOS (381 / 4000 chars)
+
+```text
+- Photos : avec Aléatoire activé, le diaporama suit l'ordre mélangé
+- Un dossier mélangé affiche chaque élément une seule fois
+- Mélanger à nouveau : tant qu'Aléatoire est activé, son bouton devient « Mélanger à nouveau » et tire un nouvel ordre
+- Les photos peuvent remplir l'écran : écartez deux doigts pour le remplir, pincez pour voir la photo entière. Votre choix est mémorisé
+```
+
+#### What's New (2.2.16), tvOS (448 / 4000 chars)
+
+```text
+- Photos : avec Aléatoire activé, le diaporama suit l'ordre mélangé
+- Un dossier mélangé affiche chaque élément une seule fois
+- Mélanger à nouveau : tant qu'Aléatoire est activé, son bouton devient « Mélanger à nouveau » et tire un nouvel ordre
+- Les photos peuvent remplir l'écran ou être agrandies : touchez deux fois la surface tactile de la télécommande pour passer de la photo entière au plein écran, puis à 2x et 3x. Votre choix est mémorisé
+```
+
 #### What's New (2.2.15), macOS (1337 / 4000)
 
 ```text
@@ -1643,6 +1724,33 @@ Sin analítica, sin rastreo, sin anuncios, sin cuenta con nosotros. Tus credenci
 Tomo TV no incluye contenido, canales, listas de reproducción ni guías. Reproduce lo que ofrecen tu servidor Jellyfin y las fuentes que añades. Tú eres responsable de tener derecho a usarlos.
 
 Tomo TV es un cliente gratuito, de código abierto e independiente para Jellyfin, y no está afiliado al proyecto Jellyfin ni respaldado por él. Jellyfin es una marca de su titular correspondiente.
+```
+
+#### What's New (2.2.16), macOS (375 / 4000)
+
+```text
+- Fotos: con Aleatorio activado, la presentación sigue el orden mezclado
+- Una carpeta mezclada muestra cada elemento una sola vez
+- Mezclar de nuevo: mientras Aleatorio está activado, su botón pasa a ser «Mezclar de nuevo» y crea un orden nuevo
+- Las fotos pueden llenar la pantalla: separa dos dedos para llenarla y júntalos para ver la foto entera. Tu elección se recuerda
+```
+
+#### What's New (2.2.16), iOS (375 / 4000 chars)
+
+```text
+- Fotos: con Aleatorio activado, la presentación sigue el orden mezclado
+- Una carpeta mezclada muestra cada elemento una sola vez
+- Mezclar de nuevo: mientras Aleatorio está activado, su botón pasa a ser «Mezclar de nuevo» y crea un orden nuevo
+- Las fotos pueden llenar la pantalla: separa dos dedos para llenarla y júntalos para ver la foto entera. Tu elección se recuerda
+```
+
+#### What's New (2.2.16), tvOS (425 / 4000 chars)
+
+```text
+- Fotos: con Aleatorio activado, la presentación sigue el orden mezclado
+- Una carpeta mezclada muestra cada elemento una sola vez
+- Mezclar de nuevo: mientras Aleatorio está activado, su botón pasa a ser «Mezclar de nuevo» y crea un orden nuevo
+- Las fotos pueden llenar la pantalla o ampliarse: toca dos veces la superficie táctil del mando para pasar de la foto entera a pantalla completa, 2x y 3x. Tu elección se recuerda
 ```
 
 #### What's New (2.2.15), macOS (1278 / 4000)
@@ -2730,7 +2838,7 @@ each value: a feature is true only when every common task works with it on that 
 **Target Search Terms:**
 
 1. "jellyfin apple tv" (exact match - high intent)
-2. "jellyfin player" (broad - competitor to official app)
+2. "jellyfin player" (broad)
 3. "media server apple tv" (adjacent - Plex users)
 4. "video player apple tv" (broad - general market)
 5. "dolby atmos apple tv" (specific - the users who notice when it is missing)
@@ -2741,7 +2849,7 @@ each value: a feature is true only when every common task works with it on that 
   server transcode, Dolby passthrough with Atmos intact, and lossless carriage of
   TrueHD/DTS-HD MA/PCM/FLAC up to 7.1 and 24-bit
 - Parity, not advantage: Apple TV cannot bitstream TrueHD or DTS in ANY app, so
-  never imply otherwise; Infuse has the same ceiling
+  never imply otherwise
 - Advantage (2.1): image subtitles (PGS, DVD/VobSub, DVB, XSUB) decode on the device and draw over the native player, so those files keep stream copy instead of forcing a server transcode
 
 The old line here read "Disadvantage: Missing resume playback, metadata", which was
