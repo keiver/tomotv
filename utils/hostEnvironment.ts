@@ -7,7 +7,7 @@ export type DeviceName = "iPhone" | "iPad" | "Mac" | "Apple TV";
 type Environment = { isMac?: boolean; isiOSAppOnMac?: boolean; isSimulator?: boolean; model?: string; marketingName?: string | null; cores?: number; memoryBytes?: number };
 
 /**
- * native/ios/MultiAudioResourceLoader/DeviceEnvironment. React Native cannot tell a Mac: an
+ * native/ios/DeviceEnvironment. React Native cannot tell a Mac: an
  * iOS build run by macOS reads as "pad" and Platform.isMacCatalyst is a compile-time flag.
  * A missing module reads as no Mac and no hardware, which is every test and Android.
  */

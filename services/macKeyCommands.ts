@@ -3,7 +3,7 @@ import { NativeEventEmitter, NativeModules } from "react-native";
 
 /**
  * Hardware keys from the Mac build, delivered by
- * native/ios/MultiAudioResourceLoader/MacKeyCommands.swift.
+ * native/ios/MacKeyCommands/MacKeyCommands.swift.
  *
  * Off a Mac this whole module is inert: IS_MAC is false, no emitter is created
  * and subscribing hands back a no-op, so callers need no platform branches.

@@ -6,8 +6,7 @@
 //  iCloud, and Apple's Data Storage Guidelines reject apps that back up media the app
 //  can fetch again. expo-file-system exposes no API for the flag.
 //
-//  Lives alongside MultiAudioResourceLoader because the target has a single
-//  SWIFT_OBJC_BRIDGING_HEADER, configured by plugins/withMultiAudioResourceLoader.js.
+//  Copied in by plugins/withFileAttributes.js.
 //
 
 import Foundation
