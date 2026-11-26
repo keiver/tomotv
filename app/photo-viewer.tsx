@@ -29,6 +29,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, BackHandler, Platform, StyleSheet, Text, View } from "react-native";
 import Animated, { Easing, cancelAnimation, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { t } from "@/services/i18n";
+import { getUiPreferences, type PhotoFit, updateUiPreferences } from "@/services/uiPreferences";
 
 const SLIDESHOW_INTERVAL_MS = 5000;
 const COUNTDOWN_WIDTH = 240;
@@ -66,6 +67,11 @@ export default function PhotoViewerScreen() {
   const [index, setIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [photoFit, setPhotoFit] = useState<PhotoFit>(() => getUiPreferences().photoFit);
+  const changePhotoFit = useCallback((fit: PhotoFit) => {
+    setPhotoFit(fit);
+    updateUiPreferences({ photoFit: fit });
+  }, []);
 
   // Refs mirror state so remote-event callbacks never act on stale closures
   const photosRef = useRef<JellyfinItem[]>([]);
@@ -411,6 +417,13 @@ export default function PhotoViewerScreen() {
   const uriAt = useCallback((at: number) => (photos[at] ? getPhotoUrl(photos[at].Id) : ""), [photos]);
   const previewAt = useCallback((at: number) => (photos[at] ? getPhotoPreviewUrl(photos[at].Id) : ""), [photos]);
   const headersAt = useCallback((at: number) => (photos[at] ? photoHeaders(photos[at]) : undefined), [photos]);
+  const aspectAt = useCallback(
+    (at: number) => {
+      const photo = photos[at];
+      return photo?.PrimaryImageAspectRatio ?? (photo?.Width && photo.Height ? photo.Width / photo.Height : undefined);
+    },
+    [photos],
+  );
 
   if (error) {
     return (
@@ -475,6 +488,9 @@ export default function PhotoViewerScreen() {
       triggerLabel={t("photos.photoActions")}
       overlay={overlay}
       zoomMode="image"
+      restFit={photoFit}
+      onRestFitChange={changePhotoFit}
+      aspectAt={aspectAt}
       accessibilityLabel={current ? t("photos.photoName").replace("{name}", cleanLabel(current.Name)) : t("photos.photoViewer")}
       accessibilityHint={isPlaying ? t("photos.pressToPause") : t("photos.pressToStart")}
       previousLabel={t("photos.previous")}

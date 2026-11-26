@@ -39,7 +39,11 @@ export interface UiPreferences {
   autoSkip: AutoSkip;
   /** Every card's size as a share of its own, written by the Appearance stepper, a pinch or the Mac keys. */
   cardSize: number;
+  /** How a photo rests in the viewer: all of it, or scaled to cover the screen. */
+  photoFit: PhotoFit;
 }
+
+export type PhotoFit = "whole" | "fill";
 
 export type BackgroundMode = "clear" | "accent" | "artwork";
 export const BACKGROUND_MODES: readonly BackgroundMode[] = ["artwork", "accent", "clear"];
@@ -62,6 +66,7 @@ export const DEFAULT_UI_PREFERENCES: UiPreferences = {
   saveSubtitles: true,
   autoSkip: { intro: false, recap: false, preview: false, commercial: true },
   cardSize: 1,
+  photoFit: "whole",
 };
 
 /** Before this document carried autoSkip, the commercial switch lived in the live TV preferences. */
@@ -124,6 +129,7 @@ export function parseUiPreferences(raw: unknown, legacySkipCommercials?: boolean
       typeof source.cardSize === "number" && Number.isFinite(source.cardSize) && source.cardSize >= GRID.CARD_ZOOM_MIN && source.cardSize <= GRID.CARD_ZOOM_MAX
         ? source.cardSize
         : DEFAULT_UI_PREFERENCES.cardSize,
+    photoFit: source.photoFit === "fill" || source.photoFit === "whole" ? source.photoFit : DEFAULT_UI_PREFERENCES.photoFit,
   };
 }
 

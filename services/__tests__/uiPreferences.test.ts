@@ -20,6 +20,7 @@ describe("uiPreferences", () => {
       saveSubtitles: true,
       autoSkip: { intro: false, recap: false, preview: false, commercial: true },
       cardSize: 1,
+      photoFit: "whole",
     });
     expect(getUiPreferences().devicePosters).toBe(true);
     expect(getUiPreferences().serverTranscoding).toBe("fileOnly");
@@ -40,6 +41,13 @@ describe("uiPreferences", () => {
     expect(parseUiPreferences(JSON.stringify({ cardSize: 0.5 }))).toEqual(DEFAULT_UI_PREFERENCES);
     expect(parseUiPreferences(JSON.stringify({ cardSize: 9 }))).toEqual(DEFAULT_UI_PREFERENCES);
     expect(parseUiPreferences(JSON.stringify({ cardSize: "1.5" }))).toEqual(DEFAULT_UI_PREFERENCES);
+  });
+
+  it("reads how a photo rests as whole or fill, and falls back on whole otherwise", () => {
+    expect(parseUiPreferences(JSON.stringify({ photoFit: "fill" })).photoFit).toBe("fill");
+    expect(parseUiPreferences(JSON.stringify({ photoFit: "whole" })).photoFit).toBe("whole");
+    expect(parseUiPreferences(JSON.stringify({ photoFit: "cover" })).photoFit).toBe("whole");
+    expect(parseUiPreferences(JSON.stringify({})).photoFit).toBe("whole");
   });
 
   it("reads the automatic skips field by field, and the old live TV commercial switch when the document has none", () => {

@@ -2,8 +2,10 @@ import { GlassActionCluster, type GlassAction } from "@/components/glass-action-
 import { leavingByPan } from "@/components/dismiss-pan";
 import { COLORS } from "@/constants/colors";
 import { claimMacContextKeys, subscribeMacKeyCommand } from "@/services/macKeyCommands";
+import { subscribeRemoteDoubleTouch } from "@/services/remoteTouch";
 import { t } from "@/services/i18n";
-import { Image } from "expo-image";
+import type { PhotoFit } from "@/services/uiPreferences";
+import { Image, type ImageLoadEventData } from "expo-image";
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, View, useTVEventHandler, useWindowDimensions } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
@@ -30,15 +32,44 @@ const CHROME_INSET = 20;
 const DRAG_COMMIT_FRACTION = 0.35;
 const DRAG_COMMIT_VELOCITY = 700;
 
+/** Below this a page already covers the screen, and fill is the same as whole. */
+const FILL_MIN = 1.02;
+/** A pinch in that ends this close to the fill scale rests at fill. */
+const FILL_SNAP = 0.08;
+/** A pinch out of fill rests whole when it ends under this, or past halfway to whole. */
+const WHOLE_BELOW = 0.9;
+
 export type PageTransition = "slide" | "fade";
 
-/**
- * Keep the zoomed page's pan inside the screen box: a scale of s can travel half the screen
- * per unit of scale before its edge crosses the middle.
- */
-function clampTranslate(value: number, scale: number, extent: number) {
+/** How much a page drawn whole is scaled to cover a screen of `viewAspect`; 1 with no known shape. */
+export function fillScale(pageAspect: number | undefined, viewAspect: number): number {
+  if (!pageAspect || !(pageAspect > 0) || !(viewAspect > 0)) return 1;
+  return Math.max(pageAspect / viewAspect, viewAspect / pageAspect);
+}
+
+/** The resting fit a finished pinch asks for, or null when it asks for none. */
+export function pinchRestFit(fit: PhotoFit, scale: number, fill: number): PhotoFit | null {
   "worklet";
-  const limit = Math.max(0, ((scale - 1) * extent) / 2);
+  if (fill < FILL_MIN) return null;
+  if (fit === "fill") return scale < Math.max(WHOLE_BELOW, (1 + 1 / fill) / 2) ? "whole" : null;
+  return scale > (1 + fill) / 2 && Math.abs(scale / fill - 1) <= FILL_SNAP ? "fill" : null;
+}
+
+/** One step of the remote's zoom: whole, fill, 2x, 3x, then whole again. */
+export function nextRemoteZoom(fit: PhotoFit, level: number, fill: number): { fit: PhotoFit; level: number } {
+  if (level >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1]) return { fit: "whole", level: 1 };
+  if (level > 1) return { fit, level: level + 1 };
+  if (fit === "whole" && fill >= FILL_MIN) return { fit: "fill", level: 1 };
+  return { fit, level: 2 };
+}
+
+/**
+ * Keep the zoomed page's pan inside the screen box: a scale of s can travel half the screen per unit
+ * of scale before its edge crosses the middle. `cover` is how far a filled page overflows this axis at rest.
+ */
+function clampTranslate(value: number, scale: number, extent: number, cover = 1) {
+  "worklet";
+  const limit = Math.max(0, ((scale * cover - 1) * extent) / 2);
   return Math.min(Math.max(value, -limit), limit);
 }
 
@@ -111,6 +142,12 @@ export interface PageViewerProps {
   zoomMode: "image" | "none";
   /** A zoom came to rest at a whole level (1 = reset); a caller can swap in a sharper render. */
   onZoomSettled?: (level: number) => void;
+  /** How a page rests: all of it, or scaled to cover the screen. Absent, pages always rest whole. */
+  restFit?: PhotoFit;
+  /** A pinch or the remote changed how pages rest. */
+  onRestFitChange?: (fit: PhotoFit) => void;
+  /** A page's width over its height, when known before its image loads. */
+  aspectAt?: (index: number) => number | undefined;
   /** Keep the chrome up, and its auto-hide off, while the owner is busy (a text relayout). */
   holdChrome?: boolean;
   /** A tap inside this fraction of the width at either edge steps the page; absent, a tap only wakes the chrome. */
@@ -153,6 +190,9 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
     overlay,
     zoomMode,
     onZoomSettled,
+    restFit,
+    onRestFitChange,
+    aspectAt,
     holdChrome = false,
     edgeTapFraction = 0,
     accessibilityLabel,
@@ -207,6 +247,62 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
     viewportW.set(viewportWidth);
     viewportH.set(viewportHeight);
   }, [viewportWidth, viewportHeight, viewportW, viewportH]);
+
+  // Each buffer carries the scale that makes its page cover the screen and the axis it overflows; `fit` (0 whole, 1 fill) says how much applies.
+  const fillEnabled = restFit !== undefined;
+  const viewAspect = viewportWidth / viewportHeight;
+  const fit = useSharedValue(restFit === "fill" ? 1 : 0);
+  const fillA = useSharedValue(fillEnabled ? fillScale(aspectAt?.(initialIndex), viewAspect) : 1);
+  const fillB = useSharedValue(1);
+  const wideA = useSharedValue(fillEnabled && (aspectAt?.(initialIndex) ?? 0) > viewAspect);
+  const wideB = useSharedValue(false);
+  const frontFill = useCallback(() => {
+    "worklet";
+    return frontSV.get() === 0 ? fillA.get() : fillB.get();
+  }, [frontSV, fillA, fillB]);
+  const coverX = useCallback(() => {
+    "worklet";
+    return (frontSV.get() === 0 ? wideA.get() : wideB.get()) ? 1 + (frontFill() - 1) * fit.get() : 1;
+  }, [frontSV, wideA, wideB, frontFill, fit]);
+  const coverY = useCallback(() => {
+    "worklet";
+    return (frontSV.get() === 0 ? wideA.get() : wideB.get()) ? 1 : 1 + (frontFill() - 1) * fit.get();
+  }, [frontSV, wideA, wideB, frontFill, fit]);
+  const fitRef = useRef<PhotoFit>(restFit ?? "whole");
+  const onRestFitChangeRef = useRef(onRestFitChange);
+  onRestFitChangeRef.current = onRestFitChange;
+  const bufferPages = useRef<{ a: number | null; b: number | null }>({ a: initialIndex, b: null });
+  const loadedAspects = useRef(new Map<string, number>());
+
+  const shapeBuffer = useCallback(
+    (buffer: "a" | "b", index: number | null, animate = false) => {
+      const aspect = index == null || !fillEnabled ? undefined : (loadedAspects.current.get(uriAt(index)) ?? aspectAt?.(index));
+      const fill = fillScale(aspect, viewAspect);
+      (buffer === "a" ? wideA : wideB).set((aspect ?? 0) > viewAspect);
+      (buffer === "a" ? fillA : fillB).set(animate ? withTiming(fill, { duration: ZOOM_DURATION_MS }) : fill);
+    },
+    [fillEnabled, uriAt, aspectAt, viewAspect, fillA, fillB, wideA, wideB],
+  );
+  const shapeBufferRef = useRef(shapeBuffer);
+  shapeBufferRef.current = shapeBuffer;
+  const uriAtRef = useRef(uriAt);
+  uriAtRef.current = uriAt;
+
+  useEffect(() => {
+    shapeBuffer("a", bufferPages.current.a);
+    shapeBuffer("b", bufferPages.current.b);
+  }, [shapeBuffer]);
+
+  useEffect(() => {
+    if (restFit === undefined || restFit === fitRef.current) return;
+    fitRef.current = restFit;
+    fit.set(restFit === "fill" ? 1 : 0);
+  }, [restFit, fit]);
+
+  const commitFit = useCallback((next: PhotoFit) => {
+    fitRef.current = next;
+    onRestFitChangeRef.current?.(next);
+  }, []);
 
   // Opacity animates on the UI thread; the mirror is what takes the faded-out buttons out of
   // the touch path, flipped only once the fade has finished.
@@ -286,6 +382,8 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
       if (zoomLevelRef.current !== 1) settleZoom(1);
       const nextFrontIsA = !frontIsARef.current;
       frontIsARef.current = nextFrontIsA;
+      bufferPages.current[nextFrontIsA ? "a" : "b"] = nextIndex;
+      shapeBufferRef.current(nextFrontIsA ? "a" : "b", nextIndex);
       progress.set(0);
       directionSV.set(direction);
       modeSV.set(mode === "slide" ? 1 : 0);
@@ -347,12 +445,12 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
       const target = Math.min(Math.max(level, 1), ZOOM_LEVELS[ZOOM_LEVELS.length - 1]);
       const timing = { duration: ZOOM_DURATION_MS };
       zoomScale.set(withTiming(target, timing));
-      zoomTx.set(withTiming(clampTranslate(zoomTx.get(), target, viewportW.get()), timing));
-      zoomTy.set(withTiming(clampTranslate(zoomTy.get(), target, viewportH.get()), timing));
+      zoomTx.set(withTiming(clampTranslate(zoomTx.get(), target, viewportW.get(), coverX()), timing));
+      zoomTy.set(withTiming(clampTranslate(zoomTy.get(), target, viewportH.get(), coverY()), timing));
       setZoomed(target > 1);
       settleZoom(target);
     },
-    [zoomMode, zoomScale, zoomTx, zoomTy, viewportW, viewportH, settleZoom],
+    [zoomMode, zoomScale, zoomTx, zoomTy, viewportW, viewportH, settleZoom, coverX, coverY],
   );
 
   const cycleZoom = useCallback(() => {
@@ -366,10 +464,10 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
     (dx: number, dy: number) => {
       const scale = zoomScale.get();
       const timing = { duration: ZOOM_DURATION_MS };
-      zoomTx.set(withTiming(clampTranslate(zoomTx.get() + dx * viewportW.get() * TV_PAN_FRACTION, scale, viewportW.get()), timing));
-      zoomTy.set(withTiming(clampTranslate(zoomTy.get() + dy * viewportH.get() * TV_PAN_FRACTION, scale, viewportH.get()), timing));
+      zoomTx.set(withTiming(clampTranslate(zoomTx.get() + dx * viewportW.get() * TV_PAN_FRACTION, scale, viewportW.get(), coverX()), timing));
+      zoomTy.set(withTiming(clampTranslate(zoomTy.get() + dy * viewportH.get() * TV_PAN_FRACTION, scale, viewportH.get(), coverY()), timing));
     },
-    [zoomScale, zoomTx, zoomTy, viewportW, viewportH],
+    [zoomScale, zoomTx, zoomTy, viewportW, viewportH, coverX, coverY],
   );
 
   useImperativeHandle(
@@ -398,22 +496,35 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
         .onUpdate((e) => {
           "worklet";
           const base = savedScale.get();
-          const next = Math.min(Math.max(base * e.scale, 1), MAX_ZOOM);
+          const fill = frontFill();
+          const filled = fit.get() > 0.5;
+          const next = Math.min(Math.max(base * e.scale, filled ? 1 / fill : 1), filled ? MAX_ZOOM : Math.max(MAX_ZOOM, fill));
           const ratio = next / base;
           zoomScale.set(next);
-          zoomTx.set(clampTranslate(focalX.get() - ratio * (focalX.get() - savedTx.get()), next, viewportW.get()));
-          zoomTy.set(clampTranslate(focalY.get() - ratio * (focalY.get() - savedTy.get()), next, viewportH.get()));
+          zoomTx.set(clampTranslate(focalX.get() - ratio * (focalX.get() - savedTx.get()), next, viewportW.get(), coverX()));
+          zoomTy.set(clampTranslate(focalY.get() - ratio * (focalY.get() - savedTy.get()), next, viewportH.get(), coverY()));
         })
         .onEnd(() => {
           "worklet";
-          if (zoomScale.get() <= 1.01) {
+          const scale = zoomScale.get();
+          const fill = frontFill();
+          const rest = pinchRestFit(fit.get() > 0.5 ? "fill" : "whole", scale, fill);
+          if (rest) {
+            // Fit and zoom swap in one step with their product unchanged, so the page does not jump.
+            fit.set(rest === "fill" ? 1 : 0);
+            zoomScale.set(rest === "fill" ? scale / fill : scale * fill);
+            resetZoom();
+            runOnJS(commitFit)(rest);
+            return;
+          }
+          if (scale <= 1.01) {
             resetZoom();
             return;
           }
           runOnJS(setZoomed)(true);
           runOnJS(settleZoom)(Math.min(ZOOM_LEVELS[ZOOM_LEVELS.length - 1], Math.max(1, Math.round(zoomScale.get()))));
         }),
-    [zoomMode, zoomScale, zoomTx, zoomTy, savedScale, savedTx, savedTy, focalX, focalY, resetZoom, settleZoom, viewportW, viewportH],
+    [zoomMode, zoomScale, zoomTx, zoomTy, savedScale, savedTx, savedTy, focalX, focalY, resetZoom, settleZoom, viewportW, viewportH, frontFill, coverX, coverY, fit, commitFit],
   );
 
   const doubleTapGesture = React.useMemo(
@@ -435,12 +546,12 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
           const fy = e.y - viewportH.get() / 2;
           const timing = { duration: ZOOM_DURATION_MS };
           zoomScale.set(withTiming(DOUBLE_TAP_ZOOM, timing));
-          zoomTx.set(withTiming(clampTranslate(-fx * (DOUBLE_TAP_ZOOM - 1), DOUBLE_TAP_ZOOM, viewportW.get()), timing));
-          zoomTy.set(withTiming(clampTranslate(-fy * (DOUBLE_TAP_ZOOM - 1), DOUBLE_TAP_ZOOM, viewportH.get()), timing));
+          zoomTx.set(withTiming(clampTranslate(-fx * (DOUBLE_TAP_ZOOM - 1), DOUBLE_TAP_ZOOM, viewportW.get(), coverX()), timing));
+          zoomTy.set(withTiming(clampTranslate(-fy * (DOUBLE_TAP_ZOOM - 1), DOUBLE_TAP_ZOOM, viewportH.get(), coverY()), timing));
           runOnJS(setZoomed)(true);
           runOnJS(settleZoom)(Math.round(DOUBLE_TAP_ZOOM));
         }),
-    [zoomMode, zoomScale, zoomTx, zoomTy, resetZoom, revealChrome, settleZoom, viewportW, viewportH],
+    [zoomMode, zoomScale, zoomTx, zoomTy, resetZoom, revealChrome, settleZoom, viewportW, viewportH, coverX, coverY],
   );
 
   // A tap wakes the chrome, and at rest a tap inside an edge band steps the page; a zoomed page
@@ -547,8 +658,8 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
         "worklet";
         if (panMode.get() === 1) {
           const scale = zoomScale.get();
-          zoomTx.set(clampTranslate(savedTx.get() + e.translationX, scale, viewportW.get()));
-          zoomTy.set(clampTranslate(savedTy.get() + e.translationY, scale, viewportH.get()));
+          zoomTx.set(clampTranslate(savedTx.get() + e.translationX, scale, viewportW.get(), coverX()));
+          zoomTy.set(clampTranslate(savedTy.get() + e.translationY, scale, viewportH.get(), coverY()));
           return;
         }
         if (dragReady.get() !== 1) return;
@@ -559,7 +670,7 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
         if (panMode.get() === 1) return;
         runOnJS(handleDragEnd)(e.translationX, e.velocityX);
       });
-  }, [zoomed, beginDrag, handleDragEnd, dragReady, dragDirSV, progress, panMode, zoomScale, zoomTx, zoomTy, savedTx, savedTy, revealChrome, viewportW, viewportH]);
+  }, [zoomed, beginDrag, handleDragEnd, dragReady, dragDirSV, progress, panMode, zoomScale, zoomTx, zoomTy, savedTx, savedTy, revealChrome, viewportW, viewportH, coverX, coverY]);
 
   // Drag down to leave, on the same rule the player's own dismiss uses (leavingByPan): past a
   // distance, or a flick that also covered ground. Vertical only, so it and the horizontal step
@@ -638,6 +749,20 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
     ),
   );
 
+  const stepRemoteZoom = useCallback(() => {
+    const next = nextRemoteZoom(fitRef.current, zoomLevelRef.current, frontFill());
+    if (next.fit !== fitRef.current) {
+      fit.set(withTiming(next.fit === "fill" ? 1 : 0, { duration: ZOOM_DURATION_MS }));
+      commitFit(next.fit);
+    }
+    if (next.level !== zoomLevelRef.current) zoomTo(next.level);
+  }, [frontFill, fit, commitFit, zoomTo]);
+
+  useEffect(() => {
+    if (!Platform.isTV || !fillEnabled) return;
+    return subscribeRemoteDoubleTouch(stepRemoteZoom);
+  }, [fillEnabled, stepRemoteZoom]);
+
   // Stop animations when leaving the screen
   useEffect(() => {
     return () => {
@@ -650,8 +775,11 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
   const chromeStyle = useAnimatedStyle(() => ({ opacity: chromeOpacity.value }));
   const dismissStyle = useAnimatedStyle(() => ({ transform: [{ translateY: dismissY.value }] }));
   // translate after scale: the page scales about its centre, then the pan offsets it.
-  const zoomStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: zoomTx.value }, { translateY: zoomTy.value }, { scale: zoomScale.value }],
+  const pageAStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: zoomTx.value }, { translateY: zoomTy.value }, { scale: zoomScale.value * (1 + (fillA.value - 1) * fit.value) }],
+  }));
+  const pageBStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: zoomTx.value }, { translateY: zoomTy.value }, { scale: zoomScale.value * (1 + (fillB.value - 1) * fit.value) }],
   }));
 
   const uriA = buffers.pageA != null ? uriAt(buffers.pageA) : "";
@@ -661,24 +789,37 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
   // The uri each buffer last finished loading; its spinner stays up, under the image, until then.
   const [loaded, setLoaded] = useState<{ a: string; b: string }>({ a: "", b: "" });
   const markLoaded = useCallback((buffer: "a" | "b", uri: string) => setLoaded((prev) => (prev[buffer] === uri ? prev : { ...prev, [buffer]: uri })), []);
+  const handleLoad = useCallback(
+    (buffer: "a" | "b", uri: string, event?: ImageLoadEventData) => {
+      const source = event?.source;
+      if (source && source.width > 0 && source.height > 0) {
+        loadedAspects.current.set(uri, source.width / source.height);
+        const shown = bufferPages.current[buffer];
+        if (shown != null && uriAtRef.current(shown) === uri) shapeBufferRef.current(buffer, shown, true);
+      }
+      markLoaded(buffer, uri);
+    },
+    [markLoaded],
+  );
 
   const page = (buffer: "a" | "b", pageIndex: number | null, uri: string, preview: string) => {
-    if (pageIndex == null) return null;
-    const headers = headersAt?.(pageIndex);
+    const headers = pageIndex == null ? undefined : headersAt?.(pageIndex);
     return (
       <>
-        {(!uri || loaded[buffer] !== uri) && <ActivityIndicator size="large" color={COLORS.TEXT_PRIMARY} style={styles.loader} />}
-        {uri ? (
-          <Image
-            source={{ uri, headers }}
-            placeholder={preview ? { uri: preview, headers } : undefined}
-            placeholderContentFit="contain"
-            style={styles.page}
-            contentFit="contain"
-            onLoad={() => markLoaded(buffer, uri)}
-            onError={() => markLoaded(buffer, uri)}
-          />
-        ) : null}
+        {pageIndex != null && (!uri || loaded[buffer] !== uri) && <ActivityIndicator size="large" color={COLORS.TEXT_PRIMARY} style={styles.loader} />}
+        <Animated.View style={[StyleSheet.absoluteFill, buffer === "a" ? pageAStyle : pageBStyle]}>
+          {pageIndex != null && uri ? (
+            <Image
+              source={{ uri, headers }}
+              placeholder={preview ? { uri: preview, headers } : undefined}
+              placeholderContentFit="contain"
+              style={styles.page}
+              contentFit="contain"
+              onLoad={(event) => handleLoad(buffer, uri, event)}
+              onError={() => markLoaded(buffer, uri)}
+            />
+          ) : null}
+        </Animated.View>
       </>
     );
   };
@@ -703,7 +844,7 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
   if (Platform.isTV) {
     return (
       <View style={styles.container}>
-        <Animated.View style={[StyleSheet.absoluteFill, zoomStyle]}>{pageStack}</Animated.View>
+        <View style={StyleSheet.absoluteFill}>{pageStack}</View>
         {/* Focus holder: keeps the tvOS focus engine on this screen; select is delivered as
             onPress to the focused view, never as a TV event. MUST sit above the zIndexed page
             buffers: the focus engine treats a fully occluded view as non-focusable, and with
@@ -729,7 +870,7 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
       <View style={styles.container} onPointerMove={revealChrome}>
         <GestureDetector gesture={pageGesture}>
           <Animated.View style={[StyleSheet.absoluteFill, dismissStyle]} collapsable={false}>
-            <Animated.View style={[StyleSheet.absoluteFill, zoomStyle]}>{pageStack}</Animated.View>
+            <View style={StyleSheet.absoluteFill}>{pageStack}</View>
             {/* VoiceOver only. Plain Views, never Pressables: they carry the step actions for a
                 screen reader without becoming touch responders, so a sighted drag passes
                 straight through them to the pan. */}
@@ -834,6 +975,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+    overflow: "hidden",
   },
   page: {
     flex: 1,

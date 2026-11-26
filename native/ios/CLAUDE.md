@@ -24,6 +24,7 @@ Tomo's own native modules. Each one is a folder here, copied into the generated 
 - `DeviceEnvironment`: which kind of host the app runs on.
 - `MacKeyCommands`: the Mac's hardware keys and double click; `plugins/withMacKeyCommands.js` also installs its root view controller.
 - `FileAttributes`: the do-not-back-up flag on downloads.
+- `RemoteTouch`: two touches on the Apple TV remote's surface.
 - `AudioQueuePlayer`, `BookRenderer`, `LyricsListener`, `SubtitleSearch`, `TunerGroups`, `TopShelf`, `TopShelfReload`: each its own feature, named by its folder.
 
 Swift tests live in `native/ios/Tests/`, built through `native/ios/Package.swift`.

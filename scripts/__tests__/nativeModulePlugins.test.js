@@ -3,7 +3,7 @@ const path = require("node:path");
 const { expo } = require("../../app.json");
 
 const root = path.resolve(__dirname, "../..");
-const MODULES = ["MultiAudioResourceLoader", "NetworkInfo", "DeviceEnvironment", "FileAttributes", "MacKeyCommands"];
+const MODULES = ["MultiAudioResourceLoader", "NetworkInfo", "DeviceEnvironment", "FileAttributes", "RemoteTouch", "MacKeyCommands"];
 
 describe.each(MODULES)("native module %s", (name) => {
   const plugin = require(`../../plugins/with${name}`);

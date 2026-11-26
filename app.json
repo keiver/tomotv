@@ -67,6 +67,7 @@
       "./plugins/withNetworkInfo",
       "./plugins/withDeviceEnvironment",
       "./plugins/withFileAttributes",
+      "./plugins/withRemoteTouch",
       "./plugins/withMacKeyCommands",
       "./plugins/withAudioQueuePlayer",
       "./plugins/withLyricsListener",

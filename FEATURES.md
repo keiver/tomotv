@@ -173,6 +173,7 @@ Every feature needs a Jellyfin server. The Notes column says when a feature also
 | Song details: album, artist, disc, track  | Yes      | Yes          | Yes |                                            |
 | Photo viewer and slideshow                | Yes      | Yes          | Yes |                                            |
 | Pinch and double tap to zoom a photo      | No       | Yes          | Yes |                                            |
+| Photos fill the screen or show whole      | Yes      | Yes          | Yes | Pinch or two remote touches; remembered    |
 | Photo details: camera, exposure, location | Yes      | Yes          | Yes |                                            |
 | Share a photo                             | No       | Yes          | Yes |                                            |
 | Books: PDF, EPUB, MOBI, AZW, AZW3, PRC    | Yes      | Yes          | Yes | Reading position saved to the server       |

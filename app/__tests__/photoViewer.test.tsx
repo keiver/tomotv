@@ -70,8 +70,10 @@ let mockParams: Record<string, string> = { folderId: "f1", photoId: "p1" };
 jest.mock("expo-router", () => ({ useLocalSearchParams: () => mockParams, useRouter: () => mockRouter }));
 
 import PhotoViewerScreen from "@/app/photo-viewer";
+import { PageViewer } from "@/components/page-viewer";
 import { Image } from "expo-image";
 import { clearFolderContentsCache, setShuffledListing } from "@/services/folderContentsCache";
+import { getUiPreferences, updateUiPreferences } from "@/services/uiPreferences";
 import { fetchFilteredVideos, fetchFolderPhotos, fetchItemDetails, fetchRecursivePhotos, fetchShuffledPage } from "@/services/jellyfinApi";
 import type { JellyfinItem } from "@/types/jellyfin";
 import * as Reanimated from "react-native-reanimated";
@@ -96,6 +98,24 @@ function counter(tree: TestRenderer.ReactTestRenderer): string {
     .flat()
     .join("|");
 }
+
+test("the viewer opens in the saved whole or fill choice, and saves a change to it", async () => {
+  updateUiPreferences({ photoFit: "fill" });
+  let tree!: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    tree = TestRenderer.create(<PhotoViewerScreen />);
+  });
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(tree.root.findByType(PageViewer).props.restFit).toBe("fill");
+  await act(async () => {
+    tree.root.findByType(PageViewer).props.onRestFitChange("whole");
+  });
+  expect(tree.root.findByType(PageViewer).props.restFit).toBe("whole");
+  expect(getUiPreferences().photoFit).toBe("whole");
+  tree.unmount();
+});
 
 test("steps photos on TV left and right presses", async () => {
   let tree!: TestRenderer.ReactTestRenderer;
