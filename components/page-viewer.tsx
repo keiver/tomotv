@@ -63,6 +63,13 @@ export function nextRemoteZoom(fit: PhotoFit, level: number, fill: number): { fi
   return { fit, level: 2 };
 }
 
+/** One Up (1) or Down (-1) press: Up steps whole, fill, 2x, 3x and stops there; Down steps back and stops at whole. */
+export function keyRemoteZoom(fit: PhotoFit, level: number, fill: number, direction: 1 | -1): { fit: PhotoFit; level: number } {
+  if (direction === 1) return level >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1] ? { fit, level } : nextRemoteZoom(fit, level, fill);
+  if (level > 1) return { fit, level: level - 1 };
+  return { fit: "whole", level: 1 };
+}
+
 /**
  * Keep the zoomed page's pan inside the screen box: a scale of s can travel half the screen per unit
  * of scale before its edge crosses the middle. `cover` is how far a filled page overflows this axis at rest.
@@ -459,13 +466,17 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
     zoomTo(ZOOM_LEVELS[(at + 1) % ZOOM_LEVELS.length]);
   }, [zoomTo]);
 
-  /** A remote press while zoomed moves the page by a fraction of the viewport. */
+  /** A remote press while zoomed moves the page by a fraction of the viewport; false when it was already at that edge. */
   const panBy = useCallback(
     (dx: number, dy: number) => {
       const scale = zoomScale.get();
       const timing = { duration: ZOOM_DURATION_MS };
-      zoomTx.set(withTiming(clampTranslate(zoomTx.get() + dx * viewportW.get() * TV_PAN_FRACTION, scale, viewportW.get(), coverX()), timing));
-      zoomTy.set(withTiming(clampTranslate(zoomTy.get() + dy * viewportH.get() * TV_PAN_FRACTION, scale, viewportH.get(), coverY()), timing));
+      const tx = clampTranslate(zoomTx.get() + dx * viewportW.get() * TV_PAN_FRACTION, scale, viewportW.get(), coverX());
+      const ty = clampTranslate(zoomTy.get() + dy * viewportH.get() * TV_PAN_FRACTION, scale, viewportH.get(), coverY());
+      const moved = Math.abs(tx - zoomTx.get()) > 0.5 || Math.abs(ty - zoomTy.get()) > 0.5;
+      zoomTx.set(withTiming(tx, timing));
+      zoomTy.set(withTiming(ty, timing));
+      return moved;
     },
     [zoomScale, zoomTx, zoomTy, viewportW, viewportH, coverX, coverY],
   );
@@ -723,9 +734,27 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
     };
   }, [goStep, revealChrome, zoomTo, keyOwner]);
 
+  const applyRemoteZoom = useCallback(
+    (next: { fit: PhotoFit; level: number }) => {
+      if (next.fit !== fitRef.current) {
+        fit.set(withTiming(next.fit === "fill" ? 1 : 0, { duration: ZOOM_DURATION_MS }));
+        commitFit(next.fit);
+      }
+      if (next.level !== zoomLevelRef.current) zoomTo(next.level);
+    },
+    [fit, commitFit, zoomTo],
+  );
+  const stepRemoteZoom = useCallback(() => applyRemoteZoom(nextRemoteZoom(fitRef.current, zoomLevelRef.current, frontFill())), [applyRemoteZoom, frontFill]);
+  const keyZoom = useCallback(
+    (direction: 1 | -1) => {
+      if (fillEnabled) applyRemoteZoom(keyRemoteZoom(fitRef.current, zoomLevelRef.current, frontFill(), direction));
+    },
+    [fillEnabled, applyRemoteZoom, frontFill],
+  );
+
   // Handle TV remote events. Menu is deliberately NOT handled: the native stack pops it.
   // A zoomed page pans on the arrows; at rest, left and right step and play/pause zooms or
-  // does what the owner asked.
+  // does what the owner asked. Up and Down step the zoom at rest, and from the edge of a zoomed page.
   useTVEventHandler(
     useCallback(
       (evt: { eventType: string }) => {
@@ -736,27 +765,22 @@ export const PageViewer = forwardRef<PageViewerHandle, PageViewerProps>(function
         } else if (evt.eventType === "left" || evt.eventType === "swipeLeft") {
           if (zoomedIn) panBy(1, 0);
           else goStep(-1);
-        } else if (evt.eventType === "up" || evt.eventType === "swipeUp") {
+        } else if (evt.eventType === "up") {
+          if (!zoomedIn || !panBy(0, 1)) keyZoom(1);
+        } else if (evt.eventType === "down") {
+          if (!zoomedIn || !panBy(0, -1)) keyZoom(-1);
+        } else if (evt.eventType === "swipeUp") {
           if (zoomedIn) panBy(0, 1);
-        } else if (evt.eventType === "down" || evt.eventType === "swipeDown") {
+        } else if (evt.eventType === "swipeDown") {
           if (zoomedIn) panBy(0, -1);
         } else if (evt.eventType === "playPause") {
           if (onPlayPause) onPlayPause();
           else if (zoomMode === "image") cycleZoom();
         }
       },
-      [goStep, panBy, onPlayPause, zoomMode, cycleZoom],
+      [goStep, panBy, keyZoom, onPlayPause, zoomMode, cycleZoom],
     ),
   );
-
-  const stepRemoteZoom = useCallback(() => {
-    const next = nextRemoteZoom(fitRef.current, zoomLevelRef.current, frontFill());
-    if (next.fit !== fitRef.current) {
-      fit.set(withTiming(next.fit === "fill" ? 1 : 0, { duration: ZOOM_DURATION_MS }));
-      commitFit(next.fit);
-    }
-    if (next.level !== zoomLevelRef.current) zoomTo(next.level);
-  }, [frontFill, fit, commitFit, zoomTo]);
 
   useEffect(() => {
     if (!Platform.isTV || !fillEnabled) return;

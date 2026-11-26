@@ -1,4 +1,24 @@
-import { fillScale, nextRemoteZoom, pinchRestFit } from "@/components/page-viewer";
+import { fillScale, keyRemoteZoom, nextRemoteZoom, pinchRestFit } from "@/components/page-viewer";
+
+describe("keyRemoteZoom", () => {
+  it("Up steps whole, fill, 2x, 3x and stays at 3x", () => {
+    expect(keyRemoteZoom("whole", 1, 2, 1)).toEqual({ fit: "fill", level: 1 });
+    expect(keyRemoteZoom("fill", 1, 2, 1)).toEqual({ fit: "fill", level: 2 });
+    expect(keyRemoteZoom("fill", 2, 2, 1)).toEqual({ fit: "fill", level: 3 });
+    expect(keyRemoteZoom("fill", 3, 2, 1)).toEqual({ fit: "fill", level: 3 });
+  });
+
+  it("Down steps 3x, 2x, fill, whole and stays at whole", () => {
+    expect(keyRemoteZoom("fill", 3, 2, -1)).toEqual({ fit: "fill", level: 2 });
+    expect(keyRemoteZoom("fill", 2, 2, -1)).toEqual({ fit: "fill", level: 1 });
+    expect(keyRemoteZoom("fill", 1, 2, -1)).toEqual({ fit: "whole", level: 1 });
+    expect(keyRemoteZoom("whole", 1, 2, -1)).toEqual({ fit: "whole", level: 1 });
+  });
+
+  it("Up skips fill for a page that already covers the screen", () => {
+    expect(keyRemoteZoom("whole", 1, 1, 1)).toEqual({ fit: "whole", level: 2 });
+  });
+});
 
 describe("fillScale", () => {
   it("is the scale that makes a page drawn whole cover the screen, on either axis", () => {
