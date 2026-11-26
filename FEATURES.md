@@ -174,6 +174,7 @@ Every feature needs a Jellyfin server. The Notes column says when a feature also
 | Photo viewer and slideshow                | Yes      | Yes          | Yes |                                            |
 | Pinch and double tap to zoom a photo      | No       | Yes          | Yes |                                            |
 | Photos fill the screen or show whole      | Yes      | Yes          | Yes | Pinch or two remote touches; remembered    |
+| Zoom a photo with the remote              | Yes      | No           | No  | Two touches step whole, fill, 2x and 3x    |
 | Photo details: camera, exposure, location | Yes      | Yes          | Yes |                                            |
 | Share a photo                             | No       | Yes          | Yes |                                            |
 | Books: PDF, EPUB, MOBI, AZW, AZW3, PRC    | Yes      | Yes          | Yes | Reading position saved to the server       |
