@@ -2,7 +2,7 @@
 # Clears caches, prebuilds, opens the workspace in Xcode, and starts Metro.
 # Usage: npm run clear [-- --npm] [-- --offline] [-- --tv|--ios|--mac]
 #   --npm   also nuke node_modules + package-lock.json and reinstall
-#   --offline  keep the existing projects when a pod install is due (all and --mac only)
+#   --offline  keep the existing projects when a pod install is due (all and --mac only; refused with --tv, --ios or --npm)
 #   --tv    prebuild tvOS only (default: all)
 #   --ios   prebuild iOS only (default: all)
 #   --mac   prebuild Mac Catalyst only (default: all)
@@ -22,6 +22,18 @@ for arg in "$@"; do
     *) echo "Unknown arg: $arg (supported: --npm, --offline, --tv, --ios, --mac)" && exit 1 ;;
   esac
 done
+if [ "${TOMOTV_OFFLINE:-0}" = "1" ]; then
+  if [ "$NUKE_NPM" = "1" ]; then
+    echo "--offline cannot be combined with --npm: reinstalling node_modules needs the network" >&2
+    exit 1
+  fi
+  case "$PLATFORM" in
+    tv|ios)
+      echo "--offline cannot be combined with --$PLATFORM: that prebuild always clears ios/" >&2
+      exit 1
+      ;;
+  esac
+fi
 bash scripts/check-xcode-tools.sh
 
 rm -rf .expo .metro-cache

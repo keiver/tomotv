@@ -124,6 +124,28 @@ test("offline with no projects to keep fails before anything is generated", (t) 
   assert.equal(fs.existsSync(path.join(root, "ios")), false);
 });
 
+for (const flag of ["--tv", "--ios", "--npm"]) {
+  test(`clear --offline ${flag} is refused and removes nothing`, (t) => {
+    const { root } = fixture(t);
+    fs.copyFileSync("scripts/clear.sh", path.join(root, "scripts/clear.sh"));
+    fs.writeFileSync(path.join(root, "bin/open"), "#!/bin/bash\nexit 0\n", { mode: 0o755 });
+    const kept = ["ios/kept", "node_modules/kept", ".expo/kept", "package-lock.json"];
+    for (const file of kept) {
+      fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+      fs.writeFileSync(path.join(root, file), "{}\n");
+    }
+    const result = spawnSync("bash", ["scripts/clear.sh", "--offline", flag], {
+      cwd: root,
+      env: { ...process.env, PATH: `${root}/bin:${process.env.PATH}`, TOMOTV_OFFLINE: "" },
+      encoding: "utf8",
+      timeout: 15000,
+    });
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, new RegExp(`--offline cannot be combined with ${flag}`));
+    for (const file of kept) assert.ok(fs.existsSync(path.join(root, file)), file);
+  });
+}
+
 for (const cached of [false, true]) {
   test(`failed tvOS generation restores iOS and preserves Mac (${cached ? "cached" : "clean"})`, (t) => {
     const { root, run, assertProjects } = fixture(t);
