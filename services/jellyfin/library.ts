@@ -52,7 +52,7 @@ export function isBook(item: JellyfinItem): boolean {
  *
  * MediaTypes is the only filter Jellyfin 10.11 applies correctly on recursive
  * view-root queries (verified against 10.11.1 per library type):
- * - IsFolder=false is ignored — folders get counted (a folder→folder→video library
+ * - IsFolder=false is ignored: folders get counted (a folder→folder→video library
  *   reports 3, not 1)
  * - IncludeItemTypes and Filters=IsNotFolder return TotalRecordCount 0 for
  *   music/musicvideos/photos/tvshows libraries
@@ -144,7 +144,7 @@ const VIEW_COUNT_BATCH = 4;
  * reads TotalRecordCount. Rejects on failure so nothing caches and the next call retries.
  *
  * homevideos view roots ignore Recursive under user context on Jellyfin 10.11 (the subtree
- * query returns only physical folders regardless of filters — verified live; the system
+ * query returns only physical folders regardless of filters, verified live; the system
  * context recurses fine but user tokens always resolve a user), so a 0 falls back to
  * rebuilding the count: direct leaves plus a recursive count under each direct folder
  * child, where recursion does work. A truly empty view exits the fallback with a cheap 0.
@@ -330,7 +330,7 @@ export async function fetchUserViews(): Promise<{ items: JellyfinItem[]; total?:
  *   Otherwise MediaTypes=Video,Audio,Photo,Book (IncludeItemTypes zeroes out music/musicvideos/
  *   photos/tvshows view-roots). Folders carry no MediaType, so the flatten excludes them.
  * - Genres is PIPE-delimited; ArtistIds, Years and status Filters are COMMA-delimited.
- * Does NOT set SortBy — the caller controls ordering.
+ * Does NOT set SortBy: the caller controls ordering.
  */
 export function appendFlattenFilterParams(query: URLSearchParams, filters: LibraryFilters): void {
   query.append("Recursive", "true");
@@ -374,7 +374,7 @@ export async function fetchFilteredVideos(parentId: string, filters: LibraryFilt
 
   // Same view-root hole as the browse (see fetchViewRootFiltered): asking a library root for
   // favorites returns nothing, which handed the player an empty queue and the photo viewer the
-  // unfiltered folder. Never shuffled here — the caller owns ordering, per this function's contract.
+  // unfiltered folder. Never shuffled here: the caller owns ordering, per this function's contract.
   if (hasUserDataFilters(filters) && (await isLibraryViewRoot(parentId))) {
     return resolveViewRootMatches(config, parentId, filters);
   }
@@ -437,7 +437,7 @@ export async function fetchFilteredVideos(parentId: string, filters: LibraryFilt
         }
       }
 
-      // Favorite-filtered results are all favorites — seed the favorites cache so the regular
+      // Favorite-filtered results are all favorites: seed the favorites cache so the regular
       // (unfiltered) browse can paint hearts from this same fetch without a separate request.
       if (filters.favorite) addFavoriteIds(allItems.map((item) => item.Id));
 
@@ -449,7 +449,7 @@ export async function fetchFilteredVideos(parentId: string, filters: LibraryFilt
 }
 
 /**
- * Collect EVERY item of a paged /Items query (500 per page) — the shared loop behind
+ * Collect EVERY item of a paged /Items query (500 per page): the shared loop behind
  * the id-set and leaf-list fetchers. `buildQuery` returns the full parameter set for one page;
  * this drives StartIndex/Limit, aborts each page at API_TIMEOUTS.EXTENDED, and THROWS on any
  * failed page so a partial set is never mistaken for a complete one. `label` names the set in
@@ -517,7 +517,7 @@ function buildIdSetQuery(startIndex: number, limit: number): URLSearchParams {
 
 /**
  * Load the current user's favorite leaf-item ids and seed the favorites cache. Omit `parentId` for
- * ALL favorites across every library — the authoritative set used to paint hearts. Uses the proven
+ * ALL favorites across every library: the authoritative set used to paint hearts. Uses the proven
  * recursive `Filters=IsFavorite` shape (reliable, unlike the non-recursive browse's per-item
  * UserData, which the server leaves stale after a change), ids-only. Not request-cached, so a
  * re-seed always reflects the live server.
@@ -549,7 +549,7 @@ export async function fetchFavoriteIds(parentId?: string): Promise<Set<string>> 
  * Full favorite items for the home tab's Favorites shelf, newest additions first (Jellyfin has
  * no date-favorited sort). Same recursive `Filters=IsFavorite` no-ParentId shape as
  * fetchFavoriteIds (the reliable one), plus container kinds so a favorited Series or album
- * shows as one navigable card. Deliberately uncached — a heart toggle must show on the next
+ * shows as one navigable card. Deliberately uncached: a heart toggle must show on the next
  * fetch. Non-critical display data: never throws, null on failure.
  */
 export async function fetchFavoriteItems(limit = 20): Promise<JellyfinItem[] | null> {
@@ -610,7 +610,7 @@ async function isLibraryViewRoot(parentId: string): Promise<boolean> {
   }
 }
 
-/** Filters the server can answer at a view root — everything except the user-data ones. */
+/** Filters the server can answer at a view root: everything except the user-data ones. */
 function withoutUserDataFilters(filters: LibraryFilters): LibraryFilters {
   return { ...filters, favorite: false, played: false, unplayed: false };
 }
@@ -650,7 +650,7 @@ async function fetchViewRootLeaves(config: JellyfinConfig, parentId: string, fil
 
 /**
  * The current user's played leaf-item ids, from the shape that is known to work: recursive,
- * NO ParentId, Filters=IsPlayed. The mirror of fetchFavoriteIds, and used the same way — as the
+ * NO ParentId, Filters=IsPlayed. The mirror of fetchFavoriteIds, and used the same way, as the
  * authoritative set the view-root browse intersects against.
  */
 async function fetchPlayedIds(config: JellyfinConfig): Promise<Set<string>> {
@@ -680,7 +680,7 @@ async function fetchPlayedIds(config: JellyfinConfig): Promise<Set<string>> {
  *
  * Verified against 10.11.1 on a photos library: `ParentId=<view root>&Recursive&MediaTypes=…` returns
  * all 65 leaves but with EMPTY user data (0 of 65 report IsFavorite, though 6 of them are favorites),
- * and adding `Filters=IsFavorite` returns 0 items — while the identical query with NO ParentId returns
+ * and adding `Filters=IsFavorite` returns 0 items, while the identical query with NO ParentId returns
  * those 6 favorites. Recursive view-root queries go through Jellyfin's per-collection-type view builder,
  * which drops user data and ignores ItemFilter, so IsFavorite/IsPlayed/IsUnplayed can never match there.
  * Same family as the IncludeItemTypes note on fetchViewItemCount.
@@ -690,7 +690,7 @@ async function fetchPlayedIds(config: JellyfinConfig): Promise<Set<string>> {
  * complete set, so TotalRecordCount is exact.
  *
  * NOT covered: an artist filter at a view root still rides IncludeItemTypes (appendFlattenFilterParams
- * needs it — MediaTypes silently drops ArtistIds), which is the param that zeroes out here. Unverified
+ * needs it: MediaTypes silently drops ArtistIds), which is the param that zeroes out here. Unverified
  * and left alone.
  */
 async function resolveViewRootMatches(config: JellyfinConfig, parentId: string, filters: LibraryFilters): Promise<JellyfinItem[]> {
@@ -789,7 +789,7 @@ export async function fetchFolderContents(
   const flatten = !!filters && hasContentFilters(filters);
   const shuffle = !!filters && filters.shuffle;
 
-  // A library root can't answer user-data filters — it returns items with no user data at all, so
+  // A library root can't answer user-data filters: it returns items with no user data at all, so
   // Filters=IsFavorite/IsPlayed/IsUnplayed match nothing and the grid reads "No items match the
   // current filters" over a library full of favorites. Resolve those here instead.
   if (filters && hasUserDataFilters(filters) && (await isLibraryViewRoot(parentId))) {
@@ -844,7 +844,7 @@ export async function fetchFolderContents(
 
           const data: JellyfinFolderResponse = await response.json();
           const items = data.Items || [];
-          // When the Favorite filter is on, every returned item is a favorite — seed the cache so the
+          // When the Favorite filter is on, every returned item is a favorite: seed the cache so the
           // regular browse can reuse these ids for hearts without a separate fetch.
           if (filters?.favorite) addFavoriteIds(items.map((item) => item.Id));
           return {
@@ -860,7 +860,7 @@ export async function fetchFolderContents(
 
 export const SHUFFLE_PAGE_SIZE = 60;
 
-const shufflePageOrders = new Map<string, { filters: string; pages: number[] }>();
+const shufflePageOrders = new Map<string, number[]>();
 
 export async function fetchShuffledPage(parentId: string, filters: LibraryFilters, slot: number): Promise<{ items: JellyfinItem[]; total?: number; more: boolean }> {
   const config = await getConfig();
@@ -875,25 +875,27 @@ export async function fetchShuffledPage(parentId: string, filters: LibraryFilter
   }
 
   const sorted = { ...filters, shuffle: false };
-  const key = `${config.userId}:${parentId}`;
-  const filtersKey = filtersCacheKey(sorted);
-  let order = shufflePageOrders.get(key);
-  if (!order || order.filters !== filtersKey) {
+  const key = `${config.userId}:${parentId}:${filtersCacheKey(sorted)}`;
+  let pages = shufflePageOrders.get(key);
+  if (!pages) {
     const { total = 0 } = await fetchFolderContents(parentId, { startIndex: 0, limit: 1, filters: sorted });
-    order = { filters: filtersKey, pages: shuffled(Array.from({ length: Math.ceil(total / SHUFFLE_PAGE_SIZE) }, (_, page) => page)) };
-    shufflePageOrders.set(key, order);
+    // A read that overlapped this one may have drawn the order during the wait: every reader shares it.
+    pages = shufflePageOrders.get(key) ?? shuffled(Array.from({ length: Math.ceil(total / SHUFFLE_PAGE_SIZE) }, (_, page) => page));
+    shufflePageOrders.set(key, pages);
   }
-  if (slot >= order.pages.length) return { items: [], total: 0, more: false };
+  if (slot >= pages.length) return { items: [], total: 0, more: false };
 
-  const page = await fetchFolderContents(parentId, { startIndex: order.pages[slot] * SHUFFLE_PAGE_SIZE, limit: SHUFFLE_PAGE_SIZE, filters: sorted });
-  return { items: shuffled(page.items), total: page.total, more: slot + 1 < order.pages.length };
+  const page = await fetchFolderContents(parentId, { startIndex: pages[slot] * SHUFFLE_PAGE_SIZE, limit: SHUFFLE_PAGE_SIZE, filters: sorted });
+  return { items: shuffled(page.items), total: page.total, more: slot + 1 < pages.length };
 }
 
 /** Drop one listing's cached pages for the signed-in account, so its next read reaches the server. */
 export function invalidateFolderReads(folderId: string | null): void {
   const { userId } = getCachedConfig();
   invalidateFolderListing(userId, folderId);
-  shufflePageOrders.delete(`${userId}:${folderId}`);
+  for (const key of [...shufflePageOrders.keys()]) {
+    if (key.startsWith(`${userId}:${folderId}:`)) shufflePageOrders.delete(key);
+  }
 }
 
 /** Page size for the folder-wide photo sweep, the same 500 the other whole-set sweeps use. */
