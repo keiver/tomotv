@@ -11,6 +11,7 @@
  *   npm run meta:upload -- --platform IOS   one platform
  *   npm run meta:upload -- --check          check the document offline, then stop
  *   npm run meta:upload -- --check-online   also check editable versions and first-release rules
+ *   npm run meta:upload -- --create-version open the draft version first, if there is none
  *
  * The copy comes from the paste blocks in memories/CLAUDE-apple-store-metadata.md,
  * which that file declares canonical. What's New is taken for the version in
@@ -31,7 +32,7 @@ import { fileURLToPath } from "node:url";
 
 import { ascEnv, client } from "./appstore/asc.mjs";
 import { DOC, INFO_FIELDS, PLATFORM_LABELS, VERSION_FIELDS, measure, overLimit, readMetadata, whatsNewVersions } from "./appstore/metadata.mjs";
-import { editableAppInfo, isFirstVersion, listingPlatforms, platformVersions, selectedPlatforms } from "./appstore/platforms.mjs";
+import { createDraftVersion, editableAppInfo, isFirstVersion, listingPlatforms, platformVersions, selectedPlatforms } from "./appstore/platforms.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const BUNDLE_ID = "dev.keiver.tomotv";
@@ -45,6 +46,7 @@ const opt = (n) => {
 const DRY = flag("--dry-run");
 const CHECK = flag("--check");
 const CHECK_ONLINE = flag("--check-online");
+const CREATE_VERSION = flag("--create-version");
 
 function fail(msg) {
   console.error(`\n✗ ${msg}`);
@@ -74,8 +76,13 @@ async function main() {
     }
     for (const { platform, slot, version: found } of await listingPlatforms(api, app.id, version, opt("--platform"))) {
       if (slot === "free" && !CHECK_ONLINE) {
-        if (!DRY) fail(`No ${platform} draft for ${version}. Open it with npm run shots:upload -- --platform ${platform} --create-version.`);
-        console.log(`  ${platform}: no draft for ${version} yet, nothing to plan`);
+        if (DRY) {
+          console.log(`  ${platform}: no draft for ${version} yet, nothing to plan`);
+          continue;
+        }
+        if (!CREATE_VERSION) fail(`No ${platform} draft for ${version}. Re-run with --create-version to open it, or run npm run shots:upload -- --platform ${platform} --create-version.`);
+        versions[platform] = await createDraftVersion(api, app.id, platform, version);
+        console.log(`  ${platform}: created draft ${version}`);
         continue;
       }
       versions[platform] = found;
@@ -113,7 +120,7 @@ async function main() {
     });
     fail(
       [
-        CHECK ? `RELEASE NOTES MISSING for ${version}. Nothing was built or uploaded.` : `RELEASE NOTES MISSING for ${version} — nothing was uploaded.`,
+        CHECK ? `RELEASE NOTES MISSING for ${version}. Nothing was built or uploaded.` : `RELEASE NOTES MISSING for ${version}. Nothing was uploaded.`,
         ``,
         `  app.json is on ${version}, but ${DOC}`,
         `  has no "What's New" for it. Notes exist for: ${have.join(", ") || "no versions"}.`,

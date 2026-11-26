@@ -9,7 +9,13 @@ One command produces App Store artifacts for iOS, Mac Catalyst, then tvOS:
 npm run archive -- <next-build>            # archive, export signed IPA/PKG files, validate
 npm run archive -- <next-build> --upload   # also upload all three platforms and their listings
 npm run archive -- <next-build> --upload --no-testflight   # upload, without the external TestFlight submission
+npm run archive -- <next-build> --upload --no-shots        # upload the binaries and the listing text, no screenshots
 ```
+
+`--no-shots` is for a slow connection: the three binaries are about 125 MB together, the composed
+screenshots about 470 MB. The listing text step then opens the draft version itself. A new version
+keeps the previous version's screenshots, so the listing is complete without them; send new ones
+with `npm run shots -- --render` and `npm run shots:upload` only when they changed.
 
 ### External TestFlight
 

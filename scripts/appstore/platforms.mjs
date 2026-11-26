@@ -120,6 +120,18 @@ export async function listingPlatforms(api, appId, version, requested) {
   return open;
 }
 
+/** Opens `version` as a draft on one platform and returns it. */
+export async function createDraftVersion(api, appId, platform, version) {
+  const created = await api.post("/v1/appStoreVersions", {
+    data: {
+      type: "appStoreVersions",
+      attributes: { platform, versionString: version },
+      relationships: { app: { data: { type: "apps", id: appId } } },
+    },
+  });
+  return created.data;
+}
+
 /** The build once Apple has processed it, or null while it is still processing or missing after every attempt. */
 export async function processedBuild(api, appId, platform, version, buildNumber, { attempts = 30, delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
   for (let attempt = 0; attempt < attempts; attempt++) {

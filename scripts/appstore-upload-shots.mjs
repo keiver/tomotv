@@ -26,7 +26,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ascEnv, client } from "./appstore/asc.mjs";
-import { SCREENSHOT_DEVICES, acceptsSize, listingPlatforms, placementGroup, selectedPlatforms, uploadedDevices } from "./appstore/platforms.mjs";
+import { SCREENSHOT_DEVICES, acceptsSize, createDraftVersion, listingPlatforms, placementGroup, selectedPlatforms, uploadedDevices } from "./appstore/platforms.mjs";
 import { generatedShots, validateCaptures } from "./appstore/captures.mjs";
 import { replaceScreenshots } from "./appstore/placements.mjs";
 
@@ -116,14 +116,7 @@ async function main() {
       if (!CREATE_VERSION) {
         fail(`No editable ${platform} version. Re-run with --create-version to open ${appVersion} as a draft, or create it in App Store Connect first.`);
       }
-      const created = await api.post("/v1/appStoreVersions", {
-        data: {
-          type: "appStoreVersions",
-          attributes: { platform, versionString: appVersion },
-          relationships: { app: { data: { type: "apps", id: app.id } } },
-        },
-      });
-      version = created.data;
+      version = await createDraftVersion(api, app.id, platform, appVersion);
       console.log(`  ${platform}: created draft ${appVersion}`);
     }
     versions[platform] = version;

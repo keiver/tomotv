@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   acceptsSize,
   attachBuild,
+  createDraftVersion,
   editableAppInfo,
   editableVersion,
   isFirstVersion,
@@ -61,6 +62,19 @@ test("listing steps skip a platform in review and keep the others", async () => 
 test("naming a platform in review stops the listing step", async () => {
   await assert.rejects(listingPlatforms(historyApi, "app", "2.2.13", "MAC_OS"), /MAC_OS 2.2.12 WAITING_FOR_REVIEW/);
   assert.equal((await listingPlatforms(historyApi, "app", "2.2.13", "IOS"))[0].slot, "free");
+});
+test("opening a draft posts the platform, the version and the app, and returns the new version", async () => {
+  const posts = [];
+  const api = {
+    post: async (url, body) => {
+      posts.push([url, body]);
+      return { data: { id: "new-draft" } };
+    },
+  };
+  assert.deepEqual(await createDraftVersion(api, "app", "TV_OS", "2.2.16"), { id: "new-draft" });
+  assert.deepEqual(posts, [
+    ["/v1/appStoreVersions", { data: { type: "appStoreVersions", attributes: { platform: "TV_OS", versionString: "2.2.16" }, relationships: { app: { data: { type: "apps", id: "app" } } } } }],
+  ]);
 });
 test("platform selection includes Mac and rejects misspellings", () => {
   assert.deepEqual(selectedPlatforms(), ["IOS", "MAC_OS", "TV_OS"]);

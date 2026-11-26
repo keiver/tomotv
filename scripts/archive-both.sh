@@ -16,7 +16,9 @@
 #                                               # and translate missing release notes first
 #   npm run archive -- <buildNumber> --upload --no-testflight
 #                                               # upload without the external TestFlight submission
-#   --nuke-node-modules                         # any mode: wipe node_modules and `npm ci`
+#   npm run archive -- <buildNumber> --upload --no-shots
+#                                               # upload the binaries and the listing text, no screenshots
+#   --nuke-node-modules                        # any mode: wipe node_modules and `npm ci`
 #                                               # (default `npm i` keeps the tested tree;
 #                                               #  the lockfile is never deleted)
 #
@@ -59,19 +61,21 @@ BUILD_NUMBER="${1:-}"
 UPLOAD=0
 NOTES=0
 TESTFLIGHT=1
+SHOTS=1
 NUKE_NODE_MODULES=0
 for arg in "${@:2}"; do
   case "$arg" in
     --upload) UPLOAD=1 ;;
     --notes) NOTES=1 ;;
     --no-testflight) TESTFLIGHT=0 ;;
+    --no-shots) SHOTS=0 ;;
     --nuke-node-modules) NUKE_NODE_MODULES=1 ;;
     *) echo "Unknown option: $arg" >&2; exit 1 ;;
   esac
 done
 
 if [[ ! "$BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
-  echo "Usage: npm run archive -- <buildNumber> [--upload [--notes] [--no-testflight]] [--nuke-node-modules]" >&2
+  echo "Usage: npm run archive -- <buildNumber> [--upload [--notes] [--no-testflight] [--no-shots]] [--nuke-node-modules]" >&2
   echo "Build number must be a positive integer (check the last one in App Store Connect)." >&2
   exit 1
 fi
@@ -194,6 +198,11 @@ if [[ $TESTFLIGHT -eq 0 && $UPLOAD -eq 0 ]]; then
   exit 1
 fi
 
+if [[ $SHOTS -eq 0 && $UPLOAD -eq 0 ]]; then
+  echo "--no-shots only runs with --upload." >&2
+  exit 1
+fi
+
 if [[ $UPLOAD -eq 1 && $HAVE_CREDS -eq 0 ]]; then
   echo "--upload requires ASC_KEY_ID and ASC_ISSUER_ID (see .env.archive template in the script header)." >&2
   exit 1
@@ -208,7 +217,9 @@ if [[ $UPLOAD -eq 1 ]]; then
   else
     node scripts/appstore-upload-meta.mjs --check-online
   fi
-  node scripts/appstore-shots.mjs --check-captures
+  if [[ $SHOTS -eq 1 ]]; then
+    node scripts/appstore-shots.mjs --check-captures
+  fi
   node scripts/appstore-accessibility.mjs --prepare
   echo ""
 fi
@@ -422,12 +433,17 @@ fi
 # Captures are taken by hand. --render composes those staged files directly;
 # an archive must not import unrelated screenshots from the Desktop.
 if [[ $UPLOAD -eq 1 ]]; then
-  echo "[7/$STEPS] Screenshots"
-  npm run shots -- --render || { echo "Screenshot composition failed; the build is uploaded, the shots are not." >&2; exit 1; }
-  # --create-version: the binary for this version just went up, so opening its
-  # draft to hang the shots on is intended, not the silent open the flag guards.
-  npm run shots:upload -- --create-version || { echo "Screenshot upload failed; the build is uploaded, the shots are not." >&2; exit 1; }
-  RESULTS+=("screenshots | composed and uploaded, every store language, platforms held by a review skipped (see above)")
+  if [[ $SHOTS -eq 1 ]]; then
+    echo "[7/$STEPS] Screenshots"
+    npm run shots -- --render || { echo "Screenshot composition failed; the build is uploaded, the shots are not." >&2; exit 1; }
+    # --create-version: the binary for this version just went up, so opening its
+    # draft to hang the shots on is intended, not the silent open the flag guards.
+    npm run shots:upload -- --create-version || { echo "Screenshot upload failed; the build is uploaded, the shots are not." >&2; exit 1; }
+    RESULTS+=("screenshots | composed and uploaded, every store language, platforms held by a review skipped (see above)")
+  else
+    echo "[7/$STEPS] Screenshots skipped (--no-shots)"
+    RESULTS+=("screenshots | NOT uploaded (--no-shots), run npm run shots -- --render and npm run shots:upload")
+  fi
 
   # Opt-in via --notes, never fatal: it needs ollama, and the blocks already in the
   # document go up either way.
@@ -444,7 +460,10 @@ if [[ $UPLOAD -eq 1 ]]; then
   # A language with screenshots and no description cannot be submitted, so the
   # text goes up in the same run as the pictures.
   echo "[8/$STEPS] Listing text"
-  npm run meta:upload || { echo "Listing text upload failed; the build and shots are uploaded, the text is not." >&2; exit 1; }
+  # The draft the text hangs on is opened by the screenshot upload; without that step, here.
+  META_ARGS=()
+  if [[ $SHOTS -eq 0 ]]; then META_ARGS=(-- --create-version); fi
+  npm run meta:upload ${META_ARGS[@]+"${META_ARGS[@]}"} || { echo "Listing text upload failed; the build is uploaded, the text is not." >&2; exit 1; }
   RESULTS+=("listing text | uploaded, every store language, platforms held by a review skipped (see above)")
 
   echo "[9/$STEPS] Build $BUILD_NUMBER on the $VERSION versions"
